@@ -1,0 +1,402 @@
+create or replace function public.finance_customer_dashboard_snapshot_v24_6_82o(
+  p_start date default null,
+  p_end date default null,
+  p_marketplace text default null,
+  p_account_id uuid default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $function$
+declare
+  v_start date := coalesce(p_start, (now() at time zone 'Asia/Jakarta')::date);
+  v_end date := coalesce(p_end, (now() at time zone 'Asia/Jakarta')::date);
+  v_marketplace text := nullif(nullif(lower(trim(coalesce(p_marketplace, ''))), ''), 'all');
+  v_account text := nullif(p_account_id::text, '');
+  v_daily jsonb := '[]'::jsonb;
+  v_marketplaces jsonb := '[]'::jsonb;
+  v_by_sku jsonb := '[]'::jsonb;
+  v_abnormals jsonb := '[]'::jsonb;
+  v_valid_orders numeric := 0;
+  v_valid_gross numeric := 0;
+  v_valid_paid numeric := 0;
+  v_order_sources numeric := 0;
+  v_payout numeric := 0;
+  v_payout_positive numeric := 0;
+  v_negative_count numeric := 0;
+  v_negative_abs numeric := 0;
+  v_negative_signed numeric := 0;
+  v_finance_sources numeric := 0;
+  v_order_hpp numeric := 0;
+  v_hpp numeric := 0;
+  v_unpaid_hpp numeric := 0;
+  v_expense numeric := 0;
+  v_profit numeric := 0;
+  v_margin numeric := 0;
+  v_source_count numeric := 0;
+  v_summary jsonb;
+begin
+  if v_end < v_start then
+    v_end := v_start;
+  end if;
+
+  -- Omzet source of truth: order valid yang customer bayar / sedang proses valid.
+  with unique_orders as (
+    select
+      coalesce(nullif(o.order_id, ''), nullif(o.external_order_id, ''), nullif(o.order_sn, ''), o.marketplace_order_id::text) as order_key,
+      max(o.marketplace_order_id::text) as marketplace_order_id,
+      max(coalesce(o.order_id, o.external_order_id, o.order_sn, '')) as order_no,
+      min((coalesce(o.paid_at, o.order_created_at, o.created_at) at time zone 'Asia/Jakarta')::date) as order_date,
+      max(o.marketplace) as marketplace,
+      max(o.marketplace_account_id::text) as account_id,
+      max(greatest(coalesce(o.gross_amount, 0), coalesce(o.paid_amount, 0))) as omzet_value,
+      max(coalesce(o.paid_amount, 0)) as paid_value
+    from public.marketplace_orders o
+    where coalesce(o.paid_at, o.order_created_at, o.created_at) >= (v_start - interval '2 days')
+      and coalesce(o.paid_at, o.order_created_at, o.created_at) <= (v_end + interval '2 days')
+      and coalesce(o.gross_amount, o.paid_amount, 0) > 0
+      and not (lower(coalesce(o.order_status, '')) ~ '(cancel|canceled|cancelled|batal|return|returned|refund|refunded|unpaid|failed|reject)')
+      and not (lower(coalesce(o.payment_status, '')) ~ '(unpaid|failed|cancel|canceled|cancelled|refund|refunded)')
+    group by coalesce(nullif(o.order_id, ''), nullif(o.external_order_id, ''), nullif(o.order_sn, ''), o.marketplace_order_id::text)
+  ), filtered_orders as (
+    select *
+    from unique_orders
+    where order_date >= v_start
+      and order_date <= v_end
+      and (v_marketplace is null or lower(marketplace) = v_marketplace)
+      and (v_account is null or account_id = v_account)
+  ), daily_rows as (
+    select order_date, count(*)::numeric as orders_count, coalesce(sum(omzet_value),0)::numeric as omzet_total
+    from filtered_orders
+    group by order_date
+  ), market_rows as (
+    select marketplace, count(*)::numeric as orders_count, coalesce(sum(omzet_value),0)::numeric as omzet_total
+    from filtered_orders
+    group by marketplace
+  )
+  select
+    coalesce((select count(*)::numeric from filtered_orders),0),
+    coalesce((select sum(omzet_value)::numeric from filtered_orders),0),
+    coalesce((select sum(paid_value)::numeric from filtered_orders),0),
+    coalesce((select count(distinct account_id)::numeric from filtered_orders where nullif(account_id,'') is not null),0),
+    coalesce((select jsonb_agg(jsonb_build_object(
+      'date', order_date::text,
+      'order_count', orders_count,
+      'orders_count', orders_count,
+      'finance_order_count', orders_count,
+      'finance_orders_count', orders_count,
+      'omzet_total', omzet_total,
+      'gross_sales', omzet_total,
+      'gross_total', omzet_total,
+      'gross_amount', omzet_total,
+      'payout_total', 0,
+      'hpp_total', 0
+    ) order by order_date) from daily_rows), '[]'::jsonb),
+    coalesce((select jsonb_agg(jsonb_build_object(
+      'marketplace', marketplace,
+      'marketplace_label', marketplace,
+      'order_count', orders_count,
+      'orders_count', orders_count,
+      'finance_order_count', orders_count,
+      'finance_orders_count', orders_count,
+      'gross_sales', omzet_total,
+      'gross_total', omzet_total,
+      'omzet_total', omzet_total,
+      'payout_total', 0,
+      'hpp_total', 0,
+      'net_profit', 0,
+      'margin_percent', 0
+    ) order by marketplace) from market_rows), '[]'::jsonb)
+  into v_valid_orders, v_valid_gross, v_valid_paid, v_order_sources, v_daily, v_marketplaces;
+
+  -- Payout source of truth: settlement raw finance berdasarkan period_start.
+  with filtered_finance as (
+    select
+      coalesce(f.order_id, '') as order_no,
+      f.marketplace_account_id::text as account_id,
+      lower(f.marketplace) as marketplace,
+      f.period_start,
+      coalesce(f.payout_amount, f.received_amount, f.net_settlement, 0) as payout_amount
+    from public.marketplace_finance_reports f
+    where f.period_start >= v_start
+      and f.period_start <= v_end
+      and (v_marketplace is null or lower(f.marketplace) = v_marketplace)
+      and (v_account is null or f.marketplace_account_id::text = v_account)
+  )
+  select
+    coalesce(sum(payout_amount), 0),
+    coalesce(sum(payout_amount) filter (where payout_amount > 0), 0),
+    coalesce(count(*) filter (where payout_amount < 0), 0)::numeric,
+    coalesce(sum(abs(payout_amount)) filter (where payout_amount < 0), 0),
+    coalesce(sum(payout_amount) filter (where payout_amount < 0), 0),
+    coalesce(count(distinct account_id) filter (where nullif(account_id,'') is not null), 0)::numeric
+  into v_payout, v_payout_positive, v_negative_count, v_negative_abs, v_negative_signed, v_finance_sources
+  from filtered_finance;
+
+  -- Page kecil untuk tab Abnormal. Summary tetap aggregate, detail tetap dipaginasi dari Flutter/RPC abnormal.
+  with filtered_abnormals as (
+    select
+      f.finance_report_id::text as finance_report_id,
+      coalesce(f.order_id, '') as order_no,
+      f.marketplace_order_id::text as marketplace_order_id,
+      f.marketplace_account_id::text as account_id,
+      lower(f.marketplace) as marketplace,
+      f.period_start,
+      coalesce(f.gross_amount, f.gross_sales, 0) as gross_amount,
+      coalesce(f.payout_amount, f.received_amount, f.net_settlement, 0) as payout_amount,
+      coalesce(f.total_hpp, 0) as hpp_amount
+    from public.marketplace_finance_reports f
+    where f.period_start >= v_start
+      and f.period_start <= v_end
+      and coalesce(f.payout_amount, f.received_amount, f.net_settlement, 0) < 0
+      and (v_marketplace is null or lower(f.marketplace) = v_marketplace)
+      and (v_account is null or f.marketplace_account_id::text = v_account)
+    order by f.period_start desc, abs(coalesce(f.payout_amount, f.received_amount, f.net_settlement, 0)) desc
+    limit 20
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'status', 'NEGATIVE_PAYOUT',
+    'abnormal_status', 'NEGATIVE_PAYOUT',
+    'payout_status', 'NEGATIVE_PAYOUT',
+    'finance_status', 'NEGATIVE_PAYOUT',
+    'message', 'Payout minus berdasarkan raw finance period_start',
+    'title', coalesce(nullif(order_no,''), nullif(marketplace_order_id,''), '-'),
+    'order_id', coalesce(nullif(order_no,''), nullif(marketplace_order_id,''), '-'),
+    'order_sn', coalesce(nullif(order_no,''), nullif(marketplace_order_id,''), '-'),
+    'external_order_id', coalesce(nullif(order_no,''), nullif(marketplace_order_id,''), '-'),
+    'marketplace_order_id', marketplace_order_id,
+    'marketplace_account_id', account_id,
+    'marketplace', marketplace,
+    'order_date', period_start::text,
+    'gross', gross_amount,
+    'gross_amount', gross_amount,
+    'payout', payout_amount,
+    'payout_amount', payout_amount,
+    'payout_total', payout_amount,
+    'difference_amount', payout_amount,
+    'hpp', hpp_amount,
+    'hpp_total', hpp_amount,
+    'detail_order_count', 1,
+    'order_details', jsonb_build_array(jsonb_build_object(
+      'order_id', coalesce(nullif(order_no,''), nullif(marketplace_order_id,''), '-'),
+      'order_date', period_start::text,
+      'gross', gross_amount,
+      'payout', payout_amount,
+      'net_settlement', payout_amount,
+      'received_amount', payout_amount,
+      'finance_report_id', finance_report_id,
+      'marketplace_order_id', marketplace_order_id
+    ))
+  ) order by period_start desc), '[]'::jsonb)
+  into v_abnormals
+  from filtered_abnormals;
+
+  -- HPP estimasi dari item marketplace x HPP mapping. Dibungkus exception supaya summary tidak mati kalau struktur mapping beda.
+  begin
+    with orders_norm as (
+      select
+        coalesce(nullif(o.order_id, ''), nullif(o.external_order_id, ''), nullif(o.order_sn, ''), o.marketplace_order_id::text) as order_key,
+        o.marketplace_account_id::text as account_id,
+        lower(o.marketplace) as marketplace,
+        lower(o.order_status) as order_status,
+        lower(o.payment_status) as payment_status,
+        coalesce(o.paid_at, o.order_created_at, o.created_at) as order_time
+      from public.marketplace_orders o
+      where coalesce(o.paid_at, o.order_created_at, o.created_at) >= (v_start - interval '2 days')
+        and coalesce(o.paid_at, o.order_created_at, o.created_at) <= (v_end + interval '2 days')
+    ), valid_orders as (
+      select *, (order_time at time zone 'Asia/Jakarta')::date as order_date
+      from orders_norm
+      where order_key is not null
+        and order_time is not null
+        and (order_time at time zone 'Asia/Jakarta')::date >= v_start
+        and (order_time at time zone 'Asia/Jakarta')::date <= v_end
+        and not (lower(coalesce(order_status, '')) ~ '(cancel|canceled|cancelled|batal|return|returned|refund|refunded|unpaid|failed|reject)')
+        and not (lower(coalesce(payment_status, '')) ~ '(unpaid|failed|cancel|canceled|cancelled|refund|refunded)')
+        and (v_marketplace is null or marketplace = v_marketplace)
+        and (v_account is null or account_id = v_account)
+    ), finance_reports_filtered as (
+      select
+        coalesce(f.order_id, '') as order_no,
+        coalesce(f.payout_amount, f.received_amount, f.net_settlement, 0) as payout_amount
+      from public.marketplace_finance_reports f
+      where f.period_start >= v_start
+        and f.period_start <= v_end
+        and (v_marketplace is null or lower(f.marketplace) = v_marketplace)
+        and (v_account is null or f.marketplace_account_id::text = v_account)
+    ), order_payouts as (
+      select order_no, sum(payout_amount) as payout_total
+      from finance_reports_filtered
+      group by order_no
+    ), valid_orders_with_payout as (
+      select vo.*, coalesce(op.payout_total, 0) as order_payout
+      from valid_orders vo
+      left join order_payouts op on op.order_no = vo.order_key
+    ), item_norm as (
+      select
+        coalesce(nullif(i.external_order_id, ''), nullif(i.order_sn, ''), i.marketplace_order_id::text) as order_key,
+        lower(i.marketplace) as marketplace,
+        i.marketplace_account_id::text as account_id,
+        coalesce(nullif(i.marketplace_sku_id, ''), nullif(i.marketplace_seller_sku, ''), nullif(i.seller_sku, ''), 'unknown') as sku_key,
+        coalesce(nullif(i.local_sku, ''), nullif(i.seller_sku, ''), '-') as sku_label,
+        coalesce(nullif(i.product_name, ''), '-') as product_name,
+        coalesce(nullif(i.variant_name, ''), '-') as variant_name,
+        greatest(coalesce(i.quantity, i.qty, 1), 1) as qty,
+        coalesce(i.gross_amount, i.paid_amount, 0) as item_gross
+      from public.marketplace_order_items i
+      where i.created_at >= (v_start - interval '3 days')
+        and i.created_at <= (v_end + interval '3 days')
+    ), map_norm as (
+      select distinct on (sku_key)
+        sku_key,
+        hpp,
+        target_margin
+      from (
+        select
+          coalesce(nullif(m.marketplace_sku_id, ''), nullif(m.marketplace_seller_sku, ''), nullif(m.local_sku, ''), 'unknown') as sku_key,
+          coalesce(m.hpp, 0) as hpp,
+          coalesce(m.target_margin_percent, m.target_margin, 0) as target_margin,
+          coalesce(m.updated_at, m.created_at) as sort_key
+        from public.marketplace_variant_hpp_mappings m
+      ) x
+      where sku_key <> 'unknown' and hpp > 0
+      order by sku_key, sort_key desc nulls last
+    ), joined as (
+      select
+        coalesce(nullif(i.sku_key, ''), 'unknown') as sku_key,
+        max(i.sku_label) as sku_label,
+        max(i.product_name) as product_name,
+        max(i.variant_name) as variant_name,
+        sum(i.qty) as qty_total,
+        sum(case when o.order_payout > 0 then i.qty else 0 end) as paid_qty,
+        sum(case when o.order_payout <= 0 then i.qty else 0 end) as unpaid_qty,
+        coalesce(sum(nullif(i.item_gross,0)), 0) as gross_total,
+        max(coalesce(m.hpp, 0)) as hpp_per_item,
+        max(coalesce(m.target_margin, 0)) as target_margin
+      from valid_orders_with_payout o
+      join item_norm i on i.order_key = o.order_key
+      left join map_norm m on m.sku_key = i.sku_key
+      group by coalesce(nullif(i.sku_key, ''), 'unknown')
+    )
+    select
+      coalesce(sum(qty_total * hpp_per_item), 0),
+      coalesce(sum(paid_qty * hpp_per_item), 0),
+      coalesce(sum(unpaid_qty * hpp_per_item), 0),
+      coalesce(jsonb_agg(jsonb_build_object(
+        'local_sku', sku_label,
+        'marketplace_sku', sku_key,
+        'sku', sku_label,
+        'product_name', product_name,
+        'variant_name', variant_name,
+        'qty', qty_total,
+        'quantity', qty_total,
+        'paid_qty', paid_qty,
+        'settled_qty', paid_qty,
+        'unpaid_qty', unpaid_qty,
+        'pending_payout_qty_total', unpaid_qty,
+        'qty_unpaid', unpaid_qty,
+        'gross_total', gross_total,
+        'gross_amount', gross_total,
+        'hpp', hpp_per_item,
+        'hpp_per_item', hpp_per_item,
+        'hpp_total', qty_total * hpp_per_item,
+        'total_hpp', qty_total * hpp_per_item,
+        'target_margin_percent', target_margin,
+        'payout_total', 0,
+        'margin_percent', 0
+      ) order by gross_total desc nulls last), '[]'::jsonb)
+    into v_order_hpp, v_hpp, v_unpaid_hpp, v_by_sku
+    from joined
+    where sku_key <> 'unknown';
+  exception when others then
+    v_order_hpp := 0;
+    v_hpp := 0;
+    v_unpaid_hpp := 0;
+    v_by_sku := '[]'::jsonb;
+  end;
+
+  -- Kalau payout belum masuk, HPP masuk Est. HPP Belum Payout, bukan HPP settled.
+  -- HPP settled dan Est HPP Belum Payout sudah dikalkulasi dengan benar di atas berdasarkan orders dengan payout.
+  v_expense := 0;
+  v_profit := case when v_payout = 0 then 0 else v_payout - v_hpp - v_expense end;
+  v_margin := case when v_payout > 0 then (v_profit / v_payout) * 100 else 0 end;
+  v_source_count := greatest(v_order_sources, v_finance_sources, 1);
+
+  v_summary := jsonb_build_object(
+    'version', 'v24_6_82o_overwrite_local_cache_live_source_v23_old_param_bridge_2026_06_07',
+    'policy', 'local_cache_first_server_refresh_order_valid_paid_payout_raw_finance_hpp_mapping_safe_date_reload',
+    'period_start', v_start,
+    'period_end', v_end,
+    'gross_sales', v_valid_gross,
+    'gross_total', v_valid_gross,
+    'gross_amount', v_valid_gross,
+    'omzet', v_valid_gross,
+    'omzet_total', v_valid_gross,
+    'valid_paid_gross_sum', v_valid_gross,
+    'valid_paid_paid_sum', v_valid_paid,
+    'payout_total', v_payout,
+    'payout_amount', v_payout,
+    'received_amount', v_payout,
+    'net_received', v_payout,
+    'net_settlement', v_payout,
+    'payout_positive_total', v_payout_positive,
+    'hpp_total', v_hpp,
+    'total_hpp', v_hpp,
+    'paid_hpp_total', v_hpp,
+    'settled_hpp_total', v_hpp,
+    'unpaid_estimated_hpp_total', v_unpaid_hpp,
+    'pending_hpp_total', v_unpaid_hpp,
+    'estimated_unpaid_hpp_total', v_unpaid_hpp,
+    'expense_total', v_expense,
+    'operational_cost_total', v_expense,
+    'net_profit', v_profit,
+    'profit', v_profit,
+    'margin_percent', v_margin,
+    'finance_order_count', v_valid_orders,
+    'finance_orders_count', v_valid_orders,
+    'orders_count', v_valid_orders,
+    'order_count', v_valid_orders,
+    'source_count', v_source_count,
+    'marketplace_count', v_source_count,
+    'negative_payout_count', v_negative_count,
+    'abnormal_count', v_negative_count,
+    'payout_minus_total', v_negative_signed,
+    'negative_payout_total', v_negative_signed,
+    'minus_payout_total', v_negative_signed,
+    'payout_minus_total_abs', v_negative_abs,
+    'negative_payout_total_abs', v_negative_abs,
+    'minus_payout_total_abs', v_negative_abs
+  );
+
+  return jsonb_build_object(
+    'ok', true,
+    'version', 'v24_6_82o_overwrite_local_cache_live_source_v23_old_param_bridge_2026_06_07',
+    'summary', v_summary,
+    'daily', v_daily,
+    'by_date', v_daily,
+    'by_marketplace', v_marketplaces,
+    'marketplaces', v_marketplaces,
+    'sources', v_marketplaces,
+    'by_sku', v_by_sku,
+    'sku', v_by_sku,
+    'cash_flow', '[]'::jsonb,
+    'expenses', '[]'::jsonb,
+    'profit_loss', '[]'::jsonb,
+    'approved_purchases', '[]'::jsonb,
+    'abnormal_aggregates', jsonb_build_object(
+      'total', v_negative_count,
+      'abnormal_count', v_negative_count,
+      'negative_payout_count', v_negative_count,
+      'negative_payout_total', v_negative_signed,
+      'negative_payout_total_abs', v_negative_abs,
+      'payout_minus_total', v_negative_signed,
+      'payout_minus_total_abs', v_negative_abs,
+      'minus_payout_total', v_negative_signed,
+      'minus_payout_total_abs', v_negative_abs
+    ),
+    'abnormals', v_abnormals,
+    'accounts', '[]'::jsonb
+  );
+end;
+$function$;

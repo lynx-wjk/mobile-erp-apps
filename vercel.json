@@ -1,0 +1,20 @@
+{
+  "rewrites": [
+    {
+      "source": "/marketplace-connected",
+      "destination": "/marketplace-connected.html"
+    },
+    {
+      "source": "/marketplace-connected.html",
+      "destination": "/marketplace-connected.html"
+    },
+    {
+      "source": "/",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

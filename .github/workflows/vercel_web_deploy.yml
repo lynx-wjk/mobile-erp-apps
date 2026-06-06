@@ -1,0 +1,67 @@
+name: Vercel Web Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_PRODUCTION_ALIAS: operational-management-app-two.vercel.app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Validate app version
+        run: bash scripts/validate_flutter_version.sh
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
+
+      - name: Build Flutter web
+        run: flutter build web --release --base-href / --no-pub
+
+      - name: Include Vercel routes and Shopee result page
+        run: |
+          cp vercel.json build/web/vercel.json
+          cp marketplace-connected.html build/web/marketplace-connected.html
+
+      - name: Validate Vercel secrets
+        run: |
+          test -n "$VERCEL_TOKEN"
+          test -n "$VERCEL_ORG_ID"
+          test -n "$VERCEL_PROJECT_ID"
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Deploy to Vercel production
+        id: deploy
+        run: |
+          vercel deploy build/web --prod --yes --token "$VERCEL_TOKEN" | tee vercel-deploy.log
+          url=$(grep -Eo 'https://[^ ]+\.vercel\.app' vercel-deploy.log | tail -n 1)
+          test -n "$url"
+          echo "deployment_url=$url" >> "$GITHUB_OUTPUT"
+          echo "$url"
+
+      - name: Attach production alias
+        run: |
+          vercel alias set "${{ steps.deploy.outputs.deployment_url }}" "$VERCEL_PRODUCTION_ALIAS" --token "$VERCEL_TOKEN"

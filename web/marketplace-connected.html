@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Marketplace Connected</title>
+  <style>
+    :root {
+      --ink: #1f2937;
+      --muted: #64748b;
+      --line: #243044;
+      --paper: #fff8e7;
+      --panel: #ffffff;
+      --success: #18a058;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --sky: #38bdf8;
+      --pink: #fb7185;
+      --lime: #a3e635;
+      --violet: #a78bfa;
+      --shadow: #111827;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      color: var(--ink);
+      background-color: #ffe7f0;
+      background-image:
+        linear-gradient(45deg, rgba(255,255,255,.45) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255,255,255,.45) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(255,255,255,.45) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(255,255,255,.45) 75%);
+      background-size: 28px 28px;
+      background-position: 0 0, 0 14px, 14px -14px, -14px 0;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+    }
+
+    .shell { width: 100%; max-width: 780px; }
+
+    .card {
+      background: var(--paper);
+      border: 4px solid var(--line);
+      box-shadow: 10px 10px 0 var(--shadow);
+    }
+
+    .top {
+      padding: 24px;
+      border-bottom: 4px solid var(--line);
+      background:
+        linear-gradient(90deg, rgba(56,189,248,.32), rgba(251,113,133,.26), rgba(163,230,53,.26)),
+        var(--paper);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 18px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .logo {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      color: white;
+      background: var(--line);
+      border: 3px solid var(--line);
+      box-shadow:
+        6px 0 0 var(--sky),
+        0 6px 0 var(--pink),
+        6px 6px 0 var(--lime);
+      font-weight: 1000;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 3px solid var(--line);
+      background: white;
+      font-size: 13px;
+      font-weight: 900;
+      margin-bottom: 14px;
+      box-shadow: 4px 4px 0 var(--line);
+    }
+
+    .success { color: var(--success); }
+    .warning { color: var(--warning); }
+    .error { color: var(--danger); }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 5vw, 42px);
+      line-height: 1.08;
+    }
+
+    .message {
+      margin: 14px 0 0;
+      color: #475569;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    .content {
+      padding: 24px;
+      background: rgba(255,255,255,.55);
+    }
+
+    .panel {
+      border: 3px solid var(--line);
+      background: var(--panel);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 190px 1fr;
+      gap: 14px;
+      padding: 14px 16px;
+      border-bottom: 3px solid var(--line);
+    }
+
+    .row:last-child { border-bottom: 0; }
+
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      word-break: break-word;
+      color: #0f172a;
+    }
+
+    .footer {
+      margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .button {
+      border: 3px solid var(--line);
+      padding: 10px 14px;
+      background: var(--sky);
+      color: #0f172a;
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 4px 4px 0 var(--line);
+      text-decoration: none;
+    }
+
+    .button.secondary { background: var(--violet); color: white; }
+
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      .card { box-shadow: 6px 6px 0 var(--shadow); }
+      .top, .content { padding: 18px; }
+      .row { grid-template-columns: 1fr; gap: 6px; }
+      .footer { align-items: stretch; }
+      .actions, .button { width: 100%; }
+      .button { text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="card" aria-live="polite">
+      <div class="top">
+        <div class="brand">
+          <div class="logo">OP</div>
+          <div>Marketplace Integration</div>
+        </div>
+        <div id="badge" class="status success">
+          <span id="icon">OK</span>
+          <span id="badgeText">Connected</span>
+        </div>
+        <h1 id="title">Marketplace berhasil terhubung.</h1>
+        <p id="message" class="message">
+          Authorization berhasil. Data koneksi sudah disimpan aman di backend.
+        </p>
+      </div>
+
+      <div class="content">
+        <div class="panel">
+          <div class="row">
+            <div class="label">Marketplace</div>
+            <div id="marketplace" class="value">-</div>
+          </div>
+          <div class="row">
+            <div class="label">Shop name</div>
+            <div id="shopName" class="value">-</div>
+          </div>
+          <div class="row">
+            <div class="label">Region</div>
+            <div id="region" class="value">-</div>
+          </div>
+          <div class="row">
+            <div class="label">Status</div>
+            <div id="statusValue" class="value">-</div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <span>Token asli tidak ditampilkan. Tutup halaman ini lalu refresh Akun Marketplace.</span>
+          <div class="actions">
+            <a id="openApp" class="button secondary" href="/">Open App</a>
+            <button class="button" type="button" onclick="copySummary()">Copy Detail</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+
+    function read(name, fallback) {
+      const value = params.get(name);
+      return value && value.trim() ? value.trim() : fallback;
+    }
+
+    const rawStatus = read("status", "success").toLowerCase();
+    const status = ["success", "warning", "error"].includes(rawStatus) ? rawStatus : "warning";
+    const title = read("title", "Marketplace berhasil terhubung.");
+    const message = read("message", "Authorization berhasil. Data koneksi sudah disimpan aman di backend.");
+    const marketplace = read("marketplace", "-");
+    const shopName = read("shop_name", "-");
+    const region = read("shop_region", "-");
+    const appUrl = read("app_url", "/");
+
+    const badge = document.getElementById("badge");
+    const icon = document.getElementById("icon");
+    const badgeText = document.getElementById("badgeText");
+
+    badge.className = "status " + status;
+
+    if (status === "success") {
+      icon.textContent = "OK";
+      badgeText.textContent = "Connected";
+    } else if (status === "warning") {
+      icon.textContent = "!";
+      badgeText.textContent = "Waiting";
+    } else {
+      icon.textContent = "X";
+      badgeText.textContent = "Error";
+    }
+
+    document.getElementById("title").textContent = title;
+    document.getElementById("message").textContent = message;
+    document.getElementById("marketplace").textContent = marketplace;
+    document.getElementById("shopName").textContent = shopName;
+    document.getElementById("region").textContent = region;
+    document.getElementById("statusValue").textContent = status;
+    document.getElementById("openApp").href = appUrl;
+
+    async function copySummary() {
+      const lines = [
+        "Marketplace connect result",
+        "Status: " + status,
+        "Marketplace: " + marketplace,
+        "Shop: " + shopName,
+        "Region: " + region,
+        "Message: " + message
+      ];
+      try {
+        await navigator.clipboard.writeText(lines.join("\\n"));
+        document.getElementById("badgeText").textContent = "Copied";
+      } catch (_) {
+        document.getElementById("badgeText").textContent = "Copy failed";
+      }
+    }
+  </script>
+</body>
+</html>
