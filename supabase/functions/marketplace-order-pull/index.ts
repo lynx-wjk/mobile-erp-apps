@@ -221,7 +221,8 @@ Deno.serve(async (req) => {
   } catch (err) {
     const message = String(err);
     const status = message.includes("TikTok API") || message.includes("tenant") || message.includes("marketplace") ? 400 : 500;
-    return json({ ok: false, message }, status);
+    const tokenAuditExists = !(message.includes("kosong") || message.includes("missing") || message.includes("token") || message.includes("Re-authorize") || message.includes("Reconnect"));
+    return json({ ok: false, token_audit_exists: tokenAuditExists, message }, status);
   }
 });
 
@@ -457,6 +458,7 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
   return {
     ok: true,
     marketplace: "tiktok_shop",
+    token_audit_exists: true,
     mode: "status_refresh_existing_orders",
     checked,
     updated,
@@ -680,6 +682,7 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
   return {
     ok: true,
     marketplace: "shopee",
+    token_audit_exists: true,
     mode: "status_refresh_existing_orders",
     checked,
     updated,
@@ -917,6 +920,7 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
   return {
     ok: true,
     marketplace: "shopee",
+    token_audit_exists: true,
     orders: importedOrders,
     items: importedItems,
     mapped_items: mappedItems,
@@ -981,11 +985,9 @@ async function fetchShopeeOrderDetail(args: { account: any; accessToken: string;
 async function refreshShopeeAccessTokenIfNeeded(admin: any, account: any, force = false): Promise<{ account: any; accessToken: string }> {
   const tokenSecret = requiredEnv("MARKETPLACE_TOKEN_ENCRYPTION_KEY");
   const currentAccessToken = await decryptText(text(account.access_token_encrypted), tokenSecret);
-  if (!currentAccessToken) throw new Error("Shopee access token kosong. Re-authorize account.");
-
   const expiredAtMs = account.access_token_expired_at ? new Date(account.access_token_expired_at).getTime() : 0;
   const safeUntilMs = Date.now() + 10 * 60 * 1000;
-  if (!force && expiredAtMs > safeUntilMs) return { account, accessToken: currentAccessToken };
+  if (currentAccessToken && !force && expiredAtMs > safeUntilMs) return { account, accessToken: currentAccessToken };
 
   const refreshToken = await decryptText(text(account.refresh_token_encrypted), tokenSecret);
   if (!refreshToken) {
@@ -1482,6 +1484,7 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
   return {
     ok: true,
     marketplace: "tiktok_shop",
+    token_audit_exists: true,
     orders: importedOrders,
     items: importedItems,
     mapped_items: mappedItems,
@@ -2420,11 +2423,9 @@ async function tiktokRequest(args: {
 async function refreshTikTokAccessTokenIfNeeded(admin: any, account: any, force = false): Promise<{ account: any; accessToken: string }> {
   const tokenSecret = requiredEnv("MARKETPLACE_TOKEN_ENCRYPTION_KEY");
   const currentAccessToken = await decryptText(text(account.access_token_encrypted), tokenSecret);
-  if (!currentAccessToken) throw new Error("TikTok access token kosong. Re-authorize account.");
-
   const expiredAtMs = account.access_token_expired_at ? new Date(account.access_token_expired_at).getTime() : 0;
   const safeUntilMs = Date.now() + 10 * 60 * 1000;
-  if (!force && expiredAtMs > safeUntilMs) return { account, accessToken: currentAccessToken };
+  if (currentAccessToken && !force && expiredAtMs > safeUntilMs) return { account, accessToken: currentAccessToken };
 
   const refreshToken = await decryptText(text(account.refresh_token_encrypted), tokenSecret);
   if (!refreshToken) {
