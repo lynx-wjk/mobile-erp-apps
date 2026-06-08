@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
     return json({
       ok: processedResult.failed === 0 || processedResult.processed > 0 || statusResult.checked > 0,
       version: FUNCTION_VERSION,
-      marketplace: "tiktok_shop",
+      marketplace: accountId ? "specific" : "mixed",
       queued,
       accounts: queueAccounts || statusResult.accounts,
       ranges,
@@ -276,7 +276,7 @@ async function enqueueOrderPullJobs(args: {
     .from("marketplace_accounts")
     .select("marketplace_account_id, tenant_id, marketplace, status, is_deleted")
     .eq("tenant_id", args.tenantId)
-    .eq("marketplace", "tiktok_shop")
+    .in("marketplace", ["tiktok_shop", "shopee"])
     .eq("status", "active")
     .eq("is_deleted", false)
     .order("created_at", { ascending: true })
@@ -304,7 +304,7 @@ async function enqueueOrderPullJobs(args: {
         rows.push({
           tenant_id: args.tenantId,
           marketplace_account_id: marketplaceAccountId,
-          marketplace: "tiktok_shop",
+          marketplace: text(account.marketplace),
           job_type: range.jobType,
           period_start: range.startDate,
           period_end: range.endDate,
@@ -447,8 +447,9 @@ async function processOrderPullJobs(args: {
       source: "marketplace-order-sync-jobs",
     };
 
+    let pull: any = null;
     try {
-      let pull = await invokeOrderPull(args, basePayload);
+      pull = await invokeOrderPull(args, basePayload);
       if ((!pull.ok || pull.http_status >= 300 || pull.data?.ok === false) && shouldFallbackSmallRequest(pull)) {
         const fallbackPayload = {
           ...basePayload,
@@ -488,6 +489,10 @@ async function processOrderPullJobs(args: {
       result.warningCount += warnings;
       result.details.push({ job_id: jobId, window: job.window_label, status: "done", orders, items, mapped, unmapped, warnings, fallback_used: pull.data?.fallback_used === true });
 
+      const lastResultData = orders === 0
+        ? { ...pull.data, status: "no_new_orders" }
+        : (pull.data || {});
+
       await args.admin
         .from("marketplace_order_pull_jobs")
         .update({
@@ -499,18 +504,24 @@ async function processOrderPullJobs(args: {
           unmapped_count: unmapped,
           warning_count: warnings,
           last_message: pull.data?.message || `Selesai: ${orders} order, ${items} item.`,
-          last_result: pull.data || {},
+          last_result: lastResultData,
           updated_at: new Date().toISOString(),
         })
         .eq("order_pull_job_id", jobId);
 
-      await insertOrderJobLog(args.admin, job, "success", `Order window ${job.window_label || ""} selesai: ${orders} order, ${items} item.`, basePayload, pull.data || {});
+      await insertOrderJobLog(args.admin, job, "success", `Order window ${job.window_label || ""} selesai: ${orders} order, ${items} item.`, basePayload, lastResultData);
     } catch (err) {
       result.failed += 1;
       const attempts = toInt(job.attempts) + 1;
       const retryMinutes = Math.min(60, Math.max(5, attempts * 5));
       const failedStatus = attempts >= 3 ? "failed" : "retry";
       const message = cleanError(err);
+      
+      const safeErrorResult = {
+        ...getSafeErrorResult(message),
+        ...(pull?.data && typeof pull.data === "object" ? pull.data : {}),
+      };
+
       await args.admin
         .from("marketplace_order_pull_jobs")
         .update({
@@ -519,10 +530,11 @@ async function processOrderPullJobs(args: {
           next_run_at: new Date(Date.now() + retryMinutes * 60_000).toISOString(),
           finished_at: new Date().toISOString(),
           last_message: message,
+          last_result: safeErrorResult,
           updated_at: new Date().toISOString(),
         })
         .eq("order_pull_job_id", jobId);
-      await insertOrderJobLog(args.admin, job, failedStatus === "failed" ? "error" : "warning", message, basePayload, { ok: false, message });
+      await insertOrderJobLog(args.admin, job, failedStatus === "failed" ? "error" : "warning", message, basePayload, safeErrorResult);
       result.details.push({ job_id: jobId, window: job.window_label, status: failedStatus, error: message });
     }
   }
@@ -561,7 +573,7 @@ async function insertOrderJobLog(admin: any, job: any, status: "success" | "warn
   try {
     await admin.from("marketplace_sync_logs").insert({
       marketplace_account_id: job.marketplace_account_id,
-      marketplace: "tiktok_shop",
+      marketplace: text(job.marketplace) || "tiktok_shop",
       action: "order_pull_job_v24",
       status,
       message,
@@ -631,7 +643,7 @@ async function refreshExistingOrderStatuses(args: {
     .from("marketplace_accounts")
     .select("marketplace_account_id, marketplace, status, is_deleted")
     .eq("tenant_id", args.tenantId)
-    .eq("marketplace", "tiktok_shop")
+    .in("marketplace", ["tiktok_shop", "shopee"])
     .eq("status", "active")
     .eq("is_deleted", false)
     .order("created_at", { ascending: true })
@@ -851,4 +863,26 @@ function toInt(value: unknown): number {
 function cleanError(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err ?? "Unknown error");
+}
+
+function getSafeErrorResult(message: string, tokenAuditExists?: boolean): Record<string, unknown> {
+  const msg = message.toLowerCase();
+  let status = "failed";
+  if (msg.includes("kosong") || msg.includes("missing") || msg.includes("token kosong")) {
+    status = "token_missing";
+  } else if (msg.includes("expired") || msg.includes("kadaluarsa")) {
+    status = "refresh_token_expired";
+  } else if (msg.includes("refresh token shopee gagal") || msg.includes("refresh token tiktok gagal") || msg.includes("refresh gagal")) {
+    status = "refresh_failed";
+  } else if (msg.includes("re-authorize") || msg.includes("reconnect") || msg.includes("reauth")) {
+    status = "reauth_required";
+  } else {
+    status = "provider_api_error";
+  }
+  
+  const tokenExists = tokenAuditExists !== undefined
+    ? tokenAuditExists
+    : !(msg.includes("kosong") || msg.includes("missing") || msg.includes("token kosong") || msg.includes("re-authorize") || msg.includes("reconnect"));
+
+  return { ok: false, status, token_audit_exists: tokenExists, message };
 }

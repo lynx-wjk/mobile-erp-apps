@@ -107,38 +107,85 @@ Deno.serve(async (req) => {
 
     for (const baseAccount of accounts) {
       if (baseAccount.marketplace === "shopee") {
-        const { account, accessToken } = await refreshShopeeAccessTokenIfNeeded(admin, baseAccount);
+        let tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, baseAccount);
+        let account = tokenBundle.account;
+        let accessToken = tokenBundle.accessToken;
         const sinceUnix = Math.floor((Date.now() - daysBack * 24 * 60 * 60 * 1000) / 1000);
         const untilUnix = Math.floor(Date.now() / 1000);
 
-        const returnResult = await pullShopeeCasePages({
-          account,
-          accessToken,
-          sinceUnix,
-          untilUnix,
-          pageSize,
-          maxPages,
-          paths: [
-            "/api/v2/returns/get_return_order_list",
-            "/api/v2/returns/get_return_list",
-            "/api/v2/refund/get_refund_order_list",
-          ],
-          collect: collectReturnCases,
-          softFail: true,
-        });
+        let returnResult: any;
+        try {
+          returnResult = await pullShopeeCasePages({
+            account,
+            accessToken,
+            sinceUnix,
+            untilUnix,
+            pageSize,
+            maxPages,
+            paths: [
+              "/api/v2/returns/get_return_order_list",
+              "/api/v2/returns/get_return_list",
+              "/api/v2/refund/get_refund_order_list",
+            ],
+            collect: collectReturnCases,
+            softFail: true,
+          });
+        } catch (err) {
+          if (isShopeeAuthError(err)) {
+            tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, account, true);
+            account = tokenBundle.account;
+            accessToken = tokenBundle.accessToken;
+            returnResult = await pullShopeeCasePages({
+              account,
+              accessToken,
+              sinceUnix,
+              untilUnix,
+              pageSize,
+              maxPages,
+              paths: [
+                "/api/v2/returns/get_return_order_list",
+                "/api/v2/returns/get_return_list",
+                "/api/v2/refund/get_refund_order_list",
+              ],
+              collect: collectReturnCases,
+              softFail: true,
+            });
+          } else {
+            throw err;
+          }
+        }
 
         const returnRows = dedupeCaseRows(buildCaseRows({ tenantId, account, cases: returnResult.cases }));
         const returnSave = await upsertCaseRowsIndividually(admin, returnRows, "shopee return/refund");
         warnings.push(...returnSave.warnings);
 
-        const cancellationResult = await pullShopeeCancelledOrdersAsCases({
-          account,
-          accessToken,
-          sinceUnix,
-          untilUnix,
-          pageSize,
-          maxPages,
-        });
+        let cancellationResult: any;
+        try {
+          cancellationResult = await pullShopeeCancelledOrdersAsCases({
+            account,
+            accessToken,
+            sinceUnix,
+            untilUnix,
+            pageSize,
+            maxPages,
+          });
+        } catch (err) {
+          if (isShopeeAuthError(err)) {
+            tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, account, true);
+            account = tokenBundle.account;
+            accessToken = tokenBundle.accessToken;
+            cancellationResult = await pullShopeeCancelledOrdersAsCases({
+              account,
+              accessToken,
+              sinceUnix,
+              untilUnix,
+              pageSize,
+              maxPages,
+            });
+          } else {
+            throw err;
+          }
+        }
         const cancellationRows = dedupeCaseRows(buildCancellationRows({ tenantId, account, cases: cancellationResult.cases }));
         const cancellationSave = await upsertCaseRowsIndividually(admin, cancellationRows, "shopee cancellation");
         warnings.push(...cancellationSave.warnings);
@@ -170,49 +217,108 @@ Deno.serve(async (req) => {
       const appKey = text(baseAccount.app_key) || requiredEnv("TIKTOK_APP_KEY");
       const appSecret = requiredEnv("TIKTOK_APP_SECRET");
       const shopCipher = detectShopCipher(baseAccount);
-      const { account, accessToken } = await refreshTikTokAccessTokenIfNeeded(admin, baseAccount);
+      let tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, baseAccount);
+      let account = tokenBundle.account;
+      let accessToken = tokenBundle.accessToken;
       const sinceUnix = Math.floor((Date.now() - daysBack * 24 * 60 * 60 * 1000) / 1000);
       const untilUnix = Math.floor(Date.now() / 1000);
 
-      const returnResult = await pullCasePages({
-        appKey,
-        appSecret,
-        accessToken,
-        shopCipher: shopCipher || undefined,
-        sinceUnix,
-        untilUnix,
-        pageSize,
-        maxPages,
-        paths: [
-          "/return_refund/202309/returns/search",
-          "/return_refund/202309/return_orders/search",
-          "/return_refund/202309/refunds/search",
-        ],
-        collect: collectReturnCases,
-      });
+      let returnResult: any;
+      try {
+        returnResult = await pullCasePages({
+          appKey,
+          appSecret,
+          accessToken,
+          shopCipher: shopCipher || undefined,
+          sinceUnix,
+          untilUnix,
+          pageSize,
+          maxPages,
+          paths: [
+            "/return_refund/202309/returns/search",
+            "/return_refund/202309/return_orders/search",
+            "/return_refund/202309/refunds/search",
+          ],
+          collect: collectReturnCases,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (isTikTokAuthError(msg)) {
+          tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, account, true);
+          account = tokenBundle.account;
+          accessToken = tokenBundle.accessToken;
+          returnResult = await pullCasePages({
+            appKey,
+            appSecret,
+            accessToken,
+            shopCipher: shopCipher || undefined,
+            sinceUnix,
+            untilUnix,
+            pageSize,
+            maxPages,
+            paths: [
+              "/return_refund/202309/returns/search",
+              "/return_refund/202309/return_orders/search",
+              "/return_refund/202309/refunds/search",
+            ],
+            collect: collectReturnCases,
+          });
+        } else {
+          throw err;
+        }
+      }
 
       const returnRows = dedupeCaseRows(buildCaseRows({ tenantId, account, cases: returnResult.cases }));
       const returnSave = await upsertCaseRowsIndividually(admin, returnRows, "return/refund");
       const insertedForAccount = returnSave.saved;
       warnings.push(...returnSave.warnings);
 
-      const cancellationResult = await pullCasePages({
-        appKey,
-        appSecret,
-        accessToken,
-        shopCipher: shopCipher || undefined,
-        sinceUnix,
-        untilUnix,
-        pageSize,
-        maxPages,
-        paths: [
-          "/return_refund/202309/cancellations/search",
-          "/return_refund/202309/cancel_orders/search",
-          "/return_refund/202309/cancellation_orders/search",
-        ],
-        collect: collectCancellationCases,
-        softFail: true,
-      });
+      let cancellationResult: any;
+      try {
+        cancellationResult = await pullCasePages({
+          appKey,
+          appSecret,
+          accessToken,
+          shopCipher: shopCipher || undefined,
+          sinceUnix,
+          untilUnix,
+          pageSize,
+          maxPages,
+          paths: [
+            "/return_refund/202309/cancellations/search",
+            "/return_refund/202309/cancel_orders/search",
+            "/return_refund/202309/cancellation_orders/search",
+          ],
+          collect: collectCancellationCases,
+          softFail: true,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (isTikTokAuthError(msg)) {
+          tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, account, true);
+          account = tokenBundle.account;
+          accessToken = tokenBundle.accessToken;
+          cancellationResult = await pullCasePages({
+            appKey,
+            appSecret,
+            accessToken,
+            shopCipher: shopCipher || undefined,
+            sinceUnix,
+            untilUnix,
+            pageSize,
+            maxPages,
+            paths: [
+              "/return_refund/202309/cancellations/search",
+              "/return_refund/202309/cancel_orders/search",
+              "/return_refund/202309/cancellation_orders/search",
+            ],
+            collect: collectCancellationCases,
+            softFail: true,
+          });
+        } else {
+          throw err;
+        }
+      }
 
       const cancellationRows = dedupeCaseRows(buildCancellationRows({ tenantId, account, cases: cancellationResult.cases }));
       const cancellationSave = await upsertCaseRowsIndividually(admin, cancellationRows, "cancellation");
@@ -992,14 +1098,14 @@ async function tiktokRequest(args: {
   return jsonRes;
 }
 
-async function refreshTikTokAccessTokenIfNeeded(admin: any, account: any): Promise<{ account: any; accessToken: string }> {
+async function refreshTikTokAccessTokenIfNeeded(admin: any, account: any, force = false): Promise<{ account: any; accessToken: string }> {
   const tokenSecret = requiredEnv("MARKETPLACE_TOKEN_ENCRYPTION_KEY");
   const currentAccessToken = await decryptText(text(account.access_token_encrypted), tokenSecret);
   if (!currentAccessToken) throw new Error("TikTok access token kosong. Reconnect account dulu.");
 
   const expiredAtMs = account.access_token_expired_at ? new Date(account.access_token_expired_at).getTime() : 0;
   const safeUntilMs = Date.now() + 10 * 60 * 1000;
-  if (expiredAtMs > safeUntilMs) return { account, accessToken: currentAccessToken };
+  if (!force && expiredAtMs > safeUntilMs) return { account, accessToken: currentAccessToken };
 
   const refreshToken = await decryptText(text(account.refresh_token_encrypted), tokenSecret);
   if (!refreshToken) throw new Error("Refresh token TikTok kosong. Reconnect TikTok Shop diperlukan.");
@@ -1053,6 +1159,15 @@ async function refreshTikTokAccessTokenIfNeeded(admin: any, account: any): Promi
 function isTikTokAuthError(message: string): boolean {
   const m = String(message).toLowerCase();
   return m.includes("105001") || m.includes("access token is invalid") || m.includes("invalid access token") || m.includes("401");
+}
+
+function isShopeeAuthError(err: unknown): boolean {
+  const message = String(err).toLowerCase();
+  return message.includes("invalid_acceess_token")
+    || message.includes("invalid_access_token")
+    || message.includes("access_token")
+    || message.includes("401")
+    || message.includes("error_auth");
 }
 
 function detectShopCipher(account: any): string | null {
