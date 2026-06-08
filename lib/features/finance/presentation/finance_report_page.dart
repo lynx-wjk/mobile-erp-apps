@@ -2410,7 +2410,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     double exact(List<String> keys) =>
         _numFirstNonZero(keys.map((key) => row[key]));
 
-    final explicitPaidQty = exact(const [
+    var settledQty = exact(const [
       'paid_qty_total',
       'settled_qty_total',
       'paid_qty',
@@ -2420,7 +2420,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'paid_quantity',
       'settled_quantity',
     ]);
-    final allQtyRaw = exact(const [
+    var totalQty = exact(const [
       'all_qty_total',
       'qty_all',
       'total_qty',
@@ -2428,7 +2428,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'qty',
       'quantity',
     ]);
-    final unpaidRaw = exact(const [
+    var unpaidQty = exact(const [
       'unpaid_qty_total',
       'unpaid_qty',
       'qty_unpaid',
@@ -2436,27 +2436,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'qty_belum_payout',
     ]);
 
-    var allQty = allQtyRaw > 0 ? allQtyRaw : explicitPaidQty + unpaidRaw;
-    var paidQty = explicitPaidQty;
-    if (paidQty <= 0 &&
-        unpaidRaw <= 0 &&
-        allQty > 0 &&
-        exact(const [
-              'payout_total',
-              'payout_amount',
-              'received_amount',
-              'net_settlement',
-              'net_received'
-            ]) !=
-            0) {
-      paidQty = allQty;
-    }
-    if (allQty > 0 && paidQty > allQty) paidQty = allQty;
-    var unpaidQty = unpaidRaw > 0 ? unpaidRaw : (allQty - paidQty);
-    if (unpaidQty < 0) unpaidQty = 0;
-    if (allQty <= 0) allQty = paidQty + unpaidQty;
-
-    final payout = exact(const [
+    var positivePayout = exact(const [
+      'positive_payout_total',
+      'paid_positive_payout_total',
+      'payout_positive_total',
+    ]);
+    var signedPayout = exact(const [
       'payout_total',
       'payout_amount',
       'received_amount',
@@ -2464,121 +2449,161 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'net_settlement',
       'payout',
     ]);
-    final paidGross = exact(const [
+    var negativePayout = exact(const [
+      'negative_payout_total',
+      'minus_payout_total',
+      'payout_minus_total',
+    ]);
+    if (positivePayout <= 0 && signedPayout > 0) positivePayout = signedPayout;
+    if (negativePayout == 0 && signedPayout < 0) negativePayout = signedPayout;
+    if (signedPayout == 0) signedPayout = positivePayout + negativePayout;
+
+    var positiveQty = exact(const ['positive_payout_qty', 'paid_positive_qty']);
+    var negativeQty = exact(const ['negative_payout_qty', 'minus_payout_qty']);
+
+    if (totalQty <= 0) totalQty = settledQty + unpaidQty;
+    if (settledQty <= 0 && positivePayout > 0) {
+      settledQty = positiveQty > 0 ? positiveQty : totalQty;
+    }
+    if (settledQty <= 0 && signedPayout != 0 && unpaidQty <= 0) {
+      settledQty = totalQty;
+    }
+    if (totalQty > 0 && settledQty > totalQty) settledQty = totalQty;
+    if (unpaidQty <= 0 && totalQty > 0) unpaidQty = totalQty - settledQty;
+    if (unpaidQty < 0) unpaidQty = 0;
+    if (totalQty <= 0) totalQty = settledQty + unpaidQty;
+    if (positiveQty <= 0 && positivePayout > 0) positiveQty = settledQty;
+    if (negativeQty <= 0 && negativePayout < 0) negativeQty = settledQty;
+    if (settledQty > 0 && positiveQty > settledQty) positiveQty = settledQty;
+    if (settledQty > 0 && negativeQty > settledQty) negativeQty = settledQty;
+
+    final explicitPaidGross = exact(const [
       'paid_gross_total',
       'settled_gross_total',
       'gross_settled_total',
+    ]);
+    final explicitUnpaidGross = exact(const [
+      'unpaid_gross_total',
+      'gross_unpaid_total',
+      'pending_gross_total',
+    ]);
+    var grossTotal = exact(const [
+      'all_gross_total',
+      'gross_all_total',
       'gross_total',
       'gross_sales',
       'gross_amount',
       'omzet_total',
       'omzet',
     ]);
-    final unpaidGross = exact(const [
-      'unpaid_gross_total',
-      'gross_unpaid_total',
-      'pending_gross_total',
-    ]);
-    final allGross = exact(const ['all_gross_total', 'gross_all_total']) > 0
-        ? exact(const ['all_gross_total', 'gross_all_total'])
-        : paidGross + unpaidGross;
+    if (grossTotal <= 0) grossTotal = explicitPaidGross + explicitUnpaidGross;
+    var paidGross = explicitPaidGross;
+    if (paidGross <= 0 && grossTotal > 0 && settledQty > 0 && totalQty > 0) {
+      paidGross = grossTotal * (settledQty / totalQty);
+    }
+    var unpaidGross = explicitUnpaidGross;
+    if (unpaidGross <= 0 && grossTotal > 0) {
+      unpaidGross = (grossTotal - paidGross).clamp(0.0, double.infinity).toDouble();
+    }
 
-    final hpp = exact(const [
+    final grossPerItem = totalQty > 0
+        ? grossTotal / totalQty
+        : exact(const ['gross_per_item', 'unit_gross_amount']);
+
+    final hppRaw = exact(const [
+      'hpp_per_item',
+      'unit_hpp',
+      'hpp_unit',
+      'hpp_item',
+    ]);
+    final explicitSettledHpp = exact(const [
       'paid_hpp_total',
       'settled_hpp_total',
+      'hpp_settled_total',
+    ]);
+    final explicitAllHpp = exact(const [
+      'all_hpp_total',
+      'hpp_all_total',
       'hpp_total',
       'total_hpp',
     ]);
-    final hppPerItem =
-        exact(const ['hpp_per_item', 'unit_hpp', 'hpp_unit', 'hpp_item']) > 0
-            ? exact(const ['hpp_per_item', 'unit_hpp', 'hpp_unit', 'hpp_item'])
-            : (paidQty > 0 ? hpp / paidQty : 0.0);
-    final allHpp = exact(const ['all_hpp_total', 'hpp_all_total']) > 0
-        ? exact(const ['all_hpp_total', 'hpp_all_total'])
-        : hpp + (unpaidQty * hppPerItem);
+    var hppPerItem = _normalizeHppPerItemValue(
+      hppPerItemRaw: hppRaw,
+      hppTotalRaw: explicitAllHpp > 0 ? explicitAllHpp : explicitSettledHpp,
+      qty: totalQty > 0 ? totalQty : settledQty,
+      grossPerItem: grossPerItem,
+    );
+    if (hppPerItem <= 0 && explicitSettledHpp > 0 && settledQty > 0) {
+      hppPerItem = explicitSettledHpp / settledQty;
+    }
+    if (hppPerItem <= 0 && explicitAllHpp > 0 && totalQty > 0) {
+      hppPerItem = explicitAllHpp / totalQty;
+    }
 
-    var positivePayout =
-        exact(const ['positive_payout_total', 'paid_positive_payout_total']);
-    var negativePayout =
-        exact(const ['negative_payout_total', 'minus_payout_total']);
-    if (positivePayout <= 0 && payout > 0) positivePayout = payout;
-    if (negativePayout == 0 && payout < 0) negativePayout = payout;
+    final settledHppTotal = hppPerItem * settledQty;
+    final unpaidHppTotal = hppPerItem * unpaidQty;
+    final allHppTotal = settledHppTotal + unpaidHppTotal;
+    final payoutForMargin = positivePayout > 0 ? positivePayout : 0.0;
+    final payoutPerSettledItem =
+        settledQty > 0 ? payoutForMargin / settledQty : 0.0;
+    final netPayoutPerSettledItem =
+        settledQty > 0 ? signedPayout / settledQty : 0.0;
+    final profit = payoutForMargin - settledHppTotal;
+    final settledMargin =
+        payoutForMargin > 0 ? (profit / payoutForMargin) * 100 : 0.0;
+    final estimatedProfit = grossTotal - allHppTotal;
+    final estimatedMargin =
+        grossTotal > 0 ? (estimatedProfit / grossTotal) * 100 : 0.0;
 
-    var positiveQty = exact(const ['positive_payout_qty', 'paid_positive_qty']);
-    var negativeQty = exact(const ['negative_payout_qty', 'minus_payout_qty']);
-    if (positiveQty <= 0 && positivePayout > 0) positiveQty = paidQty;
-    if (negativeQty <= 0 && negativePayout < 0) negativeQty = paidQty;
-    if (paidQty > 0 && positiveQty > paidQty) positiveQty = paidQty;
-    if (paidQty > 0 && negativeQty > paidQty) negativeQty = paidQty;
-
-    final grossPerItem = paidQty > 0
-        ? paidGross / paidQty
-        : (allQty > 0
-            ? allGross / allQty
-            : exact(const ['gross_per_item', 'unit_gross_amount']));
-    final payoutPerItem = positiveQty > 0
-        ? positivePayout / positiveQty
-        : (paidQty > 0
-            ? payout / paidQty
-            : exact(const [
-                'payout_per_item',
-                'payout_per_item_paid',
-                'positive_payout_per_item'
-              ]));
-    final netPayoutPerItem = paidQty > 0
-        ? payout / paidQty
-        : exact(const ['net_payout_per_item_paid']);
-    final profit = exact(const ['net_profit', 'profit']) != 0
-        ? exact(const ['net_profit', 'profit'])
-        : payout - hpp;
-    final margin = payout > 0
-        ? (profit / payout) * 100
-        : _num(row['net_margin_percent'] ?? row['margin_percent']);
-
-    row['qty'] = allQty;
-    row['qty_total'] = allQty;
-    row['quantity'] = allQty;
-    row['all_qty_total'] = allQty;
-    row['paid_qty'] = paidQty;
-    row['settled_qty'] = paidQty;
-    row['qty_settled'] = paidQty;
-    row['qty_payout'] = paidQty;
+    row['qty'] = totalQty;
+    row['qty_total'] = totalQty;
+    row['quantity'] = totalQty;
+    row['all_qty_total'] = totalQty;
+    row['paid_qty'] = settledQty;
+    row['settled_qty'] = settledQty;
+    row['qty_settled'] = settledQty;
+    row['qty_payout'] = settledQty;
     row['unpaid_qty'] = unpaidQty;
     row['qty_unpaid'] = unpaidQty;
     row['pending_payout_qty'] = unpaidQty;
-    row['gross_total'] = paidGross;
-    row['gross_sales'] = paidGross;
-    row['gross_amount'] = paidGross;
+    row['gross_total'] = grossTotal;
+    row['gross_sales'] = grossTotal;
+    row['gross_amount'] = grossTotal;
+    row['all_gross_total'] = grossTotal;
     row['paid_gross_total'] = paidGross;
     row['settled_gross_total'] = paidGross;
     row['unpaid_gross_total'] = unpaidGross;
-    row['all_gross_total'] = allGross;
-    row['payout_total'] = payout;
-    row['payout_amount'] = payout;
-    row['received_amount'] = payout;
-    row['net_received'] = payout;
-    row['net_settlement'] = payout;
-    row['hpp_total'] = hpp;
-    row['total_hpp'] = hpp;
-    row['paid_hpp_total'] = hpp;
-    row['settled_hpp_total'] = hpp;
-    row['all_hpp_total'] = allHpp;
-    row['unpaid_hpp_total'] = unpaidQty * hppPerItem;
-    row['hpp_per_item'] = hppPerItem;
-    row['unit_hpp'] = hppPerItem;
-    row['gross_per_item'] = grossPerItem;
-    row['payout_per_item'] = payoutPerItem;
-    row['payout_per_item_paid'] = payoutPerItem;
-    row['positive_payout_per_item'] = payoutPerItem;
-    row['net_payout_per_item_paid'] = netPayoutPerItem;
+    row['payout_total'] = payoutForMargin;
+    row['payout_amount'] = payoutForMargin;
+    row['received_amount'] = payoutForMargin;
+    row['net_received'] = payoutForMargin;
+    row['net_settlement'] = payoutForMargin;
+    row['payout'] = payoutForMargin;
     row['positive_payout_total'] = positivePayout;
     row['negative_payout_total'] = negativePayout;
     row['positive_payout_qty'] = positiveQty;
     row['negative_payout_qty'] = negativeQty;
+    row['hpp_per_item'] = hppPerItem;
+    row['unit_hpp'] = hppPerItem;
+    row['hpp'] = hppPerItem;
+    row['paid_hpp_total'] = settledHppTotal;
+    row['settled_hpp_total'] = settledHppTotal;
+    row['unpaid_hpp_total'] = unpaidHppTotal;
+    row['all_hpp_total'] = allHppTotal;
+    row['hpp_total'] = allHppTotal;
+    row['total_hpp'] = allHppTotal;
+    row['gross_per_item'] = grossPerItem;
+    row['payout_per_item'] = payoutPerSettledItem;
+    row['payout_per_item_paid'] = payoutPerSettledItem;
+    row['positive_payout_per_item'] = payoutPerSettledItem;
+    row['net_payout_per_item_paid'] = netPayoutPerSettledItem;
     row['net_profit'] = profit;
     row['profit'] = profit;
-    row['net_margin_percent'] = margin;
-    row['margin_percent'] = margin;
+    row['gross_profit'] = profit;
+    row['net_margin_percent'] = settledMargin;
+    row['margin_percent'] = settledMargin;
+    row['margin_settled_percent'] = settledMargin;
+    row['margin_estimated_percent'] = estimatedMargin;
     row['paid_order_count'] = exact(const [
       'paid_order_count',
       'settled_order_count',
@@ -2593,7 +2618,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['sku'] = _text(row['local_sku'] ?? row['marketplace_sku_id'], '-');
     return row;
   }
-
   List<Map<String, dynamic>> _normalizeSkuRows(
       List<Map<String, dynamic>> rows) {
     return rows.map((item) {
@@ -2769,63 +2793,78 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       final qtyForGross =
           totalQty > 0 ? totalQty : _num(row['qty_total'] ?? row['qty'] ?? 1);
-      final reportGrossTotal =
-          paidGross > 0 || unpaidQty > 0 ? paidGross : grossTotal;
       final grossPerItem = qtyForGross > 0
           ? grossTotal / qtyForGross
           : _num(row['gross_per_item']);
-      final payoutPerPositiveItem = positivePayoutQty > 0
-          ? positivePayout / positivePayoutQty
-          : (paidPayout > 0 && paidQty > 0 ? paidPayout / paidQty : 0.0);
-      final netPayoutPerSettledItem = paidQty > 0 ? paidPayout / paidQty : 0.0;
       final hppPerItem = rowHppPerItemFallback > 0
           ? rowHppPerItemFallback
           : (qtyForGross > 0 ? hppTotal / qtyForGross : 0.0);
-      final hppForProfit = paidHppTotal > 0
-          ? paidHppTotal
-          : (paidQty > 0 ? hppPerItem * paidQty : hppTotal);
-      final profit = paidPayout - hppForProfit;
-      final margin = paidPayout > 0 ? ((profit / paidPayout) * 100) : 0.0;
+      final settledHppTotal = hppPerItem * paidQty;
+      final unpaidHppTotal = hppPerItem * unpaidQty;
+      final allHppTotal = settledHppTotal + unpaidHppTotal;
+      final payoutForMargin = positivePayout > 0
+          ? positivePayout
+          : (paidPayout > 0 ? paidPayout : 0.0);
+      final payoutPerSettledItem =
+          paidQty > 0 ? payoutForMargin / paidQty : 0.0;
+      final netPayoutPerSettledItem = paidQty > 0 ? paidPayout / paidQty : 0.0;
+      final profit = payoutForMargin - settledHppTotal;
+      final settledMargin =
+          payoutForMargin > 0 ? ((profit / payoutForMargin) * 100) : 0.0;
+      final estimatedProfit = grossTotal - allHppTotal;
+      final estimatedMargin =
+          grossTotal > 0 ? ((estimatedProfit / grossTotal) * 100) : 0.0;
 
       row['qty_total'] = qtyForGross;
       row['qty'] = qtyForGross;
+      row['quantity'] = qtyForGross;
+      row['all_qty_total'] = qtyForGross;
       row['paid_qty'] = paidQty;
       row['settled_qty'] = paidQty;
+      row['qty_settled'] = paidQty;
+      row['qty_payout'] = paidQty;
       row['unpaid_qty'] = unpaidQty;
+      row['qty_unpaid'] = unpaidQty;
+      row['pending_payout_qty'] = unpaidQty;
       row['positive_payout_qty'] = positivePayoutQty;
       row['negative_payout_qty'] = negativePayoutQty;
       row['zero_released_qty'] = zeroReleasedQty;
-      row['paid_order_count'] = paidOrders.isNotEmpty
-          ? paidOrders.length
-          : _num(row['paid_order_count']).toInt();
-      row['unpaid_order_count'] = unpaidOrders.isNotEmpty
-          ? unpaidOrders.length
-          : _num(row['unpaid_order_count']).toInt();
+      row['gross_total'] = grossTotal;
+      row['gross_sales'] = grossTotal;
+      row['gross_amount'] = grossTotal;
       row['all_gross_total'] = grossTotal;
-      row['gross_total'] = reportGrossTotal;
-      row['gross_sales'] = reportGrossTotal;
       row['paid_gross_total'] = paidGross;
+      row['settled_gross_total'] = paidGross;
       row['unpaid_gross_total'] = unpaidGross;
-      row['payout_total'] = paidPayout;
-      row['payout_amount'] = paidPayout;
-      row['received_amount'] = paidPayout;
-      row['net_settlement'] = paidPayout;
-      row['payout'] = paidPayout;
-      row['net_received'] = paidPayout;
+      row['hpp_per_item'] = hppPerItem;
+      row['unit_hpp'] = hppPerItem;
+      row['hpp'] = hppPerItem;
+      row['paid_hpp_total'] = settledHppTotal;
+      row['settled_hpp_total'] = settledHppTotal;
+      row['unpaid_hpp_total'] = unpaidHppTotal;
+      row['all_hpp_total'] = allHppTotal;
+      row['hpp_total'] = allHppTotal;
+      row['total_hpp'] = allHppTotal;
+      row['payout_total'] = payoutForMargin;
+      row['payout_amount'] = payoutForMargin;
+      row['received_amount'] = payoutForMargin;
+      row['net_settlement'] = payoutForMargin;
+      row['payout'] = payoutForMargin;
+      row['net_received'] = payoutForMargin;
       row['positive_payout_total'] = positivePayout;
       row['negative_payout_total'] = negativePayout;
-      row['all_hpp_total'] = hppTotal;
-      row['hpp_total'] = hppForProfit;
-      row['paid_hpp_total'] = hppForProfit;
       row['gross_per_item'] = grossPerItem;
-      row['payout_per_item'] = payoutPerPositiveItem;
-      row['payout_per_item_paid'] = payoutPerPositiveItem;
-      row['positive_payout_per_item'] = payoutPerPositiveItem;
+      row['payout_per_item'] = payoutPerSettledItem;
+      row['payout_per_item_paid'] = payoutPerSettledItem;
+      row['positive_payout_per_item'] = payoutPerSettledItem;
       row['net_payout_per_item_paid'] = netPayoutPerSettledItem;
-      row['hpp_per_item'] = hppPerItem;
       row['net_profit'] = profit;
-      row['net_margin_percent'] = margin;
-      row['margin_percent'] = margin;
+      row['profit'] = profit;
+      row['gross_profit'] = profit;
+      row['net_margin_percent'] = settledMargin;
+      row['margin_percent'] = settledMargin;
+      row['margin_settled_percent'] = settledMargin;
+      row['margin_estimated_percent'] = estimatedMargin;
       row['target_margin_percent'] = targetMargin;
       row['detail_order_count'] = details.isNotEmpty
           ? details.length
@@ -3075,8 +3114,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         return 'Final tanpa payout';
       case 'PENDING_PAYOUT':
         return 'Belum payout';
-      case 'NO_PAYOUT_EXPECTED':
-        return 'Tidak perlu payout';
       case 'SAFE_CANCEL_UNPAID':
         return 'Batal/unpaid aman';
       default:
@@ -3237,24 +3274,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       var rawRows =
           _asList(map['rows']).where(_rowMatchesSelectedScope).toList();
       final aggregates = _asMap(map['aggregates']);
-      final expectedNegativeCount = _numFirstNonZero([
-        map['total'],
-        aggregates['total'],
-        aggregates['negative_payout_count'],
-        aggregates['abnormal_count'],
-        _summary['negative_payout_count'],
-        _summary['abnormal_count'],
-      ]).toInt();
-      if (rawRows.isEmpty && expectedNegativeCount > 0) {
-        rawRows = await _fetchRawNegativePayoutRowsPage(page: page);
-      }
-      if (rawRows.isEmpty && _abnormals.isNotEmpty) {
-        rawRows = _abnormals
-            .where(_rowMatchesSelectedScope)
-            .skip(((page <= 1 ? 1 : page) - 1) * _abnormalPageSize)
-            .take(_abnormalPageSize)
-            .toList();
-      }
+      // RPC adalah source of truth. Jangan fallback ke raw finance saat RPC sukses tapi rows kosong.
+      // Jangan fallback ke cache lokal saat RPC sukses. Cache lama bisa membawa abnormal kosong/ngaco.
 
       setState(() {
         _activeAbnormalRpc = rawRows.isNotEmpty && _asList(map['rows']).isEmpty
@@ -3263,7 +3284,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _serverAbnormales = rawRows;
         _abnormalTotal = _selectedScopeIsSpecific()
             ? rawRows.length
-            : (expectedNegativeCount > 0 ? expectedNegativeCount : _num(map['total']).toInt());
+            : _num(map['total']).toInt();
         _abnormalPage = _num(map['page']).toInt().clamp(1, 999999).toInt();
 
         if (aggregates.isNotEmpty) {
@@ -3345,20 +3366,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .toUpperCase();
     final orderStatus =
         _text(row['order_status'] ?? row['status'], '').toUpperCase();
-    final isExcluded = _bool(row['no_payout_excluded']) ||
-        _text(row['exclusion_reason']).trim().isNotEmpty ||
-        financeStatus == 'NO_PAYOUT_EXPECTED' ||
-        financeStatus == 'EXCLUDED';
-
-    if (isExcluded) {
-      return (
-        label: 'No payout expected',
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-        isExcluded: true,
-        isPending: false,
-        isCancelDone: false
-      );
-    }
+    // Semua payout minus tetap dianggap abnormal. Tidak ada no payout exclusion di tab ini.
     if (financeStatus == 'SAFE_CANCEL_UNPAID' ||
         financeStatus == 'CANCEL_OR_RETURN_DONE' ||
         (orderStatus.contains('CANCEL') &&
@@ -3463,11 +3471,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 row['payout_status'],
             '')
         .toUpperCase();
-    final isExcluded = _bool(row['no_payout_excluded']) ||
-        financeStatus == 'NO_PAYOUT_EXPECTED' ||
-        financeStatus == 'EXCLUDED' ||
-        financeStatus == 'SAFE_CANCEL_UNPAID';
-    if (isExcluded) return false;
     if (financeStatus == 'PENDING_PAYOUT' ||
         financeStatus == 'PENDING_SETTLEMENT' ||
         financeStatus == 'OK') return false;
@@ -6083,33 +6086,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         isCandidate)
                       Align(
                         alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: _processing
-                              ? null
-                              : () => _markNoPayoutExclusion(row),
-                          icon: Icon(Icons.block_rounded, size: 16),
-                          label: Text('Tandai no payout expected',
-                              style: TextStyle(fontSize: 11)),
-                        ),
+                        child: const SizedBox.shrink(),
                       ),
-                    if (statusInfo.isExcluded) ...[
-                      _miniMetric('Dikecualikan',
-                          _text(row['exclusion_reason'], 'Manual'),
-                          warning: false),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: _processing
-                              ? null
-                              : () => _unmarkNoPayoutExclusion(row),
-                          icon: Icon(Icons.undo_rounded, size: 16),
-                          label: Text('Batalkan tanda no payout',
-                              style: TextStyle(fontSize: 11)),
-                          style: TextButton.styleFrom(
-                              foregroundColor: Theme.of(context).colorScheme.secondary),
-                        ),
-                      ),
-                    ],
                   ],
                 );
               }),
