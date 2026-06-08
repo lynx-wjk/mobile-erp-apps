@@ -329,7 +329,7 @@ async function runAutoOrderPull(args: {
     const orderDue = args.force || isDue(setting.last_auto_run_at, interval);
 
     // v7: pending drain dibuat opsional dan bounded. Kalau child lambat, parent tetap return sebelum pg_net timeout.
-    if (args.runPendingDrain && (!orderDue || args.force)) {
+    if (args.runPendingDrain && args.force) {
       const pendingDrain = await invokeFunction(args.supabaseUrl, args.serviceRoleKey, args.cronSecret, "marketplace-order-sync-jobs", {
         mode: "process_pending",
         tenant_id: tenantId,
