@@ -3484,11 +3484,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 row['payout_status'],
             '')
         .toUpperCase();
-    final isExcluded = _bool(row['no_payout_excluded']) ||
-        financeStatus == 'NO_PAYOUT_EXPECTED' ||
-        financeStatus == 'EXCLUDED' ||
-        financeStatus == 'SAFE_CANCEL_UNPAID';
-    if (isExcluded) return false;
+    const isExcluded = false;
     if (financeStatus == 'PENDING_PAYOUT' ||
         financeStatus == 'PENDING_SETTLEMENT' ||
         financeStatus == 'OK') return false;
@@ -6113,7 +6109,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                               style: TextStyle(fontSize: 11)),
                         ),
                       ),
-                    if (statusInfo.isExcluded) ...[
+                    if (false) ...[
                       _miniMetric('Dikecualikan',
                           _text(row['exclusion_reason'], 'Manual'),
                           warning: false),
