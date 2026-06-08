@@ -237,7 +237,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           if (!_isFinanceSnapshotEmpty(response) &&
               !_isLegacySkuOnlySnapshot(response)) return response;
           firstEmptyResponse ??= response;
-          break;
+          continue;
         } catch (e) {
           lastError = e;
           if (!_isRpcParamMismatch(e)) break;
@@ -967,7 +967,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         setState(() => _loading = false);
         // Cache lokal harus langsung usable, tapi tab Abnormal tetap butuh page
         // kecil dari server/raw agar tidak kosong saat summary bilang ada payout minus.
-        await _loadAbnormalesPage(silent: true, resetPage: true);
+        try {
+          await _loadAbnormalesPage(silent: true, resetPage: true);
+        } catch (_) {}
       }
 
       final snapshotParams = {
@@ -987,7 +989,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (_isFinanceSnapshotEmpty(data)) {
         if (hasLocalSnapshot) {
           await _loadPersistedFinanceProgressFromDb();
-          await _loadAbnormalesPage(silent: true, resetPage: true);
+          try {
+            await _loadAbnormalesPage(silent: true, resetPage: true);
+          } catch (_) {}
           return;
         }
         if (mounted) {
@@ -995,7 +999,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               'Data laporan periode ini belum siap. Ketuk Pull Finance atau Refresh Payout, lalu coba lagi.');
         }
         await _loadPersistedFinanceProgressFromDb();
-        await _loadAbnormalesPage(silent: true, resetPage: true);
+        try {
+          await _loadAbnormalesPage(silent: true, resetPage: true);
+        } catch (_) {}
         return;
       }
       await FinanceLocalCache.writeJson(localKey, data);
@@ -1006,7 +1012,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         includeSupplementalSku: false,
       );
       await _loadPersistedFinanceProgressFromDb();
-      await _loadAbnormalesPage(silent: true, resetPage: true);
+      try {
+        await _loadAbnormalesPage(silent: true, resetPage: true);
+      } catch (_) {}
     } catch (e) {
       if (!mounted) return;
       if (!hasLocalSnapshot) {
@@ -8189,7 +8197,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (lower.contains('could not find the function') ||
         lower.contains('function public.') ||
         lower.contains('does not exist')) {
-      return 'Fitur laporan belum siap di server. Hubungi admin untuk memperbarui database.';
+      return 'Fitur laporan belum siap di server atau cache schema belum reload. Jalankan NOTIFY pgrst, reload schema, lalu buka ulang halaman.';
     }
     if (lower.contains('null value in column') &&
         lower.contains('description')) {
