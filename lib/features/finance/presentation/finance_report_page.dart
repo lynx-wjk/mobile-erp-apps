@@ -3366,20 +3366,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .toUpperCase();
     final orderStatus =
         _text(row['order_status'] ?? row['status'], '').toUpperCase();
-    final isExcluded = _bool(row['no_payout_excluded']) ||
-        _text(row['exclusion_reason']).trim().isNotEmpty ||
-        financeStatus == 'NO_PAYOUT_EXPECTED' ||
-        financeStatus == 'EXCLUDED';
-
-    if (isExcluded) {
-      return (
-        label: 'No payout expected',
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-        isExcluded: true,
-        isPending: false,
-        isCancelDone: false
-      );
-    }
+    // Semua payout minus tetap dianggap abnormal. Tidak ada no payout exclusion di tab ini.
     if (financeStatus == 'SAFE_CANCEL_UNPAID' ||
         financeStatus == 'CANCEL_OR_RETURN_DONE' ||
         (orderStatus.contains('CANCEL') &&
@@ -3484,7 +3471,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 row['payout_status'],
             '')
         .toUpperCase();
-    const isExcluded = false;
     if (financeStatus == 'PENDING_PAYOUT' ||
         financeStatus == 'PENDING_SETTLEMENT' ||
         financeStatus == 'OK') return false;
@@ -6109,24 +6095,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                               style: TextStyle(fontSize: 11)),
                         ),
                       ),
-                    if (false) ...[
-                      _miniMetric('Dikecualikan',
-                          _text(row['exclusion_reason'], 'Manual'),
-                          warning: false),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: _processing
-                              ? null
-                              : () => _unmarkNoPayoutExclusion(row),
-                          icon: Icon(Icons.undo_rounded, size: 16),
-                          label: Text('Batalkan tanda no payout',
-                              style: TextStyle(fontSize: 11)),
-                          style: TextButton.styleFrom(
-                              foregroundColor: Theme.of(context).colorScheme.secondary),
-                        ),
-                      ),
-                    ],
                   ],
                 );
               }),
