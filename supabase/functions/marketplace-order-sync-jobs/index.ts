@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-order-sync-jobs-overwrite-bounded-v47-2026-06-06";
+const FUNCTION_VERSION = "marketplace-order-sync-jobs-overwrite-bounded-v48-status-refresh-canonical-2026-06-08";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -669,7 +669,15 @@ async function refreshExistingOrderStatuses(args: {
       status_range_days: args.statusRangeDays,
       max_existing_orders: args.maxExistingOrders,
       skip_completed_status_refresh: args.skipCompletedStatusRefresh,
-      source: "marketplace-order-sync-jobs-v24-6-22-status-refresh",
+      source: "marketplace-order-sync-jobs-v48-status-refresh-canonical",
+      sync_status_aliases: true,
+      canonical_status_sync: true,
+      only_unfinished: true,
+      only_active_orders: true,
+      skip_completed_orders: true,
+      skip_final_orders: true,
+      include_completed: false,
+      exclude_statuses: ["COMPLETED", "CANCELLED", "CANCELED", "DELIVERED"],
       auto_status_only: true,
     });
 

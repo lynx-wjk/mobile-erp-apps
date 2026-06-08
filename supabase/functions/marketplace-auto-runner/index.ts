@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-auto-runner-overwrite-bounded-order-v7-2026-06-06";
+const FUNCTION_VERSION = "marketplace-auto-runner-overwrite-bounded-order-v8-status-refresh-canonical-2026-06-08";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -51,8 +51,10 @@ Deno.serve(async (req) => {
     const maxOrdersPerAccount = clampInt(body.max_orders_per_account ?? Deno.env.get("ORDER_PULL_MAX_ORDERS_PER_ACCOUNT"), 10, 100, 50);
     const maxDetailsPerAccount = clampInt(body.max_details_per_account ?? Deno.env.get("ORDER_PULL_MAX_DETAILS_PER_ACCOUNT"), 0, 120, 30);
     const childTimeoutMs = clampInt(body.child_timeout_ms ?? Deno.env.get("MARKETPLACE_RUNNER_CHILD_TIMEOUT_MS"), 15000, 90000, 35000);
+    const statusRefreshRangeDays = clampInt(body.order_status_range_days ?? body.status_range_days ?? Deno.env.get("ORDER_STATUS_REFRESH_RANGE_DAYS"), 1, 30, 7);
+    const maxStatusRefreshPerAccount = clampInt(body.max_status_refresh_per_account ?? body.max_existing_orders ?? Deno.env.get("ORDER_STATUS_REFRESH_MAX_EXISTING"), 10, 200, 80);
     const runPendingDrain = body.run_pending_drain !== false;
-    const runStatusRefresh = body.run_order_status_refresh === true;
+    const runStatusRefresh = body.run_order_status_refresh !== false;
     const runReturnRefund = body.run_return_refund_pull === true;
     const maxFinanceJobs = clampInt(body.max_finance_jobs ?? Deno.env.get("FINANCE_SYNC_MAX_JOBS"), 1, 3, 3);
     const maxFinanceOrders = clampInt(body.max_finance_orders ?? Deno.env.get("FINANCE_SYNC_MAX_ORDERS"), 1, 80, 50);
@@ -97,6 +99,8 @@ Deno.serve(async (req) => {
           maxOrdersPerAccount,
           maxDetailsPerAccount,
           childTimeoutMs,
+          statusRefreshRangeDays,
+          maxStatusRefreshPerAccount,
           runPendingDrain,
           runStatusRefresh,
           runReturnRefund,
@@ -287,6 +291,8 @@ async function runAutoOrderPull(args: {
   maxOrdersPerAccount: number;
   maxDetailsPerAccount: number;
   childTimeoutMs: number;
+  statusRefreshRangeDays: number;
+  maxStatusRefreshPerAccount: number;
   runPendingDrain: boolean;
   runStatusRefresh: boolean;
   runReturnRefund: boolean;
@@ -388,7 +394,7 @@ async function runAutoOrderPull(args: {
       page_size: Math.min(args.maxOrdersPerAccount, 50),
       max_pages: args.force ? Math.max(args.maxPagesPerAccount, 2) : args.maxPagesPerAccount,
       max_details: args.maxDetailsPerAccount,
-      include_update_time_search: false,
+      include_update_time_search: true,
       only_latest: true,
       only_active_orders: true,
       skip_completed_orders: true,
@@ -456,9 +462,11 @@ async function runAutoOrderPull(args: {
           action: "refresh_existing_status",
           tenant_id: tenantId,
           marketplace_account_id: accountId,
-          status_range_days: 1,
-          max_existing_orders: Math.min(args.maxOrdersPerAccount, 30),
-          source: "marketplace-auto-runner-v7-status-bounded",
+          status_range_days: args.statusRefreshRangeDays,
+          max_existing_orders: args.maxStatusRefreshPerAccount,
+          source: "marketplace-auto-runner-v8-status-refresh-7d-canonical",
+          sync_status_aliases: true,
+          canonical_status_sync: true,
           auto_status_only: true,
           only_unfinished: true,
           only_active_orders: true,
@@ -861,8 +869,8 @@ async function runAutoFinancePayoutSync(args: {
           const response = await fetch(`${args.supabaseUrl}/functions/v1/marketplace-tiktok-service`, {
             method: 'POST',
             headers: {
-              authorization: `Bearer ${args.serviceRoleKey}`,
-              apikey: args.serviceRoleKey,
+              authorization: `Bearer ${String(Deno.env.get("SUPABASE_ANON_KEY") || args.serviceRoleKey || "").trim()}`,
+              apikey: String(Deno.env.get("SUPABASE_ANON_KEY") || args.serviceRoleKey || "").trim(),
               'content-type': 'application/json',
               'x-marketplace-cron-secret': args.cronSecret,
             },
