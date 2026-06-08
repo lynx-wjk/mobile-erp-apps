@@ -3114,8 +3114,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         return 'Final tanpa payout';
       case 'PENDING_PAYOUT':
         return 'Belum payout';
-      case 'NO_PAYOUT_EXPECTED':
-        return 'Tidak perlu payout';
       case 'SAFE_CANCEL_UNPAID':
         return 'Batal/unpaid aman';
       default:
