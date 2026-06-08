@@ -763,7 +763,7 @@ function buildWindows(date: string, windowMinutes: number): Array<{ startSeconds
   const step = windowMinutes * 60;
   const today = jakartaDateString(0);
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const maxRangeEnd = date === today ? Math.min(startOfDay + 86400, nowSeconds + step) : startOfDay + 86400;
+  const maxRangeEnd = date === today ? Math.min(startOfDay + 86400, nowSeconds) : startOfDay + 86400;
   const windows: Array<{ startSeconds: number; endSeconds: number; label: string }> = [];
   for (let offset = 0; offset < 86400; offset += step) {
     const startSeconds = startOfDay + offset;
