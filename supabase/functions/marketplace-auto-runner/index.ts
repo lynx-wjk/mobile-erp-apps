@@ -383,7 +383,7 @@ async function runAutoOrderPull(args: {
       process: true,
       max_accounts: args.maxAccounts,
       max_jobs: args.maxOrderJobs,
-      window_minutes: args.force ? 720 : 120,
+      window_minutes: args.force ? 720 : 10,
       days_back: args.force ? 3 : 0,
       page_size: Math.min(args.maxOrdersPerAccount, 50),
       max_pages: args.force ? Math.max(args.maxPagesPerAccount, 2) : args.maxPagesPerAccount,
