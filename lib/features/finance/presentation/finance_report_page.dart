@@ -6086,14 +6086,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         isCandidate)
                       Align(
                         alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: _processing
-                              ? null
-                              : () => _markNoPayoutExclusion(row),
-                          icon: Icon(Icons.block_rounded, size: 16),
-                          label: Text('Tandai no payout expected',
-                              style: TextStyle(fontSize: 11)),
-                        ),
+                        child: const SizedBox.shrink(),
                       ),
                   ],
                 );
