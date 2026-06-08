@@ -498,8 +498,8 @@ class _DashboardPageState extends State<DashboardPage> {
           in _dashboardFinanceSnapshotParamVariants(rpcName, startDate, endDate)) {
         try {
           final response = await _client.rpc(rpcName, params: rpcParams);
-          final parsed =
-              _financeSummaryFromSnapshot(now, _asMap(response), rpcName);
+          final responseMap = _asMap(response);
+          final parsed = _financeSummaryFromSnapshot(now, responseMap, rpcName);
           if (_dashboardFinanceSummaryUsable(parsed)) {
             try {
               final keyBase = FinanceLocalCache.snapshotKey(
@@ -509,11 +509,11 @@ class _DashboardPageState extends State<DashboardPage> {
                 accountId: 'all',
               );
               final cacheKey = '$keyBase::finance_live_20260606_local_cache_fast_v20';
-              await FinanceLocalCache.writeJson(cacheKey, _asMap(response));
+              await FinanceLocalCache.writeJson(cacheKey, responseMap);
             } catch (_) {}
             return parsed;
           }
-          break;
+          continue;
         } catch (error) {
           lastError = error;
           if (!_isDashboardRpcParamMismatch(error)) break;
@@ -604,7 +604,10 @@ class _DashboardPageState extends State<DashboardPage> {
   ) {
     if (data.isEmpty) return <String, dynamic>{};
 
-    final summary = _asMap(data['summary']);
+    final summary = _asMap(data['summary'] ??
+        data['totals'] ??
+        data['aggregates'] ??
+        data);
     if (summary.isEmpty) return <String, dynamic>{};
     final abnormals = data['abnormals'] ?? data['anomalies'];
     final rawTrend = _trendFromFinanceSnapshot(data);
@@ -716,23 +719,39 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   List<_TrendPoint> _trendFromFinanceSnapshot(Map<String, dynamic> data) {
-    final rows =
-        (data['daily'] is List ? data['daily'] : data['by_date']) as dynamic;
-    if (rows is! List) return const <_TrendPoint>[];
+    final rawRows = data['daily'] is List && (data['daily'] as List).isNotEmpty
+        ? data['daily']
+        : data['by_date'];
+    if (rawRows is! List) return const <_TrendPoint>[];
     final points = <_TrendPoint>[];
-    for (final item in rows) {
+    for (final item in rawRows) {
       final row = _asMap(item);
       final rawDate = AppUi.text(
-          row['date'] ?? row['report_date'] ?? row['order_date'], '');
+        row['date'] ??
+            row['period_start'] ??
+            row['report_date'] ??
+            row['order_date'] ??
+            row['day'],
+        '',
+      );
       if (rawDate.isEmpty) continue;
       final date = DateTime.tryParse(
           rawDate.length >= 10 ? rawDate.substring(0, 10) : rawDate);
       if (date == null) continue;
       points.add(_TrendPoint(
         date: date,
-        omzet: AppUi.toNum(
-            row['omzet_total'] ?? row['gross_sales'] ?? row['gross_total']),
-        orders: AppUi.toNum(row['order_count'] ?? row['orders_count']).toInt(),
+        omzet: AppUi.toNum(row['omzet_total'] ??
+            row['omzet'] ??
+            row['gross_sales'] ??
+            row['gross_total'] ??
+            row['gross_amount'] ??
+            row['gross']),
+        orders: AppUi.toNum(row['orders_count'] ??
+                row['order_count'] ??
+                row['finance_orders_count'] ??
+                row['finance_order_count'] ??
+                row['orders'])
+            .toInt(),
       ));
     }
     points.sort((a, b) => a.date.compareTo(b.date));
@@ -1750,7 +1769,12 @@ class _DashboardPageState extends State<DashboardPage> {
 
 
   List<_TrendPoint> _financeTrendForChart() {
-    if (_financeTrend.length >= 2) return _financeTrend;
+    final trendOmzet = _financeTrend.fold<num>(0, (sum, point) => sum + point.omzet);
+    final trendOrders = _financeTrend.fold<int>(0, (sum, point) => sum + point.orders);
+    if (_financeTrend.length >= 2 &&
+        (trendOmzet != 0 || trendOrders != 0 || (_financeOmzet == 0 && _financeOrderCount == 0))) {
+      return _financeTrend;
+    }
     final now = DateTime.now();
     return <_TrendPoint>[
       _TrendPoint(date: DateTime(now.year, now.month, 1), omzet: 0, orders: 0),
