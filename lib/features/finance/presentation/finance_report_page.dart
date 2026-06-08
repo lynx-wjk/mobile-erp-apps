@@ -3276,24 +3276,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       var rawRows =
           _asList(map['rows']).where(_rowMatchesSelectedScope).toList();
       final aggregates = _asMap(map['aggregates']);
-      final expectedNegativeCount = _numFirstNonZero([
-        map['total'],
-        aggregates['total'],
-        aggregates['negative_payout_count'],
-        aggregates['abnormal_count'],
-        _summary['negative_payout_count'],
-        _summary['abnormal_count'],
-      ]).toInt();
-      if (rawRows.isEmpty && expectedNegativeCount > 0) {
-        rawRows = await _fetchRawNegativePayoutRowsPage(page: page);
-      }
-      if (rawRows.isEmpty && _abnormals.isNotEmpty) {
-        rawRows = _abnormals
-            .where(_rowMatchesSelectedScope)
-            .skip(((page <= 1 ? 1 : page) - 1) * _abnormalPageSize)
-            .take(_abnormalPageSize)
-            .toList();
-      }
+      // RPC adalah source of truth. Jangan fallback ke raw finance saat RPC sukses tapi rows kosong.
+      // Jangan fallback ke cache lokal saat RPC sukses. Cache lama bisa membawa abnormal kosong/ngaco.
 
       setState(() {
         _activeAbnormalRpc = rawRows.isNotEmpty && _asList(map['rows']).isEmpty
@@ -3302,7 +3286,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _serverAbnormales = rawRows;
         _abnormalTotal = _selectedScopeIsSpecific()
             ? rawRows.length
-            : (expectedNegativeCount > 0 ? expectedNegativeCount : _num(map['total']).toInt());
+            : _num(map['total']).toInt();
         _abnormalPage = _num(map['page']).toInt().clamp(1, 999999).toInt();
 
         if (aggregates.isNotEmpty) {
