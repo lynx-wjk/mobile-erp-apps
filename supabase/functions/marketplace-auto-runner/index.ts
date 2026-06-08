@@ -326,9 +326,10 @@ async function runAutoOrderPull(args: {
   for (const setting of settings || []) {
     const tenantId = text(setting.tenant_id);
     const interval = clampInt(setting.interval_minutes, 1, 60, 2);
+    const orderDue = args.force || isDue(setting.last_auto_run_at, interval);
 
     // v7: pending drain dibuat opsional dan bounded. Kalau child lambat, parent tetap return sebelum pg_net timeout.
-    if (args.runPendingDrain) {
+    if (args.runPendingDrain && (!orderDue || args.force)) {
       const pendingDrain = await invokeFunction(args.supabaseUrl, args.serviceRoleKey, args.cronSecret, "marketplace-order-sync-jobs", {
         mode: "process_pending",
         tenant_id: tenantId,
@@ -366,7 +367,7 @@ async function runAutoOrderPull(args: {
       result.details.push({ type: "order_pending_drain", tenant_id: tenantId, status: "skipped_by_config" });
     }
 
-    if (!args.force && !isDue(setting.last_auto_run_at, interval)) {
+    if (!orderDue) {
       result.skipped += 1;
       result.details.push({ type: "order_pull", tenant_id: tenantId, status: "skipped_enqueue_interval_but_pending_drained", interval_minutes: interval });
       continue;
@@ -394,7 +395,7 @@ async function runAutoOrderPull(args: {
       skip_final_orders: true,
       include_completed: false,
       source: "marketplace-auto-runner-v7-order-bounded-active-only",
-      refresh_existing_status: args.runStatusRefresh,
+      refresh_existing_status: false,
     }, args.childTimeoutMs);
 
     if (orderJobs.ok && orderJobs.http_status >= 200 && orderJobs.http_status < 300 && orderJobs.data?.ok !== false) {
