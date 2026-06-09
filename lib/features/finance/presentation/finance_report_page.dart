@@ -2047,11 +2047,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             final date = _purchaseDate(row) ?? DateTime.now();
             return {
               ...row,
-              'title': row['item_name'] ??
+              'title': row['nomor_pembelian'] ??
+                  row['nomor_nota'] ??
+                  row['purchase_number'] ??
+                  row['request_number'] ??
+                  row['supplier_name'] ??
+                  row['item_name'] ??
                   row['item'] ??
                   row['nama_barang'] ??
                   row['name'] ??
                   'Pembelian disetujui',
+              'description': row['supplier_name'] ??
+                  row['catatan'] ??
+                  row['note'] ??
+                  row['description'] ??
+                  '',
               'amount': total,
               'date': _isoDate(date),
               'expense_date': _isoDate(date),
@@ -2088,17 +2098,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   DateTime? _purchaseDate(Map<String, dynamic> row) {
     for (final key in [
-      'approved_at',
+      'tanggal',
+      'tanggal_beli',
+      'purchase_date',
+      'receipt_date',
+      'expense_date',
+      'date',
       'paid_at',
+      'approved_at',
       'verified_at',
       'updated_at',
       'created_at',
-      'request_date',
-      'purchase_date',
-      'tanggal_beli',
-      'expense_date',
-      'tanggal',
-      'date'
     ]) {
       final raw = row[key];
       if (raw == null) continue;
@@ -6051,8 +6061,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                             row['nama_barang'] ??
                             row['category'],
                         'Pembelian'),
-                    subtitle:
-                        '${_date(row['approved_at'] ?? row['expense_date'] ?? row['date'] ?? row['created_at'])}  ·  Qty ${_purchaseQty(row)}',
+                    subtitle: <String>[
+                      _date(row['expense_date'] ??
+                          row['date'] ??
+                          row['tanggal'] ??
+                          row['approved_at'] ??
+                          row['created_at']),
+                      _text(
+                          row['supplier_name'] ??
+                              row['description'] ??
+                              row['source'],
+                          ''),
+                      if (_purchaseQty(row) > 0) 'Qty ${_purchaseQty(row)}',
+                    ]
+                        .where((item) =>
+                            item.trim().isNotEmpty && item.trim() != '-')
+                        .join('  ·  '),
                     trailing: _money(_purchaseAmount(row)),
                     positive: false,
                   )),
