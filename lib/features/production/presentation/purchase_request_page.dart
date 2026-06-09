@@ -314,6 +314,7 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
                   label: 'Foto Nota',
                   moduleName: 'purchase',
                   purpose: 'nota_pembelian',
+                  allowGallery: true,
                   onUploaded: (evidence) {
                     setState(() => _notaEvidence = evidence);
                   },

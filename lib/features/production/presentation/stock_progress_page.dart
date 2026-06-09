@@ -1642,10 +1642,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     label: 'Bukti nota / barang',
                     moduleName: 'production_material_purchase',
                     purpose: 'purchase_proof',
+                    allowGallery: true,
                     referenceId: purchase?['purchase_id']?.toString(),
                     initialPhotoUrl: initialPhotoUrl,
                     helperText: 'Bisa foto kamera atau pilih dari galeri.',
-                    allowGallery: true,
                     onUploaded: (evidence) {
                       proofEvidence = evidence;
                       if (sheetContext.mounted) setSheetState(() {});
