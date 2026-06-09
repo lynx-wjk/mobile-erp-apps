@@ -6922,6 +6922,55 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         row['period_start'];
   }
 
+  String _skuDetailOrderStatusV82o(Map<String, dynamic> row) {
+    return _text(
+      row['order_status'] ??
+          row['status_order'] ??
+          row['live_order_status'] ??
+          row['raw_order_status'] ??
+          row['status'],
+      '-',
+    ).trim();
+  }
+
+  bool _skuDetailNeedsMarketplaceRefreshV82o(Map<String, dynamic> row) {
+    if (_skuOrderDetailPayoutValueV82o(row) <= 0) return false;
+    final status = _skuDetailOrderStatusV82o(row).toUpperCase();
+    if (status.isEmpty || status == '-') return false;
+    const nonFinal = <String>{
+      'AWAITING_SHIPMENT',
+      'AWAITING_COLLECTION',
+      'IN_TRANSIT',
+      'DELIVERED',
+      'READY_TO_SHIP',
+      'TO_SHIP',
+      'TO_PACK',
+    };
+    return nonFinal.contains(status);
+  }
+
+  Widget _skuRefreshWarningBannerV82o(Map<String, dynamic> item) {
+    final status = _skuDetailOrderStatusV82o(item);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.10),
+        borderRadius: BorderRadius.zero,
+        border: Border.all(color: Colors.orange.withOpacity(0.35)),
+      ),
+      child: Text(
+        'Payout sudah masuk, tetapi status order masih $status. Perlu refresh marketplace.',
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+          color: Colors.orange.shade800,
+          height: 1.35,
+        ),
+      ),
+    );
+  }
+
   Map<String, dynamic> _normalizeSkuOrderDetailDisplayRowV82o(
       Map<String, dynamic> row) {
     final copy = Map<String, dynamic>.from(row);
@@ -6930,6 +6979,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _text(_skuOrderDetailTimestampValueV82o(copy), '');
     if (preferredOrderDate.trim().isNotEmpty) {
       copy['order_date'] = preferredOrderDate;
+    }
+
+    final orderStatus = _skuDetailOrderStatusV82o(copy);
+    if (orderStatus.isNotEmpty && orderStatus != '-') {
+      copy['order_status'] = orderStatus;
     }
 
     final payout = _skuOrderDetailPayoutValueV82o(copy);
@@ -7060,17 +7114,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return normalized;
   }
 
-  Map<String, dynamic> _rowWithSkuDetailsV82o(
-      Map<String, dynamic> row, List<Map<String, dynamic>> details) {
-    final copy = Map<String, dynamic>.from(row);
-    copy['order_refs'] = details;
-    copy['order_details'] = details;
-    copy['details'] = details;
-    copy['orders'] = details;
-    copy['rows'] = details;
-    return copy;
-  }
-
   List<dynamic> _extractSkuOrderDetailRowsV82o(Object? payload) {
     if (payload == null) return <dynamic>[];
 
@@ -7107,14 +7150,111 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return <dynamic>[];
   }
 
+  int _intFromV82o(Object? value, int fallback) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
+  int _positiveIntV82o(Object? value, int fallback) {
+    final parsed = _intFromV82o(value, fallback);
+    return parsed > 0 ? parsed : fallback;
+  }
+
+  int _skuDetailTotalV82o(Object? payload, int fallback) {
+    if (payload is String) {
+      try {
+        return _skuDetailTotalV82o(jsonDecode(payload), fallback);
+      } catch (_) {
+        return fallback;
+      }
+    }
+    if (payload is! Map) return fallback;
+    final map = Map<String, dynamic>.from(payload);
+    final direct = _intFromV82o(
+      map['total'] ??
+          map['total_count'] ??
+          map['filtered_count'] ??
+          map['count'] ??
+          map['records_total'],
+      -1,
+    );
+    if (direct >= 0) return direct;
+    for (final key in const ['pagination', 'meta', 'aggregates']) {
+      final nested = map[key];
+      if (nested is Map) {
+        final nestedTotal = _intFromV82o(
+          nested['total'] ?? nested['total_count'] ?? nested['count'],
+          -1,
+        );
+        if (nestedTotal >= 0) return nestedTotal;
+      }
+    }
+    return fallback;
+  }
+
+  int _skuDetailPageV82o(Object? payload, int fallback) {
+    if (payload is! Map) return fallback;
+    final direct = _positiveIntV82o(payload['page'] ?? payload['current_page'], fallback);
+    if (direct != fallback) return direct;
+    final nested = payload['pagination'] ?? payload['meta'];
+    if (nested is Map) return _positiveIntV82o(nested['page'] ?? nested['current_page'], fallback);
+    return fallback;
+  }
+
+  int _skuDetailPageSizeV82o(Object? payload, int fallback) {
+    if (payload is! Map) return fallback;
+    final direct = _positiveIntV82o(payload['page_size'] ?? payload['per_page'] ?? payload['limit'], fallback);
+    if (direct != fallback) return direct;
+    final nested = payload['pagination'] ?? payload['meta'];
+    if (nested is Map) return _positiveIntV82o(nested['page_size'] ?? nested['per_page'] ?? nested['limit'], fallback);
+    return fallback;
+  }
+
+  int _skuDetailTotalPagesV82o(Object? payload, int total, int pageSize) {
+    if (payload is Map) {
+      final direct = _positiveIntV82o(
+        payload['total_pages'] ?? payload['pages'] ?? payload['last_page'],
+        -1,
+      );
+      if (direct > 0) return direct;
+      final nested = payload['pagination'] ?? payload['meta'];
+      if (nested is Map) {
+        final nestedPages = _positiveIntV82o(
+          nested['total_pages'] ?? nested['pages'] ?? nested['last_page'],
+          -1,
+        );
+        if (nestedPages > 0) return nestedPages;
+      }
+    }
+    if (pageSize <= 0) return 1;
+    return total <= 0 ? 1 : ((total + pageSize - 1) ~/ pageSize);
+  }
+
+  int _minIntV82o(int a, int b) => a < b ? a : b;
+
+  String _skuDetailPageSummaryV82o({
+    required int page,
+    required int pageSize,
+    required int total,
+    required int totalPages,
+    required int visibleCount,
+  }) {
+    if (total <= 0 || visibleCount <= 0) {
+      return 'Menampilkan 0 dari $total · Hal $page/$totalPages';
+    }
+    final start = ((page - 1) * pageSize) + 1;
+    final end = _minIntV82o(((page - 1) * pageSize) + visibleCount, total);
+    return 'Menampilkan $start–$end dari $total · Hal $page/$totalPages';
+  }
+
   String? _marketplaceRpcParam() {
     final value = _text(_marketplaceParam(), '').trim();
     if (value.isEmpty || value.toLowerCase() == 'all') return null;
     return value;
   }
 
-  Future<List<Map<String, dynamic>>> _fetchSkuOrderDetailsV82oForRow(
-      Map<String, dynamic> row, String payoutFilter) async {
+  Map<String, String> _skuOrderLookupParamsV82o(Map<String, dynamic> row) {
     final productSearch = _text(
       row['product_name'] ??
           row['nama_barang'] ??
@@ -7159,62 +7299,559 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ? rowSku
             : '');
 
-    final searchText = productSearch.isNotEmpty
+    final fallbackSearch = productSearch.isNotEmpty
         ? productSearch
         : (variantSearch.isNotEmpty ? variantSearch : '');
 
+    return {
+      'marketplace_sku': marketplaceSku,
+      'local_sku': localSku,
+      'fallback_search': fallbackSearch,
+    };
+  }
+
+  Future<Map<String, dynamic>> _fetchSkuOrderDetailsV82oPageForRow(
+    Map<String, dynamic> row,
+    String payoutFilter, {
+    int page = 1,
+    int pageSize = 100,
+    String keyword = '',
+  }) async {
+    final lookup = _skuOrderLookupParamsV82o(row);
+    final marketplaceSku = lookup['marketplace_sku'] ?? '';
+    final localSku = lookup['local_sku'] ?? '';
+    final fallbackSearch = lookup['fallback_search'] ?? '';
+    final searchText = keyword.trim().isNotEmpty
+        ? keyword.trim()
+        : (marketplaceSku.isEmpty && localSku.isEmpty ? fallbackSearch : '');
+
     if (marketplaceSku.isEmpty && localSku.isEmpty && searchText.isEmpty) {
-      return <Map<String, dynamic>>[];
+      return {
+        'rows': <Map<String, dynamic>>[],
+        'page': 1,
+        'page_size': pageSize,
+        'total': 0,
+        'total_pages': 1,
+      };
     }
-    final serverFilter = payoutFilter;
 
-    try {
-      final response = await _client.rpc(
-        'finance_sku_order_details_v24_6_82o',
-        params: {
-          'p_start': _toDateParam(_start),
-          'p_end': _toDateParam(_end),
-          'p_marketplace': _marketplaceRpcParam(),
-          'p_account_id': _accountUuidParam(),
-          'p_marketplace_sku': marketplaceSku.isEmpty ? null : marketplaceSku,
-          'p_local_sku': localSku.isEmpty || localSku == '-' ? null : localSku,
-          'p_search': searchText.isEmpty ? null : searchText,
-          'p_payout_filter': serverFilter,
-          'p_page': 1,
-          'p_page_size': 1000,
-        },
-      );
+    final response = await _client.rpc(
+      'finance_sku_order_details_v24_6_82o',
+      params: {
+        'p_start': _toDateParam(_start),
+        'p_end': _toDateParam(_end),
+        'p_marketplace': _marketplaceRpcParam(),
+        'p_account_id': _accountUuidParam(),
+        'p_marketplace_sku': marketplaceSku.isEmpty ? null : marketplaceSku,
+        'p_local_sku': localSku.isEmpty || localSku == '-' ? null : localSku,
+        'p_search': searchText.isEmpty ? null : searchText,
+        'p_payout_filter': payoutFilter,
+        'p_page': page,
+        'p_page_size': pageSize,
+      },
+    );
 
-      final rawRows = _extractSkuOrderDetailRowsV82o(response);
-      final rows = rawRows
+    final rawRows = _extractSkuOrderDetailRowsV82o(response);
+    final rows = _filteredSkuOrderRowsV82o(
+      rawRows
           .whereType<Map>()
-          .map((item) => _normalizeSkuOrderDetailDisplayRowV82o(
-                Map<String, dynamic>.from(item),
-              ))
-          .toList();
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(),
+      payoutFilter,
+    );
+    final total = _skuDetailTotalV82o(response, rows.length);
+    final resolvedPage = _skuDetailPageV82o(response, page);
+    final resolvedPageSize = _skuDetailPageSizeV82o(response, pageSize);
+    final totalPages = _skuDetailTotalPagesV82o(
+      response,
+      total,
+      resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
+    );
 
-      return _filteredSkuOrderRowsV82o(rows, payoutFilter);
-    } catch (_) {
-      return <Map<String, dynamic>>[];
-    }
+    return {
+      'rows': rows,
+      'page': resolvedPage,
+      'page_size': resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
+      'total': total,
+      'total_pages': totalPages,
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchSkuOrderDetailsV82oForRow(
+      Map<String, dynamic> row, String payoutFilter) async {
+    try {
+      final result = await _fetchSkuOrderDetailsV82oPageForRow(
+        row,
+        payoutFilter,
+        page: 1,
+        pageSize: 100,
+      );
+      final rows = result['rows'];
+      if (rows is List<Map<String, dynamic>>) return rows;
+      if (rows is List) {
+        return rows
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      }
+    } catch (_) {}
+    return <Map<String, dynamic>>[];
   }
 
   Future<void> _showSkuOrderRefsV82o(Map<String, dynamic> row,
       {String payoutFilter = 'all'}) async {
-    final serverRows = await _fetchSkuOrderDetailsV82oForRow(row, payoutFilter);
+    final payoutLabel = payoutFilter == 'paid'
+        ? 'sudah ada payout'
+        : payoutFilter == 'unpaid'
+            ? 'belum ada payout'
+            : 'semua status payout';
 
-    if (serverRows.isEmpty) {
-      final label = payoutFilter == 'paid'
-          ? 'sudah ada payout'
-          : payoutFilter == 'unpaid'
-              ? 'belum ada payout'
-              : 'semua status payout';
-      _setMessage('Detail order SKU ($label) belum ditemukan dari server.');
+    Map<String, dynamic> pageResult;
+    try {
+      pageResult = await _fetchSkuOrderDetailsV82oPageForRow(
+        row,
+        payoutFilter,
+        page: 1,
+        pageSize: 100,
+      );
+    } catch (error) {
+      _setMessage('Detail order SKU ($payoutLabel) gagal dimuat: ${_cleanError(error)}');
       return;
     }
 
-    final detailRow = _rowWithSkuDetailsV82o(row, serverRows);
-    await _showSkuOrderRefs(detailRow, payoutFilter: payoutFilter);
+    var rows = (pageResult['rows'] as List?)
+            ?.whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList() ??
+        <Map<String, dynamic>>[];
+    var page = _positiveIntV82o(pageResult['page'], 1);
+    var pageSize = _positiveIntV82o(pageResult['page_size'], 100);
+    var total = _intFromV82o(pageResult['total'], rows.length);
+    var totalPages = _positiveIntV82o(pageResult['total_pages'], 1);
+
+    if (rows.isEmpty && total <= 0) {
+      _setMessage('Detail order SKU ($payoutLabel) belum ditemukan dari server.');
+      return;
+    }
+
+    final detailRow = Map<String, dynamic>.from(row);
+    final searchController = TextEditingController();
+    var keyword = '';
+    var loadingPage = false;
+    String? pageError;
+    var sheetOpen = true;
+
+    Future<void> loadPage(
+      int nextPage,
+      String nextKeyword,
+      StateSetter setSheetState,
+    ) async {
+      final cleanKeyword = nextKeyword.trim();
+      setSheetState(() {
+        loadingPage = true;
+        pageError = null;
+        keyword = cleanKeyword;
+        page = nextPage < 1 ? 1 : nextPage;
+      });
+      try {
+        final result = await _fetchSkuOrderDetailsV82oPageForRow(
+          row,
+          payoutFilter,
+          page: nextPage < 1 ? 1 : nextPage,
+          pageSize: 100,
+          keyword: cleanKeyword,
+        );
+        if (!sheetOpen) return;
+        final nextRows = (result['rows'] as List?)
+                ?.whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList() ??
+            <Map<String, dynamic>>[];
+        setSheetState(() {
+          rows = nextRows;
+          page = _positiveIntV82o(result['page'], nextPage);
+          pageSize = _positiveIntV82o(result['page_size'], 100);
+          total = _intFromV82o(result['total'], nextRows.length);
+          totalPages = _positiveIntV82o(result['total_pages'], 1);
+          loadingPage = false;
+        });
+      } catch (error) {
+        if (!sheetOpen) return;
+        setSheetState(() {
+          pageError = _cleanError(error);
+          loadingPage = false;
+        });
+      }
+    }
+
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: (Theme.of(context).cardColor),
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(8))),
+        builder: (sheetContext) {
+          return StatefulBuilder(
+            builder: (sheetContext, setSheetState) {
+              final totalSafe = total < rows.length ? rows.length : total;
+              final totalPagesSafe = totalPages <= 0 ? 1 : totalPages;
+              final canPrev = !loadingPage && page > 1;
+              final canNext = !loadingPage && page < totalPagesSafe;
+              final pageSummary = _skuDetailPageSummaryV82o(
+                page: page,
+                pageSize: pageSize,
+                total: totalSafe,
+                totalPages: totalPagesSafe,
+                visibleCount: rows.length,
+              );
+
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(sheetContext).size.height * 0.86),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _text(
+                                      detailRow['local_sku'] ?? detailRow['sku'],
+                                      'Detail SKU'),
+                                  style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w900,
+                                      color: Theme.of(context).dividerColor),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color:
+                                          Theme.of(context).colorScheme.outline),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(sheetContext),
+                            icon: Icon(Icons.close_rounded,
+                                color: Theme.of(context).dividerColor),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 12),
+                      TextField(
+                        controller: searchController,
+                        onChanged: (value) => loadPage(1, value, setSheetState),
+                        decoration: InputDecoration(
+                          hintText:
+                              'Cari nomor pesanan, resi, tanggal, gross, atau payout',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: IconButton(
+                            tooltip: 'Cari',
+                            onPressed: loadingPage
+                                ? null
+                                : () => loadPage(
+                                      1,
+                                      searchController.text,
+                                      setSheetState,
+                                    ),
+                            icon: const Icon(Icons.search),
+                          ),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              keyword.isEmpty
+                                  ? pageSummary
+                                  : '$pageSummary · Filter: $keyword',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: Theme.of(context).colorScheme.outline),
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: canPrev
+                                ? () => loadPage(
+                                      page - 1,
+                                      searchController.text,
+                                      setSheetState,
+                                    )
+                                : null,
+                            icon: const Icon(Icons.chevron_left_rounded),
+                            label: const Text('Sebelumnya'),
+                          ),
+                          SizedBox(width: 6),
+                          TextButton.icon(
+                            onPressed: canNext
+                                ? () => loadPage(
+                                      page + 1,
+                                      searchController.text,
+                                      setSheetState,
+                                    )
+                                : null,
+                            icon: const Icon(Icons.chevron_right_rounded),
+                            label: const Text('Berikutnya'),
+                          ),
+                        ],
+                      ),
+                      if (pageError != null) ...[
+                        SizedBox(height: 8),
+                        Text(
+                          pageError!,
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                      SizedBox(height: 8),
+                      Expanded(
+                        child: loadingPage && rows.isEmpty
+                            ? const Center(child: CircularProgressIndicator())
+                            : rows.isEmpty
+                                ? _emptyCard(
+                                    'Detail pesanan belum tersedia untuk filter ini.')
+                                : Stack(
+                                    children: [
+                                      ListView.separated(
+                                        itemCount: rows.length,
+                                        separatorBuilder: (_, __) =>
+                                            SizedBox(height: 8),
+                                        itemBuilder: (context, index) {
+                                          final item = rows[index];
+                                          return Container(
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              color: (Theme.of(context).cardColor),
+                                              borderRadius: BorderRadius.zero,
+                                              border: Border.all(
+                                                  color: Theme.of(context)
+                                                      .dividerColor
+                                                      .withOpacity(0.75)),
+                                            ),
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Container(
+                                                  width: 38,
+                                                  height: 38,
+                                                  decoration: BoxDecoration(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .primary
+                                                        .withOpacity(0.10),
+                                                    borderRadius: BorderRadius.zero,
+                                                  ),
+                                                  child: Icon(Icons.receipt_long_rounded,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .primary,
+                                                      size: 20),
+                                                ),
+                                                SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment.start,
+                                                    children: [
+                                                      SelectableText(
+                                                        'Order: ${_text(item['order'], '-')}',
+                                                        style: TextStyle(
+                                                            fontSize: 13.5,
+                                                            fontWeight:
+                                                                FontWeight.w900,
+                                                            color: Theme.of(context)
+                                                                .dividerColor),
+                                                      ),
+                                                      SizedBox(height: 4),
+                                                      SelectableText(
+                                                        'Resi: ${_text(item['resi'], '-')}',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .outline,
+                                                            height: 1.35),
+                                                      ),
+                                                      SizedBox(height: 4),
+                                                      Text(
+                                                        'Tanggal pesanan: ${_dateTime(item['order_date'])}',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .outline,
+                                                            height: 1.35),
+                                                      ),
+                                                      SizedBox(height: 4),
+                                                      Text(
+                                                        'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .outline,
+                                                            height: 1.35),
+                                                      ),
+                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(item)) ...[
+                                                        SizedBox(height: 6),
+                                                        _skuRefreshWarningBannerV82o(item),
+                                                      ],
+                                                      if (_payoutExplainText(item)
+                                                              .trim()
+                                                              .isNotEmpty ||
+                                                          _text(item['resi_reason'], '')
+                                                              .trim()
+                                                              .isNotEmpty) ...[
+                                                        SizedBox(height: 4),
+                                                        Text(
+                                                          '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' · ' : ''}${_text(item['resi_reason'], '')}',
+                                                          style: TextStyle(
+                                                              fontSize: 11.5,
+                                                              color: _linePayoutAmount(
+                                                                          item) <
+                                                                      0
+                                                                  ? Colors.redAccent
+                                                                  : Theme.of(context)
+                                                                      .colorScheme
+                                                                      .secondary,
+                                                              height: 1.35),
+                                                        ),
+                                                      ],
+                                                      SizedBox(height: 4),
+                                                      Text(
+                                                        'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  ·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  ·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .outline,
+                                                            height: 1.35),
+                                                      ),
+                                                      SizedBox(height: 8),
+                                                      Wrap(
+                                                        spacing: 6,
+                                                        runSpacing: 6,
+                                                        children: [
+                                                          _miniMetric(
+                                                              'Qty',
+                                                              _num(item['qty'])
+                                                                  .toStringAsFixed(0)),
+                                                          _miniMetric(
+                                                              'Harga jual/item',
+                                                              _money(_num(item[
+                                                                  'gross_per_item']))),
+                                                          _miniMetric(
+                                                              'Payout/item',
+                                                              _moneyNullable(item[
+                                                                  'payout_per_item'])),
+                                                          _miniMetric(
+                                                              'HPP/item',
+                                                              _money(_num(item[
+                                                                      'hpp_per_item'] ??
+                                                                  item['hpp']))),
+                                                        ],
+                                                      ),
+                                                      SizedBox(height: 6),
+                                                      Text(
+                                                        'Statement: ${_text(item['statement_id'], '-')}  ·  Asal data: ${_text(item['source'], '-')}',
+                                                        style: TextStyle(
+                                                            fontSize: 10.5,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .outline,
+                                                            height: 1.3),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                IconButton(
+                                                  tooltip: 'Salin',
+                                                  onPressed: () {
+                                                    final text = [
+                                                      'Order: ${_text(item['order'], '-')}',
+                                                      'Resi: ${_text(item['resi'], '-')}',
+                                                      'Tanggal pesanan: ${_dateTime(item['order_date'])}',
+                                                      'Status: ${_skuDetailOrderStatusV82o(item)}',
+                                                      'Payout status: ${_payoutStatusText(item)}',
+                                                      'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? '-' : _payoutExplainText(item)}',
+                                                      'Catatan resi: ${_text(item['resi_reason'], '-')}',
+                                                      'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}',
+                                                      'SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}',
+                                                      'Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                                      'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
+                                                      'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
+                                                      'Payout/item: ${_moneyNullable(item['payout_per_item'])}',
+                                                      'HPP/item: ${_money(_num(item['hpp_per_item'] ?? item['hpp']))}',
+                                                      'Statement: ${_text(item['statement_id'], '-')}',
+                                                      'Asal data: ${_text(item['source'], '-')}',
+                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(item))
+                                                        'Warning: Payout sudah masuk, tetapi status order masih ${_skuDetailOrderStatusV82o(item)}. Perlu refresh marketplace.',
+                                                    ].join('\n');
+                                                    Clipboard.setData(
+                                                        ClipboardData(text: text));
+                                                    ScaffoldMessenger.of(sheetContext)
+                                                        .showSnackBar(const SnackBar(
+                                                            content: Text(
+                                                                'Detail order disalin.')));
+                                                  },
+                                                  icon: Icon(Icons.copy_rounded,
+                                                      size: 18,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .outline),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                      if (loadingPage)
+                                        Positioned.fill(
+                                          child: ColoredBox(
+                                            color: Theme.of(context)
+                                                .cardColor
+                                                .withOpacity(0.55),
+                                            child: const Center(
+                                                child: CircularProgressIndicator()),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      sheetOpen = false;
+      searchController.dispose();
+    }
   }
 
   Future<void> _showSkuOrderRefs(Map<String, dynamic> row,
