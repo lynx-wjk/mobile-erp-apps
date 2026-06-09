@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-stock-sync-worker-shopee-token-refresh-v31-2026-06-09";
+const FUNCTION_VERSION = "marketplace-stock-sync-worker-shopee-seller-stock-v33-2026-06-09";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -157,7 +157,7 @@ Deno.serve(async (req) => {
 
         const { data: account, error: accountError } = await admin
           .from("marketplace_accounts")
-          .select("marketplace_account_id, tenant_id, marketplace, app_key, shop_id, shop_cipher, shop_region, shop_name, status, stock_sync_enabled, default_warehouse_id, access_token_encrypted, refresh_token_encrypted, access_token_expired_at, refresh_token_expired_at")
+          .select("marketplace_account_id, tenant_id, marketplace, app_key, shop_id, shop_cipher, shop_region, shop_name, status, stock_sync_enabled, default_warehouse_id, access_token_encrypted, refresh_token_encrypted, access_token_expired_at, refresh_token_expired_at, environment")
           .eq("marketplace_account_id", log.marketplace_account_id)
           .maybeSingle();
 
@@ -388,7 +388,13 @@ async function sendShopeeStock(admin: any, account: any, log: any, stock: number
   url.searchParams.set("shop_id", shopId);
   url.searchParams.set("sign", sign);
 
-  const stockItem: Record<string, unknown> = { normal_stock: stock };
+  const stockItem: Record<string, unknown> = {
+    seller_stock: [
+      {
+        stock,
+      },
+    ],
+  };
   if (modelIdRaw && modelIdRaw !== "0") {
     stockItem.model_id = toShopeeNumber(modelIdRaw, "Shopee model_id");
   }
@@ -410,11 +416,11 @@ async function sendShopeeStock(admin: any, account: any, log: any, stock: number
   const response = await res.json().catch(() => null);
 
   if (!res.ok || !response) {
-    throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(sanitizeResponse(response))}`);
+    throw new Error(`Shopee API HTTP ${res.status} env=${credential.environment} account_env=${text(account.environment) || "-"} host=${credential.host}: ${JSON.stringify(sanitizeResponse(response))}`);
   }
 
   if (response.error) {
-    throw new Error(`Shopee API error: ${JSON.stringify(sanitizeResponse(response))}`);
+    throw new Error(`Shopee API error env=${credential.environment} account_env=${text(account.environment) || "-"} host=${credential.host}: ${JSON.stringify(sanitizeResponse(response))}`);
   }
 
   return {
@@ -422,6 +428,8 @@ async function sendShopeeStock(admin: any, account: any, log: any, stock: number
       platform: "shopee",
       path,
       environment: credential.environment,
+      account_environment: text(account.environment) || null,
+      host: credential.host,
       shop_id: shopId,
       item_id: itemId,
       model_id: stockItem.model_id ?? null,
@@ -964,7 +972,7 @@ async function ensureTikTokAccessToken(
     .from("marketplace_accounts")
     .update(updatePayload)
     .eq("marketplace_account_id", account.marketplace_account_id)
-    .select("marketplace_account_id, tenant_id, marketplace, app_key, shop_id, shop_cipher, shop_region, shop_name, status, stock_sync_enabled, default_warehouse_id, access_token_encrypted, refresh_token_encrypted, access_token_expired_at, refresh_token_expired_at")
+    .select("marketplace_account_id, tenant_id, marketplace, app_key, shop_id, shop_cipher, shop_region, shop_name, status, stock_sync_enabled, default_warehouse_id, access_token_encrypted, refresh_token_encrypted, access_token_expired_at, refresh_token_expired_at, environment")
     .single();
 
   if (error) throw new Error(`Update TikTok refreshed token failed: ${error.message}`);
