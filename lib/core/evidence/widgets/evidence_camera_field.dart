@@ -1,5 +1,4 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -216,7 +215,11 @@ class _EvidenceCameraFieldState extends State<EvidenceCameraField> {
     }
   }
 
+  bool get _canPickFromGallery => widget.allowGallery || kIsWeb;
+
   Future<void> _capture() => _pickPhoto(ImageSource.camera);
+
+  Future<void> _pickFromGallery() => _pickPhoto(ImageSource.gallery);
 
   String _cleanError(Object error) {
     var text = error.toString().trim();
@@ -327,18 +330,16 @@ class _EvidenceCameraFieldState extends State<EvidenceCameraField> {
               ],
               const SizedBox(height: 10),
             ],
-            if (widget.allowGallery)
+            if (_canPickFromGallery)
               Row(
                 children: [
                   Expanded(child: _photoButton(photoUrl: photoUrl)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _isUploading
-                          ? null
-                          : () => _pickPhoto(ImageSource.gallery),
+                      onPressed: _isUploading ? null : _pickFromGallery,
                       icon: const Icon(Icons.photo_library_outlined),
-                      label: const Text('Galeri'),
+                      label: Text(kIsWeb ? 'File/Galeri' : 'Galeri'),
                     ),
                   ),
                 ],

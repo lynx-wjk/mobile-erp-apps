@@ -76,3 +76,5 @@ window_dump.xml
 
 # Scratch / temp directories
 /scratch/
+
+.vercel_deploy/
