@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-stock-sync-worker-warehouse-auto-resolve-v30-2026-05-20";
+const FUNCTION_VERSION = "marketplace-stock-sync-worker-shopee-token-refresh-v31-2026-06-09";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -272,7 +272,7 @@ async function sendStockToMarketplace(admin: any, account: any, log: any, skuMap
   }
 
   if (log.marketplace === "shopee") {
-    return sendShopeeStock(account, log, stock);
+    return sendShopeeStock(admin, account, log, stock);
   }
 
   throw new Error(`Unsupported marketplace for real stock sync: ${log.marketplace}`);
@@ -366,13 +366,11 @@ async function sendTikTokStock(admin: any, account: any, log: any, skuMap: any, 
   };
 }
 
-async function sendShopeeStock(account: any, log: any, stock: number) {
-  const partnerId = requiredEnv("SHOPEE_PARTNER_ID");
-  const partnerKey = requiredEnv("SHOPEE_PARTNER_KEY");
-  const tokenSecret = requiredEnv("MARKETPLACE_TOKEN_ENCRYPTION_KEY");
-  const host = text(Deno.env.get("SHOPEE_API_BASE_URL")) || "https://partner.shopeemobile.com";
-  const accessToken = await decryptText(text(account.access_token_encrypted), tokenSecret);
-  if (!accessToken) throw new Error("Shopee access token kosong. Re-authorize account.");
+async function sendShopeeStock(admin: any, account: any, log: any, stock: number) {
+  const tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, account);
+  account = tokenBundle.account;
+  const accessToken = tokenBundle.accessToken;
+  const credential = resolveShopeeCredentials(account.environment);
 
   const shopId = text(account.shop_id);
   if (!shopId) throw new Error("Shopee shop_id kosong. Re-authorize account.");
@@ -381,10 +379,10 @@ async function sendShopeeStock(account: any, log: any, stock: number) {
   const modelIdRaw = text(log.marketplace_sku_id);
   const path = "/api/v2/product/update_stock";
   const timestamp = Math.floor(Date.now() / 1000);
-  const signBase = `${partnerId}${path}${timestamp}${accessToken}${shopId}`;
-  const sign = await hmacHex(partnerKey, signBase);
-  const url = new URL(`${host}${path}`);
-  url.searchParams.set("partner_id", partnerId);
+  const signBase = `${credential.partnerId}${path}${timestamp}${accessToken}${shopId}`;
+  const sign = await hmacHex(credential.partnerKey, signBase);
+  const url = new URL(path, credential.host);
+  url.searchParams.set("partner_id", credential.partnerId);
   url.searchParams.set("timestamp", String(timestamp));
   url.searchParams.set("access_token", accessToken);
   url.searchParams.set("shop_id", shopId);
@@ -410,18 +408,20 @@ async function sendShopeeStock(account: any, log: any, stock: number) {
   });
 
   const response = await res.json().catch(() => null);
+
   if (!res.ok || !response) {
-    throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(response)}`);
+    throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(sanitizeResponse(response))}`);
   }
 
   if (response.error) {
-    throw new Error(`Shopee API error: ${JSON.stringify(response)}`);
+    throw new Error(`Shopee API error: ${JSON.stringify(sanitizeResponse(response))}`);
   }
 
   return {
     request_payload: {
       platform: "shopee",
       path,
+      environment: credential.environment,
       shop_id: shopId,
       item_id: itemId,
       model_id: stockItem.model_id ?? null,
@@ -430,6 +430,137 @@ async function sendShopeeStock(account: any, log: any, stock: number) {
     },
     response_payload: sanitizeResponse(response),
   };
+}
+
+
+async function refreshShopeeAccessTokenIfNeeded(admin: any, account: any, force = false): Promise<{ account: any; accessToken: string }> {
+  const tokenSecret = requiredEnv("MARKETPLACE_TOKEN_ENCRYPTION_KEY");
+  const currentAccessToken = await decryptText(text(account.access_token_encrypted), tokenSecret);
+  if (!currentAccessToken) throw new Error("Shopee access token kosong. Re-authorize account.");
+
+  const expiredAtMs = account.access_token_expired_at ? new Date(account.access_token_expired_at).getTime() : 0;
+  const safeUntilMs = Date.now() + 10 * 60 * 1000;
+  if (!force && expiredAtMs > safeUntilMs) return { account, accessToken: currentAccessToken };
+
+  const refreshToken = await decryptText(text(account.refresh_token_encrypted), tokenSecret);
+  if (!refreshToken) {
+    await markMarketplaceAuthError(admin, account, "Refresh token Shopee kosong. Reconnect Shopee diperlukan.");
+    throw new Error("Refresh token Shopee kosong. Reconnect Shopee diperlukan.");
+  }
+
+  const credential = resolveShopeeCredentials(account.environment);
+  const shopId = text(account.shop_id);
+  if (!shopId) throw new Error("Shopee shop_id kosong. Reconnect Shopee diperlukan.");
+
+  const path = "/api/v2/auth/access_token/get";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signBase = `${credential.partnerId}${path}${timestamp}`;
+  const sign = await hmacHex(credential.partnerKey, signBase);
+  const url = new URL(path, credential.host);
+  url.searchParams.set("partner_id", credential.partnerId);
+  url.searchParams.set("timestamp", String(timestamp));
+  url.searchParams.set("sign", sign);
+
+  const body = {
+    partner_id: Number(credential.partnerId),
+    refresh_token: refreshToken,
+    shop_id: numericOrString(shopId),
+  };
+
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const payload = await res.json().catch(() => null);
+
+  if (!res.ok || !payload || payload.error) {
+    const message = `Refresh token Shopee gagal HTTP ${res.status}: ${JSON.stringify(sanitizeResponse(payload))}`;
+    await markMarketplaceAuthError(admin, account, message);
+    throw new Error(message);
+  }
+
+  const data = payload?.response ?? payload ?? {};
+  const newAccessToken = text(data.access_token);
+  const newRefreshToken = text(data.refresh_token) || refreshToken;
+
+  if (!newAccessToken) {
+    const message = `Refresh token Shopee gagal: response tidak berisi access_token. ${JSON.stringify(sanitizeResponse(payload))}`;
+    await markMarketplaceAuthError(admin, account, message);
+    throw new Error(message);
+  }
+
+  const accessExpiredAt = expireValueToIso(data.expire_in)
+    || expireValueToIso(data.access_token_expire_in)
+    || expireValueToIso(data.access_token_expired_at)
+    || new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+
+  const refreshExpiredAt = expireValueToIso(data.refresh_token_expire_in)
+    || expireValueToIso(data.refresh_token_expired_at)
+    || account.refresh_token_expired_at
+    || null;
+
+  const { data: updated, error } = await admin
+    .from("marketplace_accounts")
+    .update({
+      access_token_encrypted: await encryptText(newAccessToken, tokenSecret),
+      refresh_token_encrypted: await encryptText(newRefreshToken, tokenSecret),
+      access_token_expired_at: accessExpiredAt,
+      refresh_token_expired_at: refreshExpiredAt,
+      status: "active",
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("marketplace_account_id", account.marketplace_account_id)
+    .select("marketplace_account_id, tenant_id, marketplace, app_key, shop_id, shop_cipher, shop_region, shop_name, status, stock_sync_enabled, default_warehouse_id, access_token_encrypted, refresh_token_encrypted, access_token_expired_at, refresh_token_expired_at, environment")
+    .single();
+
+  if (error) throw new Error(`Simpan refresh token Shopee gagal: ${error.message}`);
+  return { account: updated, accessToken: newAccessToken };
+}
+
+function resolveShopeeCredentials(environmentValue: unknown) {
+  const environment = normalizeMarketplaceEnvironment(environmentValue);
+  const productionPartnerId = requiredEnv("SHOPEE_PARTNER_ID");
+  const productionPartnerKey = requiredEnv("SHOPEE_PARTNER_KEY");
+
+  if (environment === "testing") {
+    const testPartnerId = optionalEnv("SHOPEE_TEST_PARTNER_ID");
+    const testPartnerKey = optionalEnv("SHOPEE_TEST_PARTNER_KEY");
+    return {
+      environment,
+      host: optionalEnv("SHOPEE_TEST_HOST") || optionalEnv("SHOPEE_SANDBOX_HOST") || "https://partner.test-stable.shopeemobile.com",
+      partnerId: testPartnerId || productionPartnerId,
+      partnerKey: testPartnerKey || productionPartnerKey,
+    };
+  }
+
+  return {
+    environment,
+    host: optionalEnv("SHOPEE_HOST") || optionalEnv("SHOPEE_API_BASE_URL") || "https://partner.shopeemobile.com",
+    partnerId: productionPartnerId,
+    partnerKey: productionPartnerKey,
+  };
+}
+
+function normalizeMarketplaceEnvironment(value: unknown): "testing" | "production" {
+  const clean = text(value).toLowerCase();
+  if (["test", "testing", "dev", "development", "sandbox"].includes(clean)) return "testing";
+  return "production";
+}
+
+function optionalEnv(name: string): string | null {
+  const value = Deno.env.get(name);
+  if (!value || !value.trim()) return null;
+  return value.trim();
+}
+
+function numericOrString(value: string): number | string {
+  return /^\d+$/.test(value) ? Number(value) : value;
 }
 
 async function loadVariantSnapshot(admin: any, log: any) {
