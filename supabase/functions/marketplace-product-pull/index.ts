@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-product-pull-warehouse-auto-resolve-v30-2026-05-20";
+const FUNCTION_VERSION = "marketplace-product-pull-shopee-item-parser-v32-2026-06-09";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -103,10 +103,11 @@ Deno.serve(async (req) => {
 });
 
 async function pullTiktokProducts(admin: any, account: any, limit: number) {
+  const tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, account);
+  account = tokenBundle.account;
   const appKey = Deno.env.get("TIKTOK_APP_KEY")?.trim() || account.app_key;
   const appSecret = requiredEnv("TIKTOK_APP_SECRET");
-  const encryptionKey = requiredEnv("MARKETPLACE_TOKEN_ENCRYPTION_KEY");
-  const accessToken = await decryptText(String(account.access_token_encrypted || ""), encryptionKey);
+  const accessToken = tokenBundle.accessToken;
 
   let shopCipher = detectShopCipher(account);
   let shopId = text(account.shop_id);
@@ -358,6 +359,10 @@ async function pullShopeeProducts(admin: any, account: any, limit: number) {
         },
       });
       const list = collectShopeeItemList(listJson);
+      if (list.length === 0) {
+        const listData = (listJson?.response ?? listJson?.data ?? listJson) || {};
+        errors.push(`Shopee item list kosong. response_keys=${Object.keys(listData).slice(0, 12).join(",")}; total_count=${text(listData.total_count)}; has_next_page=${text(listData.has_next_page)}`);
+      }
       for (const item of list) {
         const id = text(item.item_id) || text(item.id);
         if (id && !itemIds.includes(id)) itemIds.push(id);
@@ -801,6 +806,89 @@ function safeJsonForDb(input: any): any {
   return JSON.parse(JSON.stringify(input));
 }
 
+
+async function refreshTikTokAccessTokenIfNeeded(admin: any, account: any, force = false): Promise<{ account: any; accessToken: string }> {
+  const tokenSecret = requiredEnv("MARKETPLACE_TOKEN_ENCRYPTION_KEY");
+  const appKey = Deno.env.get("TIKTOK_APP_KEY")?.trim() || text(account.app_key);
+  const appSecret = requiredEnv("TIKTOK_APP_SECRET");
+  const currentAccessToken = await decryptText(String(account.access_token_encrypted || ""), tokenSecret);
+  if (!currentAccessToken) throw new Error("Access token TikTok kosong. Re-authorize toko dulu.");
+
+  const expiredAtMs = account.access_token_expired_at ? new Date(account.access_token_expired_at).getTime() : 0;
+  const safeUntilMs = Date.now() + 10 * 60 * 1000;
+  if (!force && expiredAtMs > safeUntilMs) return { account, accessToken: currentAccessToken };
+
+  const refreshToken = await decryptText(String(account.refresh_token_encrypted || ""), tokenSecret);
+  if (!refreshToken) throw new Error("Refresh token TikTok kosong. Reconnect TikTok Shop diperlukan.");
+
+  if (!appKey) throw new Error("TIKTOK_APP_KEY kosong.");
+  const authBase = String(Deno.env.get("TIKTOK_AUTH_BASE_URL") || "https://auth.tiktok-shops.com").replace(/\/+$/, "");
+  const url = new URL("/api/v2/token/refresh", authBase);
+  url.searchParams.set("app_key", appKey);
+  url.searchParams.set("app_secret", appSecret);
+  url.searchParams.set("refresh_token", refreshToken);
+  url.searchParams.set("grant_type", "refresh_token");
+
+  const res = await fetch(url.toString(), { method: "GET", headers: { accept: "application/json" } });
+  const payload = await res.json().catch(() => null);
+
+  if (!res.ok || !payload) {
+    const message = `Refresh token TikTok gagal HTTP ${res.status}: ${JSON.stringify(maskTokenObject(payload))}`;
+    await admin.from("marketplace_accounts").update({
+      status: "reauth_required",
+      last_error: message.slice(0, 1800),
+      updated_at: new Date().toISOString(),
+    }).eq("marketplace_account_id", account.marketplace_account_id);
+    throw new Error(message);
+  }
+
+  const data = payload?.data ?? payload;
+
+  if (payload?.code && String(payload.code) !== "0") {
+    const message = `Refresh token TikTok gagal: ${JSON.stringify(maskTokenObject(payload))}`;
+    await admin.from("marketplace_accounts").update({
+      status: "reauth_required",
+      last_error: message.slice(0, 1800),
+      updated_at: new Date().toISOString(),
+    }).eq("marketplace_account_id", account.marketplace_account_id);
+    throw new Error(message);
+  }
+
+  const newAccessToken = text(data?.access_token);
+  const newRefreshToken = text(data?.refresh_token) || refreshToken;
+
+  if (!newAccessToken) {
+    throw new Error(`Refresh token TikTok gagal: response tidak berisi access_token. ${JSON.stringify(maskTokenObject(payload))}`);
+  }
+
+  const accessExpiredAt = expireValueToIso(data?.access_token_expire_in)
+    || expireValueToIso(data?.access_token_expired_at)
+    || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  const refreshExpiredAt = expireValueToIso(data?.refresh_token_expire_in)
+    || expireValueToIso(data?.refresh_token_expired_at)
+    || account.refresh_token_expired_at
+    || null;
+
+  const { data: updated, error } = await admin
+    .from("marketplace_accounts")
+    .update({
+      access_token_encrypted: await encryptText(newAccessToken, tokenSecret),
+      refresh_token_encrypted: await encryptText(newRefreshToken, tokenSecret),
+      access_token_expired_at: accessExpiredAt,
+      refresh_token_expired_at: refreshExpiredAt,
+      status: "active",
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("marketplace_account_id", account.marketplace_account_id)
+    .select("marketplace_account_id, tenant_id, marketplace, app_key, shop_id, shop_cipher, shop_region, shop_name, store_alias, status, environment, default_warehouse_id, access_token_encrypted, refresh_token_encrypted, access_token_expired_at, refresh_token_expired_at, raw_shop_response")
+    .single();
+
+  if (error) throw new Error(`Update TikTok refreshed token failed: ${error.message}`);
+  return { account: updated, accessToken: newAccessToken };
+}
+
 async function fetchShopeeItemBaseInfo(args: { account: any; accessToken: string; itemId: string }) {
   return shopeeRequest({
     method: "GET",
@@ -1100,6 +1188,7 @@ function collectProducts(jsonRes: any): any[] {
 function collectShopeeItemList(jsonRes: any): any[] {
   const data = jsonRes?.response ?? jsonRes?.data ?? jsonRes;
   const candidates = [
+    data?.item,
     data?.item_list,
     data?.items,
     data?.list,
