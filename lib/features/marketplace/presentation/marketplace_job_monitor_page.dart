@@ -39,7 +39,7 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
     if (!silent && mounted) setState(() => _loading = true);
     try {
       final result =
-          await _client.rpc('marketplace_job_monitor_snapshot_v24_6_9');
+          await _client.rpc('marketplace_job_monitor_snapshot_light');
       if (!mounted) return;
       setState(() {
         _data = Map<String, dynamic>.from(result as Map);
@@ -73,7 +73,7 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
     setState(() => _busy = true);
     try {
       final result = await _client.rpc(
-        'marketplace_job_reset_stuck_v24_6_9',
+        'marketplace_job_reset_stuck',
         params: {
           'p_kind': kind,
           'p_retry_failed': retryFailed,

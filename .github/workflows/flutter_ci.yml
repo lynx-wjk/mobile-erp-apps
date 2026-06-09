@@ -35,7 +35,38 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Analyze (errors only — warnings are tracked but non-blocking)
+      - name: Prepare CI placeholder files
+        run: |
+          cat > .env <<'EOF'
+          SUPABASE_URL=https://example.supabase.co
+          SUPABASE_ANON_KEY=dummy
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+
+          png = base64.b64decode(
+              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
+              "/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+          )
+
+          paths = [
+              "assets/icon/app_icon.png",
+              "android/app/src/main/res/mipmap-mdpi/ic_launcher.png",
+              "android/app/src/main/res/mipmap-hdpi/ic_launcher.png",
+              "android/app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+              "android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+              "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+          ]
+
+          for item in paths:
+              path = Path(item)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(png)
+          PY
+
+      - name: Analyze (errors only - warnings are tracked but non-blocking)
         run: flutter analyze --no-pub --no-fatal-warnings --no-fatal-infos
 
       - name: Build debug APK
