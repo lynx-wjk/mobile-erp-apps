@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-order-pull-v24-6-22-rotating-status-refresh-2026-05-23";
+const FUNCTION_VERSION = "marketplace-order-pull-v24-6-23-nonfinal-payout-priority-refresh-2026-06-09";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -57,6 +57,32 @@ const ORDER_PULL_ALL_STATUSES = [
 const FINAL_MARKETPLACE_ORDER_STATUSES = new Set([
   "COMPLETED",
   "DELIVERED",
+]);
+
+const STATUS_REFRESH_TARGET_STATUSES = [
+  "AWAITING_SHIPMENT",
+  "AWAITING_COLLECTION",
+  "IN_TRANSIT",
+  "DELIVERED",
+  "READY_TO_SHIP",
+  "TO_SHIP",
+  "TO_PACK",
+  "PAID",
+  "UNSHIPPED",
+  "AWAITING_PICKUP",
+  "READY_FOR_COLLECTION",
+  "READY_FOR_PICKUP",
+];
+
+const STATUS_REFRESH_SKIP_CURRENT_STATUSES = new Set([
+  "COMPLETED",
+  "CANCELLED",
+  "CANCELED",
+  "CANCEL",
+  "RETURNED",
+  "RETURN_REFUND",
+  "REFUND",
+  "REFUNDED",
 ]);
 
 const PRESERVE_ITEM_ACTION_STATUSES = new Set([
@@ -279,22 +305,26 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
 
   let existingQuery = admin
     .from("marketplace_orders")
-    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, updated_at")
+    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
     .eq("tenant_id", activeAccount.tenant_id)
     .eq("marketplace_account_id", activeAccount.marketplace_account_id)
     .or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
 
   if (args.skipCompletedStatusRefresh) {
-    existingQuery = existingQuery.or("order_status.is.null,order_status.not.in.(COMPLETED,DELIVERED)");
+    existingQuery = existingQuery.or(`order_status.is.null,order_status.in.(${STATUS_REFRESH_TARGET_STATUSES.join(",")})`);
   }
 
-  const { data: existingOrders, error: existingError } = await existingQuery
-    // Rotasi order lama dulu. Setiap order yang dicek akan update pulled_at, jadi batch berikutnya bergerak ke order lain.
+  const candidateLimit = Math.min(Math.max(args.maxExistingOrders * 3, args.maxExistingOrders), 600);
+  const { data: existingOrdersRaw, error: existingError } = await existingQuery
     .order("pulled_at", { ascending: true, nullsFirst: true })
     .order("updated_at", { ascending: true, nullsFirst: true })
-    .limit(args.maxExistingOrders);
+    .limit(candidateLimit);
 
   if (existingError) throw new Error(`Load existing marketplace order gagal: ${existingError.message}`);
+
+  const payoutPriorityKeys = await loadPositivePayoutOrderKeys(admin, activeAccount, cutoffIso, 1000);
+  const existingOrders = prioritizeStatusRefreshCandidates(existingOrdersRaw || [], payoutPriorityKeys)
+    .slice(0, args.maxExistingOrders);
 
   let checked = 0;
   let updated = 0;
@@ -307,7 +337,7 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
     const orderId = text(row.external_order_id) || text(row.order_sn);
     if (!orderId) continue;
     const currentOrderStatusUpper = text(row.order_status).toUpperCase();
-    if (args.skipCompletedStatusRefresh && FINAL_MARKETPLACE_ORDER_STATUSES.has(currentOrderStatusUpper)) {
+    if (args.skipCompletedStatusRefresh && STATUS_REFRESH_SKIP_CURRENT_STATUSES.has(currentOrderStatusUpper)) {
       skippedCompleted += 1;
       continue;
     }
@@ -346,11 +376,6 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
 
     const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
     const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
-    if (args.skipCompletedStatusRefresh && FINAL_MARKETPLACE_ORDER_STATUSES.has(orderStatusUpper)) {
-      skippedCompleted += 1;
-      continue;
-    }
-
     const statusGroup = orderStatusGroup(orderStatusUpper);
     const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
     const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
@@ -463,10 +488,72 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
     skipped_completed: skippedCompleted,
     review_required: changedToReview,
     failed,
+    payout_priority_candidates: payoutPriorityKeys.size,
+    selected_candidates: existingOrders.length,
     warning_count: warnings.length,
     warnings: warnings.slice(0, 8),
     message: `Refresh status order selesai: dicek=${checked}, berubah=${updated}, perlu review=${changedToReview}, gagal=${failed}.`,
   };
+}
+
+
+async function loadPositivePayoutOrderKeys(admin: any, account: any, cutoffIso: string, limit: number) {
+  const keys = new Set<string>();
+  try {
+    const cutoffDate = cutoffIso.slice(0, 10);
+    const { data } = await admin
+      .from("marketplace_finance_reports")
+      .select("order_id, marketplace_order_id, payout_amount, received_amount, net_settlement, period_start, pulled_at, updated_at")
+      .eq("tenant_id", account.tenant_id)
+      .eq("marketplace_account_id", account.marketplace_account_id)
+      .gte("period_start", cutoffDate)
+      .order("period_start", { ascending: false })
+      .limit(Math.max(1, Math.min(limit, 2000)));
+
+    for (const row of data || []) {
+      const payout = firstNumber(row.payout_amount, row.received_amount, row.net_settlement);
+      if (payout <= 0) continue;
+      for (const value of [row.order_id, row.marketplace_order_id]) {
+        const clean = text(value);
+        if (clean) keys.add(clean);
+      }
+    }
+  } catch (_) {
+  }
+  return keys;
+}
+
+function prioritizeStatusRefreshCandidates(rows: any[], payoutPriorityKeys: Set<string>) {
+  return [...rows].sort((a, b) => {
+    const aPriority = rowHasPayoutPriority(a, payoutPriorityKeys) ? 0 : 1;
+    const bPriority = rowHasPayoutPriority(b, payoutPriorityKeys) ? 0 : 1;
+    if (aPriority !== bPriority) return aPriority - bPriority;
+    return oldestRefreshTime(a) - oldestRefreshTime(b);
+  });
+}
+
+function rowHasPayoutPriority(row: any, payoutPriorityKeys: Set<string>) {
+  for (const value of [row.external_order_id, row.order_sn, row.marketplace_order_id]) {
+    const clean = text(value);
+    if (clean && payoutPriorityKeys.has(clean)) return true;
+  }
+  return false;
+}
+
+function oldestRefreshTime(row: any) {
+  for (const value of [row.pulled_at, row.updated_at, row.order_updated_at, row.order_created_at]) {
+    const t = Date.parse(String(value || ""));
+    if (Number.isFinite(t)) return t;
+  }
+  return 0;
+}
+
+function firstNumber(...values: unknown[]) {
+  for (const value of values) {
+    const n = Number(value ?? 0);
+    if (Number.isFinite(n) && n !== 0) return n;
+  }
+  return 0;
 }
 
 async function syncOrderItemsStatusFromOrder(admin: any, account: any, marketplaceOrderId: string, args: { trackingNumber: string | null; packageId: string | null; nextStockActionStatus: string; lastError: string | null }) {
@@ -511,21 +598,26 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
 
   let existingQuery = admin
     .from("marketplace_orders")
-    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, updated_at")
+    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
     .eq("tenant_id", activeAccount.tenant_id)
     .eq("marketplace_account_id", activeAccount.marketplace_account_id)
     .or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
 
   if (args.skipCompletedStatusRefresh) {
-    existingQuery = existingQuery.or("order_status.is.null,order_status.not.in.(COMPLETED,DELIVERED)");
+    existingQuery = existingQuery.or(`order_status.is.null,order_status.in.(${STATUS_REFRESH_TARGET_STATUSES.join(",")})`);
   }
 
-  const { data: existingOrders, error: existingError } = await existingQuery
+  const candidateLimit = Math.min(Math.max(args.maxExistingOrders * 3, args.maxExistingOrders), 600);
+  const { data: existingOrdersRaw, error: existingError } = await existingQuery
     .order("pulled_at", { ascending: true, nullsFirst: true })
     .order("updated_at", { ascending: true, nullsFirst: true })
-    .limit(args.maxExistingOrders);
+    .limit(candidateLimit);
 
   if (existingError) throw new Error(`Load existing Shopee order gagal: ${existingError.message}`);
+
+  const payoutPriorityKeys = await loadPositivePayoutOrderKeys(admin, activeAccount, cutoffIso, 1000);
+  const existingOrders = prioritizeStatusRefreshCandidates(existingOrdersRaw || [], payoutPriorityKeys)
+    .slice(0, args.maxExistingOrders);
 
   let checked = 0;
   let updated = 0;
@@ -539,7 +631,7 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
     if (!orderId) continue;
 
     const currentOrderStatusUpper = text(row.order_status).toUpperCase();
-    if (args.skipCompletedStatusRefresh && FINAL_MARKETPLACE_ORDER_STATUSES.has(currentOrderStatusUpper)) {
+    if (args.skipCompletedStatusRefresh && STATUS_REFRESH_SKIP_CURRENT_STATUSES.has(currentOrderStatusUpper)) {
       skippedCompleted += 1;
       continue;
     }
@@ -571,11 +663,6 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
 
     const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
     const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
-    if (args.skipCompletedStatusRefresh && FINAL_MARKETPLACE_ORDER_STATUSES.has(orderStatusUpper)) {
-      skippedCompleted += 1;
-      continue;
-    }
-
     const statusGroup = orderStatusGroup(orderStatusUpper);
     const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
     const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
@@ -686,6 +773,8 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
     skipped_completed: skippedCompleted,
     review_required: changedToReview,
     failed,
+    payout_priority_candidates: payoutPriorityKeys.size,
+    selected_candidates: existingOrders.length,
     warning_count: warnings.length,
     warnings: warnings.slice(0, 8),
     message: `Refresh status Shopee selesai: dicek=${checked}, berubah=${updated}, perlu review=${changedToReview}, gagal=${failed}.`,

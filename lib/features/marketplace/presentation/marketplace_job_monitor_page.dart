@@ -303,6 +303,11 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
                 children: [
                   _infoBox(theme),
                   const SizedBox(height: 14),
+                  _accountAuthCard(theme, _list('account_auth')),
+                  const SizedBox(height: 14),
+                  _refreshCandidateCard(
+                      theme, _map('nonfinal_order_refresh_candidates')),
+                  const SizedBox(height: 14),
                   _summaryCard(
                     theme: theme,
                     title: 'Pembaruan Order',
@@ -332,6 +337,9 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
                   _jobList(theme,
                       'Riwayat Payout Terbaru', _list('recent_finance_jobs')),
                   const SizedBox(height: 14),
+                  _jobList(theme, 'Riwayat Refresh Status Marketplace',
+                      _list('recent_marketplace_logs')),
+                  const SizedBox(height: 14),
                   _jobList(theme,
                       'Riwayat Sinkron Terbaru', _list('recent_sync_logs')),
                 ],
@@ -350,6 +358,118 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       child: Text(
         'Refresh membaca status terbaru. Aksi lanjutkan, ulangi, atau siapkan ulang dikunci saat proses masih berjalan agar data tidak diproses dua kali.',
         style: TextStyle(color: theme.textTheme.bodySmall?.color),
+      ),
+    );
+  }
+
+  Widget _accountAuthCard(ThemeData theme, List<Map<String, dynamic>> rows) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.dividerColor.withOpacity(0.2))),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Status Token Marketplace',
+              style: TextStyle(
+                      color: theme.textTheme.titleLarge?.color,
+                      fontWeight: FontWeight.w800)
+                  .copyWith(fontSize: 16)),
+          const SizedBox(height: 8),
+          if (rows.isEmpty)
+            Text('Belum ada akun marketplace aktif.',
+                style: TextStyle(color: theme.textTheme.bodySmall?.color))
+          else
+            ...rows.map((row) {
+              final status = _txt(row['token_status'], 'unknown');
+              final danger = status.contains('expired') || status.contains('missing');
+              final warning = status.contains('soon') || status.contains('no_expiry');
+              final color = danger
+                  ? Colors.redAccent
+                  : warning
+                      ? Colors.orangeAccent
+                      : Colors.greenAccent;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: color.withOpacity(0.28)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "${_txt(row['store_name'])} · ${_txt(row['marketplace'])} · ${_txt(row['environment'])}",
+                            style: TextStyle(color: theme.textTheme.bodyLarge?.color)
+                                .copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        Text(AppUi.userMessage(status),
+                            style: TextStyle(color: color)
+                                .copyWith(fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      "Access exp: ${_txt(row['access_token_expired_at_wib'])} · Refresh exp: ${_txt(row['refresh_token_expired_at_wib'])} · Last checked: ${_txt(row['last_checked_at_wib'])} · Last refreshed: ${_txt(row['last_refreshed_at_wib'])}",
+                      style: TextStyle(color: theme.textTheme.bodySmall?.color),
+                    ),
+                    if (_txt(row['last_error'], '').trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text("Error: ${_txt(row['last_error'])}",
+                          style: TextStyle(color: Colors.redAccent)),
+                    ],
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _refreshCandidateCard(
+      ThemeData theme, Map<String, dynamic> refreshCandidates) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.dividerColor.withOpacity(0.2))),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Target Refresh Status Non-final',
+              style: TextStyle(
+                      color: theme.textTheme.titleLarge?.color,
+                      fontWeight: FontWeight.w800)
+                  .copyWith(fontSize: 16)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _pill(theme, 'Non-final 90 hari',
+                  refreshCandidates['total_nonfinal_90d']),
+              _pill(theme, 'Prioritas payout masuk',
+                  refreshCandidates['payout_positive_priority']),
+              _pill(theme, 'Terakhir dicek',
+                  refreshCandidates['last_checked_at_wib']),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Status order tetap diambil dari API marketplace. Payout hanya dipakai untuk prioritas refresh dan warning di detail SKU.',
+            style: TextStyle(color: theme.textTheme.bodySmall?.color),
+          ),
+        ],
       ),
     );
   }

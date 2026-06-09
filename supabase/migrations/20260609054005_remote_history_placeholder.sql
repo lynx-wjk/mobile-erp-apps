@@ -1,0 +1,3 @@
+﻿-- Placeholder for remote migration version 20260609054005.
+-- This migration already exists in Supabase remote history but the original local file is missing.
+-- Do not add SQL here. Kept only so supabase db push can compare migration history safely.

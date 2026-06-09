@@ -76,7 +76,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   static String? _savedMarketplaceFilter;
   static String? _savedAccountFilter;
 
-  DateTime _start = _savedStartDate ?? DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _start =
+      _savedStartDate ?? DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _end = _savedEndDate ?? DateTime.now();
   String _marketplaceFilter = _savedMarketplaceFilter ?? 'all';
   String _accountFilter = _savedAccountFilter ?? 'all';
@@ -279,7 +280,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return lower.contains('could not find the function') ||
         lower.contains('function public.') ||
         lower.contains('does not exist') ||
-        lower.contains('pgrst202') || lower.contains('pgrst204') || lower.contains('pgrst301');
+        lower.contains('pgrst202') ||
+        lower.contains('pgrst204') ||
+        lower.contains('pgrst301');
   }
 
   String _financeSnapshotLocalKey() {
@@ -453,7 +456,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final params = <String, dynamic>{
       'p_start': _toDateParam(_start),
       'p_end': _toDateParam(_end),
-      'p_marketplace': _marketplaceParam(),
+      'p_marketplace': _marketplaceRpcParam(),
       'p_account_id': _accountUuidParam(),
     };
 
@@ -492,7 +495,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final params = {
       'p_start': _toDateParam(_start),
       'p_end': _toDateParam(_end),
-      'p_marketplace': _marketplaceParam(),
+      'p_marketplace': _marketplaceRpcParam(),
       'p_account_id': _accountUuidParam(),
     };
     try {
@@ -539,7 +542,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           params: {
             'p_start': _toDateParam(_start),
             'p_end': _toDateParam(_end),
-            'p_marketplace': _marketplaceParam(),
+            'p_marketplace': _marketplaceRpcParam(),
             'p_account_id': _accountUuidParam(),
             'p_sku': sku,
             'p_limit': 200,
@@ -584,7 +587,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final params = {
       'p_start': _toDateParam(_start),
       'p_end': _toDateParam(_end),
-      'p_marketplace': _marketplaceParam(),
+      'p_marketplace': _marketplaceRpcParam(),
       'p_account_id': _accountUuidParam(),
     };
     try {
@@ -749,7 +752,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'p_status': status,
           'p_start': _toDateParam(_start),
           'p_end': _toDateParam(_end),
-          'p_marketplace': _marketplaceParam(),
+          'p_marketplace': _marketplaceRpcParam(),
           'p_account_id': _accountUuidParam(),
           'p_checked': checked ?? 0,
           'p_success': success ?? 0,
@@ -973,7 +976,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final snapshotParams = {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
-        'p_marketplace': _marketplaceParam(),
+        'p_marketplace': _marketplaceRpcParam(),
         'p_account_id': _accountUuidParam(),
       };
 
@@ -1012,7 +1015,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (!hasLocalSnapshot) {
         setState(() => _error = _cleanError(e));
       } else {
-        _setMessage('Cache lokal dipakai. Update server gagal: ${_cleanError(e)}');
+        _setMessage(
+            'Cache lokal dipakai. Update server gagal: ${_cleanError(e)}');
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -1100,7 +1104,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         total += n.abs();
         continue;
       }
-      final signed = _num(row['negative_payout_total'] ?? row['minus_payout_total'] ?? row['payout_minus_total']);
+      final signed = _num(row['negative_payout_total'] ??
+          row['minus_payout_total'] ??
+          row['payout_minus_total']);
       if (signed < 0) total += signed.abs();
     }
     if (total != 0) return total;
@@ -1118,7 +1124,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         row['payout'],
       ]);
       if (n < 0) total += n.abs();
-      if (n > 0 && _text(row['abnormal_status'] ?? row['status']).toUpperCase().contains('NEGATIVE')) {
+      if (n > 0 &&
+          _text(row['abnormal_status'] ?? row['status'])
+              .toUpperCase()
+              .contains('NEGATIVE')) {
         total += n.abs();
       }
     }
@@ -2503,7 +2512,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
     var unpaidGross = explicitUnpaidGross;
     if (unpaidGross <= 0 && grossTotal > 0) {
-      unpaidGross = (grossTotal - paidGross).clamp(0.0, double.infinity).toDouble();
+      unpaidGross =
+          (grossTotal - paidGross).clamp(0.0, double.infinity).toDouble();
     }
 
     final grossPerItem = totalQty > 0
@@ -2618,6 +2628,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['sku'] = _text(row['local_sku'] ?? row['marketplace_sku_id'], '-');
     return row;
   }
+
   List<Map<String, dynamic>> _normalizeSkuRows(
       List<Map<String, dynamic>> rows) {
     return rows.map((item) {
@@ -3181,8 +3192,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .lte('period_start', endDate)
           .or('payout_amount.lt.0,received_amount.lt.0,net_settlement.lt.0');
       if (marketplace != null) query = query.eq('marketplace', marketplace);
-      if (accountId != null) query = query.eq('marketplace_account_id', accountId);
-      final response = await query.order('period_start', ascending: false).range(from, to);
+      if (accountId != null)
+        query = query.eq('marketplace_account_id', accountId);
+      final response =
+          await query.order('period_start', ascending: false).range(from, to);
       final rows = _asList(response)
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
@@ -3198,9 +3211,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           row['gross_amount'],
           row['gross_sales'],
         ]);
-        final orderId = _text(row['order_id'] ?? row['marketplace_order_id'], '-');
+        final orderId =
+            _text(row['order_id'] ?? row['marketplace_order_id'], '-');
         final periodStart = _text(row['period_start'], '');
-        final orderDate = periodStart.length >= 10 ? periodStart.substring(0, 10) : periodStart;
+        final orderDate = periodStart.length >= 10
+            ? periodStart.substring(0, 10)
+            : periodStart;
         final detail = <String, dynamic>{
           'gross': gross,
           'payout': payout,
@@ -3256,7 +3272,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final params = <String, dynamic>{
       'p_start': _toDateParam(_start),
       'p_end': _toDateParam(_end),
-      'p_marketplace': _marketplaceParam(),
+      'p_marketplace': _marketplaceRpcParam(),
       'p_account_id': _accountUuidParam(),
       'p_search': _abnormalSearchController.text.trim().isEmpty
           ? null
@@ -3304,7 +3320,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             final value = aggregates[key];
             if (value != null) nextSummary[key] = value;
           }
-          if (nextSummary['abnormal_count'] == null && aggregates['total'] != null) {
+          if (nextSummary['abnormal_count'] == null &&
+              aggregates['total'] != null) {
             nextSummary['abnormal_count'] = aggregates['total'];
           }
           _summary = nextSummary;
@@ -3325,13 +3342,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (fallbackRows.isNotEmpty) {
         if (!mounted) return;
         setState(() {
-          _activeAbnormalRpc = 'marketplace_finance_reports_raw_negative_payout';
+          _activeAbnormalRpc =
+              'marketplace_finance_reports_raw_negative_payout';
           _serverAbnormales = fallbackRows;
           final fallbackTotal = _numFirstNonZero([
             _summary['negative_payout_count'],
             _summary['abnormal_count'],
           ]).toInt();
-          _abnormalTotal = fallbackTotal > 0 ? fallbackTotal : fallbackRows.length;
+          _abnormalTotal =
+              fallbackTotal > 0 ? fallbackTotal : fallbackRows.length;
           _abnormalPage = page;
           _abnormalServerLoaded = true;
         });
@@ -3649,7 +3668,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       decoration: BoxDecoration(
         color: (Theme.of(context).cardColor),
         borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.28)),
+        border:
+            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.28)),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
@@ -4018,7 +4038,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'p_sync_type': 'manual_period',
           'p_start': _toDateParam(_start),
           'p_end': _toDateParam(_end),
-          'p_marketplace': _marketplaceParam(),
+          'p_marketplace': _marketplaceRpcParam(),
           'p_account_id': _accountUuidParam(),
           'p_checked': checked,
           'p_success': success,
@@ -4228,8 +4248,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Batal')),
+              onPressed: () => Navigator.pop(context), child: Text('Batal')),
           FilledButton(
             onPressed: () => Navigator.pop(
                 context, num.tryParse(controller.text.replaceAll(',', '.'))),
@@ -4357,7 +4376,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         final picked = await showDatePicker(
                           context: context,
                           initialDate: expenseDate,
-                          firstDate: DateTime.now().subtract(const Duration(days: 90)),
+                          firstDate:
+                              DateTime.now().subtract(const Duration(days: 90)),
                           lastDate:
                               DateTime.now().add(const Duration(days: 365)),
                         );
@@ -4523,7 +4543,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     final picked = await showDatePicker(
                       context: context,
                       initialDate: expenseDate,
-                      firstDate: DateTime.now().subtract(const Duration(days: 90)),
+                      firstDate:
+                          DateTime.now().subtract(const Duration(days: 90)),
                       lastDate: DateTime.now().add(const Duration(days: 365)),
                     );
                     if (picked == null) return;
@@ -4610,8 +4631,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               onPressed: () => Navigator.pop(context, false),
               child: Text('Batal')),
           FilledButton(
-            style:
-                FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(context, true),
             child: Text('Hapus'),
           ),
@@ -4677,7 +4698,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 fontSize: 16,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 1,
-                color: Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white
+                    : Colors.black,
               ),
             ),
             actions: [
@@ -4716,7 +4739,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               preferredSize: const Size.fromHeight(48),
               child: Container(
                 decoration: const BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.black, width: 3)),
+                  border:
+                      Border(bottom: BorderSide(color: Colors.black, width: 3)),
                 ),
                 child: TabBar(
                   isScrollable: true,
@@ -4726,10 +4750,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     borderSide: BorderSide(color: Colors.cyan, width: 6),
                     insets: EdgeInsets.symmetric(horizontal: 16),
                   ),
-                  labelColor: Theme.of(context).brightness == Brightness.dark ? Colors.cyan : Colors.black,
-                  unselectedLabelColor: Theme.of(context).brightness == Brightness.dark ? Colors.white54 : Colors.black54,
-                  labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1),
-                  unselectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                  labelColor: Theme.of(context).brightness == Brightness.dark
+                      ? Colors.cyan
+                      : Colors.black,
+                  unselectedLabelColor:
+                      Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white54
+                          : Colors.black54,
+                  labelStyle: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1),
+                  unselectedLabelStyle: const TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.w700),
                   tabs: tabs,
                 ),
               ),
@@ -4833,7 +4866,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E293B) : Colors.white,
         border: Border(
-          bottom: BorderSide(color: isDark ? Colors.white : Colors.black, width: 2),
+          bottom:
+              BorderSide(color: isDark ? Colors.white : Colors.black, width: 2),
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -4872,11 +4906,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   style: OutlinedButton.styleFrom(
                     minimumSize: Size.zero,
                     padding: const EdgeInsets.symmetric(horizontal: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                    shape:
+                        RoundedRectangleBorder(borderRadius: BorderRadius.zero),
                   ),
-                  onPressed: () => setState(() => _filterExpanded = !_filterExpanded),
-                  icon: Icon(_filterExpanded ? Icons.expand_less : Icons.tune_rounded, size: 18),
-                  label: const Text('Filter', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  onPressed: () =>
+                      setState(() => _filterExpanded = !_filterExpanded),
+                  icon: Icon(
+                      _filterExpanded ? Icons.expand_less : Icons.tune_rounded,
+                      size: 18),
+                  label: const Text('Filter',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -4985,17 +5025,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           SizedBox(height: 4),
           Text(
             'Tarik manual: ${_dateTime(manual)}',
-            style: TextStyle(color: Theme.of(context).textTheme.bodyMedium?.color, fontSize: 11),
+            style: TextStyle(
+                color: Theme.of(context).textTheme.bodyMedium?.color,
+                fontSize: 11),
           ),
           Text(
             'Auto payout: ${_dateTime(auto)}${_financeAutoSyncMessage.isNotEmpty ? ' · $_financeAutoSyncMessage' : ''}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: Theme.of(context).textTheme.bodyMedium?.color, fontSize: 11),
+            style: TextStyle(
+                color: Theme.of(context).textTheme.bodyMedium?.color,
+                fontSize: 11),
           ),
           Text(
             'Order: ${_dateTime(order)} · Finance: ${_dateTime(finance)}',
-            style: TextStyle(color: Theme.of(context).textTheme.bodySmall?.color, fontSize: 10.5),
+            style: TextStyle(
+                color: Theme.of(context).textTheme.bodySmall?.color,
+                fontSize: 10.5),
           ),
           if (_lastSnapshotStats.trim().isNotEmpty) ...[
             SizedBox(height: 3),
@@ -5024,7 +5070,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       decoration: BoxDecoration(
         color: (Theme.of(context).cardColor),
         borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.35)),
+        border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -5036,7 +5083,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Theme.of(context).colorScheme.primary))
+                        strokeWidth: 2,
+                        color: Theme.of(context).colorScheme.primary))
               else
                 Icon(Icons.check_circle_rounded,
                     size: 17, color: Theme.of(context).colorScheme.primary),
@@ -5128,7 +5176,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 SizedBox(height: 2),
                 Text(
                     'Proses otomatis otomatis menarik finance hari ini/kemarin dan refresh payout existing.',
-                    style: TextStyle(fontSize: 10.5, color: Theme.of(context).colorScheme.outline)),
+                    style: TextStyle(
+                        fontSize: 10.5,
+                        color: Theme.of(context).colorScheme.outline)),
               ],
             ),
           ),
@@ -5137,7 +5187,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Theme.of(context).colorScheme.primary))
+                    strokeWidth: 2,
+                    color: Theme.of(context).colorScheme.primary))
           else
             Switch.adaptive(
               value: _financeAutoSyncEnabled,
@@ -5233,7 +5284,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       decoration: BoxDecoration(
         color: (Theme.of(context).cardColor),
         borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.35)),
+        border:
+            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.35)),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<T>(
@@ -5248,7 +5300,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           items: items,
           onChanged: onChanged,
           hint: Text(label,
-              style: TextStyle(fontSize: 11, color: Theme.of(context).textTheme.bodySmall?.color)),
+              style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).textTheme.bodySmall?.color)),
         ),
       ),
     );
@@ -5398,7 +5452,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             _heroCard(
               title: payout > 0 ? 'LABA BERSIH' : 'ESTIMASI LABA',
               value: _money(profit),
-              subtitle: 'Margin ${margin.toStringAsFixed(2)}%  ·  $orderSubtitle',
+              subtitle:
+                  'Margin ${margin.toStringAsFixed(2)}%  ·  $orderSubtitle',
               icon: Icons.account_balance_wallet_rounded,
               positive: profit >= 0,
             ),
@@ -5415,8 +5470,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   Icons.inventory_2_outlined),
               _Metric('Abnormal', abnormalCount.toStringAsFixed(0),
                   Icons.warning_amber_rounded),
-              _Metric(
-                  'Sumber', displaySourceCount.toString(), Icons.dataset_rounded),
+              _Metric('Sumber', displaySourceCount.toString(),
+                  Icons.dataset_rounded),
             ]),
             const SizedBox(height: 16),
             _emptyCard('Filter tanggal aktif untuk semua tab.'),
@@ -5542,7 +5597,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   children: [
                     TextButton.icon(
                       onPressed: () =>
-                          _showSkuOrderRefs(row, payoutFilter: 'paid'),
+                          _showSkuOrderRefsV82o(row, payoutFilter: 'paid'),
                       icon: Icon(Icons.receipt_long_rounded, size: 16),
                       label: Text('Settled $paidQtyDisplay',
                           style: TextStyle(fontSize: 12)),
@@ -5555,7 +5610,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     ),
                     TextButton.icon(
                       onPressed: () =>
-                          _showSkuOrderRefs(row, payoutFilter: 'unpaid'),
+                          _showSkuOrderRefsV82o(row, payoutFilter: 'unpaid'),
                       icon: Icon(Icons.pending_actions_rounded, size: 16),
                       label: Text('Belum payout $unpaidQtyDisplay',
                           style: TextStyle(fontSize: 12)),
@@ -5566,7 +5621,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ),
-                    
                   ],
                 ),
                 children: [
@@ -5884,7 +5938,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           // Search bar
           TextField(
             controller: _abnormalSearchController,
-            style: TextStyle(color: Theme.of(context).dividerColor, fontSize: 13),
+            style:
+                TextStyle(color: Theme.of(context).dividerColor, fontSize: 13),
             textInputAction: TextInputAction.search,
             onSubmitted: (_) => _refreshAbnormalTab(resetPage: true),
             decoration: InputDecoration(
@@ -5927,7 +5982,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   label: Text('Tandai batal/unpaid',
                       style: TextStyle(fontSize: 11)),
                   style: OutlinedButton.styleFrom(
-                    minimumSize: Size.zero,
+                      minimumSize: Size.zero,
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 8)),
                 ),
@@ -6000,23 +6055,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       'Abnormal'),
                   subtitle: _abnormalSubtitle(row),
                   trailing: TextButton.icon(
-                    onPressed: () {
-                      if (count > 0) {
-                        _showSkuOrderRefs(row);
-                      } else {
-                        _showAbnormalSingleDetail(
-                          _text(
-                              row['product_name'] ??
-                                  row['variant_name'] ??
-                                  row['title'] ??
-                                  row['sku'] ??
-                                  row['order_sn'] ??
-                                  row['order_id'],
-                              'Abnormal'),
-                          row,
-                        );
-                      }
-                    },
+                    onPressed: () => _showAbnormalSingleDetail(
+                      _text(
+                        row['product_name'] ??
+                            row['variant_name'] ??
+                            row['sku'] ??
+                            row['title'] ??
+                            row['order_sn'] ??
+                            row['order_id'],
+                        'Detail abnormal',
+                      ),
+                      row,
+                    ),
                     icon: Icon(Icons.receipt_long_rounded, size: 16),
                     label: Text(count > 1 ? 'Detail $count' : 'Detail',
                         style: TextStyle(fontSize: 12)),
@@ -6092,7 +6142,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 );
               }),
 
-            if (_abnormalServerLoaded && _abnormalTotal > _abnormalPageSize) ...[
+            if (_abnormalServerLoaded &&
+                _abnormalTotal > _abnormalPageSize) ...[
               SizedBox(height: 10),
               Row(
                 children: [
@@ -6184,7 +6235,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required bool positive,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final color = positive ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.error;
+    final color = positive
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.error;
     final borderColor = isDark ? Colors.white : Colors.black;
 
     return Container(
@@ -6285,7 +6338,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     width: 34,
                     height: 34,
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withOpacity(0.12),
                       borderRadius: BorderRadius.zero,
                       border: Border.all(color: borderColor, width: 1.5),
                     ),
@@ -6304,7 +6360,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               fontSize: 10.5,
-                              color: Theme.of(context).textTheme.bodyMedium?.color,
+                              color:
+                                  Theme.of(context).textTheme.bodyMedium?.color,
                               fontWeight: FontWeight.w800),
                         ),
                         SizedBox(height: 3),
@@ -6355,7 +6412,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             child: Text(
               message,
               style: TextStyle(
-                  fontSize: 13, color: Theme.of(context).colorScheme.outline, height: 1.4),
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.outline,
+                  height: 1.4),
             ),
           ),
         ],
@@ -6370,12 +6429,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.zero,
         color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
-        border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
+        border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
       ),
       child: Row(
         children: [
           Icon(Icons.check_circle_outline_rounded,
-              size: 18, color: Theme.of(context).colorScheme.primary.withOpacity(0.8)),
+              size: 18,
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.8)),
           SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -6397,7 +6458,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required String trailing,
     bool positive = true,
   }) {
-    final color = positive ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.error;
+    final color = positive
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.error;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -6427,8 +6490,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   subtitle,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style:
-                      TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.outline),
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color: Theme.of(context).colorScheme.outline),
                 ),
               ],
             ),
@@ -6480,8 +6544,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   '${_date(row['paid_at'] ?? row['expense_date'] ?? row['created_at'])}  ·  ${_text(row['note'], 'Tanpa catatan')}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style:
-                      TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.outline),
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color: Theme.of(context).colorScheme.outline),
                 ),
               ],
             ),
@@ -6529,7 +6594,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _tinyActionButton(IconData icon, String tooltip, VoidCallback onTap,
       {bool danger = false}) {
-    final color = danger ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.primary;
+    final color = danger
+        ? Theme.of(context).colorScheme.error
+        : Theme.of(context).colorScheme.primary;
     return Material(
       color: color.withOpacity(0.08),
       borderRadius: BorderRadius.zero,
@@ -6586,7 +6653,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             subtitle,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.outline),
+            style: TextStyle(
+                fontSize: 11.5, color: Theme.of(context).colorScheme.outline),
           ),
           SizedBox(height: 12),
           Wrap(spacing: 6, runSpacing: 6, children: children),
@@ -6632,9 +6700,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final warning = payoutFilter == 'unpaid' && (count > 0 || expectedQty > 0);
     return InkWell(
       borderRadius: BorderRadius.zero,
-      onTap: rows.isEmpty && expectedQty <= 0
-          ? null
-          : () => _showSkuOrderRefs(row, payoutFilter: payoutFilter),
+      onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: payoutFilter),
       child: Container(
         constraints: const BoxConstraints(minWidth: 180, maxWidth: 340),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -6668,7 +6734,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         ? Icons.info_outline_rounded
                         : Icons.open_in_new_rounded,
                     size: 13,
-                    color: warning ? Colors.redAccent : Theme.of(context).colorScheme.primary),
+                    color: warning
+                        ? Colors.redAccent
+                        : Theme.of(context).colorScheme.primary),
               ],
             ),
             SizedBox(height: 2),
@@ -6705,8 +6773,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           _text(row['shop_name'] ?? row['account_name'] ?? row['seller_name'],
               '-')),
       MapEntry('Status order', _text(row['order_status'], '-')),
-      MapEntry(
-          'Status abnormal', _text(row['abnormal_status'] ?? row['status'], '-')),
+      MapEntry('Status abnormal',
+          _text(row['abnormal_status'] ?? row['status'], '-')),
       MapEntry('SKU lokal',
           _text(row['local_sku'] ?? row['sku'] ?? row['sku_key'], '-')),
       MapEntry(
@@ -6793,14 +6861,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           child: Text(item.key,
                               style: TextStyle(
                                   fontSize: 12,
-                                  color: Theme.of(context).textTheme.bodyMedium?.color,
+                                  color: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.color,
                                   fontWeight: FontWeight.w700)),
                         ),
                         Expanded(
                             child: Text(item.value,
                                 style: TextStyle(
                                     fontSize: 13,
-                                    color: Theme.of(context).textTheme.bodyLarge?.color,
+                                    color: Theme.of(context)
+                                        .textTheme
+                                        .bodyLarge
+                                        ?.color,
                                     fontWeight: FontWeight.w800))),
                       ],
                     );
@@ -6814,17 +6888,989 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
+  num _skuOrderDetailPayoutValueV82o(Map<String, dynamic> row) {
+    return _numFirstNonZero([
+      row['payout'],
+      row['payout_amount'],
+      row['payout_total'],
+      row['received_amount'],
+      row['net_received'],
+      row['net_settlement'],
+      row['settlement_amount'],
+      row['paid_amount'],
+      row['payout_per_item'],
+      row['unit_paid_amount'],
+      row['unit_payout_amount'],
+    ]);
+  }
+
+  num _skuOrderDetailPayoutPerItemValueV82o(Map<String, dynamic> row) {
+    return _numFirstNonZero([
+      row['payout_per_item'],
+      row['unit_paid_amount'],
+      row['unit_payout_amount'],
+    ]);
+  }
+
+  Object? _skuOrderDetailTimestampValueV82o(Map<String, dynamic> row) {
+    return row['order_created_at'] ??
+        row['created_time'] ??
+        row['transaction_time'] ??
+        row['paid_at'] ??
+        row['created_at'] ??
+        row['order_date'] ??
+        row['period_start'];
+  }
+
+  String _skuDetailOrderStatusV82o(Map<String, dynamic> row) {
+    return _text(
+      row['order_status'] ??
+          row['status_order'] ??
+          row['live_order_status'] ??
+          row['raw_order_status'] ??
+          row['status'],
+      '-',
+    ).trim();
+  }
+
+  bool _skuDetailNeedsMarketplaceRefreshV82o(Map<String, dynamic> row) {
+    if (_skuOrderDetailPayoutValueV82o(row) <= 0) return false;
+    final status = _skuDetailOrderStatusV82o(row).toUpperCase();
+    if (status.isEmpty || status == '-') return false;
+    const nonFinal = <String>{
+      'AWAITING_SHIPMENT',
+      'AWAITING_COLLECTION',
+      'IN_TRANSIT',
+      'DELIVERED',
+      'READY_TO_SHIP',
+      'TO_SHIP',
+      'TO_PACK',
+    };
+    return nonFinal.contains(status);
+  }
+
+  Widget _skuRefreshWarningBannerV82o(Map<String, dynamic> item) {
+    final status = _skuDetailOrderStatusV82o(item);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.10),
+        borderRadius: BorderRadius.zero,
+        border: Border.all(color: Colors.orange.withOpacity(0.35)),
+      ),
+      child: Text(
+        'Payout sudah masuk, tetapi status order masih $status. Perlu refresh marketplace.',
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+          color: Colors.orange.shade800,
+          height: 1.35,
+        ),
+      ),
+    );
+  }
+
+  Map<String, dynamic> _normalizeSkuOrderDetailDisplayRowV82o(
+      Map<String, dynamic> row) {
+    final copy = Map<String, dynamic>.from(row);
+
+    final preferredOrderDate =
+        _text(_skuOrderDetailTimestampValueV82o(copy), '');
+    if (preferredOrderDate.trim().isNotEmpty) {
+      copy['order_date'] = preferredOrderDate;
+    }
+
+    final orderStatus = _skuDetailOrderStatusV82o(copy);
+    if (orderStatus.isNotEmpty && orderStatus != '-') {
+      copy['order_status'] = orderStatus;
+    }
+
+    final payout = _skuOrderDetailPayoutValueV82o(copy);
+    copy['payout'] = payout;
+    copy['payout_amount'] = payout;
+
+    final payoutPerItem = _skuOrderDetailPayoutPerItemValueV82o(copy);
+    if (payoutPerItem != 0) {
+      copy['payout_per_item'] = payoutPerItem;
+    }
+
+    final status = _text(
+      copy['payout_status'] ??
+          copy['finance_status'] ??
+          copy['settlement_status'] ??
+          copy['status'],
+      '',
+    ).toUpperCase();
+
+    if (payout < 0) {
+      copy['payout_status'] = 'PAYOUT_MINUS';
+      copy['finance_status'] = 'NEGATIVE_PAYOUT';
+    } else if (payout > 0) {
+      copy['payout_status'] = 'SETTLED';
+      copy['finance_status'] = 'SETTLED';
+    } else if (status.contains('PENDING') ||
+        status.contains('UNPAID') ||
+        status.contains('MISSING') ||
+        status.trim().isEmpty) {
+      copy['payout_status'] = 'PENDING_PAYOUT';
+      copy['finance_status'] = 'PENDING_PAYOUT';
+    }
+
+    if (_text(copy['order']).trim().isEmpty ||
+        _text(copy['order']).trim() == '-') {
+      copy['order'] = copy['order_id'] ??
+          copy['order_sn'] ??
+          copy['external_order_id'] ??
+          copy['remote_order_id'];
+    }
+
+    if (_text(copy['resi']).trim().isEmpty ||
+        _text(copy['resi']).trim() == '-') {
+      copy['resi'] = copy['tracking_number'] ??
+          copy['tracking_no'] ??
+          copy['logistics_tracking_number'] ??
+          copy['awb'] ??
+          copy['waybill_no'];
+    }
+
+    return copy;
+  }
+
+  bool _skuDetailHasPayoutV82o(Map<String, dynamic> row) {
+    final payout = _skuOrderDetailPayoutValueV82o(row);
+
+    final rawStatus = _text(
+      row['status'] ?? row['order_status'],
+      '',
+    ).toUpperCase();
+
+    final financeStatus = _text(
+      row['payout_status'] ?? row['finance_status'] ?? row['settlement_status'],
+      '',
+    ).toUpperCase();
+
+    final joinedStatus = '$rawStatus $financeStatus';
+
+    if (joinedStatus.contains('CANCEL') ||
+        joinedStatus.contains('REFUND') ||
+        joinedStatus.contains('RETURN')) {
+      return false;
+    }
+
+    if (payout != 0) return true;
+
+    return financeStatus.contains('SETTLED') ||
+        financeStatus.contains('PAID') ||
+        financeStatus.contains('RELEASE') ||
+        financeStatus.contains('PAYOUT_MINUS') ||
+        financeStatus.contains('NEGATIVE_PAYOUT');
+  }
+
+  bool _skuDetailIsPendingPayoutV82o(Map<String, dynamic> row) {
+    final payout = _skuOrderDetailPayoutValueV82o(row);
+
+    final rawStatus = _text(
+      row['status'] ?? row['order_status'],
+      '',
+    ).toUpperCase();
+
+    final financeStatus = _text(
+      row['payout_status'] ?? row['finance_status'] ?? row['settlement_status'],
+      '',
+    ).toUpperCase();
+
+    final joinedStatus = '$rawStatus $financeStatus';
+
+    if (joinedStatus.contains('CANCEL') ||
+        joinedStatus.contains('REFUND') ||
+        joinedStatus.contains('RETURN')) {
+      return false;
+    }
+
+    if (payout != 0) return false;
+
+    return financeStatus.contains('BELUM') ||
+        financeStatus.contains('PENDING') ||
+        financeStatus.contains('UNPAID') ||
+        financeStatus.contains('MISSING') ||
+        financeStatus.trim().isEmpty;
+  }
+
+  List<Map<String, dynamic>> _filteredSkuOrderRowsV82o(
+      List<Map<String, dynamic>> rows, String payoutFilter) {
+    final normalized = rows
+        .map(_normalizeSkuOrderDetailDisplayRowV82o)
+        .toList(growable: false);
+
+    if (payoutFilter == 'paid') {
+      return normalized.where(_skuDetailHasPayoutV82o).toList();
+    }
+
+    if (payoutFilter == 'unpaid') {
+      return normalized.where(_skuDetailIsPendingPayoutV82o).toList();
+    }
+
+    return normalized;
+  }
+
+  List<dynamic> _extractSkuOrderDetailRowsV82o(Object? payload) {
+    if (payload == null) return <dynamic>[];
+
+    if (payload is String) {
+      try {
+        return _extractSkuOrderDetailRowsV82o(jsonDecode(payload));
+      } catch (_) {
+        return <dynamic>[];
+      }
+    }
+
+    if (payload is List) return payload;
+
+    if (payload is Map) {
+      const keys = [
+        'rows',
+        'data',
+        'order_details',
+        'details',
+        'orders',
+        'items',
+        'records',
+        'result',
+        'lines',
+      ];
+
+      for (final key in keys) {
+        if (!payload.containsKey(key)) continue;
+        final rows = _extractSkuOrderDetailRowsV82o(payload[key]);
+        if (rows.isNotEmpty) return rows;
+      }
+    }
+
+    return <dynamic>[];
+  }
+
+  int _intFromV82o(Object? value, int fallback) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
+  int _positiveIntV82o(Object? value, int fallback) {
+    final parsed = _intFromV82o(value, fallback);
+    return parsed > 0 ? parsed : fallback;
+  }
+
+  int _skuDetailTotalV82o(Object? payload, int fallback) {
+    if (payload is String) {
+      try {
+        return _skuDetailTotalV82o(jsonDecode(payload), fallback);
+      } catch (_) {
+        return fallback;
+      }
+    }
+    if (payload is! Map) return fallback;
+    final map = Map<String, dynamic>.from(payload);
+    final direct = _intFromV82o(
+      map['total'] ??
+          map['total_count'] ??
+          map['filtered_count'] ??
+          map['count'] ??
+          map['records_total'],
+      -1,
+    );
+    if (direct >= 0) return direct;
+    for (final key in const ['pagination', 'meta', 'aggregates']) {
+      final nested = map[key];
+      if (nested is Map) {
+        final nestedTotal = _intFromV82o(
+          nested['total'] ?? nested['total_count'] ?? nested['count'],
+          -1,
+        );
+        if (nestedTotal >= 0) return nestedTotal;
+      }
+    }
+    return fallback;
+  }
+
+  int _skuDetailPageV82o(Object? payload, int fallback) {
+    if (payload is! Map) return fallback;
+    final direct = _positiveIntV82o(payload['page'] ?? payload['current_page'], fallback);
+    if (direct != fallback) return direct;
+    final nested = payload['pagination'] ?? payload['meta'];
+    if (nested is Map) return _positiveIntV82o(nested['page'] ?? nested['current_page'], fallback);
+    return fallback;
+  }
+
+  int _skuDetailPageSizeV82o(Object? payload, int fallback) {
+    if (payload is! Map) return fallback;
+    final direct = _positiveIntV82o(payload['page_size'] ?? payload['per_page'] ?? payload['limit'], fallback);
+    if (direct != fallback) return direct;
+    final nested = payload['pagination'] ?? payload['meta'];
+    if (nested is Map) return _positiveIntV82o(nested['page_size'] ?? nested['per_page'] ?? nested['limit'], fallback);
+    return fallback;
+  }
+
+  int _skuDetailTotalPagesV82o(Object? payload, int total, int pageSize) {
+    if (payload is Map) {
+      final direct = _positiveIntV82o(
+        payload['total_pages'] ?? payload['pages'] ?? payload['last_page'],
+        -1,
+      );
+      if (direct > 0) return direct;
+      final nested = payload['pagination'] ?? payload['meta'];
+      if (nested is Map) {
+        final nestedPages = _positiveIntV82o(
+          nested['total_pages'] ?? nested['pages'] ?? nested['last_page'],
+          -1,
+        );
+        if (nestedPages > 0) return nestedPages;
+      }
+    }
+    if (pageSize <= 0) return 1;
+    return total <= 0 ? 1 : ((total + pageSize - 1) ~/ pageSize);
+  }
+
+  int _minIntV82o(int a, int b) => a < b ? a : b;
+
+  String _skuDetailPageSummaryV82o({
+    required int page,
+    required int pageSize,
+    required int total,
+    required int totalPages,
+    required int visibleCount,
+  }) {
+    if (total <= 0 || visibleCount <= 0) {
+      return 'Menampilkan 0 dari $total · Hal $page/$totalPages';
+    }
+    final start = ((page - 1) * pageSize) + 1;
+    final end = _minIntV82o(((page - 1) * pageSize) + visibleCount, total);
+    return 'Menampilkan $start–$end dari $total · Hal $page/$totalPages';
+  }
+
+  String? _marketplaceRpcParam() {
+    final value = _text(_marketplaceParam(), '').trim();
+    if (value.isEmpty || value.toLowerCase() == 'all') return null;
+    return value;
+  }
+
+  Map<String, String> _skuOrderLookupParamsV82o(Map<String, dynamic> row) {
+    final productSearch = _text(
+      row['product_name'] ??
+          row['nama_barang'] ??
+          row['title'] ??
+          row['marketplace_product_name'] ??
+          row['product_title'],
+      '',
+    ).trim();
+
+    final variantSearch = _text(
+      row['variant_name'] ??
+          row['marketplace_variation_name'] ??
+          row['variation_name'],
+      '',
+    ).trim();
+
+    final marketplaceSku = _text(
+      row['marketplace_sku_id'] ??
+          row['marketplace_sku'] ??
+          row['marketplace_seller_sku'] ??
+          row['seller_sku'] ??
+          row['sku_marketplace'] ??
+          row['external_sku_id'] ??
+          row['sku_id'],
+      '',
+    ).trim();
+
+    final explicitLocalSku = _text(
+      row['local_sku'] ??
+          row['product_sku'] ??
+          row['local_product_sku'] ??
+          row['mapped_local_sku'],
+      '',
+    ).trim();
+
+    final rowSku = _text(row['sku'], '').trim();
+    final localSku = explicitLocalSku.isNotEmpty
+        ? explicitLocalSku
+        : (rowSku.isNotEmpty &&
+                rowSku != '-' &&
+                rowSku.toLowerCase() != productSearch.toLowerCase()
+            ? rowSku
+            : '');
+
+    final fallbackSearch = productSearch.isNotEmpty
+        ? productSearch
+        : (variantSearch.isNotEmpty ? variantSearch : '');
+
+    return {
+      'marketplace_sku': marketplaceSku,
+      'local_sku': localSku,
+      'fallback_search': fallbackSearch,
+    };
+  }
+
+  Future<Map<String, dynamic>> _fetchSkuOrderDetailsV82oPageForRow(
+    Map<String, dynamic> row,
+    String payoutFilter, {
+    int page = 1,
+    int pageSize = 100,
+    String keyword = '',
+  }) async {
+    final lookup = _skuOrderLookupParamsV82o(row);
+    final marketplaceSku = lookup['marketplace_sku'] ?? '';
+    final localSku = lookup['local_sku'] ?? '';
+    final fallbackSearch = lookup['fallback_search'] ?? '';
+    final searchText = keyword.trim().isNotEmpty
+        ? keyword.trim()
+        : (marketplaceSku.isEmpty && localSku.isEmpty ? fallbackSearch : '');
+
+    if (marketplaceSku.isEmpty && localSku.isEmpty && searchText.isEmpty) {
+      return {
+        'rows': <Map<String, dynamic>>[],
+        'page': 1,
+        'page_size': pageSize,
+        'total': 0,
+        'total_pages': 1,
+      };
+    }
+
+    final response = await _client.rpc(
+      'finance_sku_order_details_v24_6_82o',
+      params: {
+        'p_start': _toDateParam(_start),
+        'p_end': _toDateParam(_end),
+        'p_marketplace': _marketplaceRpcParam(),
+        'p_account_id': _accountUuidParam(),
+        'p_marketplace_sku': marketplaceSku.isEmpty ? null : marketplaceSku,
+        'p_local_sku': localSku.isEmpty || localSku == '-' ? null : localSku,
+        'p_search': searchText.isEmpty ? null : searchText,
+        'p_payout_filter': payoutFilter,
+        'p_page': page,
+        'p_page_size': pageSize,
+      },
+    );
+
+    final rawRows = _extractSkuOrderDetailRowsV82o(response);
+    final rows = _filteredSkuOrderRowsV82o(
+      rawRows
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(),
+      payoutFilter,
+    );
+    final total = _skuDetailTotalV82o(response, rows.length);
+    final resolvedPage = _skuDetailPageV82o(response, page);
+    final resolvedPageSize = _skuDetailPageSizeV82o(response, pageSize);
+    final totalPages = _skuDetailTotalPagesV82o(
+      response,
+      total,
+      resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
+    );
+
+    return {
+      'rows': rows,
+      'page': resolvedPage,
+      'page_size': resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
+      'total': total,
+      'total_pages': totalPages,
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchSkuOrderDetailsV82oForRow(
+      Map<String, dynamic> row, String payoutFilter) async {
+    try {
+      final result = await _fetchSkuOrderDetailsV82oPageForRow(
+        row,
+        payoutFilter,
+        page: 1,
+        pageSize: 100,
+      );
+      final rows = result['rows'];
+      if (rows is List<Map<String, dynamic>>) return rows;
+      if (rows is List) {
+        return rows
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      }
+    } catch (_) {}
+    return <Map<String, dynamic>>[];
+  }
+
+  Future<void> _showSkuOrderRefsV82o(Map<String, dynamic> row,
+      {String payoutFilter = 'all'}) async {
+    final payoutLabel = payoutFilter == 'paid'
+        ? 'sudah ada payout'
+        : payoutFilter == 'unpaid'
+            ? 'belum ada payout'
+            : 'semua status payout';
+
+    Map<String, dynamic> pageResult;
+    try {
+      pageResult = await _fetchSkuOrderDetailsV82oPageForRow(
+        row,
+        payoutFilter,
+        page: 1,
+        pageSize: 100,
+      );
+    } catch (error) {
+      _setMessage('Detail order SKU ($payoutLabel) gagal dimuat: ${_cleanError(error)}');
+      return;
+    }
+
+    var rows = (pageResult['rows'] as List?)
+            ?.whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList() ??
+        <Map<String, dynamic>>[];
+    var page = _positiveIntV82o(pageResult['page'], 1);
+    var pageSize = _positiveIntV82o(pageResult['page_size'], 100);
+    var total = _intFromV82o(pageResult['total'], rows.length);
+    var totalPages = _positiveIntV82o(pageResult['total_pages'], 1);
+
+    if (rows.isEmpty && total <= 0) {
+      _setMessage('Detail order SKU ($payoutLabel) belum ditemukan dari server.');
+      return;
+    }
+
+    final detailRow = Map<String, dynamic>.from(row);
+    final searchController = TextEditingController();
+    var keyword = '';
+    var loadingPage = false;
+    String? pageError;
+    var sheetOpen = true;
+
+    Future<void> loadPage(
+      int nextPage,
+      String nextKeyword,
+      StateSetter setSheetState,
+    ) async {
+      final cleanKeyword = nextKeyword.trim();
+      setSheetState(() {
+        loadingPage = true;
+        pageError = null;
+        keyword = cleanKeyword;
+        page = nextPage < 1 ? 1 : nextPage;
+      });
+      try {
+        final result = await _fetchSkuOrderDetailsV82oPageForRow(
+          row,
+          payoutFilter,
+          page: nextPage < 1 ? 1 : nextPage,
+          pageSize: 100,
+          keyword: cleanKeyword,
+        );
+        if (!sheetOpen) return;
+        final nextRows = (result['rows'] as List?)
+                ?.whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList() ??
+            <Map<String, dynamic>>[];
+        setSheetState(() {
+          rows = nextRows;
+          page = _positiveIntV82o(result['page'], nextPage);
+          pageSize = _positiveIntV82o(result['page_size'], 100);
+          total = _intFromV82o(result['total'], nextRows.length);
+          totalPages = _positiveIntV82o(result['total_pages'], 1);
+          loadingPage = false;
+        });
+      } catch (error) {
+        if (!sheetOpen) return;
+        setSheetState(() {
+          pageError = _cleanError(error);
+          loadingPage = false;
+        });
+      }
+    }
+
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: (Theme.of(context).cardColor),
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(8))),
+        builder: (sheetContext) {
+          return StatefulBuilder(
+            builder: (sheetContext, setSheetState) {
+              final totalSafe = total < rows.length ? rows.length : total;
+              final totalPagesSafe = totalPages <= 0 ? 1 : totalPages;
+              final canPrev = !loadingPage && page > 1;
+              final canNext = !loadingPage && page < totalPagesSafe;
+              final pageSummary = _skuDetailPageSummaryV82o(
+                page: page,
+                pageSize: pageSize,
+                total: totalSafe,
+                totalPages: totalPagesSafe,
+                visibleCount: rows.length,
+              );
+
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(sheetContext).size.height * 0.86),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _text(
+                                      detailRow['local_sku'] ?? detailRow['sku'],
+                                      'Detail SKU'),
+                                  style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w900,
+                                      color: Theme.of(context).dividerColor),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color:
+                                          Theme.of(context).colorScheme.outline),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(sheetContext),
+                            icon: Icon(Icons.close_rounded,
+                                color: Theme.of(context).dividerColor),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 12),
+                      TextField(
+                        controller: searchController,
+                        onChanged: (value) => loadPage(1, value, setSheetState),
+                        decoration: InputDecoration(
+                          hintText:
+                              'Cari nomor pesanan, resi, tanggal, gross, atau payout',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: IconButton(
+                            tooltip: 'Cari',
+                            onPressed: loadingPage
+                                ? null
+                                : () => loadPage(
+                                      1,
+                                      searchController.text,
+                                      setSheetState,
+                                    ),
+                            icon: const Icon(Icons.search),
+                          ),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              keyword.isEmpty
+                                  ? pageSummary
+                                  : '$pageSummary · Filter: $keyword',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: Theme.of(context).colorScheme.outline),
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: canPrev
+                                ? () => loadPage(
+                                      page - 1,
+                                      searchController.text,
+                                      setSheetState,
+                                    )
+                                : null,
+                            icon: const Icon(Icons.chevron_left_rounded),
+                            label: const Text('Sebelumnya'),
+                          ),
+                          SizedBox(width: 6),
+                          TextButton.icon(
+                            onPressed: canNext
+                                ? () => loadPage(
+                                      page + 1,
+                                      searchController.text,
+                                      setSheetState,
+                                    )
+                                : null,
+                            icon: const Icon(Icons.chevron_right_rounded),
+                            label: const Text('Berikutnya'),
+                          ),
+                        ],
+                      ),
+                      if (pageError != null) ...[
+                        SizedBox(height: 8),
+                        Text(
+                          pageError!,
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                      SizedBox(height: 8),
+                      Expanded(
+                        child: loadingPage && rows.isEmpty
+                            ? const Center(child: CircularProgressIndicator())
+                            : rows.isEmpty
+                                ? _emptyCard(
+                                    'Detail pesanan belum tersedia untuk filter ini.')
+                                : Stack(
+                                    children: [
+                                      ListView.separated(
+                                        itemCount: rows.length,
+                                        separatorBuilder: (_, __) =>
+                                            SizedBox(height: 8),
+                                        itemBuilder: (context, index) {
+                                          final item = rows[index];
+                                          return Container(
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              color: (Theme.of(context).cardColor),
+                                              borderRadius: BorderRadius.zero,
+                                              border: Border.all(
+                                                  color: Theme.of(context)
+                                                      .dividerColor
+                                                      .withOpacity(0.75)),
+                                            ),
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Container(
+                                                  width: 38,
+                                                  height: 38,
+                                                  decoration: BoxDecoration(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .primary
+                                                        .withOpacity(0.10),
+                                                    borderRadius: BorderRadius.zero,
+                                                  ),
+                                                  child: Icon(Icons.receipt_long_rounded,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .primary,
+                                                      size: 20),
+                                                ),
+                                                SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment.start,
+                                                    children: [
+                                                      SelectableText(
+                                                        'Order: ${_text(item['order'], '-')}',
+                                                        style: TextStyle(
+                                                            fontSize: 13.5,
+                                                            fontWeight:
+                                                                FontWeight.w900,
+                                                            color: Theme.of(context)
+                                                                .dividerColor),
+                                                      ),
+                                                      SizedBox(height: 4),
+                                                      SelectableText(
+                                                        'Resi: ${_text(item['resi'], '-')}',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .outline,
+                                                            height: 1.35),
+                                                      ),
+                                                      SizedBox(height: 4),
+                                                      Text(
+                                                        'Tanggal pesanan: ${_dateTime(item['order_date'])}',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .outline,
+                                                            height: 1.35),
+                                                      ),
+                                                      SizedBox(height: 4),
+                                                      Text(
+                                                        'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .outline,
+                                                            height: 1.35),
+                                                      ),
+                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(item)) ...[
+                                                        SizedBox(height: 6),
+                                                        _skuRefreshWarningBannerV82o(item),
+                                                      ],
+                                                      if (_payoutExplainText(item)
+                                                              .trim()
+                                                              .isNotEmpty ||
+                                                          _text(item['resi_reason'], '')
+                                                              .trim()
+                                                              .isNotEmpty) ...[
+                                                        SizedBox(height: 4),
+                                                        Text(
+                                                          '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' · ' : ''}${_text(item['resi_reason'], '')}',
+                                                          style: TextStyle(
+                                                              fontSize: 11.5,
+                                                              color: _linePayoutAmount(
+                                                                          item) <
+                                                                      0
+                                                                  ? Colors.redAccent
+                                                                  : Theme.of(context)
+                                                                      .colorScheme
+                                                                      .secondary,
+                                                              height: 1.35),
+                                                        ),
+                                                      ],
+                                                      SizedBox(height: 4),
+                                                      Text(
+                                                        'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  ·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  ·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .outline,
+                                                            height: 1.35),
+                                                      ),
+                                                      SizedBox(height: 8),
+                                                      Wrap(
+                                                        spacing: 6,
+                                                        runSpacing: 6,
+                                                        children: [
+                                                          _miniMetric(
+                                                              'Qty',
+                                                              _num(item['qty'])
+                                                                  .toStringAsFixed(0)),
+                                                          _miniMetric(
+                                                              'Harga jual/item',
+                                                              _money(_num(item[
+                                                                  'gross_per_item']))),
+                                                          _miniMetric(
+                                                              'Payout/item',
+                                                              _moneyNullable(item[
+                                                                  'payout_per_item'])),
+                                                          _miniMetric(
+                                                              'HPP/item',
+                                                              _money(_num(item[
+                                                                      'hpp_per_item'] ??
+                                                                  item['hpp']))),
+                                                        ],
+                                                      ),
+                                                      SizedBox(height: 6),
+                                                      Text(
+                                                        'Statement: ${_text(item['statement_id'], '-')}  ·  Asal data: ${_text(item['source'], '-')}',
+                                                        style: TextStyle(
+                                                            fontSize: 10.5,
+                                                            color: Theme.of(context)
+                                                                .colorScheme
+                                                                .outline,
+                                                            height: 1.3),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                IconButton(
+                                                  tooltip: 'Salin',
+                                                  onPressed: () {
+                                                    final text = [
+                                                      'Order: ${_text(item['order'], '-')}',
+                                                      'Resi: ${_text(item['resi'], '-')}',
+                                                      'Tanggal pesanan: ${_dateTime(item['order_date'])}',
+                                                      'Status: ${_skuDetailOrderStatusV82o(item)}',
+                                                      'Payout status: ${_payoutStatusText(item)}',
+                                                      'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? '-' : _payoutExplainText(item)}',
+                                                      'Catatan resi: ${_text(item['resi_reason'], '-')}',
+                                                      'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}',
+                                                      'SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}',
+                                                      'Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                                      'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
+                                                      'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
+                                                      'Payout/item: ${_moneyNullable(item['payout_per_item'])}',
+                                                      'HPP/item: ${_money(_num(item['hpp_per_item'] ?? item['hpp']))}',
+                                                      'Statement: ${_text(item['statement_id'], '-')}',
+                                                      'Asal data: ${_text(item['source'], '-')}',
+                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(item))
+                                                        'Warning: Payout sudah masuk, tetapi status order masih ${_skuDetailOrderStatusV82o(item)}. Perlu refresh marketplace.',
+                                                    ].join('\n');
+                                                    Clipboard.setData(
+                                                        ClipboardData(text: text));
+                                                    ScaffoldMessenger.of(sheetContext)
+                                                        .showSnackBar(const SnackBar(
+                                                            content: Text(
+                                                                'Detail order disalin.')));
+                                                  },
+                                                  icon: Icon(Icons.copy_rounded,
+                                                      size: 18,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .outline),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                      if (loadingPage)
+                                        Positioned.fill(
+                                          child: ColoredBox(
+                                            color: Theme.of(context)
+                                                .cardColor
+                                                .withOpacity(0.55),
+                                            child: const Center(
+                                                child: CircularProgressIndicator()),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      sheetOpen = false;
+      searchController.dispose();
+    }
+  }
+
   Future<void> _showSkuOrderRefs(Map<String, dynamic> row,
       {String payoutFilter = 'all'}) async {
     var detailRow = row;
     var allRows =
         _filteredSkuOrderRows(_safeOrderRefRows(detailRow), payoutFilter);
-    final needsLazyDetail = allRows.isEmpty ||
-        allRows.any((item) =>
-            _text(item['resi'], '').trim().isEmpty ||
-            _text(item['resi'], '') == '-' ||
-            _text(item['variant_name'], '').trim().isEmpty ||
-            _text(item['statement_id'], '').trim().isEmpty);
+    final isV82oServerDetail =
+        _text(detailRow['sku_detail_source'], '') == 'v82o' ||
+            allRows.any((item) => _text(item['source'], '')
+                .contains('finance_sku_order_details_v24_6_82o'));
+
+    final needsLazyDetail = !isV82oServerDetail &&
+        (allRows.isEmpty ||
+            allRows.any((item) =>
+                _text(item['resi'], '').trim().isEmpty ||
+                _text(item['resi'], '') == '-' ||
+                _text(item['variant_name'], '').trim().isEmpty ||
+                _text(item['statement_id'], '').trim().isEmpty));
     if (needsLazyDetail) {
       detailRow = await _fetchSkuOrderDetailsForRow(row);
       allRows =
@@ -6901,7 +7947,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                               Text(
                                 '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · ${allRows.length} detail order SKU · $payoutLabel',
                                 style: TextStyle(
-                                    fontSize: 12, color: Theme.of(context).colorScheme.outline),
+                                    fontSize: 12,
+                                    color:
+                                        Theme.of(context).colorScheme.outline),
                               ),
                             ],
                           ),
@@ -6931,8 +7979,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                               'Detail pesanan belum tersedia untuk periode ini.')
                           : ListView.separated(
                               itemCount: filtered.length,
-                              separatorBuilder: (_, __) =>
-                                  SizedBox(height: 8),
+                              separatorBuilder: (_, __) => SizedBox(height: 8),
                               itemBuilder: (context, index) {
                                 final item = filtered[index];
                                 return Container(
@@ -6941,7 +7988,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                     color: (Theme.of(context).cardColor),
                                     borderRadius: BorderRadius.zero,
                                     border: Border.all(
-                                        color: Theme.of(context).dividerColor
+                                        color: Theme.of(context)
+                                            .dividerColor
                                             .withOpacity(0.75)),
                                   ),
                                   child: Row(
@@ -6952,14 +8000,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                         width: 38,
                                         height: 38,
                                         decoration: BoxDecoration(
-                                          color: Theme.of(context).colorScheme.primary
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary
                                               .withOpacity(0.10),
-                                          borderRadius:
-                                              BorderRadius.zero,
+                                          borderRadius: BorderRadius.zero,
                                         ),
-                                        child: Icon(
-                                            Icons.receipt_long_rounded,
-                                            color: Theme.of(context).colorScheme.primary,
+                                        child: Icon(Icons.receipt_long_rounded,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary,
                                             size: 20),
                                       ),
                                       SizedBox(width: 10),
@@ -6973,14 +8023,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               style: TextStyle(
                                                   fontSize: 13.5,
                                                   fontWeight: FontWeight.w900,
-                                                  color: Theme.of(context).dividerColor),
+                                                  color: Theme.of(context)
+                                                      .dividerColor),
                                             ),
                                             SizedBox(height: 4),
                                             SelectableText(
                                               'Resi: ${_text(item['resi'], '-')}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Theme.of(context).colorScheme.outline,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .outline,
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 4),
@@ -6988,7 +8041,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               'Tanggal pesanan: ${_dateTime(item['order_date'])}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Theme.of(context).colorScheme.outline,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .outline,
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 4),
@@ -6996,7 +8051,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               'Status: ${_text(item['order_status'], '-')}  ·  Payout: ${_payoutStatusText(item)}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Theme.of(context).colorScheme.outline,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .outline,
                                                   height: 1.35),
                                             ),
                                             if (_payoutExplainText(item)
@@ -7014,7 +8071,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                                 item) <
                                                             0
                                                         ? Colors.redAccent
-                                                        : Theme.of(context).colorScheme.secondary,
+                                                        : Theme.of(context)
+                                                            .colorScheme
+                                                            .secondary,
                                                     height: 1.35),
                                               ),
                                             ],
@@ -7023,7 +8082,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  ·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  ·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Theme.of(context).colorScheme.outline,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .outline,
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 8),
@@ -7055,7 +8116,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               'Statement: ${_text(item['statement_id'], '-')}  ·  Asal data: ${_text(item['source'], '-')}',
                                               style: TextStyle(
                                                   fontSize: 10.5,
-                                                  color: Theme.of(context).colorScheme.outline,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .outline,
                                                   height: 1.3),
                                             ),
                                           ],
@@ -7090,7 +8153,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       'Detail order disalin.')));
                                         },
                                         icon: Icon(Icons.copy_rounded,
-                                            size: 18, color: Theme.of(context).colorScheme.outline),
+                                            size: 18,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .outline),
                                       ),
                                     ],
                                   ),
@@ -7109,7 +8175,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _miniMetric(String label, String value, {bool warning = false}) {
-    final color = warning ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.primary;
+    final color = warning
+        ? Theme.of(context).colorScheme.error
+        : Theme.of(context).colorScheme.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
@@ -7151,7 +8219,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.zero,
             color: (Theme.of(context).cardColor),
-            border: Border.all(color: Theme.of(context).colorScheme.error.withOpacity(0.3)),
+            border: Border.all(
+                color: Theme.of(context).colorScheme.error.withOpacity(0.3)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -7162,8 +8231,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.error.withOpacity(0.10),
                   borderRadius: BorderRadius.zero,
-                  border:
-                      Border.all(color: Theme.of(context).colorScheme.error.withOpacity(0.25)),
+                  border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .error
+                          .withOpacity(0.25)),
                 ),
                 child: Icon(Icons.error_outline_rounded,
                     size: 28, color: Theme.of(context).colorScheme.error),
@@ -7181,7 +8253,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 _error ?? '-',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    fontSize: 12.5, color: Theme.of(context).colorScheme.outline, height: 1.5),
+                    fontSize: 12.5,
+                    color: Theme.of(context).colorScheme.outline,
+                    height: 1.5),
               ),
               SizedBox(height: 20),
               FilledButton.icon(
@@ -7426,12 +8500,36 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   List<Map<String, dynamic>> _filteredSkuOrderRows(
       List<Map<String, dynamic>> rows, String payoutFilter) {
+    bool isCancelRefundReturn(Map<String, dynamic> item) {
+      final status = _text(
+        item['status'] ??
+            item['order_status'] ??
+            item['payout_status'] ??
+            item['settlement_status'] ??
+            item['finance_status'] ??
+            item['abnormal_status'],
+        '',
+      ).toUpperCase();
+
+      return status.contains('CANCEL') ||
+          status.contains('REFUND') ||
+          status.contains('RETURN');
+    }
+
     if (payoutFilter == 'paid') {
-      return rows.where(_hasReleasedPayout).toList();
+      return rows
+          .where(
+              (item) => !isCancelRefundReturn(item) && _hasReleasedPayout(item))
+          .toList();
     }
+
     if (payoutFilter == 'unpaid') {
-      return rows.where((item) => !_hasReleasedPayout(item)).toList();
+      return rows
+          .where((item) =>
+              !isCancelRefundReturn(item) && !_hasReleasedPayout(item))
+          .toList();
     }
+
     return rows;
   }
 
@@ -7980,43 +9078,35 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _hasReleasedPayout(Map<String, dynamic> detail) {
-    final payout = _linePayoutAmount(detail);
-    if (payout != 0) return true;
-    final status = _text(
-            detail['payout_status'] ??
-                detail['settlement_status'] ??
-                detail['finance_status'] ??
-                detail['abnormal_status'],
-            '')
-        .toLowerCase();
-    final statement = _text(
-            detail['statement_id'] ??
-                detail['statement'] ??
-                detail['finance_statement_id'],
-            '')
-        .trim();
-    final source =
-        _text(detail['source'] ?? detail['data_source'], '').toLowerCase();
-    final reason =
-        _text(detail['payout_reason'] ?? detail['negative_payout_reason'], '')
-            .toLowerCase();
-    final pendingText = '$status $reason $source';
-    if (pendingText.contains('missing') ||
-        pendingText.contains('pending') ||
-        pendingText.contains('waiting') ||
-        pendingText.contains('unpaid') ||
-        pendingText.contains('belum') ||
-        pendingText.contains('no_payout')) {
+    final orderStatus = _text(
+      detail['status'] ?? detail['order_status'],
+      '',
+    ).toUpperCase();
+
+    final financeStatus = _text(
+      detail['payout_status'] ??
+          detail['settlement_status'] ??
+          detail['finance_status'] ??
+          detail['abnormal_status'],
+      '',
+    ).toUpperCase();
+
+    final joinedStatus = '$orderStatus $financeStatus';
+
+    if (joinedStatus.contains('CANCEL') ||
+        joinedStatus.contains('REFUND') ||
+        joinedStatus.contains('RETURN')) {
       return false;
     }
-    if (statement.isNotEmpty && statement != '-') return true;
-    if (source.contains('finance')) return true;
-    if (reason.contains('raw_finance') || reason.contains('settlement'))
-      return true;
-    return status.contains('release') ||
-        status.contains('settle') ||
-        status.contains('paid') ||
-        status.contains('payout');
+
+    final payout = _linePayoutAmount(detail);
+    if (payout != 0) return true;
+
+    return financeStatus.contains('SETTLED') ||
+        financeStatus.contains('PAID') ||
+        financeStatus.contains('RELEASE') ||
+        financeStatus.contains('PAYOUT_MINUS') ||
+        financeStatus.contains('NEGATIVE_PAYOUT');
   }
 
   String _payoutStatusText(Map<String, dynamic> detail) {
