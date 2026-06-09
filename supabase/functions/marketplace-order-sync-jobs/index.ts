@@ -17,6 +17,11 @@ Deno.serve(async (req)=>{
   try {
     const supabaseUrl = requiredEnv("SUPABASE_URL").replace(/\/+$/, "");
     const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const edgeAuthKey = String(
+      Deno.env.get("EDGE_FUNCTION_AUTH_KEY") ||
+      Deno.env.get("SUPABASE_ANON_KEY") ||
+      ""
+    ).trim();
     const admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
         persistSession: false,
@@ -179,8 +184,8 @@ async function delegateOrderCronToAutoRunner(args) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "authorization": `Bearer ${args.serviceRoleKey}`,
-        "apikey": args.serviceRoleKey,
+        "authorization": `Bearer ${args.edgeAuthKey || args.serviceRoleKey}`,
+        "apikey": args.edgeAuthKey || args.serviceRoleKey,
         "x-marketplace-cron-secret": args.cronSecret
       },
       body: JSON.stringify({
@@ -498,12 +503,21 @@ async function processOrderPullJobs(args) {
   return result;
 }
 async function invokeOrderPull(args, payload) {
+  const edgeAuthKey = String(
+    Deno.env.get("EDGE_FUNCTION_AUTH_KEY") ||
+    Deno.env.get("SUPABASE_ANON_KEY") ||
+    args.edgeAuthKey ||
+    ""
+  ).trim();
+
+  const childAuthKey = edgeAuthKey || args.serviceRoleKey;
+
   const headers = {
     "content-type": "application/json",
-    "apikey": args.serviceRoleKey
+    "apikey": childAuthKey
   };
   if (args.ctx.isCron) {
-    headers.authorization = `Bearer ${args.serviceRoleKey}`;
+    headers.authorization = `Bearer ${childAuthKey}`;
     if (args.cronSecret) headers["x-marketplace-cron-secret"] = args.cronSecret;
   } else {
     headers.authorization = `Bearer ${args.ctx.originalBearer}`;

@@ -729,13 +729,32 @@ async function invokeFunction(supabaseUrl, serviceRoleKey, cronSecret, functionN
   const startedAt = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(()=>controller.abort(`child_timeout_${timeoutMs}ms`), timeoutMs);
+  const edgeAuthKey = String(
+    Deno.env.get("EDGE_FUNCTION_AUTH_KEY") ||
+    Deno.env.get("SUPABASE_ANON_KEY") ||
+    ""
+  ).trim();
+
+  if (!edgeAuthKey) {
+    return {
+      ok: false,
+      status: 500,
+      data: {
+        ok: false,
+        code: "MISSING_EDGE_AUTH_KEY",
+        message: "SUPABASE_ANON_KEY belum tersedia untuk invoke child Edge Function.",
+      },
+      elapsed_ms: Date.now() - startedAt,
+    };
+  }
+
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "authorization": `Bearer ${serviceRoleKey}`,
-        "apikey": serviceRoleKey,
+        "authorization": `Bearer ${edgeAuthKey}`,
+        "apikey": edgeAuthKey,
         "x-marketplace-cron-secret": cronSecret
       },
       body: JSON.stringify(body),

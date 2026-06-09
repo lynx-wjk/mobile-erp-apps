@@ -52,18 +52,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String _currentRoleId = '';
   String _currentTenantId = '';
   String _lastSnapshotStats = '';
+  int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
       'finance_live_20260606_local_cache_fast_v20';
   static const List<String> _financeCacheVersionFallbacks = <String>[
-    'finance_live_20260606_local_cache_fast_v20',
-    'finance_live_20260606_local_cache_fast_v19',
-    'finance_live_20260528_abnormal_aggregate',
-    'finance_live_20260606_truth_abnormal_raw_v15',
-    'finance_live_20260606_range_best_snapshot_v14',
-    'finance_live_20260606_range_raw_overlay_v13',
-    'finance_live_20260606_filter_layout_v12',
-    'finance_live_20260606_snapshot_fallback_v11',
-    'finance_live_20260606_no_local_cache_server_rpc_v16',
+    _financeCacheVersion,
   ];
 
   bool get _isDemoSuperAdmin =>
@@ -217,16 +210,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Future<dynamic> _loadFinanceSnapshot(Map<String, dynamic> params) async {
     final versions = <String>[
-      'finance_customer_dashboard_snapshot_v24_6_82o',
-      'finance_customer_dashboard_snapshot_v24_6_82f',
-      'finance_customer_dashboard_snapshot_v24_6_82e',
-      'finance_customer_dashboard_snapshot_v24_6_82d',
-      'finance_customer_dashboard_snapshot_v24_6_82',
-      'finance_customer_dashboard_snapshot_v24_6_80m',
-      'finance_customer_dashboard_snapshot_v24_6_80l',
-      'finance_customer_dashboard_snapshot_v24_6_80j',
-      'finance_customer_dashboard_snapshot_v24_6_79',
-      'finance_customer_dashboard_snapshot_v24_6_71',
+      'finance_dashboard_snapshot',
     ];
     Object? lastError;
     dynamic firstEmptyResponse;
@@ -256,7 +240,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _snapshotParamVariantsForRpc(
       String rpcName, Map<String, dynamic> params) {
     final out = Map<String, dynamic>.from(params)..remove('p_store_name');
-    if (rpcName == 'finance_customer_dashboard_snapshot_v24_6_82o') {
+    if (rpcName == 'finance_dashboard_snapshot') {
       return [
         {
           'p_start': out['p_start'],
@@ -935,15 +919,47 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Future<void> _load({bool ignoreLocalCache = false}) async {
     if (!mounted) return;
+
+    final loadSerial = ++_financeLoadSerial;
+    final requestStartKey = _toDateParam(_start);
+    final requestEndKey = _toDateParam(_end);
+    final requestMarketplaceKey =
+        _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final requestAccountKey = _accountFilter;
+
+    bool isCurrentFinanceLoad() {
+      return mounted &&
+          loadSerial == _financeLoadSerial &&
+          _toDateParam(_start) == requestStartKey &&
+          _toDateParam(_end) == requestEndKey &&
+          (_normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all') ==
+              requestMarketplaceKey &&
+          _accountFilter == requestAccountKey;
+    }
     setState(() {
       _loading = true;
       _error = null;
+      _lastSnapshotStats = '';
+
+      // Jangan tampilkan angka periode lama ketika user ganti filter.
+      // Lebih baik kosong saat loading daripada laporan keuangan cosplay jadi ramalan.
+      _summary = <String, dynamic>{};
+      _sources = [];
+      _approvedPurchases = [];
+      _byMarketplace = [];
+      _bySku = [];
+      _cashFlow = [];
+      _expenses = [];
+      _profitLoss = [];
+      _serverAbnormales = [];
+      _abnormalTotal = 0;
     });
 
     var hasLocalSnapshot = false;
     try {
       await FinanceLocalCache.cleanup();
       await _loadCurrentRole();
+      if (!isCurrentFinanceLoad()) return;
       if (!_canAccessFinance) {
         if (!mounted) return;
         setState(() {
@@ -953,14 +969,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         return;
       }
       await _loadFinanceAutoSyncSetting(showError: false);
+      if (!isCurrentFinanceLoad()) return;
       _marketplaceFilter =
           _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
       final fallbackAccounts = await _fetchMarketplaceAccounts();
+      if (!isCurrentFinanceLoad()) return;
       final localKey = _financeSnapshotLocalKey();
       final cached =
           ignoreLocalCache ? null : await _readFinanceSnapshotLocalAny();
+      if (!isCurrentFinanceLoad()) return;
       if (cached != null && mounted && !_isFinanceSnapshotEmpty(cached)) {
         hasLocalSnapshot = true;
+        if (!isCurrentFinanceLoad()) return;
         await _applyFinanceSnapshotData(
           cached,
           fallbackAccounts,
@@ -1002,15 +1022,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         return;
       }
       await FinanceLocalCache.writeJson(localKey, data);
+      if (!isCurrentFinanceLoad()) return;
       await _applyFinanceSnapshotData(
         data,
         fallbackAccounts,
         includeOperationalExpenses: true,
         includeSupplementalSku: false,
       );
+
+      if (!isCurrentFinanceLoad() || !mounted) return;
+      await _overlaySkuPayoutCountSummaryFromServer();
+      if (!isCurrentFinanceLoad() || !mounted) return;
       await _loadPersistedFinanceProgressFromDb();
       await _loadAbnormalesPage(silent: true, resetPage: true);
     } catch (e) {
+      if (!isCurrentFinanceLoad()) return;
       if (!mounted) return;
       if (!hasLocalSnapshot) {
         setState(() => _error = _cleanError(e));
@@ -1019,10 +1045,167 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             'Cache lokal dipakai. Update server gagal: ${_cleanError(e)}');
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (isCurrentFinanceLoad()) setState(() => _loading = false);
     }
   }
 
+  String _skuPayoutCountCleanKey(dynamic value) {
+    final text = value?.toString().trim().toLowerCase() ?? '';
+    if (text == '-' || text == 'null') return '';
+    return text;
+  }
+
+  String _skuPayoutCountCompositeKey(dynamic marketplaceSku, dynamic localSku) {
+    final sku = _skuPayoutCountCleanKey(marketplaceSku);
+    final local = _skuPayoutCountCleanKey(localSku);
+    return '$sku|$local';
+  }
+
+  dynamic _firstSkuPayoutCountValue(
+    Map<String, dynamic> row,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = row[key];
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty && text != '-' && text.toLowerCase() != 'null') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  Future<Map<String, Map<String, dynamic>>> _fetchSkuPayoutCountSummaryMap()
+      async {
+    try {
+      final response = await _client.rpc(
+        'finance_sku_payout_count_summary',
+        params: {
+          'p_start': _toDateParam(_start),
+          'p_end': _toDateParam(_end),
+          'p_marketplace': _marketplaceRpcParam(),
+          'p_account_id': _accountUuidParam(),
+        },
+      );
+
+      if (response is! Map) return <String, Map<String, dynamic>>{};
+
+      final map = Map<String, dynamic>.from(response);
+      final rawRows = map['rows'];
+      if (rawRows is! List) return <String, Map<String, dynamic>>{};
+
+      final out = <String, Map<String, dynamic>>{};
+
+      for (final item in rawRows) {
+        if (item is! Map) continue;
+        final row = Map<String, dynamic>.from(item);
+
+        final marketplaceSku = _firstSkuPayoutCountValue(row, const [
+          'marketplace_sku',
+          'marketplace_sku_id',
+          'sku_marketplace',
+        ]);
+
+        final localSku = _firstSkuPayoutCountValue(row, const [
+          'local_sku',
+          'sku_local',
+        ]);
+
+        final skuKey = _skuPayoutCountCleanKey(marketplaceSku);
+        if (skuKey.isEmpty) continue;
+
+        final compositeKey =
+            _skuPayoutCountCompositeKey(marketplaceSku, localSku);
+
+        if (compositeKey.trim() != '|') {
+          out[compositeKey] = row;
+        }
+
+        // Fallback utama. Marketplace SKU harus unik untuk variant marketplace.
+        out['$skuKey|'] = row;
+      }
+
+      return out;
+    } catch (_) {
+      return <String, Map<String, dynamic>>{};
+    }
+  }
+
+  Map<String, dynamic> _mergeSkuPayoutCountSummaryRow(
+    Map<String, dynamic> row,
+    Map<String, Map<String, dynamic>> summaryMap,
+  ) {
+    final marketplaceSku = _firstSkuPayoutCountValue(row, const [
+      'marketplace_sku',
+      'marketplace_sku_id',
+      'sku_marketplace',
+    ]);
+
+    final localSku = _firstSkuPayoutCountValue(row, const [
+      'local_sku',
+      'sku_local',
+    ]);
+
+    final compositeKey = _skuPayoutCountCompositeKey(marketplaceSku, localSku);
+    final skuOnlyKey = '${_skuPayoutCountCleanKey(marketplaceSku)}|';
+
+    final summary = summaryMap[compositeKey] ?? summaryMap[skuOnlyKey];
+    if (summary == null) return row;
+
+    final paidQty = _numFirstNonZero([
+      summary['paid_qty'],
+      summary['settled_qty'],
+      summary['paid_rows'],
+      summary['paid_total'],
+    ]).round();
+
+    final unpaidQty = _numFirstNonZero([
+      summary['unpaid_qty'],
+      summary['qty_unpaid'],
+      summary['unpaid_rows'],
+      summary['unpaid_total'],
+    ]).round();
+
+    final visibleQty = paidQty + unpaidQty;
+    final merged = Map<String, dynamic>.from(row);
+
+    merged['paid_qty'] = paidQty;
+    merged['settled_qty'] = paidQty;
+    merged['qty_paid'] = paidQty;
+    merged['positive_payout_qty'] = paidQty;
+
+    merged['unpaid_qty'] = unpaidQty;
+    merged['qty_unpaid'] = unpaidQty;
+    merged['pending_payout_qty'] = unpaidQty;
+    merged['pending_payout_qty_total'] = unpaidQty;
+
+    if (visibleQty > 0) {
+      merged['qty'] = visibleQty;
+      merged['quantity'] = visibleQty;
+      merged['qty_total'] = visibleQty;
+      merged['total_qty'] = visibleQty;
+    }
+
+    merged['sku_count_source'] = 'finance_sku_payout_count_summary';
+
+    return merged;
+  }
+
+  Future<void> _overlaySkuPayoutCountSummaryFromServer() async {
+    if (_bySku.isEmpty) return;
+
+    final summaryMap = await _fetchSkuPayoutCountSummaryMap();
+    if (!mounted || summaryMap.isEmpty) return;
+
+    final mergedRows = _bySku
+        .map((row) => _mergeSkuPayoutCountSummaryRow(row, summaryMap))
+        .toList(growable: false);
+
+    if (!mounted) return;
+    setState(() {
+      _bySku = mergedRows;
+    });
+  }
   double _numFirstNonZero(Iterable<dynamic> values) {
     for (final value in values) {
       final n = _num(value);
@@ -3162,16 +3345,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .toList();
   }
 
-  // ── Abnormal reader ───────────────────────────────────────────────────────
+  //  Abnormal reader
   // True duplicate check: marketplace_account_id + external_order_id + external_order_item_id.
   // Status mapping:
-  //   PENDING_PAYOUT       → waiting, not error, not refresh-payout data.
-  //   MISSING_PAYOUT_FINAL → real abnormal, COMPLETED order without payout.
-  //   NO_PAYOUT_EXPECTED   → excluded from payout refresh, show as greyed-out.
-  //   CANCEL_OR_RETURN_DONE→ finished without stock-in (cancelled before packing).
-  //   DELIVERED w/o payout → not a final abnormal unless status COMPLETED.
+  //   PENDING_PAYOUT        ™ waiting, not error, not refresh-payout data.
+  //   MISSING_PAYOUT_FINAL  ™ real abnormal, COMPLETED order without payout.
+  //   NO_PAYOUT_EXPECTED    ™ excluded from payout refresh, show as greyed-out.
+  //   CANCEL_OR_RETURN_DONE ™ finished without stock-in (cancelled before packing).
+  //   DELIVERED w/o payout  ™ not a final abnormal unless status COMPLETED.
 
-  static const _abnormalRpcV82 = 'finance_abnormal_search_v24_6_82e';
+  static const _abnormalRpcV82 = 'finance_abnormal_search';
   String _activeAbnormalRpc = _abnormalRpcV82;
 
   Future<List<Map<String, dynamic>>> _fetchRawNegativePayoutRowsPage(
@@ -3366,7 +3549,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
-  // ── Abnormal status helpers ────────────────────────────────────────────────
+  //  Abnormal status helpers
 
   /// Human-readable badge for abnormal status.
   /// Returns (label, color, isExcluded, isPending, isFinal)
@@ -3608,7 +3791,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       AppUi.safeSnack(context, 'Order/account tidak valid untuk ditandai.');
       return;
     }
-    // Jangan tandai PENDING_PAYOUT — payout-nya mungkin masih akan cair.
+    // Jangan tandai PENDING_PAYOUT  payout-nya mungkin masih akan cair.
     final finStatus = _text(
             row['abnormal_status'] ??
                 row['finance_status'] ??
@@ -4832,7 +5015,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
-  // ── Filter bar ───────────────────────────────────────────────────────────────
+  //  Filter bar
   Widget _filterBar() {
     final marketplaceOptions = <DropdownMenuItem<String>>[
       const DropdownMenuItem(value: 'all', child: Text('Semua platform')),
@@ -5361,7 +5544,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     };
   }
 
-  // ── Tabs ─────────────────────────────────────────────────────────────────────
+  //  Tabs
   Widget _summaryTab() {
     final paidSkuTotals = _totalsFromSkuRows(paidOnly: true);
     final summaryGross = _num(_summary['gross_sales'] ??
@@ -5483,7 +5666,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _marketplaceTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data…'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _hardReloadFinanceView,
@@ -5527,7 +5710,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _skuTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data…'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _hardReloadFinanceView,
@@ -5810,7 +5993,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _cashFlowTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data…'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     final cashRows = _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
@@ -5842,7 +6025,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _expensesTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data…'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _hardReloadFinanceView,
@@ -5882,7 +6065,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _profitLossTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data…'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     final profitRows =
         _profitLoss.isNotEmpty ? _profitLoss : _fallbackProfitLossRows();
     return RefreshIndicator(
@@ -5913,7 +6096,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _abnormalTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data…'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     final visibleAbnormales = _filteredAbnormales();
     final pageMax = (_abnormalTotal <= 0)
         ? 1
@@ -5995,7 +6178,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child:
-                  Center(child: FuturisticLoader(message: 'Mencari abnormal…')),
+                  Center(child: FuturisticLoader(message: 'Mencari abnormal¦')),
             )
           else ...[
             // Info bar
@@ -6008,7 +6191,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               ),
               child: Text(
                 _abnormalServerLoaded
-                    ? 'Hal $_abnormalPage/$pageMax · $startRow–$endRow dari $_abnormalTotal · $dataCount perlu cek payout'
+                    ? 'Hal $_abnormalPage/$pageMax · $startRow-$endRow dari $_abnormalTotal · $dataCount perlu cek payout'
                     : 'Belum ada hasil pencarian.',
                 style: TextStyle(
                     fontSize: 11,
@@ -6201,7 +6384,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
-  // ── Reusable UI ──────────────────────────────────────────────────────────────
+  //  Reusable UI
   Widget _sectionHeader(String text) {
     return Row(
       children: [
@@ -7245,7 +7428,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
     final start = ((page - 1) * pageSize) + 1;
     final end = _minIntV82o(((page - 1) * pageSize) + visibleCount, total);
-    return 'Menampilkan $start–$end dari $total · Hal $page/$totalPages';
+    return 'Menampilkan $start-$end dari $total · Hal $page/$totalPages';
   }
 
   String? _marketplaceRpcParam() {
@@ -7336,7 +7519,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     final response = await _client.rpc(
-      'finance_sku_order_details_v24_6_82o',
+      'finance_sku_order_details',
       params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
@@ -7862,7 +8045,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final isV82oServerDetail =
         _text(detailRow['sku_detail_source'], '') == 'v82o' ||
             allRows.any((item) => _text(item['source'], '')
-                .contains('finance_sku_order_details_v24_6_82o'));
+                .contains('finance_sku_order_details'));
 
     final needsLazyDetail = !isV82oServerDetail &&
         (allRows.isEmpty ||
@@ -8318,7 +8501,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return cleaned.length > 31 ? cleaned.substring(0, 31) : cleaned;
   }
 
-  // ── Utilities ─────────────────────────────────────────────────────────────────
+  //  Utilities
   bool _looksLikeAllMarketplaceFilter(String? value) {
     final raw = (value ?? '').trim().toLowerCase();
     final text = raw.replaceAll(RegExp(r'[\s\-]+'), '_');
