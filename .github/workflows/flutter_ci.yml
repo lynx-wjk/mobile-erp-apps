@@ -35,24 +35,35 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Prepare CI placeholder assets
+      - name: Prepare CI placeholder files
         run: |
           cat > .env <<'EOF'
           SUPABASE_URL=https://example.supabase.co
           SUPABASE_ANON_KEY=dummy
           EOF
 
-          mkdir -p assets/icon
           python3 - <<'PY'
           from pathlib import Path
           import base64
 
-          png = (
+          png = base64.b64decode(
               "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
               "/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
           )
 
-          Path("assets/icon/app_icon.png").write_bytes(base64.b64decode(png))
+          paths = [
+              "assets/icon/app_icon.png",
+              "android/app/src/main/res/mipmap-mdpi/ic_launcher.png",
+              "android/app/src/main/res/mipmap-hdpi/ic_launcher.png",
+              "android/app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+              "android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+              "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+          ]
+
+          for item in paths:
+              path = Path(item)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(png)
           PY
 
       - name: Analyze (errors only - warnings are tracked but non-blocking)
