@@ -5411,7 +5411,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 fontSize: 11),
           ),
           Text(
-            'Auto payout: ${_dateTime(auto)}${_financeAutoSyncMessage.isNotEmpty ? ' · $_financeAutoSyncMessage' : ''}',
+            ' ${_dateTime(auto)}${_financeAutoSyncMessage.isNotEmpty ? ' · $_financeAutoSyncMessage' : ''}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -9606,7 +9606,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (lower.contains('could not find the function') ||
         lower.contains('function public.') ||
         lower.contains('does not exist')) {
-      return 'Fitur laporan belum siap di server. Hubungi admin untuk memperbarui database.';
+      return 'Data laporan periode ini sedang diproses otomatis. Coba lagi beberapa saat lagi.';
     }
     if (lower.contains('null value in column') &&
         lower.contains('description')) {
@@ -9638,6 +9638,7 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
+
 
 
 
