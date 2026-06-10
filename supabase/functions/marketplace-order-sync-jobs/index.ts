@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const FUNCTION_VERSION = "marketplace-order-sync-jobs-v51-manual-payload-override-2026-06-10";
+const FUNCTION_VERSION = "marketplace-order-sync-jobs-status-finance-reconciliation-v52-2026-06-10";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-marketplace-cron-secret, x-stock-sync-cron-secret",
@@ -82,6 +82,7 @@ Deno.serve(async (req)=>{
     const process = params.process !== false;
     const accountId = text(params.account_id || params.marketplace_account_id);
     const maxAccounts = clampInt(params.max_accounts, 1, 100, 50);
+    const statusMaxAccounts = clampInt(params.status_max_accounts ?? params.max_status_accounts ?? 100, 1, 100, 100);
     const maxJobs = clampInt(params.max_jobs ?? params.max_order_jobs, 1, 12, ctx.isCron ? 1 : 6);
     const windowMinutes = clampInt(params.window_minutes, 15, 240, 60);
     const refreshExistingStatus = params.refresh_existing_status !== false;
@@ -137,7 +138,7 @@ Deno.serve(async (req)=>{
       cronSecret,
       tenantId,
       accountId,
-      maxAccounts,
+      maxAccounts: statusMaxAccounts,
       statusRangeDays,
       maxExistingOrders,
       skipCompletedStatusRefresh
@@ -432,7 +433,7 @@ async function processOrderPullJobs(args) {
       include_previous_unpacked: false,
       statuses: Array.isArray(jobPayload.statuses) ? jobPayload.statuses : [],
       include_statusless_search: jobPayload.include_statusless_search === false ? false : true,
-      include_update_time_search: manualForceRefresh || jobPayload.include_update_time_search === true || args.includeUpdateTimeSearch,
+      include_update_time_search: jobPayload.include_update_time_search === true || args.includeUpdateTimeSearch,
       skip_completed_order_pull: jobSkipCompletedOrderPull,
       skip_completed_orders: jobSkipCompletedOrderPull,
       skip_final_orders: jobSkipCompletedOrderPull,
@@ -445,7 +446,7 @@ async function processOrderPullJobs(args) {
       max_pages_per_account: jobMaxPages,
       max_details: jobMaxDetails,
       max_details_per_account: jobMaxDetails,
-      search_mode: manualForceRefresh ? "manual_force_refresh_order_pull_job_v51" : "statusless_order_pull_job_v24",
+      search_mode: manualForceRefresh ? "manual_force_refresh_order_pull_job_v52" : "statusless_order_pull_job_v24",
       source: text(jobPayload.source) || "marketplace-order-sync-jobs"
     };
     let pull = null;
