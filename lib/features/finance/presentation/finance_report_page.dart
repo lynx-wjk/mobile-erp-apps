@@ -5442,16 +5442,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _progressCard() {
-    // Log teknis finance disembunyikan dari UI.
-    // Status runtime tetap disimpan untuk diagnostic DB, bukan ditampilkan ke user.
     return const SizedBox.shrink();
   }
 
   Widget _financeManualActions() {
-    // Aksi manual finance disembunyikan.
-    // Finance/payout sekarang diproses otomatis oleh Supabase cron:
-    // - marketplace-finance-pull-every-5-min untuk today/yesterday
-    // - marketplace-finance-backlog-missing-payout-90d-v1 untuk missing payout 90 hari
     return const SizedBox.shrink();
   }
 
@@ -9644,6 +9638,7 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
+
 
 
 
