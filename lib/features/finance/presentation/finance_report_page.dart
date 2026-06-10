@@ -886,8 +886,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       ...livePurchases,
     ]);
 
-    final rawSkuRows =
-        _filterSkuRowsBySelectedScope(_skuRowsFromSnapshot(data));
+    final snapshotSkuRows = _skuRowsFromSnapshot(data);
+    var rawSkuRows = _filterSkuRowsBySelectedScope(snapshotSkuRows);
+
+    // Backend snapshot/RPC sudah menerima p_marketplace dan p_account_id.
+    // Beberapa summary SKU lama tidak membawa field marketplace/account di tiap row.
+    // Kalau filter scope lokal mengosongkan semua row padahal snapshot punya data,
+    // pakai data snapshot scoped dari server agar range lama seperti 1-31 Mei tetap tampil.
+    if (rawSkuRows.isEmpty && snapshotSkuRows.isNotEmpty) {
+      rawSkuRows = snapshotSkuRows;
+    }
+
     final rawUnpaidSkuRows = includeSupplementalSku && rawSkuRows.isEmpty
         ? _filterSkuRowsBySelectedScope(await _fetchUnpaidSkuRowsPeriod())
         : <Map<String, dynamic>>[];
@@ -9638,6 +9647,8 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
+
+
 
 
 
