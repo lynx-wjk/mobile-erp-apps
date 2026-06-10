@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const FUNCTION_VERSION = "marketplace-order-sync-jobs-v51-manual-payload-override-2026-06-10";
+const FUNCTION_VERSION = "marketplace-order-sync-jobs-status-finance-reconciliation-v52-2026-06-10";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-marketplace-cron-secret, x-stock-sync-cron-secret",
@@ -432,7 +432,7 @@ async function processOrderPullJobs(args) {
       include_previous_unpacked: false,
       statuses: Array.isArray(jobPayload.statuses) ? jobPayload.statuses : [],
       include_statusless_search: jobPayload.include_statusless_search === false ? false : true,
-      include_update_time_search: manualForceRefresh || jobPayload.include_update_time_search === true || args.includeUpdateTimeSearch,
+      include_update_time_search: jobPayload.include_update_time_search === true || args.includeUpdateTimeSearch,
       skip_completed_order_pull: jobSkipCompletedOrderPull,
       skip_completed_orders: jobSkipCompletedOrderPull,
       skip_final_orders: jobSkipCompletedOrderPull,
@@ -445,7 +445,7 @@ async function processOrderPullJobs(args) {
       max_pages_per_account: jobMaxPages,
       max_details: jobMaxDetails,
       max_details_per_account: jobMaxDetails,
-      search_mode: manualForceRefresh ? "manual_force_refresh_order_pull_job_v51" : "statusless_order_pull_job_v24",
+      search_mode: manualForceRefresh ? "manual_force_refresh_order_pull_job_v52" : "statusless_order_pull_job_v24",
       source: text(jobPayload.source) || "marketplace-order-sync-jobs"
     };
     let pull = null;

@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-order-pull-refresh-final-status-v51-2026-06-10";
+const FUNCTION_VERSION = "marketplace-order-pull-status-finance-reconciliation-v52-2026-06-10";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -48,6 +48,7 @@ const ORDER_PULL_ALL_STATUSES = [
   "SHIPPED",
   "DELIVERED",
   "COMPLETED",
+  "TO_CONFIRM_RECEIVE",
   "CANCELLED",
   "CANCELED",
   "RETURNED",
@@ -57,6 +58,7 @@ const ORDER_PULL_ALL_STATUSES = [
 
 const FINAL_MARKETPLACE_ORDER_STATUSES = new Set([
   "COMPLETED",
+  "TO_CONFIRM_RECEIVE",
   "DELIVERED",
 ]);
 
@@ -77,6 +79,7 @@ const STATUS_REFRESH_TARGET_STATUSES = [
 
 const STATUS_REFRESH_SKIP_CURRENT_STATUSES = new Set([
   "COMPLETED",
+  "TO_CONFIRM_RECEIVE",
   "CANCELLED",
   "CANCELED",
   "CANCEL",
@@ -186,7 +189,7 @@ Deno.serve(async (req) => {
     const pageSize = clampInt(body.limit, 1, 50, 50);
     const maxPages = isAutoRunnerSource ? clampInt(body.max_pages, 1, 10, 8) : clampInt(body.max_pages, 1, 100, 20);
     const includeStatuslessSearch = body.include_statusless_search !== false;
-    const includeUpdateTimeSearch = body.include_update_time_search !== false;
+    const includeUpdateTimeSearch = body.include_update_time_search === true;
     const searchMode = text(body.search_mode).toLowerCase();
     const statuslessOnly = body.statusless_only === true || searchMode.includes("statusless");
     const maxDetails = clampInt(body.max_details, 1, isAutoRunnerSource ? 500 : 5000, Math.max(pageSize, pageSize * maxPages));
@@ -1781,6 +1784,7 @@ function normalizeTikTokOrderStatus(raw: unknown): string | null {
     "IN_TRANSIT",
     "DELIVERED",
     "COMPLETED",
+  "TO_CONFIRM_RECEIVE",
     "CANCELLED",
   ]);
 
