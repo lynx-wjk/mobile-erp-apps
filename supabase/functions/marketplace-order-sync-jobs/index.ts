@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 const FUNCTION_VERSION = "marketplace-order-sync-jobs-bootstrap-pagination-v53-2026-06-10";
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -426,6 +426,7 @@ async function processOrderPullJobs(args) {
       jobPayload.skip_completed_orders === false ||
       jobPayload.skip_final_orders === false;
 
+    const isStaleStatusBacklogJob = text(job.job_type) === "stale_order_status_backlog_90d_v1";
     const jobPageSize = isBootstrapJob
       ? clampInt(
         jobPayload.page_size ?? jobPayload.limit ?? jobPayload.max_orders ?? jobPayload.max_orders_per_account ?? args.pageSize,
@@ -488,10 +489,10 @@ async function processOrderPullJobs(args) {
       include_statusless_search: jobPayload.include_statusless_search === false ? false : true,
       include_update_time_search: jobPayload.include_update_time_search === true || args.includeUpdateTimeSearch,
       skip_completed_order_pull: jobSkipCompletedOrderPull,
-      skip_completed_orders: jobSkipCompletedOrderPull,
-      skip_final_orders: jobSkipCompletedOrderPull,
-      include_completed: manualForceRefresh || jobPayload.include_completed === true,
-      statusless_only: manualForceRefresh || jobPayload.statusless_only === false ? false : true,
+      skip_completed_orders: isStaleStatusBacklogJob ? false : jobSkipCompletedOrderPull,
+      skip_final_orders: isStaleStatusBacklogJob ? false : jobSkipCompletedOrderPull,
+      include_completed: isStaleStatusBacklogJob ? true : (manualForceRefresh || jobPayload.include_completed === true),
+      statusless_only: isStaleStatusBacklogJob ? false : (manualForceRefresh || jobPayload.statusless_only === false ? false : true),
       limit: jobPageSize,
       max_orders: jobPageSize,
       max_orders_per_account: jobPageSize,
@@ -501,9 +502,11 @@ async function processOrderPullJobs(args) {
       max_details_per_account: jobMaxDetails,
       search_mode: isBootstrapJob
         ? "bootstrap_90d_adaptive_order_pull_job_v53"
-        : manualForceRefresh
-          ? "manual_force_refresh_order_pull_job_v52"
-          : "statusless_order_pull_job_v24",
+        : isStaleStatusBacklogJob
+          ? "stale_order_status_backlog_90d_v1"
+          : manualForceRefresh
+            ? "manual_force_refresh_order_pull_job_v52"
+            : "statusless_order_pull_job_v24",
       source: text(jobPayload.source) || (isBootstrapJob ? "marketplace-order-sync-jobs-bootstrap-v53" : "marketplace-order-sync-jobs")
     };
     let pull = null;
@@ -1096,3 +1099,6 @@ function getSafeErrorResult(message, tokenAuditExists) {
     message
   };
 }
+
+
+
