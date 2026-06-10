@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const FUNCTION_VERSION = "marketplace-order-sync-jobs-overwrite-bounded-v48-status-refresh-canonical-2026-06-08";
+const FUNCTION_VERSION = "marketplace-order-sync-jobs-v51-manual-payload-override-2026-06-10";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-marketplace-cron-secret, x-stock-sync-cron-secret",
@@ -386,6 +386,40 @@ async function processOrderPullJobs(args) {
       last_run_at: startedAt,
       updated_at: startedAt
     }).eq("order_pull_job_id", jobId);
+    const jobPayload = job.payload && typeof job.payload === "object" && !Array.isArray(job.payload)
+      ? job.payload
+      : {};
+
+    const manualForceRefresh =
+      text(jobPayload.mode).includes("force_refresh") ||
+      text(jobPayload.source).includes("force_refresh") ||
+      jobPayload.skip_completed_order_pull === false ||
+      jobPayload.skip_completed_orders === false ||
+      jobPayload.skip_final_orders === false;
+
+    const jobPageSize = clampInt(
+      jobPayload.max_orders ?? jobPayload.max_orders_per_account ?? jobPayload.page_size ?? jobPayload.limit ?? args.pageSize,
+      10,
+      500,
+      args.pageSize,
+    );
+
+    const jobMaxPages = clampInt(
+      jobPayload.max_pages ?? jobPayload.max_pages_per_account ?? args.maxPages,
+      1,
+      20,
+      args.maxPages,
+    );
+
+    const jobMaxDetails = clampInt(
+      jobPayload.max_details ?? jobPayload.max_details_per_account ?? args.maxDetails,
+      0,
+      500,
+      args.maxDetails,
+    );
+
+    const jobSkipCompletedOrderPull = manualForceRefresh ? false : args.skipCompletedOrderPull;
+
     const basePayload = {
       tenant_id: text(job.tenant_id),
       marketplace_account_id: text(job.marketplace_account_id),
@@ -396,16 +430,23 @@ async function processOrderPullJobs(args) {
       days_back: 1,
       previous_unpacked_days: 1,
       include_previous_unpacked: false,
-      statuses: [],
-      include_statusless_search: true,
-      include_update_time_search: args.includeUpdateTimeSearch,
-      skip_completed_order_pull: args.skipCompletedOrderPull,
-      statusless_only: true,
-      limit: args.pageSize,
-      max_pages: args.maxPages,
-      max_details: args.maxDetails,
-      search_mode: "statusless_order_pull_job_v24",
-      source: "marketplace-order-sync-jobs"
+      statuses: Array.isArray(jobPayload.statuses) ? jobPayload.statuses : [],
+      include_statusless_search: jobPayload.include_statusless_search === false ? false : true,
+      include_update_time_search: manualForceRefresh || jobPayload.include_update_time_search === true || args.includeUpdateTimeSearch,
+      skip_completed_order_pull: jobSkipCompletedOrderPull,
+      skip_completed_orders: jobSkipCompletedOrderPull,
+      skip_final_orders: jobSkipCompletedOrderPull,
+      include_completed: manualForceRefresh || jobPayload.include_completed === true,
+      statusless_only: manualForceRefresh || jobPayload.statusless_only === false ? false : true,
+      limit: jobPageSize,
+      max_orders: jobPageSize,
+      max_orders_per_account: jobPageSize,
+      max_pages: jobMaxPages,
+      max_pages_per_account: jobMaxPages,
+      max_details: jobMaxDetails,
+      max_details_per_account: jobMaxDetails,
+      search_mode: manualForceRefresh ? "manual_force_refresh_order_pull_job_v51" : "statusless_order_pull_job_v24",
+      source: text(jobPayload.source) || "marketplace-order-sync-jobs"
     };
     let pull = null;
     try {
