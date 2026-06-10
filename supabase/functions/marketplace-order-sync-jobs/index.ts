@@ -502,9 +502,11 @@ async function processOrderPullJobs(args) {
       max_details_per_account: jobMaxDetails,
       search_mode: isBootstrapJob
         ? "bootstrap_90d_adaptive_order_pull_job_v53"
-        : manualForceRefresh
-          ? "manual_force_refresh_order_pull_job_v52"
-          : "statusless_order_pull_job_v24",
+        : isStaleStatusBacklogJob
+          ? "stale_order_status_backlog_90d_v1"
+          : manualForceRefresh
+            ? "manual_force_refresh_order_pull_job_v52"
+            : "statusless_order_pull_job_v24",
       source: text(jobPayload.source) || (isBootstrapJob ? "marketplace-order-sync-jobs-bootstrap-v53" : "marketplace-order-sync-jobs")
     };
     let pull = null;
@@ -1097,4 +1099,6 @@ function getSafeErrorResult(message, tokenAuditExists) {
     message
   };
 }
+
+
 
