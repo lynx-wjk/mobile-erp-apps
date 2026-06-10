@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const FUNCTION_VERSION = "marketplace-order-sync-jobs-status-finance-reconciliation-v52-2026-06-10";
+const FUNCTION_VERSION = "marketplace-order-sync-jobs-bootstrap-pagination-v53-2026-06-10";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-marketplace-cron-secret, x-stock-sync-cron-secret",
@@ -364,6 +364,7 @@ async function countActiveAutoOrderJobs(admin, tenantId, accountId) {
   return Number(count || 0);
 }
 async function processOrderPullJobs(args) {
+  await resetStaleBootstrapJobs(args.admin, args.tenantId, args.accountId);
   let query = args.admin.from("marketplace_order_pull_jobs").select("*").eq("tenant_id", args.tenantId).in("status", [
     "pending",
     "retry"
@@ -378,18 +379,45 @@ async function processOrderPullJobs(args) {
   const { data: jobs, error } = await query;
   if (error) throw new Error(`Load order pull jobs gagal: ${error.message}`);
   const result = emptyProcessedResult();
-  for (const job of jobs || []){
+  const loadedJobs = Array.isArray(jobs) ? jobs : [];
+  const bootstrapJobs = loadedJobs.filter((job)=>isBootstrapOrderJob(job));
+  const jobsToProcess = bootstrapJobs.length > 0 ? [
+    bootstrapJobs[0]
+  ] : loadedJobs;
+  if (bootstrapJobs.length > 1) {
+    result.details.push({
+      type: "bootstrap_single_flight",
+      status: "bounded",
+      loaded_bootstrap_jobs: bootstrapJobs.length,
+      processed_bootstrap_jobs: 1,
+      message: "Bootstrap jobs diproses single-flight untuk menghindari timeout/overlap."
+    });
+  }
+  for (const job of jobsToProcess){
     const jobId = text(job.order_pull_job_id || job.id);
     const startedAt = new Date().toISOString();
-    await args.admin.from("marketplace_order_pull_jobs").update({
+    const { data: claimedJob, error: claimError } = await args.admin.from("marketplace_order_pull_jobs").update({
       status: "running",
       locked_at: startedAt,
       last_run_at: startedAt,
       updated_at: startedAt
-    }).eq("order_pull_job_id", jobId);
+    }).eq("order_pull_job_id", jobId).in("status", [
+      "pending",
+      "retry"
+    ]).select("order_pull_job_id").maybeSingle();
+    if (claimError) throw new Error(`Claim order pull job gagal: ${claimError.message}`);
+    if (!claimedJob) {
+      result.details.push({
+        job_id: jobId,
+        window: job.window_label,
+        status: "skipped_already_claimed"
+      });
+      continue;
+    }
     const jobPayload = job.payload && typeof job.payload === "object" && !Array.isArray(job.payload)
       ? job.payload
       : {};
+    const isBootstrapJob = isBootstrapOrderJob(job);
 
     const manualForceRefresh =
       text(jobPayload.mode).includes("force_refresh") ||
@@ -398,28 +426,49 @@ async function processOrderPullJobs(args) {
       jobPayload.skip_completed_orders === false ||
       jobPayload.skip_final_orders === false;
 
-    const jobPageSize = clampInt(
-      jobPayload.max_orders ?? jobPayload.max_orders_per_account ?? jobPayload.page_size ?? jobPayload.limit ?? args.pageSize,
-      10,
-      500,
-      args.pageSize,
-    );
+    const jobPageSize = isBootstrapJob
+      ? clampInt(
+        jobPayload.page_size ?? jobPayload.limit ?? jobPayload.max_orders ?? jobPayload.max_orders_per_account ?? args.pageSize,
+        10,
+        50,
+        50
+      )
+      : clampInt(
+        jobPayload.max_orders ?? jobPayload.max_orders_per_account ?? jobPayload.page_size ?? jobPayload.limit ?? args.pageSize,
+        10,
+        500,
+        args.pageSize
+      );
 
-    const jobMaxPages = clampInt(
-      jobPayload.max_pages ?? jobPayload.max_pages_per_account ?? args.maxPages,
-      1,
-      20,
-      args.maxPages,
-    );
+    const jobMaxPages = isBootstrapJob
+      ? clampInt(
+        jobPayload.max_pages_per_window ?? jobPayload.max_pages ?? jobPayload.max_pages_per_account ?? args.maxPages,
+        1,
+        20,
+        5
+      )
+      : clampInt(
+        jobPayload.max_pages ?? jobPayload.max_pages_per_account ?? args.maxPages,
+        1,
+        20,
+        args.maxPages
+      );
 
-    const jobMaxDetails = clampInt(
-      jobPayload.max_details ?? jobPayload.max_details_per_account ?? args.maxDetails,
-      0,
-      500,
-      args.maxDetails,
-    );
+    const jobMaxDetails = isBootstrapJob
+      ? clampInt(
+        jobPayload.max_details ?? jobPayload.max_details_per_account ?? jobPageSize * jobMaxPages,
+        0,
+        5000,
+        jobPageSize * jobMaxPages
+      )
+      : clampInt(
+        jobPayload.max_details ?? jobPayload.max_details_per_account ?? args.maxDetails,
+        0,
+        500,
+        args.maxDetails
+      );
 
-    const jobSkipCompletedOrderPull = manualForceRefresh ? false : args.skipCompletedOrderPull;
+    const jobSkipCompletedOrderPull = manualForceRefresh ? false : jobPayload.skip_completed_order_pull === false ? false : args.skipCompletedOrderPull;
 
     const basePayload = {
       tenant_id: text(job.tenant_id),
@@ -431,7 +480,11 @@ async function processOrderPullJobs(args) {
       days_back: 1,
       previous_unpacked_days: 1,
       include_previous_unpacked: false,
-      statuses: Array.isArray(jobPayload.statuses) ? jobPayload.statuses : [],
+      statuses: Array.isArray(jobPayload.target_statuses)
+        ? jobPayload.target_statuses
+        : Array.isArray(jobPayload.statuses)
+          ? jobPayload.statuses
+          : [],
       include_statusless_search: jobPayload.include_statusless_search === false ? false : true,
       include_update_time_search: jobPayload.include_update_time_search === true || args.includeUpdateTimeSearch,
       skip_completed_order_pull: jobSkipCompletedOrderPull,
@@ -446,13 +499,17 @@ async function processOrderPullJobs(args) {
       max_pages_per_account: jobMaxPages,
       max_details: jobMaxDetails,
       max_details_per_account: jobMaxDetails,
-      search_mode: manualForceRefresh ? "manual_force_refresh_order_pull_job_v52" : "statusless_order_pull_job_v24",
-      source: text(jobPayload.source) || "marketplace-order-sync-jobs"
+      search_mode: isBootstrapJob
+        ? "bootstrap_90d_adaptive_order_pull_job_v53"
+        : manualForceRefresh
+          ? "manual_force_refresh_order_pull_job_v52"
+          : "statusless_order_pull_job_v24",
+      source: text(jobPayload.source) || (isBootstrapJob ? "marketplace-order-sync-jobs-bootstrap-v53" : "marketplace-order-sync-jobs")
     };
     let pull = null;
     try {
       pull = await invokeOrderPull(args, basePayload);
-      if ((!pull.ok || pull.http_status >= 300 || pull.data?.ok === false) && shouldFallbackSmallRequest(pull)) {
+      if (!isBootstrapJob && (!pull.ok || pull.http_status >= 300 || pull.data?.ok === false) && shouldFallbackSmallRequest(pull)) {
         const fallbackPayload = {
           ...basePayload,
           include_update_time_search: false,
@@ -480,12 +537,34 @@ async function processOrderPullJobs(args) {
       const mapped = toInt(pull.data?.mapped_items);
       const unmapped = toInt(pull.data?.unmapped_items);
       const warnings = toInt(pull.data?.warning_count);
+      const pagesScanned = toInt(pull.data?.pages_scanned ?? pull.data?.pages_checked ?? pull.data?.page_count);
+      const capacityHit = isBootstrapPageLimitHit({
+        isBootstrapJob,
+        pagesScanned,
+        jobMaxPages,
+        orders,
+        jobPageSize
+      });
+      const splitResult = capacityHit
+        ? await enqueueBootstrapSplitJobs(args, job, jobPayload, {
+          pageSize: jobPageSize,
+          maxPages: jobMaxPages,
+          maxDetails: jobMaxDetails,
+          orders,
+          items,
+          pagesScanned
+        })
+        : {
+          queued: 0,
+          reason: ""
+        };
+      const finalWarnings = warnings + (capacityHit ? 1 : 0);
       result.processed += 1;
       result.orders += orders;
       result.items += items;
       result.mappedItems += mapped;
       result.unmappedItems += unmapped;
-      result.warningCount += warnings;
+      result.warningCount += finalWarnings;
       result.details.push({
         job_id: jobId,
         window: job.window_label,
@@ -494,13 +573,26 @@ async function processOrderPullJobs(args) {
         items,
         mapped,
         unmapped,
-        warnings,
-        fallback_used: pull.data?.fallback_used === true
+        warnings: finalWarnings,
+        fallback_used: pull.data?.fallback_used === true,
+        page_limit_hit: capacityHit,
+        split_jobs_queued: splitResult.queued
       });
       const lastResultData = orders === 0 ? {
         ...pull.data,
-        status: "no_new_orders"
-      } : pull.data || {};
+        status: "no_new_orders",
+        page_limit_hit: capacityHit,
+        split_jobs_queued: splitResult.queued,
+        split_reason: splitResult.reason
+      } : {
+        ...(pull.data || {}),
+        page_limit_hit: capacityHit,
+        split_jobs_queued: splitResult.queued,
+        split_reason: splitResult.reason
+      };
+      const doneMessage = capacityHit
+        ? `Selesai dengan page-limit guard: ${orders} order, ${items} item. Split queued=${splitResult.queued}.`
+        : pull.data?.message || `Selesai: ${orders} order, ${items} item.`;
       await args.admin.from("marketplace_order_pull_jobs").update({
         status: "done",
         finished_at: new Date().toISOString(),
@@ -508,8 +600,8 @@ async function processOrderPullJobs(args) {
         item_count: items,
         mapped_count: mapped,
         unmapped_count: unmapped,
-        warning_count: warnings,
-        last_message: pull.data?.message || `Selesai: ${orders} order, ${items} item.`,
+        warning_count: finalWarnings,
+        last_message: doneMessage,
         last_result: lastResultData,
         updated_at: new Date().toISOString()
       }).eq("order_pull_job_id", jobId);
@@ -517,8 +609,9 @@ async function processOrderPullJobs(args) {
     } catch (err) {
       result.failed += 1;
       const attempts = toInt(job.attempts) + 1;
-      const retryMinutes = Math.min(60, Math.max(5, attempts * 5));
-      const failedStatus = attempts >= 3 ? "failed" : "retry";
+      const bootstrapRetryable = isBootstrapJob && isRetryableBootstrapError(err);
+      const retryMinutes = Math.min(60, Math.max(3, attempts * (isBootstrapJob ? 3 : 5)));
+      const failedStatus = bootstrapRetryable || attempts < (isBootstrapJob ? 5 : 3) ? "retry" : "failed";
       const message = cleanError(err);
       const safeErrorResult = {
         ...getSafeErrorResult(message),
@@ -543,6 +636,117 @@ async function processOrderPullJobs(args) {
     }
   }
   return result;
+}
+
+async function resetStaleBootstrapJobs(admin, tenantId, accountId) {
+  let query = admin.from("marketplace_order_pull_jobs").update({
+    status: "retry",
+    locked_at: null,
+    finished_at: null,
+    next_run_at: new Date().toISOString(),
+    last_message: "Reset stale bootstrap running job before permanent worker claim.",
+    updated_at: new Date().toISOString()
+  }).eq("tenant_id", tenantId).eq("job_type", "bootstrap_90d_adaptive_v1").eq("status", "running").lt("locked_at", new Date(Date.now() - 3 * 60_000).toISOString());
+  if (accountId) query = query.eq("marketplace_account_id", accountId);
+  await query;
+}
+function isBootstrapOrderJob(job) {
+  return text(job?.job_type).startsWith("bootstrap_90d");
+}
+function isRetryableBootstrapError(err) {
+  const msg = cleanError(err).toLowerCase();
+  return msg.includes("502") || msg.includes("503") || msg.includes("504") || msg.includes("546") || msg.includes("timeout") || msg.includes("resource") || msg.includes("limit") || msg.includes("network");
+}
+function isBootstrapPageLimitHit(args) {
+  if (!args.isBootstrapJob) return false;
+  if (args.jobMaxPages <= 0 || args.jobPageSize <= 0) return false;
+  if (args.pagesScanned < args.jobMaxPages) return false;
+  return args.orders >= args.jobPageSize * args.jobMaxPages;
+}
+async function enqueueBootstrapSplitJobs(args, job, jobPayload, meta) {
+  const start = Number(job.window_start_seconds || 0);
+  const end = Number(job.window_end_seconds || 0);
+  const duration = end - start;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || duration <= 900) {
+    return {
+      queued: 0,
+      reason: "window_too_small_to_split"
+    };
+  }
+  const splitCount = duration >= 21600 ? 4 : 2;
+  const rows = [];
+  for(let i = 0; i < splitCount; i += 1){
+    const childStart = Math.floor(start + duration * i / splitCount);
+    const childEnd = Math.floor(start + duration * (i + 1) / splitCount);
+    if (childEnd <= childStart) continue;
+    const childDate = dateStringFromWibStartSeconds(childStart);
+    rows.push({
+      tenant_id: text(job.tenant_id),
+      marketplace_account_id: text(job.marketplace_account_id),
+      marketplace: text(job.marketplace),
+      job_type: text(job.job_type) || "bootstrap_90d_adaptive_v1",
+      period_start: childDate,
+      period_end: dateStringFromWibStartSeconds(Math.max(childStart, childEnd - 1)),
+      window_start_seconds: childStart,
+      window_end_seconds: childEnd,
+      window_label: `${childDate} ${timeLabelFromUnixWibSeconds(childStart)}-${timeLabelFromUnixWibSeconds(childEnd)}`,
+      status: "pending",
+      priority: toInt(job.priority) + 2,
+      attempts: 0,
+      next_run_at: new Date().toISOString(),
+      locked_at: null,
+      last_run_at: null,
+      finished_at: null,
+      order_count: 0,
+      item_count: 0,
+      mapped_count: 0,
+      unmapped_count: 0,
+      warning_count: 0,
+      last_message: "Queued split child from bootstrap page-limit guard.",
+      payload: {
+        ...jobPayload,
+        source: text(jobPayload.source) || "marketplace-order-sync-jobs-bootstrap-v53-split",
+        window_kind: "split_from_page_limit",
+        split_parent_job_id: text(job.order_pull_job_id || job.id),
+        split_reason: `pages_scanned=${meta.pagesScanned}, orders=${meta.orders}, page_size=${meta.pageSize}, max_pages=${meta.maxPages}`,
+        page_size: meta.pageSize,
+        limit: meta.pageSize,
+        max_pages_per_window: meta.maxPages,
+        max_pages: meta.maxPages,
+        max_details: meta.maxDetails,
+        max_details_per_account: meta.maxDetails
+      },
+      last_result: {},
+      requested_by: job.requested_by || null,
+      updated_at: new Date().toISOString()
+    });
+  }
+  if (rows.length === 0) {
+    return {
+      queued: 0,
+      reason: "no_valid_split_rows"
+    };
+  }
+  const { data, error } = await args.admin.from("marketplace_order_pull_jobs").upsert(rows, {
+    onConflict: "marketplace_account_id,job_type,window_start_seconds,window_end_seconds",
+    ignoreDuplicates: true
+  }).select("order_pull_job_id");
+  if (error) {
+    return {
+      queued: 0,
+      reason: `split_insert_failed: ${error.message}`
+    };
+  }
+  return {
+    queued: Array.isArray(data) ? data.length : rows.length,
+    reason: "page_limit_split_child_jobs_queued"
+  };
+}
+function timeLabelFromUnixWibSeconds(seconds) {
+  const wib = new Date(seconds * 1000 + 7 * 60 * 60 * 1000);
+  const hour = wib.getUTCHours();
+  const minute = wib.getUTCMinutes();
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 async function invokeOrderPull(args, payload) {
   const edgeAuthKey = String(
