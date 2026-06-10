@@ -54,6 +54,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
   bool _generatedLinkUsedFallbackCredential = false;
   DateTime? _generatedLinkExpiresAt;
   List<MarketplaceAccountPublic> _accounts = const [];
+  MarketplaceBootstrapUiStatus? _bootstrapStatus;
 
   @override
   void initState() {
@@ -86,8 +87,12 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
       final accounts = await _service.listAccounts(
         tenantId: widget.currentUser.tenantId,
       );
+      final bootstrapStatus = await _service.fetchBootstrapUiStatus();
       if (!mounted) return;
-      setState(() => _accounts = accounts);
+      setState(() {
+        _accounts = accounts;
+        _bootstrapStatus = bootstrapStatus;
+      });
     } catch (error) {
       if (!mounted) return;
       setState(() => _errorMessage = error.toString());
@@ -554,12 +559,15 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Color.alphaBlend(
-            (isTesting ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.primary)
+            (isTesting
+                    ? Theme.of(context).colorScheme.secondary
+                    : Theme.of(context).colorScheme.primary)
                 .withOpacity(.12),
             (Theme.of(context).cardColor),
           ),
           borderRadius: BorderRadius.zero,
-          border: Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
+          border:
+              Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
           boxShadow: [
             BoxShadow(
               color: (Theme.of(context).dividerColor).withOpacity(.12),
@@ -581,8 +589,8 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                         ? Theme.of(context).colorScheme.secondary
                         : Theme.of(context).colorScheme.primary,
                     borderRadius: BorderRadius.zero,
-                    border:
-                        Border.all(color: (Theme.of(context).dividerColor), width: 1.2),
+                    border: Border.all(
+                        color: (Theme.of(context).dividerColor), width: 1.2),
                   ),
                   child: Icon(
                     isTesting
@@ -611,7 +619,8 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
-                          color: (Theme.of(context).textTheme).bodyMedium?.color,
+                          color:
+                              (Theme.of(context).textTheme).bodyMedium?.color,
                         ),
                       ),
                     ],
@@ -672,7 +681,8 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.secondary.withOpacity(.18),
+                  color:
+                      Theme.of(context).colorScheme.secondary.withOpacity(.18),
                   borderRadius: BorderRadius.zero,
                   border: Border.all(
                     color: (Theme.of(context).dividerColor).withOpacity(.22),
@@ -737,15 +747,31 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
 
   List<Color> _marketplaceGradient(MarketplaceAccountPublic account) {
     if (account.isTesting) {
-      return [Theme.of(context).colorScheme.tertiary.withOpacity(0.1), Theme.of(context).colorScheme.primary.withOpacity(0.1), Theme.of(context).colorScheme.secondary.withOpacity(0.1)];
+      return [
+        Theme.of(context).colorScheme.tertiary.withOpacity(0.1),
+        Theme.of(context).colorScheme.primary.withOpacity(0.1),
+        Theme.of(context).colorScheme.secondary.withOpacity(0.1)
+      ];
     }
     switch (account.marketplace) {
       case 'tiktok_shop':
-        return [Theme.of(context).colorScheme.primary.withOpacity(0.1), Theme.of(context).colorScheme.secondary.withOpacity(0.1), Theme.of(context).colorScheme.tertiary.withOpacity(0.1)];
+        return [
+          Theme.of(context).colorScheme.primary.withOpacity(0.1),
+          Theme.of(context).colorScheme.secondary.withOpacity(0.1),
+          Theme.of(context).colorScheme.tertiary.withOpacity(0.1)
+        ];
       case 'shopee':
-        return [Theme.of(context).colorScheme.secondary.withOpacity(0.1), Theme.of(context).colorScheme.tertiary.withOpacity(0.1), Theme.of(context).colorScheme.primary.withOpacity(0.1)];
+        return [
+          Theme.of(context).colorScheme.secondary.withOpacity(0.1),
+          Theme.of(context).colorScheme.tertiary.withOpacity(0.1),
+          Theme.of(context).colorScheme.primary.withOpacity(0.1)
+        ];
       default:
-        return [Theme.of(context).colorScheme.primary.withOpacity(0.1), Theme.of(context).colorScheme.surface.withOpacity(0.1), Theme.of(context).colorScheme.tertiary.withOpacity(0.1)];
+        return [
+          Theme.of(context).colorScheme.primary.withOpacity(0.1),
+          Theme.of(context).colorScheme.surface.withOpacity(0.1),
+          Theme.of(context).colorScheme.tertiary.withOpacity(0.1)
+        ];
     }
   }
 
@@ -850,261 +876,262 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 54,
-                      height: 54,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.zero,
-                        color: accent,
-                        border: Border.all(
-                            color: (Theme.of(context).dividerColor), width: 1.3),
-                        boxShadow: [
-                          BoxShadow(
-                            color: (Theme.of(context).dividerColor).withOpacity(0.16),
-                            blurRadius: 0,
-                            offset: const Offset(3, 3),
-                          ),
-                        ],
-                      ),
-                      child: Icon(_marketplaceIcon(account),
-                          color: Colors.white, size: 30),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            account.safeStoreName,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: (Theme.of(context).textTheme).bodyLarge?.color,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 19,
-                              height: 1.15,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            children: [
-                              _GlassPill(
-                                  icon: Icons.store_mall_directory_outlined,
-                                  label: account.marketplaceLabel),
-                              _GlassPill(
-                                  icon: Icons.public,
-                                  label: account.shopRegion),
-                              _GlassPill(
-                                  icon: account.isTesting
-                                      ? Icons.science_outlined
-                                      : Icons.verified_outlined,
-                                  label: account.environmentLabel),
-                              _GlassPill(
-                                  icon: account.stockSyncEnabled
-                                      ? Icons.sync
-                                      : Icons.sync_disabled,
-                                  label: account.stockSyncEnabled
-                                      ? 'Sinkron Stok ON'
-                                      : 'Sinkron Stok OFF'),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color:
-                            AppUi.statusColor(account.status).withOpacity(0.16),
-                        borderRadius: BorderRadius.zero,
-                        border: Border.all(
-                            color: AppUi.statusColor(account.status)
-                                .withOpacity(0.46)),
-                      ),
-                      child: Text(
-                        account.status.toUpperCase(),
-                        style: TextStyle(
-                            color: (Theme.of(context).textTheme).bodyLarge?.color,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 11,
-                            letterSpacing: 0),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
+                  width: 54,
+                  height: 54,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.76),
                     borderRadius: BorderRadius.zero,
-                    border:
-                        Border.all(color: (Theme.of(context).dividerColor), width: 1.2),
+                    color: accent,
+                    border: Border.all(
+                        color: (Theme.of(context).dividerColor), width: 1.3),
+                    boxShadow: [
+                      BoxShadow(
+                        color:
+                            (Theme.of(context).dividerColor).withOpacity(0.16),
+                        blurRadius: 0,
+                        offset: const Offset(3, 3),
+                      ),
+                    ],
                   ),
+                  child: Icon(_marketplaceIcon(account),
+                      color: Colors.white, size: 30),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 10,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              color: tokenColor,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                    color: tokenColor.withOpacity(0.45),
-                                    blurRadius: 0)
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _tokenHealthText(account.accessTokenExpiredAt),
-                              style: TextStyle(
-                                  color: (Theme.of(context).textTheme).bodyLarge?.color,
-                                  fontWeight: FontWeight.w900),
-                            ),
-                          ),
-                        ],
+                      Text(
+                        account.safeStoreName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: (Theme.of(context).textTheme).bodyLarge?.color,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 19,
+                          height: 1.15,
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final twoColumns = constraints.maxWidth >= 460;
-                          final itemWidth = twoColumns
-                              ? (constraints.maxWidth - 10) / 2
-                              : constraints.maxWidth;
-                          return Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              _AccountInfoTile(
-                                  width: itemWidth,
-                                  label: 'Shop ID',
-                                  value: account.shopIdMasked ?? '-',
-                                  icon: Icons.tag),
-                              _AccountInfoTile(
-                                  width: itemWidth,
-                                  label: 'Shop Cipher',
-                                  value: account.shopCipherMasked ?? '-',
-                                  icon: Icons.vpn_key_outlined),
-                              _AccountInfoTile(
-                                  width: itemWidth,
-                                  label: 'Berlaku Sampai',
-                                  value: _fmtDate(account.accessTokenExpiredAt),
-                                  icon: Icons.timer_outlined),
-                              _AccountInfoTile(
-                                  width: itemWidth,
-                                  label: 'Perlu Update',
-                                  value:
-                                      _fmtDate(account.refreshTokenExpiredAt),
-                                  icon: Icons.autorenew),
-                            ],
-                          );
-                        },
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          _GlassPill(
+                              icon: Icons.store_mall_directory_outlined,
+                              label: account.marketplaceLabel),
+                          _GlassPill(
+                              icon: Icons.public, label: account.shopRegion),
+                          _GlassPill(
+                              icon: account.isTesting
+                                  ? Icons.science_outlined
+                                  : Icons.verified_outlined,
+                              label: account.environmentLabel),
+                          _GlassPill(
+                              icon: account.stockSyncEnabled
+                                  ? Icons.sync
+                                  : Icons.sync_disabled,
+                              label: account.stockSyncEnabled
+                                  ? 'Sinkron Stok ON'
+                                  : 'Sinkron Stok OFF'),
+                        ],
                       ),
                     ],
                   ),
                 ),
-                if (hasError) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppUi.red.withOpacity(0.12),
-                      borderRadius: BorderRadius.zero,
-                      border: Border.all(color: AppUi.red.withOpacity(0.38)),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.warning_amber_rounded,
-                            color: AppUi.red),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            account.lastError!,
-                            style: TextStyle(
-                                color: (Theme.of(context).textTheme).bodyLarge?.color,
-                                fontWeight: FontWeight.w800,
-                                height: 1.35),
-                          ),
-                        ),
-                      ],
-                    ),
+                const SizedBox(width: 10),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppUi.statusColor(account.status).withOpacity(0.16),
+                    borderRadius: BorderRadius.zero,
+                    border: Border.all(
+                        color: AppUi.statusColor(account.status)
+                            .withOpacity(0.46)),
                   ),
-                ],
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _isCreatingLink
-                          ? null
-                          : (_canReconnect
-                              ? () => _reconnectAccount(account)
-                              : _showDemoBlocked),
-                      icon: Icon(Icons.link),
-                      label: Text('Hubungkan Ulang'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _canReconnect
-                          ? () => _toggleStockSync(
-                              account, !account.stockSyncEnabled)
-                          : _showDemoBlocked,
-                      icon: Icon(account.stockSyncEnabled
-                          ? Icons.sync_disabled
-                          : Icons.sync),
-                      label: Text(account.stockSyncEnabled
-                          ? 'Matikan Sinkron'
-                          : 'Aktifkan Sinkron'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: (Theme.of(context).textTheme).bodyLarge?.color,
-                        side: BorderSide(color: (Theme.of(context).dividerColor)),
-                      ),
-                    ),
-                    if (_canDeleteAccount)
-                      OutlinedButton.icon(
-                        onPressed: _deletingAccountIds
-                                .contains(account.marketplaceAccountId)
-                            ? null
-                            : () => _deleteAccount(account),
-                        icon: _deletingAccountIds
-                                .contains(account.marketplaceAccountId)
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Icon(Icons.delete_outline),
-                        label: Text(_deletingAccountIds
-                                .contains(account.marketplaceAccountId)
-                            ? 'Menghapus...'
-                            : 'Hapus'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Theme.of(context).colorScheme.error,
-                          side: BorderSide(color: Theme.of(context).colorScheme.error),
-                        ),
-                      ),
-                  ],
+                  child: Text(
+                    account.status.toUpperCase(),
+                    style: TextStyle(
+                        color: (Theme.of(context).textTheme).bodyLarge?.color,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 11,
+                        letterSpacing: 0),
+                  ),
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.76),
+                borderRadius: BorderRadius.zero,
+                border: Border.all(
+                    color: (Theme.of(context).dividerColor), width: 1.2),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: tokenColor,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                                color: tokenColor.withOpacity(0.45),
+                                blurRadius: 0)
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _tokenHealthText(account.accessTokenExpiredAt),
+                          style: TextStyle(
+                              color: (Theme.of(context).textTheme)
+                                  .bodyLarge
+                                  ?.color,
+                              fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final twoColumns = constraints.maxWidth >= 460;
+                      final itemWidth = twoColumns
+                          ? (constraints.maxWidth - 10) / 2
+                          : constraints.maxWidth;
+                      return Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _AccountInfoTile(
+                              width: itemWidth,
+                              label: 'Shop ID',
+                              value: account.shopIdMasked ?? '-',
+                              icon: Icons.tag),
+                          _AccountInfoTile(
+                              width: itemWidth,
+                              label: 'Shop Cipher',
+                              value: account.shopCipherMasked ?? '-',
+                              icon: Icons.vpn_key_outlined),
+                          _AccountInfoTile(
+                              width: itemWidth,
+                              label: 'Berlaku Sampai',
+                              value: _fmtDate(account.accessTokenExpiredAt),
+                              icon: Icons.timer_outlined),
+                          _AccountInfoTile(
+                              width: itemWidth,
+                              label: 'Perlu Update',
+                              value: _fmtDate(account.refreshTokenExpiredAt),
+                              icon: Icons.autorenew),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            if (hasError) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppUi.red.withOpacity(0.12),
+                  borderRadius: BorderRadius.zero,
+                  border: Border.all(color: AppUi.red.withOpacity(0.38)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: AppUi.red),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        account.lastError!,
+                        style: TextStyle(
+                            color:
+                                (Theme.of(context).textTheme).bodyLarge?.color,
+                            fontWeight: FontWeight.w800,
+                            height: 1.35),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: _isCreatingLink
+                      ? null
+                      : (_canReconnect
+                          ? () => _reconnectAccount(account)
+                          : _showDemoBlocked),
+                  icon: Icon(Icons.link),
+                  label: Text('Hubungkan Ulang'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _canReconnect
+                      ? () =>
+                          _toggleStockSync(account, !account.stockSyncEnabled)
+                      : _showDemoBlocked,
+                  icon: Icon(account.stockSyncEnabled
+                      ? Icons.sync_disabled
+                      : Icons.sync),
+                  label: Text(account.stockSyncEnabled
+                      ? 'Matikan Sinkron'
+                      : 'Aktifkan Sinkron'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor:
+                        (Theme.of(context).textTheme).bodyLarge?.color,
+                    side: BorderSide(color: (Theme.of(context).dividerColor)),
+                  ),
+                ),
+                if (_canDeleteAccount)
+                  OutlinedButton.icon(
+                    onPressed: _deletingAccountIds
+                            .contains(account.marketplaceAccountId)
+                        ? null
+                        : () => _deleteAccount(account),
+                    icon: _deletingAccountIds
+                            .contains(account.marketplaceAccountId)
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(Icons.delete_outline),
+                    label: Text(_deletingAccountIds
+                            .contains(account.marketplaceAccountId)
+                        ? 'Menghapus...'
+                        : 'Hapus'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.error,
+                      side: BorderSide(
+                          color: Theme.of(context).colorScheme.error),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1117,6 +1144,291 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
 
   int get _testingCount => _accounts.where((a) => a.isTesting).length;
   int get _productionCount => _accounts.where((a) => !a.isTesting).length;
+
+  Widget _bootstrapStatusCard() {
+    final status = _bootstrapStatus;
+    if (status == null || !status.hasAccounts) return const SizedBox.shrink();
+    if (!status.showBanner &&
+        status.severity != 'success' &&
+        !status.hasActiveWork &&
+        !status.hasProblem) {
+      return const SizedBox.shrink();
+    }
+
+    final accent = _bootstrapSeverityColor(status.severity);
+    final finishText = _formatBootstrapFinish(status.estimatedFinishWib);
+    final progress = status.totalJobs <= 0
+        ? 0.0
+        : (status.doneJobs / status.totalJobs).clamp(0.0, 1.0).toDouble();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(
+          accent.withOpacity(0.10),
+          Theme.of(context).cardColor,
+        ),
+        borderRadius: BorderRadius.zero,
+        border: Border.all(color: accent.withOpacity(0.48), width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).dividerColor.withOpacity(0.12),
+            blurRadius: 0,
+            offset: const Offset(3, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.zero,
+                  border: Border.all(
+                      color: Theme.of(context).dividerColor, width: 1.2),
+                ),
+                child: Icon(
+                  _bootstrapSeverityIcon(status.severity),
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      status.title,
+                      style: TextStyle(
+                        color: Theme.of(context).textTheme.bodyLarge?.color,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      status.message,
+                      style: TextStyle(
+                        color: Theme.of(context).textTheme.bodyMedium?.color,
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.zero,
+            child: LinearProgressIndicator(
+              value: progress.isNaN ? null : progress,
+              minHeight: 8,
+              backgroundColor: Theme.of(context).dividerColor.withOpacity(.18),
+              color: accent,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _bootstrapMetric(
+                  'Progress', '${status.doneJobs}/${status.totalJobs} tahap'),
+              _bootstrapMetric('Retry', status.retryJobs.toString()),
+              _bootstrapMetric('Running', status.runningJobs.toString()),
+              _bootstrapMetric('Failed', status.failedJobs.toString()),
+              _bootstrapMetric('Order', status.ordersPulled.toString()),
+              _bootstrapMetric('Item', status.itemsPulled.toString()),
+              if (finishText.isNotEmpty) _bootstrapMetric('ETA', finishText),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...status.accounts.map(_bootstrapAccountRow),
+        ],
+      ),
+    );
+  }
+
+  Widget _bootstrapAccountRow(MarketplaceBootstrapAccountStatus account) {
+    final accent = account.hasFailed
+        ? AppUi.red
+        : account.isBlocked
+            ? AppUi.orange
+            : account.isCompleted
+                ? AppUi.green
+                : Theme.of(context).colorScheme.primary;
+    final value = (account.progressPct / 100).clamp(0.0, 1.0).toDouble();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor.withOpacity(0.74),
+        borderRadius: BorderRadius.zero,
+        border:
+            Border.all(color: Theme.of(context).dividerColor.withOpacity(.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_bootstrapMarketplaceIcon(account.marketplace),
+                  size: 16, color: accent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '${_bootstrapMarketplaceLabel(account.marketplace)} · ${account.storeName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodyLarge?.color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                account.bootstrapStatus.toUpperCase(),
+                style: TextStyle(
+                  color: accent,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 10,
+                  letterSpacing: .4,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: value.isNaN ? null : value,
+            minHeight: 6,
+            backgroundColor: Theme.of(context).dividerColor.withOpacity(.16),
+            color: accent,
+          ),
+          const SizedBox(height: 7),
+          Text(
+            '${account.doneJobs}/${account.totalJobs} tahap · retry ${account.retryJobs} · running ${account.runningJobs} · failed ${account.failedJobs} · order ${account.ordersPulled} · item ${account.itemsPulled}',
+            style: TextStyle(
+              color: Theme.of(context).textTheme.bodySmall?.color,
+              fontWeight: FontWeight.w700,
+              fontSize: 11,
+            ),
+          ),
+          if (account.clientMessage.trim().isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              account.clientMessage,
+              style: TextStyle(
+                color: Theme.of(context).textTheme.bodySmall?.color,
+                fontWeight: FontWeight.w600,
+                fontSize: 11,
+                height: 1.25,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _bootstrapMetric(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor.withOpacity(.72),
+        borderRadius: BorderRadius.zero,
+        border:
+            Border.all(color: Theme.of(context).dividerColor.withOpacity(.22)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              color: Theme.of(context).textTheme.bodySmall?.color,
+              fontWeight: FontWeight.w900,
+              fontSize: 9.5,
+              letterSpacing: .3,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              color: Theme.of(context).textTheme.bodyLarge?.color,
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _bootstrapSeverityColor(String severity) {
+    switch (severity.toLowerCase().trim()) {
+      case 'error':
+        return AppUi.red;
+      case 'warning':
+        return AppUi.orange;
+      case 'success':
+        return AppUi.green;
+      case 'info':
+        return Theme.of(context).colorScheme.primary;
+      default:
+        return Theme.of(context).colorScheme.secondary;
+    }
+  }
+
+  IconData _bootstrapSeverityIcon(String severity) {
+    switch (severity.toLowerCase().trim()) {
+      case 'error':
+        return Icons.error_outline;
+      case 'warning':
+        return Icons.warning_amber_rounded;
+      case 'success':
+        return Icons.verified_outlined;
+      case 'info':
+        return Icons.sync;
+      default:
+        return Icons.info_outline;
+    }
+  }
+
+  IconData _bootstrapMarketplaceIcon(String marketplace) {
+    final clean = marketplace.toLowerCase();
+    if (clean.contains('shopee')) return Icons.shopping_bag_outlined;
+    if (clean.contains('tiktok')) return Icons.video_collection_outlined;
+    return Icons.storefront_outlined;
+  }
+
+  String _bootstrapMarketplaceLabel(String marketplace) {
+    final clean = marketplace.toLowerCase();
+    if (clean.contains('shopee')) return 'Shopee';
+    if (clean.contains('tiktok')) return 'TikTok Shop';
+    return marketplace.trim().isEmpty ? 'Marketplace' : marketplace;
+  }
+
+  String _formatBootstrapFinish(String value) {
+    final date = DateTime.tryParse(value);
+    if (date == null) return '';
+    final local = date.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')} WIB';
+  }
 
   Widget _body() {
     if (_isLoading) return const LoadingState();
@@ -1142,6 +1454,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
             const SizedBox(height: 14),
           ],
           _tokenAttentionCard(),
+          _bootstrapStatusCard(),
           _connectCard(),
           const SizedBox(height: 16),
           const SectionTitle(title: 'Akun Terhubung'),
@@ -1186,7 +1499,8 @@ class _GlassPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: (Theme.of(context).cardColor).withOpacity(0.78),
         borderRadius: BorderRadius.zero,
-        border: Border.all(color: (Theme.of(context).dividerColor).withOpacity(0.24)),
+        border: Border.all(
+            color: (Theme.of(context).dividerColor).withOpacity(0.24)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1232,7 +1546,8 @@ class _AccountInfoTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: (Theme.of(context).cardColor),
           borderRadius: BorderRadius.zero,
-          border: Border.all(color: (Theme.of(context).dividerColor).withOpacity(0.22)),
+          border: Border.all(
+              color: (Theme.of(context).dividerColor).withOpacity(0.22)),
         ),
         child: Row(
           children: [
@@ -1243,7 +1558,8 @@ class _AccountInfoTile extends StatelessWidget {
                 color: Theme.of(context).colorScheme.primary.withOpacity(0.14),
                 borderRadius: BorderRadius.zero,
               ),
-              child: Icon(icon, color: Theme.of(context).colorScheme.primary, size: 18),
+              child: Icon(icon,
+                  color: Theme.of(context).colorScheme.primary, size: 18),
             ),
             const SizedBox(width: 10),
             Expanded(

@@ -382,10 +382,160 @@ class MarketplaceOrderStockOutResult {
   }
 }
 
+class MarketplaceBootstrapAccountStatus {
+  final String marketplaceAccountId;
+  final String marketplace;
+  final String storeName;
+  final String environment;
+  final String accountStatus;
+  final String bootstrapStatus;
+  final String clientMessage;
+  final String technicalStatus;
+  final double progressPct;
+  final int totalJobs;
+  final int doneJobs;
+  final int pendingJobs;
+  final int runningJobs;
+  final int retryJobs;
+  final int failedJobs;
+  final int pageLimitRiskJobs;
+  final int ordersPulled;
+  final int itemsPulled;
+  final String? estimatedFinishWib;
+  final String? estimatedRemaining;
+
+  const MarketplaceBootstrapAccountStatus({
+    required this.marketplaceAccountId,
+    required this.marketplace,
+    required this.storeName,
+    required this.environment,
+    required this.accountStatus,
+    required this.bootstrapStatus,
+    required this.clientMessage,
+    required this.technicalStatus,
+    required this.progressPct,
+    required this.totalJobs,
+    required this.doneJobs,
+    required this.pendingJobs,
+    required this.runningJobs,
+    required this.retryJobs,
+    required this.failedJobs,
+    required this.pageLimitRiskJobs,
+    required this.ordersPulled,
+    required this.itemsPulled,
+    this.estimatedFinishWib,
+    this.estimatedRemaining,
+  });
+
+  factory MarketplaceBootstrapAccountStatus.fromMap(Map<String, dynamic> map) {
+    return MarketplaceBootstrapAccountStatus(
+      marketplaceAccountId: map['marketplace_account_id']?.toString() ?? '',
+      marketplace: map['marketplace']?.toString() ?? '',
+      storeName: map['store_name']?.toString() ?? 'Marketplace',
+      environment: map['environment']?.toString() ?? '',
+      accountStatus: map['account_status']?.toString() ?? '',
+      bootstrapStatus: map['bootstrap_status']?.toString() ?? '',
+      clientMessage: map['client_message']?.toString() ?? '',
+      technicalStatus: map['technical_status']?.toString() ?? '',
+      progressPct: _asDouble(map['progress_pct']),
+      totalJobs: _asInt(map['total_jobs']),
+      doneJobs: _asInt(map['done_jobs']),
+      pendingJobs: _asInt(map['pending_jobs']),
+      runningJobs: _asInt(map['running_jobs']),
+      retryJobs: _asInt(map['retry_jobs']),
+      failedJobs: _asInt(map['failed_jobs']),
+      pageLimitRiskJobs: _asInt(map['page_limit_risk_jobs']),
+      ordersPulled: _asInt(map['orders_pulled']),
+      itemsPulled: _asInt(map['items_pulled']),
+      estimatedFinishWib: map['estimated_finish_wib']?.toString(),
+      estimatedRemaining: map['estimated_remaining']?.toString(),
+    );
+  }
+
+  bool get isActive =>
+      pendingJobs > 0 ||
+      runningJobs > 0 ||
+      retryJobs > 0 ||
+      bootstrapStatus == 'pulling' ||
+      bootstrapStatus == 'syncing' ||
+      bootstrapStatus == 'queued';
+
+  bool get isCompleted => bootstrapStatus == 'completed' && !isActive;
+  bool get isBlocked => bootstrapStatus == 'blocked_pagination_limit';
+  bool get hasFailed => failedJobs > 0 || bootstrapStatus == 'failed';
+}
+
+class MarketplaceBootstrapUiStatus {
+  final bool ok;
+  final bool showBanner;
+  final String severity;
+  final String title;
+  final String message;
+  final Map<String, dynamic> summary;
+  final List<MarketplaceBootstrapAccountStatus> accounts;
+
+  const MarketplaceBootstrapUiStatus({
+    required this.ok,
+    required this.showBanner,
+    required this.severity,
+    required this.title,
+    required this.message,
+    required this.summary,
+    required this.accounts,
+  });
+
+  factory MarketplaceBootstrapUiStatus.fromMap(Map<String, dynamic> map) {
+    final rawAccounts = map['accounts'];
+    final accounts = rawAccounts is List
+        ? rawAccounts
+            .whereType<Map>()
+            .map((item) => MarketplaceBootstrapAccountStatus.fromMap(
+                Map<String, dynamic>.from(item)))
+            .toList(growable: false)
+        : const <MarketplaceBootstrapAccountStatus>[];
+
+    final rawSummary = map['summary'];
+    return MarketplaceBootstrapUiStatus(
+      ok: map['ok'] == true,
+      showBanner: map['show_banner'] == true,
+      severity: map['severity']?.toString() ?? 'neutral',
+      title: map['title']?.toString() ?? 'Status marketplace',
+      message: map['message']?.toString() ?? '',
+      summary: rawSummary is Map
+          ? Map<String, dynamic>.from(rawSummary)
+          : const <String, dynamic>{},
+      accounts: accounts,
+    );
+  }
+
+  int get totalAccounts => _asInt(summary['total_accounts']);
+  int get doneJobs => _asInt(summary['done_jobs']);
+  int get totalJobs => _asInt(summary['total_jobs']);
+  int get retryJobs => _asInt(summary['retry_jobs']);
+  int get pendingJobs => _asInt(summary['pending_jobs']);
+  int get runningJobs => _asInt(summary['running_jobs']);
+  int get failedJobs => _asInt(summary['failed_jobs']);
+  int get pageLimitRiskJobs => _asInt(summary['page_limit_risk_jobs']);
+  int get ordersPulled => _asInt(summary['orders_pulled']);
+  int get itemsPulled => _asInt(summary['items_pulled']);
+  String get estimatedFinishWib =>
+      summary['estimated_finish_wib']?.toString() ?? '';
+
+  bool get hasActiveWork => pendingJobs > 0 || runningJobs > 0 || retryJobs > 0;
+  bool get hasProblem => failedJobs > 0 || pageLimitRiskJobs > 0;
+  bool get hasAccounts => accounts.isNotEmpty;
+}
+
 int _asInt(dynamic value) {
   if (value == null) return 0;
   if (value is num) return value.toInt();
   return int.tryParse(value.toString()) ?? 0;
+}
+
+double _asDouble(dynamic value) {
+  if (value == null) return 0;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString()) ?? 0;
 }
 
 class MarketplaceService {
@@ -396,6 +546,20 @@ class MarketplaceService {
 
   static const int _variantPageSize = 1000;
   static const int _variantMaxRows = 5000;
+
+  Future<MarketplaceBootstrapUiStatus?> fetchBootstrapUiStatus() async {
+    try {
+      final response = await _client.rpc('marketplace_bootstrap_ui_status_v1');
+      if (response is Map) {
+        return MarketplaceBootstrapUiStatus.fromMap(
+          Map<String, dynamic>.from(response),
+        );
+      }
+    } catch (_) {
+      // Older deployments may not have the RPC yet. The UI must stay usable.
+    }
+    return null;
+  }
 
   Future<MarketplaceOrderPullJobDigest?> getRecentOrderPullJobDigest({
     required String tenantId,
