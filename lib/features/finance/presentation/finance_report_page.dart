@@ -236,7 +236,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Future<dynamic> _loadFinanceSnapshot(Map<String, dynamic> params) async {
     final versions = <String>[
-      'finance_dashboard_snapshot',
+      '',
     ];
     Object? lastError;
     dynamic firstEmptyResponse;
@@ -244,7 +244,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       for (final rpcParams in _snapshotParamVariantsForRpc(rpcName, params)) {
         try {
           final response = await _client.rpc(rpcName, params: rpcParams);
-          _lastSnapshotStats = '$rpcName Â· ${_snapshotStats(response)}';
+          _lastSnapshotStats = '$rpcName · ${_snapshotStats(response)}';
           if (!_isFinanceSnapshotEmpty(response) &&
               !_isLegacySkuOnlySnapshot(response)) return response;
           firstEmptyResponse ??= response;
@@ -266,7 +266,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _snapshotParamVariantsForRpc(
       String rpcName, Map<String, dynamic> params) {
     final out = Map<String, dynamic>.from(params)..remove('p_store_name');
-    if (rpcName == 'finance_dashboard_snapshot') {
+    if (rpcName == '') {
       return [
         {
           'p_start': out['p_start'],
@@ -663,7 +663,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         summary['finance_orders_count'] ??
         summary['order_count'] ??
         summary['orders_count']);
-    return 'Data: ${orders.toStringAsFixed(0)} pesanan Â· $bySku SKU Â· $paid settled Â· $unpaid belum payout Â· $market sumber Â· $abnormal abnormal Â· omzet ${_money(gross)} Â· payout ${_money(payout)}';
+    return 'Data: ${orders.toStringAsFixed(0)} pesanan · $bySku SKU · $paid settled · $unpaid belum payout · $market sumber · $abnormal abnormal · omzet ${_money(gross)} · payout ${_money(payout)}';
   }
 
   bool _isFinanceSnapshotEmpty(dynamic response) {
@@ -3303,7 +3303,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (count > 1) '$count detail order',
       if (date != '-') date,
     ];
-    return parts.join(' Â· ');
+    return parts.join(' · ');
   }
 
   void _cacheFinanceProgress() {
@@ -3388,11 +3388,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   //  Abnormal reader
   // True duplicate check: marketplace_account_id + external_order_id + external_order_item_id.
   // Status mapping:
-  //   PENDING_PAYOUT       Â â„¢ waiting, not error, not refresh-payout data.
-  //   MISSING_PAYOUT_FINAL Â â„¢ real abnormal, COMPLETED order without payout.
-  //   NO_PAYOUT_EXPECTED   Â â„¢ excluded from payout refresh, show as greyed-out.
-  //   CANCEL_OR_RETURN_DONEÂ â„¢ finished without stock-in (cancelled before packing).
-  //   DELIVERED w/o payout Â â„¢ not a final abnormal unless status COMPLETED.
+  //   PENDING_PAYOUT        â„¢ waiting, not error, not refresh-payout data.
+  //   MISSING_PAYOUT_FINAL  â„¢ real abnormal, COMPLETED order without payout.
+  //   NO_PAYOUT_EXPECTED    â„¢ excluded from payout refresh, show as greyed-out.
+  //   CANCEL_OR_RETURN_DONE â„¢ finished without stock-in (cancelled before packing).
+  //   DELIVERED w/o payout  â„¢ not a final abnormal unless status COMPLETED.
 
   static const _abnormalRpcV82 = 'finance_abnormal_search';
   String _activeAbnormalRpc = _abnormalRpcV82;
@@ -5236,7 +5236,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         final marketplace = _marketplaceName(_text(account['marketplace']));
         return DropdownMenuItem<String>(
           value: id,
-          child: Text('$marketplace Â· $name', overflow: TextOverflow.ellipsis),
+          child: Text('$marketplace · $name', overflow: TextOverflow.ellipsis),
         );
       }).whereType<DropdownMenuItem<String>>(),
     ];
@@ -5405,13 +5405,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ),
           SizedBox(height: 4),
           Text(
-            'Tarik manual: ${_dateTime(manual)}',
+            ' ${_dateTime(manual)}',
             style: TextStyle(
                 color: Theme.of(context).textTheme.bodyMedium?.color,
                 fontSize: 11),
           ),
           Text(
-            'Auto payout: ${_dateTime(auto)}${_financeAutoSyncMessage.isNotEmpty ? ' Â· $_financeAutoSyncMessage' : ''}',
+            'Auto payout: ${_dateTime(auto)}${_financeAutoSyncMessage.isNotEmpty ? ' · $_financeAutoSyncMessage' : ''}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -5419,7 +5419,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 fontSize: 11),
           ),
           Text(
-            'Order: ${_dateTime(order)} Â· Finance: ${_dateTime(finance)}',
+            'Order: ${_dateTime(order)} · Finance: ${_dateTime(finance)}',
             style: TextStyle(
                 color: Theme.of(context).textTheme.bodySmall?.color,
                 fontSize: 10.5),
@@ -5472,14 +5472,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Auto finance 90 hari + payout',
+                Text('Auto finance aktif',
                     style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
                         color: Theme.of(context).dividerColor)),
                 SizedBox(height: 2),
                 Text(
-                    'Proses otomatis menarik payout terbaru dan mengejar missing payout sampai batas 90 hari.',
+                    'Payout, missing payout, dan status order lama diproses otomatis di background.',
                     style: TextStyle(
                         fontSize: 10.5,
                         color: Theme.of(context).colorScheme.outline)),
@@ -5757,7 +5757,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               title: payout > 0 ? 'LABA BERSIH' : 'ESTIMASI LABA',
               value: _money(profit),
               subtitle:
-                  'Margin ${margin.toStringAsFixed(2)}%  Â·  $orderSubtitle',
+                  'Margin ${margin.toStringAsFixed(2)}%  ·  $orderSubtitle',
               icon: Icons.account_balance_wallet_rounded,
               positive: profit >= 0,
             ),
@@ -5787,7 +5787,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _marketplaceTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat dataÂ¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _hardReloadFinanceView,
@@ -5809,9 +5809,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               final margin =
                   _num(row['net_margin_percent'] ?? row['margin_percent']);
               return _detailCard(
-                title: '$marketplace Â· $shop',
+                title: '$marketplace · $shop',
                 subtitle:
-                    '${_num(row['order_count']).toStringAsFixed(0)} pesanan  Â·  ${_dateTime(row['last_updated_at'] ?? row['updated_at'])}',
+                    '${_num(row['order_count']).toStringAsFixed(0)} pesanan  ·  ${_dateTime(row['last_updated_at'] ?? row['updated_at'])}',
                 children: [
                   _miniMetric('Omzet',
                       _money(_num(row['gross_sales'] ?? row['gross']))),
@@ -5831,7 +5831,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _skuTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat dataÂ¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _hardReloadFinanceView,
@@ -5895,7 +5895,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   if (variantName.isNotEmpty) 'Varian: $variantName',
                   if (marketplaceSku.isNotEmpty)
                     'SKU marketplace: $marketplaceSku',
-                ].join(' Â· '),
+                ].join(' · '),
                 trailing: Wrap(
                   spacing: 6,
                   children: [
@@ -6114,7 +6114,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _cashFlowTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat dataÂ¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     final cashRows = _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
@@ -6134,7 +6134,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 title: _sourceLabel(
                     _text(row['source'] ?? row['category'] ?? type)),
                 subtitle:
-                    '${_date(row['date'] ?? row['created_at'])}  Â·  ${type.toUpperCase()}',
+                    '${_date(row['date'] ?? row['created_at'])}  ·  ${type.toUpperCase()}',
                 trailing: (amount >= 0 ? '+ ' : '- ') + _money(amount.abs()),
                 positive: amount >= 0,
               );
@@ -6146,7 +6146,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _expensesTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat dataÂ¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _hardReloadFinanceView,
@@ -6187,7 +6187,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     ]
                         .where((item) =>
                             item.trim().isNotEmpty && item.trim() != '-')
-                        .join('  Â·  '),
+                        .join('  ·  '),
                     trailing: _money(_purchaseAmount(row)),
                     positive: false,
                   )),
@@ -6200,7 +6200,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _profitLossTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat dataÂ¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     final profitRows =
         _profitLoss.isNotEmpty ? _profitLoss : _fallbackProfitLossRows();
     return RefreshIndicator(
@@ -6231,7 +6231,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _abnormalTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat dataÂ¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     final visibleAbnormales = _filteredAbnormales();
     final pageMax = (_abnormalTotal <= 0)
         ? 1
@@ -6313,7 +6313,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child:
-                  Center(child: FuturisticLoader(message: 'Mencari abnormalÂ¦')),
+                  Center(child: FuturisticLoader(message: 'Mencari abnormal¦')),
             )
           else ...[
             // Info bar
@@ -6326,7 +6326,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               ),
               child: Text(
                 _abnormalServerLoaded
-                    ? 'Hal $_abnormalPage/$pageMax Â· $startRow-$endRow dari $_abnormalTotal Â· $dataCount perlu cek payout'
+                    ? 'Hal $_abnormalPage/$pageMax · $startRow-$endRow dari $_abnormalTotal · $dataCount perlu cek payout'
                     : 'Belum ada hasil pencarian.',
                 style: TextStyle(
                     fontSize: 11,
@@ -6859,7 +6859,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 ),
                 SizedBox(height: 3),
                 Text(
-                  '${_date(row['paid_at'] ?? row['expense_date'] ?? row['created_at'])}  Â·  ${_text(row['note'], 'Tanpa catatan')}',
+                  '${_date(row['paid_at'] ?? row['expense_date'] ?? row['created_at'])}  ·  ${_text(row['note'], 'Tanpa catatan')}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -7567,11 +7567,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required int visibleCount,
   }) {
     if (total <= 0 || visibleCount <= 0) {
-      return 'Menampilkan 0 dari $total Â· Hal $page/$totalPages';
+      return 'Menampilkan 0 dari $total · Hal $page/$totalPages';
     }
     final start = ((page - 1) * pageSize) + 1;
     final end = _minIntV82o(((page - 1) * pageSize) + visibleCount, total);
-    return 'Menampilkan $start-$end dari $total Â· Hal $page/$totalPages';
+    return 'Menampilkan $start-$end dari $total · Hal $page/$totalPages';
   }
 
   String? _marketplaceRpcParam() {
@@ -7662,7 +7662,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     final response = await _client.rpc(
-      'finance_sku_order_details',
+      '',
       params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
@@ -7868,7 +7868,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                 ),
                                 SizedBox(height: 4),
                                 Text(
-                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} Â· $pageSummary Â· $payoutLabel',
+                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel',
                                   style: TextStyle(
                                       fontSize: 12,
                                       color: Theme.of(context)
@@ -7914,7 +7914,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                             child: Text(
                               keyword.isEmpty
                                   ? pageSummary
-                                  : '$pageSummary Â· Filter: $keyword',
+                                  : '$pageSummary · Filter: $keyword',
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w800,
@@ -8045,7 +8045,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ),
                                                       SizedBox(height: 4),
                                                       Text(
-                                                        'Status: ${_skuDetailOrderStatusV82o(item)}  Â·  Payout: ${_payoutStatusText(item)}',
+                                                        'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
                                                         style: TextStyle(
                                                             fontSize: 12,
                                                             color: Theme.of(
@@ -8070,7 +8070,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                               .isNotEmpty) ...[
                                                         SizedBox(height: 4),
                                                         Text(
-                                                          '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' Â· ' : ''}${_text(item['resi_reason'], '')}',
+                                                          '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' · ' : ''}${_text(item['resi_reason'], '')}',
                                                           style: TextStyle(
                                                               fontSize: 11.5,
                                                               color: _linePayoutAmount(
@@ -8087,7 +8087,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ],
                                                       SizedBox(height: 4),
                                                       Text(
-                                                        'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  Â·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  Â·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                                        'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  ·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  ·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
                                                             color: Theme.of(
@@ -8124,7 +8124,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ),
                                                       SizedBox(height: 6),
                                                       Text(
-                                                        'Statement: ${_text(item['statement_id'], '-')}  Â·  Asal data: ${_text(item['source'], '-')}',
+                                                        'Statement: ${_text(item['statement_id'], '-')}  ·   ${_text(item['source'], '-')}',
                                                         style: TextStyle(
                                                             fontSize: 10.5,
                                                             color: Theme.of(
@@ -8155,7 +8155,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       'Payout/item: ${_moneyNullable(item['payout_per_item'])}',
                                                       'HPP/item: ${_money(_num(item['hpp_per_item'] ?? item['hpp']))}',
                                                       'Statement: ${_text(item['statement_id'], '-')}',
-                                                      'Asal data: ${_text(item['source'], '-')}',
+                                                      ' ${_text(item['source'], '-')}',
                                                       if (_skuDetailNeedsMarketplaceRefreshV82o(
                                                           item))
                                                         'Warning: Payout sudah masuk, tetapi status order masih ${_skuDetailOrderStatusV82o(item)}. Perlu refresh marketplace.',
@@ -8217,7 +8217,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final isV82oServerDetail = _text(detailRow['sku_detail_source'], '') ==
             'v82o' ||
         allRows.any((item) =>
-            _text(item['source'], '').contains('finance_sku_order_details'));
+            _text(item['source'], '').contains(''));
 
     final needsLazyDetail = !isV82oServerDetail &&
         (allRows.isEmpty ||
@@ -8300,7 +8300,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                               ),
                               SizedBox(height: 4),
                               Text(
-                                '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} Â· ${allRows.length} detail order SKU Â· $payoutLabel',
+                                '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · ${allRows.length} detail order SKU · $payoutLabel',
                                 style: TextStyle(
                                     fontSize: 12,
                                     color:
@@ -8403,7 +8403,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ),
                                             SizedBox(height: 4),
                                             Text(
-                                              'Status: ${_text(item['order_status'], '-')}  Â·  Payout: ${_payoutStatusText(item)}',
+                                              'Status: ${_text(item['order_status'], '-')}  ·  Payout: ${_payoutStatusText(item)}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
@@ -8419,7 +8419,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                     .isNotEmpty) ...[
                                               SizedBox(height: 4),
                                               Text(
-                                                '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' Â· ' : ''}${_text(item['resi_reason'], '')}',
+                                                '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' · ' : ''}${_text(item['resi_reason'], '')}',
                                                 style: TextStyle(
                                                     fontSize: 11.5,
                                                     color: _linePayoutAmount(
@@ -8434,7 +8434,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ],
                                             SizedBox(height: 4),
                                             Text(
-                                              'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  Â·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  Â·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                              'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  ·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  ·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
@@ -8468,7 +8468,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ),
                                             SizedBox(height: 6),
                                             Text(
-                                              'Statement: ${_text(item['statement_id'], '-')}  Â·  Asal data: ${_text(item['source'], '-')}',
+                                              'Statement: ${_text(item['statement_id'], '-')}  ·   ${_text(item['source'], '-')}',
                                               style: TextStyle(
                                                   fontSize: 10.5,
                                                   color: Theme.of(context)
@@ -8498,7 +8498,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             'Payout/item: ${_moneyNullable(item['payout_per_item'])}',
                                             'HPP/item: ${_money(_num(item['hpp_per_item'] ?? item['hpp']))}',
                                             'Statement: ${_text(item['statement_id'], '-')}',
-                                            'Asal data: ${_text(item['source'], '-')}',
+                                            ' ${_text(item['source'], '-')}',
                                           ].join('\n');
                                           Clipboard.setData(
                                               ClipboardData(text: text));
@@ -8901,7 +8901,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
     return parts
         .where((part) => part.trim().isNotEmpty && part.trim() != '-')
-        .join(' Â· ');
+        .join(' · ');
   }
 
   List<Map<String, dynamic>> _safeOrderRefRows(Map<String, dynamic> row) {
@@ -9210,11 +9210,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var ref = clean
         .replaceAll(
             RegExp(
-                r'Â·?\s*(?:gross|omzet|payout|net|diterima)?\s*rp\s*[0-9.,-]+',
+                r'·?\s*(?:gross|omzet|payout|net|diterima)?\s*rp\s*[0-9.,-]+',
                 caseSensitive: false),
             '')
         .trim();
-    ref = ref.replaceAll(RegExp(r'Â·\s*$'), '').trim();
+    ref = ref.replaceAll(RegExp(r'·\s*$'), '').trim();
     final parts = ref.split(RegExp(r'\s*/\s*'));
     add(
       order: parts.isNotEmpty ? parts.first : ref,
@@ -9644,5 +9644,6 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
+
 
 
