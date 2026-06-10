@@ -33,7 +33,9 @@ const CANCEL_STATUSES = new Set([
 ]);
 
 const ORDER_PULL_ALL_STATUSES = [
-  "AWAITING_SHIPMENT",
+  
+  "PROCESSED",
+"AWAITING_SHIPMENT",
   "READY_TO_SHIP",
   "PAID",
   "UNSHIPPED",
@@ -63,7 +65,10 @@ const FINAL_MARKETPLACE_ORDER_STATUSES = new Set([
 ]);
 
 const STATUS_REFRESH_TARGET_STATUSES = [
-  "AWAITING_SHIPMENT",
+  
+  "PROCESSED",
+  "TO_CONFIRM_RECEIVE",
+"AWAITING_SHIPMENT",
   "AWAITING_COLLECTION",
   "IN_TRANSIT",
   "DELIVERED",
@@ -2145,7 +2150,7 @@ function buildVariantName(item: any): string | null {
       return name ? `${name}: ${value}` : value;
     })
     .filter(Boolean);
-  return parts.length > 0 ? parts.join(" • ") : null;
+  return parts.length > 0 ? parts.join(" â€¢ ") : null;
 }
 
 function numberFromAny(value: any): number | null {
@@ -2763,7 +2768,7 @@ function json(data: unknown, status = 200) {
 function mask(value: string): string {
   if (!value) return "";
   if (value.length <= 10) return "****";
-  return `${value.slice(0, 6)}…${value.slice(-4)}`;
+  return `${value.slice(0, 6)}â€¦${value.slice(-4)}`;
 }
 
 function maskTokenObject(input: any): any {

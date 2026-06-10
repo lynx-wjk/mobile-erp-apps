@@ -82,6 +82,7 @@ Deno.serve(async (req)=>{
     const process = params.process !== false;
     const accountId = text(params.account_id || params.marketplace_account_id);
     const maxAccounts = clampInt(params.max_accounts, 1, 100, 50);
+    const statusMaxAccounts = clampInt(params.status_max_accounts ?? params.max_status_accounts ?? 100, 1, 100, 100);
     const maxJobs = clampInt(params.max_jobs ?? params.max_order_jobs, 1, 12, ctx.isCron ? 1 : 6);
     const windowMinutes = clampInt(params.window_minutes, 15, 240, 60);
     const refreshExistingStatus = params.refresh_existing_status !== false;
@@ -137,7 +138,7 @@ Deno.serve(async (req)=>{
       cronSecret,
       tenantId,
       accountId,
-      maxAccounts,
+      maxAccounts: statusMaxAccounts,
       statusRangeDays,
       maxExistingOrders,
       skipCompletedStatusRefresh
