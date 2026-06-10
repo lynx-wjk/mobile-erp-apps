@@ -35,6 +35,7 @@ Deno.serve(async (req)=>{
     const tenantFilter = text(body.tenant_id);
     const accountFilter = text(body.marketplace_account_id);
     const maxAccounts = clampInt(body.max_accounts, 1, 100, 50);
+    const maxOrderAccounts = clampInt(body.max_order_accounts ?? body.order_max_accounts ?? Deno.env.get("ORDER_PULL_MAX_ACCOUNTS"), 1, 100, 100);
     const queueLimit = clampInt(body.stock_sync_limit, 1, 50, 20);
     // v7: order cron 2 menit harus bounded. Default sengaja kecil supaya parent request tidak 546/timeout.
     const maxOrderJobs = clampInt(body.max_order_jobs ?? Deno.env.get("ORDER_PULL_MAX_JOBS"), 1, 12, 1);
@@ -88,7 +89,7 @@ Deno.serve(async (req)=>{
         tenantFilter,
         accountFilter,
         force,
-        maxAccounts,
+        maxAccounts: maxOrderAccounts,
         maxOrderJobs,
         maxPagesPerAccount,
         maxOrdersPerAccount,
