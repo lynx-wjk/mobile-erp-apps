@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 const FUNCTION_VERSION = "marketplace-auto-runner-status-finance-reconciliation-v52-2026-06-10";
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -313,7 +313,7 @@ async function runAutoOrderPull(args) {
     const interval = clampInt(setting.interval_minutes, 1, 60, 2);
     const orderDue = args.force || isDue(setting.last_auto_run_at, interval);
     // v7: pending drain dibuat opsional dan bounded. Kalau child lambat, parent tetap return sebelum pg_net timeout.
-    if (args.runPendingDrain && args.force) {
+    if (args.runPendingDrain) {
       const pendingDrain = await invokeFunction(args.supabaseUrl, args.serviceRoleKey, args.cronSecret, "marketplace-order-sync-jobs", {
         mode: "process_pending",
         tenant_id: tenantId,
@@ -1049,3 +1049,4 @@ function json(payload, status = 200) {
     }
   });
 }
+
