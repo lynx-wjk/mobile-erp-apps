@@ -52,6 +52,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String _currentRoleId = '';
   String _currentTenantId = '';
   String _lastSnapshotStats = '';
+  Map<String, dynamic> _marketplaceBootstrapUiStatus =
+      const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
       'finance_live_20260606_local_cache_fast_v20';
@@ -160,6 +162,30 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (showError && mounted) {
         AppUi.safeSnack(context,
             'Pengaturan auto payout belum siap. Perbarui database lalu buka ulang halaman ini.');
+      }
+    }
+  }
+
+  Future<void> _loadMarketplaceBootstrapUiStatus(
+      {bool showError = false}) async {
+    try {
+      final response = await _client.rpc('marketplace_bootstrap_ui_status_v1');
+      if (!mounted) return;
+      setState(() {
+        _marketplaceBootstrapUiStatus = response is Map
+            ? Map<String, dynamic>.from(response)
+            : const <String, dynamic>{};
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _marketplaceBootstrapUiStatus = const <String, dynamic>{};
+      });
+      if (showError) {
+        AppUi.safeSnack(
+          context,
+          'Status sinkron marketplace belum tersedia. Perbarui database lalu buka ulang halaman ini.',
+        );
       }
     }
   }
@@ -936,6 +962,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               requestMarketplaceKey &&
           _accountFilter == requestAccountKey;
     }
+
     setState(() {
       _loading = true;
       _error = null;
@@ -959,6 +986,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       await FinanceLocalCache.cleanup();
       await _loadCurrentRole();
+      if (!isCurrentFinanceLoad()) return;
+      await _loadMarketplaceBootstrapUiStatus();
       if (!isCurrentFinanceLoad()) return;
       if (!_canAccessFinance) {
         if (!mounted) return;
@@ -1075,8 +1104,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return null;
   }
 
-  Future<Map<String, Map<String, dynamic>>> _fetchSkuPayoutCountSummaryMap()
-      async {
+  Future<Map<String, Map<String, dynamic>>>
+      _fetchSkuPayoutCountSummaryMap() async {
     try {
       final response = await _client.rpc(
         'finance_sku_payout_count_summary',
@@ -1206,6 +1235,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _bySku = mergedRows;
     });
   }
+
   double _numFirstNonZero(Iterable<dynamic> values) {
     for (final value in values) {
       final n = _num(value);
@@ -4856,6 +4886,163 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
+  Widget _marketplaceBootstrapFinanceBanner() {
+    final status = _marketplaceBootstrapUiStatus;
+    if (status.isEmpty || status['show_banner'] != true) {
+      return const SizedBox.shrink();
+    }
+
+    final severity = _text(status['severity'], 'info').toLowerCase();
+    final summary = _asMap(status['summary']);
+    final title = _text(status['title'], 'Data marketplace sedang diambil');
+    final message = _text(
+      status['message'],
+      'Order, resi, refund/return, dan payout marketplace sedang disinkronkan.',
+    );
+    final accent = _bootstrapFinanceSeverityColor(severity);
+    final eta = _dateTime(summary['estimated_finish_wib']);
+    final done = _text(summary['done_jobs'], '0');
+    final total = _text(summary['total_jobs'], '0');
+    final retry = _text(summary['retry_jobs'], '0');
+    final running = _text(summary['running_jobs'], '0');
+    final failed = _text(summary['failed_jobs'], '0');
+    final orders = _text(summary['orders_pulled'], '0');
+    final items = _text(summary['items_pulled'], '0');
+    final totalJobs = _num(summary['total_jobs']);
+    final doneJobs = _num(summary['done_jobs']);
+    final progress = totalJobs <= 0
+        ? 0.0
+        : (doneJobs / totalJobs).clamp(0.0, 1.0).toDouble();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(
+          accent.withOpacity(.12),
+          Theme.of(context).cardColor,
+        ),
+        border: Border.all(color: accent.withOpacity(.55), width: 1.4),
+        borderRadius: BorderRadius.zero,
+        boxShadow: const [
+          BoxShadow(color: Colors.black, blurRadius: 0, offset: Offset(3, 3)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(_bootstrapFinanceSeverityIcon(severity),
+                  color: accent, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title.toUpperCase(),
+                      style: TextStyle(
+                        color: Theme.of(context).textTheme.bodyLarge?.color,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                        letterSpacing: .8,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$message Finance masih berstatus data sementara sampai proses selesai.',
+                      style: TextStyle(
+                        color: Theme.of(context).textTheme.bodyMedium?.color,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          LinearProgressIndicator(
+            value: progress.isNaN ? null : progress,
+            minHeight: 7,
+            backgroundColor: Theme.of(context).dividerColor.withOpacity(.18),
+            color: accent,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _bootstrapFinanceChip('Tahap', '$done/$total'),
+              _bootstrapFinanceChip('Retry', retry),
+              _bootstrapFinanceChip('Running', running),
+              _bootstrapFinanceChip('Failed', failed),
+              _bootstrapFinanceChip('Order', orders),
+              _bootstrapFinanceChip('Item', items),
+              if (eta != '-') _bootstrapFinanceChip('ETA', eta),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bootstrapFinanceChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor.withOpacity(.62),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withOpacity(.22),
+        ),
+        borderRadius: BorderRadius.zero,
+      ),
+      child: Text(
+        '$label: $value',
+        style: TextStyle(
+          color: Theme.of(context).textTheme.bodyLarge?.color,
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Color _bootstrapFinanceSeverityColor(String severity) {
+    switch (severity) {
+      case 'error':
+        return Colors.redAccent;
+      case 'warning':
+        return AppUi.orange;
+      case 'success':
+        return Colors.greenAccent;
+      case 'info':
+        return Colors.cyan;
+      default:
+        return Theme.of(context).colorScheme.secondary;
+    }
+  }
+
+  IconData _bootstrapFinanceSeverityIcon(String severity) {
+    switch (severity) {
+      case 'error':
+        return Icons.error_outline_rounded;
+      case 'warning':
+        return Icons.warning_amber_rounded;
+      case 'success':
+        return Icons.verified_rounded;
+      case 'info':
+        return Icons.sync_rounded;
+      default:
+        return Icons.info_outline_rounded;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final tabs = [
@@ -5001,6 +5188,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           body: SafeArea(
             child: Column(
               children: [
+                _marketplaceBootstrapFinanceBanner(),
                 _filterBar(),
                 Expanded(
                   child: _error != null
@@ -7402,19 +7590,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   int _skuDetailPageV82o(Object? payload, int fallback) {
     if (payload is! Map) return fallback;
-    final direct = _positiveIntV82o(payload['page'] ?? payload['current_page'], fallback);
+    final direct =
+        _positiveIntV82o(payload['page'] ?? payload['current_page'], fallback);
     if (direct != fallback) return direct;
     final nested = payload['pagination'] ?? payload['meta'];
-    if (nested is Map) return _positiveIntV82o(nested['page'] ?? nested['current_page'], fallback);
+    if (nested is Map)
+      return _positiveIntV82o(
+          nested['page'] ?? nested['current_page'], fallback);
     return fallback;
   }
 
   int _skuDetailPageSizeV82o(Object? payload, int fallback) {
     if (payload is! Map) return fallback;
-    final direct = _positiveIntV82o(payload['page_size'] ?? payload['per_page'] ?? payload['limit'], fallback);
+    final direct = _positiveIntV82o(
+        payload['page_size'] ?? payload['per_page'] ?? payload['limit'],
+        fallback);
     if (direct != fallback) return direct;
     final nested = payload['pagination'] ?? payload['meta'];
-    if (nested is Map) return _positiveIntV82o(nested['page_size'] ?? nested['per_page'] ?? nested['limit'], fallback);
+    if (nested is Map)
+      return _positiveIntV82o(
+          nested['page_size'] ?? nested['per_page'] ?? nested['limit'],
+          fallback);
     return fallback;
   }
 
@@ -7622,7 +7818,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         pageSize: 100,
       );
     } catch (error) {
-      _setMessage('Detail order SKU ($payoutLabel) gagal dimuat: ${_cleanError(error)}');
+      _setMessage(
+          'Detail order SKU ($payoutLabel) gagal dimuat: ${_cleanError(error)}');
       return;
     }
 
@@ -7637,7 +7834,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var totalPages = _positiveIntV82o(pageResult['total_pages'], 1);
 
     if (rows.isEmpty && total <= 0) {
-      _setMessage('Detail order SKU ($payoutLabel) belum ditemukan dari server.');
+      _setMessage(
+          'Detail order SKU ($payoutLabel) belum ditemukan dari server.');
       return;
     }
 
@@ -7723,7 +7921,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 ),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                      maxHeight: MediaQuery.of(sheetContext).size.height * 0.86),
+                      maxHeight:
+                          MediaQuery.of(sheetContext).size.height * 0.86),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -7736,7 +7935,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                               children: [
                                 Text(
                                   _text(
-                                      detailRow['local_sku'] ?? detailRow['sku'],
+                                      detailRow['local_sku'] ??
+                                          detailRow['sku'],
                                       'Detail SKU'),
                                   style: TextStyle(
                                       fontSize: 20,
@@ -7748,8 +7948,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                   '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel',
                                   style: TextStyle(
                                       fontSize: 12,
-                                      color:
-                                          Theme.of(context).colorScheme.outline),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outline),
                                 ),
                               ],
                             ),
@@ -7849,7 +8050,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                           return Container(
                                             padding: const EdgeInsets.all(12),
                                             decoration: BoxDecoration(
-                                              color: (Theme.of(context).cardColor),
+                                              color:
+                                                  (Theme.of(context).cardColor),
                                               borderRadius: BorderRadius.zero,
                                               border: Border.all(
                                                   color: Theme.of(context)
@@ -7868,9 +8070,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         .colorScheme
                                                         .primary
                                                         .withOpacity(0.10),
-                                                    borderRadius: BorderRadius.zero,
+                                                    borderRadius:
+                                                        BorderRadius.zero,
                                                   ),
-                                                  child: Icon(Icons.receipt_long_rounded,
+                                                  child: Icon(
+                                                      Icons
+                                                          .receipt_long_rounded,
                                                       color: Theme.of(context)
                                                           .colorScheme
                                                           .primary,
@@ -7880,7 +8085,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                 Expanded(
                                                   child: Column(
                                                     crossAxisAlignment:
-                                                        CrossAxisAlignment.start,
+                                                        CrossAxisAlignment
+                                                            .start,
                                                     children: [
                                                       SelectableText(
                                                         'Order: ${_text(item['order'], '-')}',
@@ -7888,7 +8094,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                             fontSize: 13.5,
                                                             fontWeight:
                                                                 FontWeight.w900,
-                                                            color: Theme.of(context)
+                                                            color: Theme.of(
+                                                                    context)
                                                                 .dividerColor),
                                                       ),
                                                       SizedBox(height: 4),
@@ -7896,7 +8103,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         'Resi: ${_text(item['resi'], '-')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(context)
+                                                            color: Theme.of(
+                                                                    context)
                                                                 .colorScheme
                                                                 .outline,
                                                             height: 1.35),
@@ -7906,7 +8114,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         'Tanggal pesanan: ${_dateTime(item['order_date'])}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(context)
+                                                            color: Theme.of(
+                                                                    context)
                                                                 .colorScheme
                                                                 .outline,
                                                             height: 1.35),
@@ -7916,19 +8125,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(context)
+                                                            color: Theme.of(
+                                                                    context)
                                                                 .colorScheme
                                                                 .outline,
                                                             height: 1.35),
                                                       ),
-                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(item)) ...[
+                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(
+                                                          item)) ...[
                                                         SizedBox(height: 6),
-                                                        _skuRefreshWarningBannerV82o(item),
+                                                        _skuRefreshWarningBannerV82o(
+                                                            item),
                                                       ],
-                                                      if (_payoutExplainText(item)
+                                                      if (_payoutExplainText(
+                                                                  item)
                                                               .trim()
                                                               .isNotEmpty ||
-                                                          _text(item['resi_reason'], '')
+                                                          _text(item['resi_reason'],
+                                                                  '')
                                                               .trim()
                                                               .isNotEmpty) ...[
                                                         SizedBox(height: 4),
@@ -7939,8 +8153,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                               color: _linePayoutAmount(
                                                                           item) <
                                                                       0
-                                                                  ? Colors.redAccent
-                                                                  : Theme.of(context)
+                                                                  ? Colors
+                                                                      .redAccent
+                                                                  : Theme.of(
+                                                                          context)
                                                                       .colorScheme
                                                                       .secondary,
                                                               height: 1.35),
@@ -7951,7 +8167,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  ·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  ·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(context)
+                                                            color: Theme.of(
+                                                                    context)
                                                                 .colorScheme
                                                                 .outline,
                                                             height: 1.35),
@@ -7964,7 +8181,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                           _miniMetric(
                                                               'Qty',
                                                               _num(item['qty'])
-                                                                  .toStringAsFixed(0)),
+                                                                  .toStringAsFixed(
+                                                                      0)),
                                                           _miniMetric(
                                                               'Harga jual/item',
                                                               _money(_num(item[
@@ -7977,7 +8195,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                               'HPP/item',
                                                               _money(_num(item[
                                                                       'hpp_per_item'] ??
-                                                                  item['hpp']))),
+                                                                  item[
+                                                                      'hpp']))),
                                                         ],
                                                       ),
                                                       SizedBox(height: 6),
@@ -7985,7 +8204,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         'Statement: ${_text(item['statement_id'], '-')}  ·  Asal data: ${_text(item['source'], '-')}',
                                                         style: TextStyle(
                                                             fontSize: 10.5,
-                                                            color: Theme.of(context)
+                                                            color: Theme.of(
+                                                                    context)
                                                                 .colorScheme
                                                                 .outline,
                                                             height: 1.3),
@@ -8013,15 +8233,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       'HPP/item: ${_money(_num(item['hpp_per_item'] ?? item['hpp']))}',
                                                       'Statement: ${_text(item['statement_id'], '-')}',
                                                       'Asal data: ${_text(item['source'], '-')}',
-                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(item))
+                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(
+                                                          item))
                                                         'Warning: Payout sudah masuk, tetapi status order masih ${_skuDetailOrderStatusV82o(item)}. Perlu refresh marketplace.',
                                                     ].join('\n');
                                                     Clipboard.setData(
-                                                        ClipboardData(text: text));
-                                                    ScaffoldMessenger.of(sheetContext)
-                                                        .showSnackBar(const SnackBar(
-                                                            content: Text(
-                                                                'Detail order disalin.')));
+                                                        ClipboardData(
+                                                            text: text));
+                                                    ScaffoldMessenger.of(
+                                                            sheetContext)
+                                                        .showSnackBar(
+                                                            const SnackBar(
+                                                                content: Text(
+                                                                    'Detail order disalin.')));
                                                   },
                                                   icon: Icon(Icons.copy_rounded,
                                                       size: 18,
@@ -8041,7 +8265,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                 .cardColor
                                                 .withOpacity(0.55),
                                             child: const Center(
-                                                child: CircularProgressIndicator()),
+                                                child:
+                                                    CircularProgressIndicator()),
                                           ),
                                         ),
                                     ],
@@ -8066,10 +8291,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var detailRow = row;
     var allRows =
         _filteredSkuOrderRows(_safeOrderRefRows(detailRow), payoutFilter);
-    final isV82oServerDetail =
-        _text(detailRow['sku_detail_source'], '') == 'v82o' ||
-            allRows.any((item) => _text(item['source'], '')
-                .contains('finance_sku_order_details'));
+    final isV82oServerDetail = _text(detailRow['sku_detail_source'], '') ==
+            'v82o' ||
+        allRows.any((item) =>
+            _text(item['source'], '').contains('finance_sku_order_details'));
 
     final needsLazyDetail = !isV82oServerDetail &&
         (allRows.isEmpty ||
