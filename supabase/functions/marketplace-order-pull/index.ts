@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-order-pull-v24-6-23-nonfinal-payout-priority-refresh-2026-06-09";
+const FUNCTION_VERSION = "marketplace-order-pull-shopee-processed-stockout-v48-2026-06-10";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -11,6 +11,7 @@ const corsHeaders = {
 const STOCK_OUT_ELIGIBLE_STATUSES = new Set([
   "AWAITING_SHIPMENT",
   "READY_TO_SHIP",
+  "PROCESSED",
   "PAID",
   "UNSHIPPED",
   "TO_SHIP",
