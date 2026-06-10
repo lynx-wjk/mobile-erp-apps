@@ -78,3 +78,6 @@ window_dump.xml
 /scratch/
 
 .vercel_deploy/
+
+# Supabase CLI local cache
+supabase/.temp/
