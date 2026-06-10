@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-order-pull-v24-6-23-nonfinal-payout-priority-refresh-2026-06-09";
+const FUNCTION_VERSION = "marketplace-order-pull-refresh-final-status-v51-2026-06-10";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -11,6 +11,7 @@ const corsHeaders = {
 const STOCK_OUT_ELIGIBLE_STATUSES = new Set([
   "AWAITING_SHIPMENT",
   "READY_TO_SHIP",
+  "PROCESSED",
   "PAID",
   "UNSHIPPED",
   "TO_SHIP",
@@ -98,6 +99,16 @@ const PRESERVE_ITEM_ACTION_STATUSES = new Set([
   "cancelled_released",
 ]);
 
+function stockOutSkipMessage(orderStatusUpper: string, isTodayOrder: boolean, marketplaceName = ""): string {
+  const status = orderStatusUpper || "UNKNOWN";
+  const suffix = marketplaceName ? ` ${marketplaceName}` : "";
+  if (FINAL_MARKETPLACE_ORDER_STATUSES.has(status)) {
+    return `Status order${suffix} sudah final (${status}). Tidak memakai jalur stock out regular.`;
+  }
+  return isTodayOrder
+    ? `Status order${suffix} belum bisa diproses stock out: ${status}.`
+    : `Order lama${suffix} dengan status ${status} tidak diproses stock out otomatis.`;
+}
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -305,7 +316,7 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
 
   let existingQuery = admin
     .from("marketplace_orders")
-    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
+    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
     .eq("tenant_id", activeAccount.tenant_id)
     .eq("marketplace_account_id", activeAccount.marketplace_account_id)
     .or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
@@ -419,7 +430,7 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
       shipping_provider_name: normalizedOrder.shipping_provider_name,
       package_id: normalizedOrder.package_id,
       logistic_status: normalizedOrder.logistic_status,
-      label_code: normalizedOrder.label_code || orderId,
+      label_code: normalizedOrder.tracking_number || row.tracking_number || nonOrderIdLabelCode(normalizedOrder.label_code, orderId),
       cancel_request_id: normalizedOrder.cancel_request_id,
       cancel_request_status: normalizedOrder.cancel_request_status,
       cancel_request_reason: normalizedOrder.cancel_request_reason,
@@ -598,7 +609,7 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
 
   let existingQuery = admin
     .from("marketplace_orders")
-    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
+    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
     .eq("tenant_id", activeAccount.tenant_id)
     .eq("marketplace_account_id", activeAccount.marketplace_account_id)
     .or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
@@ -708,7 +719,7 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
         shipping_provider_name: normalizedOrder.shipping_provider_name,
         package_id: normalizedOrder.package_id,
         logistic_status: normalizedOrder.logistic_status,
-        label_code: normalizedOrder.label_code || orderId,
+        label_code: normalizedOrder.tracking_number || row.tracking_number || nonOrderIdLabelCode(normalizedOrder.label_code, orderId),
         cancel_request_id: normalizedOrder.cancel_request_id,
         cancel_request_status: normalizedOrder.cancel_request_status,
         cancel_request_reason: normalizedOrder.cancel_request_reason,
@@ -872,10 +883,8 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
 
     const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
     const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
-    if (args.skipCompletedOrderPull && FINAL_MARKETPLACE_ORDER_STATUSES.has(orderStatusUpper)) {
-      skippedCompletedOrders += 1;
-      continue;
-    }
+    // Final marketplace statuses must still be imported to refresh stale local rows.
+    // Do not skip COMPLETED/DELIVERED here, otherwise old IN_TRANSIT finance/order rows never become final.
 
     const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
     const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
@@ -946,9 +955,7 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
 
     const existingOrderStatus = text(orderRow.stock_action_status);
     let stockActionStatus = isTodayOrder ? "pending" : "ignored_status";
-    let lastError: string | null = isTodayOrder
-      ? `Status order Shopee belum bisa diproses stock out: ${orderStatusUpper || "UNKNOWN"}.`
-      : `Order lama Shopee dengan status ${orderStatusUpper || "UNKNOWN"} tidak diproses stock out otomatis.`;
+    let lastError: string | null = stockOutSkipMessage(orderStatusUpper, isTodayOrder, "Shopee");
 
     if (isCancelNoStockAction) {
       stockActionStatus = "ignored_status";
@@ -1428,10 +1435,8 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
 
     const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
     const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
-    if (args.skipCompletedOrderPull && FINAL_MARKETPLACE_ORDER_STATUSES.has(orderStatusUpper)) {
-      skippedCompletedOrders += 1;
-      continue;
-    }
+    // Final marketplace statuses must still be imported to refresh stale local rows.
+    // Do not skip COMPLETED/DELIVERED here, otherwise old IN_TRANSIT finance/order rows never become final.
 
     const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
     const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
@@ -1511,9 +1516,7 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
     const existingOrderStatus = text(orderRow.stock_action_status);
 
     let stockActionStatus = isTodayOrder ? "pending" : "ignored_status";
-    let lastError: string | null = isTodayOrder
-      ? `Status order belum bisa diproses stock out: ${orderStatusUpper || "UNKNOWN"}.`
-      : `Order lama dengan status ${orderStatusUpper || "UNKNOWN"} tidak diproses stock out otomatis.`;
+    let lastError: string | null = stockOutSkipMessage(orderStatusUpper, isTodayOrder);
 
     if (isCancelNoStockAction) {
       stockActionStatus = "ignored_status";
@@ -2010,6 +2013,14 @@ function normalizeDetailOrder(detailJson: any, fallback: any, orderId: string): 
   return deepMerge(fallback || {}, found || { id: orderId });
 }
 
+function nonOrderIdLabelCode(value: unknown, orderId: unknown): string | null {
+  const clean = text(value);
+  if (!clean) return null;
+  const oid = text(orderId);
+  if (oid && clean === oid) return null;
+  return clean;
+}
+
 function normalizeOrder(raw: any, account: any, orderId: string) {
   const status = text(raw.status) || text(raw.order_status) || text(raw.orderStatus) || text(raw.fulfillment_status) || "UNKNOWN";
   const payment = raw.payment || raw.payment_info || raw.paymentInfo || {};
@@ -2027,7 +2038,7 @@ function normalizeOrder(raw: any, account: any, orderId: string) {
     shipping_provider_name: detectShippingProviderName(raw),
     package_id: detectPackageId(raw),
     logistic_status: detectLogisticStatus(raw),
-    label_code: detectLabelCode(raw) || orderId,
+    label_code: detectTrackingNumber(raw) || nonOrderIdLabelCode(detectLabelCode(raw), orderId),
     cancel_request_id: cancelRequest.id,
     cancel_request_status: cancelRequest.status,
     cancel_request_reason: cancelRequest.reason,
