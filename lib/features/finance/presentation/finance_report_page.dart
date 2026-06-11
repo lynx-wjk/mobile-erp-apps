@@ -6332,6 +6332,53 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return double.tryParse(cleaned) ?? 0;
   }
 
+  Future<List<Map<String, dynamic>>> _loadCashMarketplaceAccounts(
+      String tenantId) async {
+    try {
+      final res = await _client
+          .from('marketplace_accounts')
+          .select(
+              'marketplace_account_id, marketplace, shop_name, store_alias, shop_id, environment, status')
+          .eq('tenant_id', tenantId)
+          .eq('status', 'active')
+          .neq('is_deleted', true)
+          .order('marketplace', ascending: true)
+          .order('shop_name', ascending: true)
+          .range(0, 99);
+
+      return _asList(res)
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .where((row) => _text(row['marketplace_account_id']).isNotEmpty)
+          .toList();
+    } catch (e) {
+      debugPrint('FINANCE_CASH_MARKETPLACE_ACCOUNTS_SKIPPED: $e');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  String _cashMarketplaceAccountLabel(Map<String, dynamic> row) {
+    final marketplace = _sourceLabel(_text(row['marketplace'], 'Marketplace'));
+    final shop = _text(
+      row['shop_name'] ?? row['store_alias'] ?? row['shop_id'],
+      'Toko',
+    );
+    final env = _text(row['environment']);
+    return env.isEmpty ? '$marketplace · $shop' : '$marketplace · $shop · $env';
+  }
+
+  Map<String, dynamic>? _findCashMarketplaceAccount(
+    List<Map<String, dynamic>> rows,
+    String? accountId,
+  ) {
+    final clean = (accountId ?? '').trim();
+    if (clean.isEmpty) return null;
+    for (final row in rows) {
+      if (_text(row['marketplace_account_id']) == clean) return row;
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> _fetchCompanyCashflowMonthlySnapshot() async {
     try {
       final res = await _client.rpc(
@@ -6581,8 +6628,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final refController = TextEditingController();
     final noteController = TextEditingController();
 
-    final accountId = _cashSelectedAccountId();
-    final marketplace = _cashSelectedMarketplace();
+    final accountRows = await _loadCashMarketplaceAccounts(tenantId);
+    var selectedAccountId = _cashSelectedAccountId();
+    var selectedAccount =
+        _findCashMarketplaceAccount(accountRows, selectedAccountId);
+    if (selectedAccount == null && accountRows.length == 1) {
+      selectedAccount = accountRows.first;
+      selectedAccountId = _text(selectedAccount['marketplace_account_id']);
+    }
+    var selectedMarketplace =
+        _text(selectedAccount?['marketplace'] ?? _cashSelectedMarketplace());
 
     final ok = await showDialog<bool>(
       context: context,
