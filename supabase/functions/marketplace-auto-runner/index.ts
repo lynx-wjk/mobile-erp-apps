@@ -1,5 +1,5 @@
-﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const FUNCTION_VERSION = "marketplace-auto-runner-status-finance-reconciliation-v52-2026-06-10";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+const FUNCTION_VERSION = "marketplace-auto-runner-stale-status-resi-refresh-v53-2026-06-11";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-marketplace-cron-secret, x-stock-sync-cron-secret",
@@ -478,17 +478,15 @@ async function runAutoOrderPull(args) {
           action: "refresh_existing_status",
           tenant_id: tenantId,
           marketplace_account_id: accountId,
-          status_range_days: args.statusRefreshRangeDays,
-          max_existing_orders: args.maxStatusRefreshPerAccount,
-          source: "marketplace-auto-runner-v9-status-refresh-90d-payout-priority",
+          status_range_days: Math.max(args.statusRefreshRangeDays || 90, 90),
+          max_existing_orders: Math.max(args.maxStatusRefreshPerAccount || 40, 40),
+          source: "marketplace-auto-runner-v53-stale-status-resi-refresh-90d",
           sync_status_aliases: true,
           canonical_status_sync: true,
           auto_status_only: true,
           only_unfinished: true,
           only_active_orders: true,
-          skip_completed_orders: true,
-          skip_final_orders: true,
-          include_completed: false,
+          skip_completed_status_refresh: true,
           exclude_statuses: [
             "COMPLETED",
             "CANCELLED",
@@ -1049,4 +1047,3 @@ function json(payload, status = 200) {
     }
   });
 }
-
