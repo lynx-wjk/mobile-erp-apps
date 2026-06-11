@@ -582,6 +582,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     });
   }
 
+  DateTime _financeReportMonthStart() => DateTime(_start.year, _start.month, 1);
+
+  DateTime _financeReportMonthEnd() {
+    final nextMonth = DateTime(_start.year, _start.month + 1, 1);
+    return nextMonth.subtract(const Duration(days: 1));
+  }
+
+  String _financeReportMonthStartParam() =>
+      _toDateParam(_financeReportMonthStart());
+
+  String _financeReportMonthEndParam() =>
+      _toDateParam(_financeReportMonthEnd());
   Future<List<Map<String, dynamic>>> _fetchOperationalExpensesPeriod() async {
     final params = <String, dynamic>{
       'p_start': _toDateParam(_start),
@@ -6273,9 +6285,32 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _cashFlowTab() {
-    if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+    if (_loading) {
+      return Center(child: FuturisticLoader(message: 'Memuat data…'));
+    }
+
     final cashRows = _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
+    final cashInMarketplace = _numFirstNonZero([
+      _summary['payout_total'],
+      _summary['payout_amount'],
+      _summary['received_amount'],
+      _summary['net_received'],
+      _summary['net_settlement'],
+    ]);
+    final cashOutOperational = _numFirstNonZero([
+      _summary['manual_expense_total'],
+      _summary['manual_operational_expense'],
+    ]);
+    final cashOutPurchases = _numFirstNonZero([
+      _summary['approved_purchase_total'],
+      _summary['purchase_cashout'],
+      _summary['approved_purchase_cashout'],
+    ]);
+    final totalCashOut = cashOutOperational + cashOutPurchases;
+    final companyCashBalance = cashInMarketplace - totalCashOut;
+    final monthLabel =
+        '${_date(_financeReportMonthStart())} s/d ${_date(_financeReportMonthEnd())}';
+
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -6284,6 +6319,30 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           _sectionHeader('Arus Kas'),
           SizedBox(height: 8),
+          _simpleRowCard(
+            title: 'Sisa kas perusahaan periode ini',
+            subtitle:
+                'Kas marketplace - biaya operasional - pembelian disetujui · $monthLabel',
+            trailing: (companyCashBalance >= 0 ? '+ ' : '- ') +
+                _money(companyCashBalance.abs()),
+            positive: companyCashBalance >= 0,
+          ),
+          SizedBox(height: 8),
+          _simpleRowCard(
+            title: 'Kas masuk marketplace',
+            subtitle: 'Payout/settlement yang sudah masuk periode ini',
+            trailing: '+ ${_money(cashInMarketplace)}',
+            positive: true,
+          ),
+          SizedBox(height: 8),
+          _simpleRowCard(
+            title: 'Kas keluar operasional + pembelian',
+            subtitle:
+                'Biaya operasional ${_money(cashOutOperational)} · pembelian disetujui ${_money(cashOutPurchases)}',
+            trailing: '- ${_money(totalCashOut.abs())}',
+            positive: false,
+          ),
+          SizedBox(height: 12),
           if (cashRows.isEmpty)
             _emptyCard('Belum ada arus kas pada periode ini.')
           else
@@ -8192,7 +8251,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ),
                                                       SizedBox(height: 4),
                                                       SelectableText(
-                                                        'Resi: ${_text(item['resi'], '-')}',
+                                                        'Resi: ${_text(item['resi'], 'belum tersinkron')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
                                                             color: Theme.of(
@@ -8310,10 +8369,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                   onPressed: () {
                                                     final text = [
                                                       'Order: ${_text(item['order'], '-')}',
-                                                      'Resi: ${_text(item['resi'], '-')}',
+                                                      'Resi: ${_text(item['resi'], 'belum tersinkron')}',
                                                       'Tanggal pesanan: ${_dateTime(item['order_date'])}',
                                                       'Status: ${_skuDetailOrderStatusV82o(item)}',
-                                                      'Payout status: ${_payoutStatusText(item)}',
+                                                      'Payout: ${_payoutStatusText(item)}',
                                                       'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? '-' : _payoutExplainText(item)}',
                                                       'Catatan resi: ${_text(item['resi_reason'], '-')}',
                                                       'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}',
@@ -8551,7 +8610,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ),
                                             SizedBox(height: 4),
                                             SelectableText(
-                                              'Resi: ${_text(item['resi'], '-')}',
+                                              'Resi: ${_text(item['resi'], 'belum tersinkron')}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
@@ -8571,7 +8630,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ),
                                             SizedBox(height: 4),
                                             Text(
-                                              'Status: ${_text(item['order_status'], '-')}  ·  Payout: ${_payoutStatusText(item)}',
+                                              'Status order: ${_text(item['order_status'], '-')}  ·  Payout: ${_payoutStatusText(item)}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
@@ -8652,10 +8711,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                         onPressed: () {
                                           final text = [
                                             'Order: ${_text(item['order'], '-')}',
-                                            'Resi: ${_text(item['resi'], '-')}',
+                                            'Resi: ${_text(item['resi'], 'belum tersinkron')}',
                                             'Tanggal pesanan: ${_dateTime(item['order_date'])}',
-                                            'Status: ${_text(item['order_status'], '-')}',
-                                            'Payout status: ${_payoutStatusText(item)}',
+                                            'Status order: ${_text(item['order_status'], '-')}',
+                                            'Payout: ${_payoutStatusText(item)}',
                                             'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? '-' : _payoutExplainText(item)}',
                                             'Catatan resi: ${_text(item['resi_reason'], '-')}',
                                             'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}',
