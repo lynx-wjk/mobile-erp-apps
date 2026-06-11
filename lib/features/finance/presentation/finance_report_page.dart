@@ -343,8 +343,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Future<void> _safeRefreshFinanceView() async {
     // Refresh UI tidak boleh membuang data yang sedang tampil.
-    // Kalau server/cache rebuild sedang proses, pertahankan angka terakhir
-    // dan cukup beri pesan ringan. Manusia tidak butuh layar error cuma karena menekan refresh.
+    // _load() kadang tidak throw, tapi langsung set _error dan mengosongkan state.
+    // Jadi setelah _load selesai pun state tetap harus dicek dan direstore bila perlu.
     final keepSummary = Map<String, dynamic>.from(_summary);
     final keepSources = List<Map<String, dynamic>>.from(_sources);
     final keepApprovedPurchases = List<Map<String, dynamic>>.from(_approvedPurchases);
@@ -357,28 +357,54 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final keepServerAbnormales = List<Map<String, dynamic>>.from(_serverAbnormales);
     final keepError = _error;
 
+    final hadVisibleData = keepSummary.isNotEmpty ||
+        keepSources.isNotEmpty ||
+        keepByMarketplace.isNotEmpty ||
+        keepBySku.isNotEmpty ||
+        keepCashFlow.isNotEmpty ||
+        keepExpenses.isNotEmpty ||
+        keepProfitLoss.isNotEmpty ||
+        keepAbnormals.isNotEmpty ||
+        keepServerAbnormales.isNotEmpty;
+
+    var restored = false;
+
     try {
       await _load(ignoreLocalCache: true);
-    } catch (e) {
-      if (!mounted) return;
+    } catch (_) {
+      restored = true;
+    }
+
+    if (!mounted) return;
+
+    final nowHasVisibleData = _summary.isNotEmpty ||
+        _sources.isNotEmpty ||
+        _byMarketplace.isNotEmpty ||
+        _bySku.isNotEmpty ||
+        _cashFlow.isNotEmpty ||
+        _expenses.isNotEmpty ||
+        _profitLoss.isNotEmpty ||
+        _abnormals.isNotEmpty ||
+        _serverAbnormales.isNotEmpty;
+
+    final nowHasError = _text(_error, '').trim().isNotEmpty;
+
+    if (hadVisibleData && (restored || nowHasError || !nowHasVisibleData)) {
       setState(() {
-        if (keepSummary.isNotEmpty) _summary = keepSummary;
-        if (keepSources.isNotEmpty) _sources = keepSources;
-        if (keepApprovedPurchases.isNotEmpty) {
-          _approvedPurchases = keepApprovedPurchases;
-        }
-        if (keepByMarketplace.isNotEmpty) _byMarketplace = keepByMarketplace;
-        if (keepBySku.isNotEmpty) _bySku = keepBySku;
-        if (keepCashFlow.isNotEmpty) _cashFlow = keepCashFlow;
-        if (keepExpenses.isNotEmpty) _expenses = keepExpenses;
-        if (keepProfitLoss.isNotEmpty) _profitLoss = keepProfitLoss;
-        if (keepAbnormals.isNotEmpty) _abnormals = keepAbnormals;
-        if (keepServerAbnormales.isNotEmpty) {
-          _serverAbnormales = keepServerAbnormales;
-        }
+        _summary = keepSummary;
+        _sources = keepSources;
+        _approvedPurchases = keepApprovedPurchases;
+        _byMarketplace = keepByMarketplace;
+        _bySku = keepBySku;
+        _cashFlow = keepCashFlow;
+        _expenses = keepExpenses;
+        _profitLoss = keepProfitLoss;
+        _abnormals = keepAbnormals;
+        _serverAbnormales = keepServerAbnormales;
         _error = keepError;
         _loading = false;
       });
+
       AppUi.safeSnack(
         context,
         'Data terakhir tetap ditampilkan. Refresh server masih diproses otomatis.',
@@ -387,8 +413,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Future<void> _hardReloadFinanceView() async {
-    await _clearFinanceLocalCacheForSelectedPeriod();
-    await _load(ignoreLocalCache: true);
+    await _safeRefreshFinanceView();
   }
 
   bool _isPurchaseExpenseRow(Map<String, dynamic> row) {
@@ -9692,6 +9717,7 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
+
 
 
 
