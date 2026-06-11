@@ -176,7 +176,7 @@ function resolveShopeeCredentials(environmentValue: unknown): ShopeeCredentials 
     const testPartnerKey = requiredEnv("SHOPEE_TEST_PARTNER_KEY");
     return {
       environment,
-      host: optionalEnv("SHOPEE_TEST_HOST") || optionalEnv("SHOPEE_SANDBOX_HOST") || "https://partner.test-stable.shopeemobile.com",
+      host: optionalEnv("SHOPEE_TEST_HOST") || optionalEnv("SHOPEE_SANDBOX_HOST") || "https://openplatform.sandbox.test-stable.shopee.sg",
       partnerId: testPartnerId,
       partnerKey: testPartnerKey,
       redirectUri: optionalEnv("SHOPEE_TEST_REDIRECT_URI") || requiredEnv("SHOPEE_REDIRECT_URI"),

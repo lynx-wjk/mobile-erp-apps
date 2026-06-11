@@ -1030,14 +1030,14 @@ function resolveShopeeCredentials(environmentValue: unknown) {
   const productionPartnerKey = requiredEnv("SHOPEE_PARTNER_KEY");
 
   if (environment === "testing") {
-    const testPartnerId = optionalEnv("SHOPEE_TEST_PARTNER_ID");
-    const testPartnerKey = optionalEnv("SHOPEE_TEST_PARTNER_KEY");
+    const testPartnerId = requiredEnv("SHOPEE_TEST_PARTNER_ID");
+    const testPartnerKey = requiredEnv("SHOPEE_TEST_PARTNER_KEY");
     return {
       environment,
-      host: optionalEnv("SHOPEE_TEST_HOST") || optionalEnv("SHOPEE_SANDBOX_HOST") || "https://partner.test-stable.shopeemobile.com",
-      partnerId: testPartnerId || productionPartnerId,
-      partnerKey: testPartnerKey || productionPartnerKey,
-      usedFallbackCredential: !testPartnerId || !testPartnerKey,
+      host: optionalEnv("SHOPEE_TEST_HOST") || optionalEnv("SHOPEE_SANDBOX_HOST") || "https://openplatform.sandbox.test-stable.shopee.sg",
+      partnerId: testPartnerId,
+      partnerKey: testPartnerKey,
+      usedFallbackCredential: false,
     };
   }
 
