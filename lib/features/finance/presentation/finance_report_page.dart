@@ -2042,8 +2042,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final target = grouped.putIfAbsent(
           key,
           () => <String, dynamic>{
-                'marketplace_account_id': accountId,
-                'marketplace': marketplace,
+                'marketplace_account_id': selectedAccountId,
+                'marketplace': selectedMarketplace,
                 'shop_name': _accountNameFromRows(accountId, accounts),
                 'order_count': 0.0,
                 'finance_order_count': 0.0,
@@ -2094,7 +2094,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           _num(summary['net_profit'] ?? summary['profit'] ?? (payout - hpp));
       return [
         <String, dynamic>{
-          'marketplace_account_id': accountId,
+          'marketplace_account_id': selectedAccountId,
           'marketplace':
               _marketplaceFilter == 'all' ? 'Marketplace' : _marketplaceFilter,
           'shop_name': _accountNameFromRows(accountId, accounts),
@@ -6412,7 +6412,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     final amountController = TextEditingController(
-      text: _num(_summary['opening_company_cash']).toStringAsFixed(0),
+      text: _moneyInput(_num(_summary['opening_company_cash'])),
     );
     final noteController = TextEditingController(
       text: _text(_summary['opening_company_cash_note']),
@@ -6433,9 +6433,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             TextField(
               controller: amountController,
               keyboardType: TextInputType.number,
+              inputFormatters: const [_ThousandsInputFormatter()],
               decoration: const InputDecoration(
                 labelText: 'Saldo awal kas perusahaan',
-                hintText: 'Contoh: 100000000',
+                prefixText: 'Rp ',
+                helperText: 'Contoh: 100.000.000',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -6535,9 +6537,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             TextField(
               controller: amountController,
               keyboardType: TextInputType.number,
+              inputFormatters: const [_ThousandsInputFormatter()],
               decoration: const InputDecoration(
                 labelText: 'Nominal',
-                hintText: 'Contoh: 5000000',
+                prefixText: 'Rp ',
+                helperText: 'Contoh: 5.000.000',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -6647,16 +6651,48 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (accountId == null)
+              StatefulBuilder(
+                builder: (ctx, setDialogState) =>
+                    DropdownButtonFormField<String>(
+                  value: selectedAccountId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Akun marketplace',
+                    helperText: 'Pilih toko sumber dana yang ditarik.',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: accountRows
+                      .map(
+                        (row) => DropdownMenuItem<String>(
+                          value: _text(row['marketplace_account_id']),
+                          child: Text(_cashMarketplaceAccountLabel(row)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    setDialogState(() {
+                      selectedAccountId = value;
+                      selectedAccount =
+                          _findCashMarketplaceAccount(accountRows, value);
+                      selectedMarketplace = _text(
+                        selectedAccount?['marketplace'] ?? selectedMarketplace,
+                      );
+                    });
+                  },
+                ),
+              ),
+              if (accountRows.isEmpty) ...[
+                const SizedBox(height: 8),
                 Text(
-                  'Catatan: filter akun marketplace dulu kalau penarikan ini khusus satu toko.',
+                  'Belum ada akun marketplace aktif. Sambungkan toko dulu sebelum input penarikan.',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.error,
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),
                 ),
-              if (accountId == null) const SizedBox(height: 10),
+              ],
+              const SizedBox(height: 10),
               TextField(
                 controller: withdrawalDateController,
                 decoration: const InputDecoration(
@@ -6678,9 +6714,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               TextField(
                 controller: amountController,
                 keyboardType: TextInputType.number,
+                inputFormatters: const [_ThousandsInputFormatter()],
                 decoration: const InputDecoration(
                   labelText: 'Nominal ditarik',
-                  hintText: 'Contoh: 30000000',
+                  prefixText: 'Rp ',
+                  helperText: 'Contoh: 25.000.000',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -6733,6 +6771,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       AppUi.safeSnack(context, 'Nominal penarikan harus lebih dari 0.');
       return;
     }
+    if ((selectedAccountId ?? '').trim().isEmpty ||
+        selectedMarketplace.trim().isEmpty) {
+      AppUi.safeSnack(context, 'Pilih akun marketplace untuk penarikan.');
+      return;
+    }
 
     setState(() => _processing = true);
     try {
@@ -6740,8 +6783,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .from('finance_marketplace_withdrawals')
           .insert({
             'tenant_id': tenantId,
-            'marketplace_account_id': accountId,
-            'marketplace': marketplace,
+            'marketplace_account_id': selectedAccountId,
+            'marketplace': selectedMarketplace,
             'withdrawal_date': withdrawalDateController.text.trim(),
             'amount': amount,
             'bank_account_name': bankController.text.trim(),
@@ -6758,8 +6801,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             .insert({
           'marketplace_withdrawal_id': withdrawalId,
           'tenant_id': tenantId,
-          'marketplace_account_id': accountId,
-          'marketplace': marketplace,
+          'marketplace_account_id': selectedAccountId,
+          'marketplace': selectedMarketplace,
           'source_period_month': sourceMonthController.text.trim(),
           'amount': amount,
           'allocation_method': 'manual',
