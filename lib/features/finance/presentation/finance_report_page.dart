@@ -1317,17 +1317,25 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<void> _overlaySkuPayoutCountSummaryFromServer() async {
     if (_bySku.isEmpty) return;
 
-    final summaryMap = await _fetchSkuPayoutCountSummaryMap();
-    if (!mounted || summaryMap.isEmpty) return;
+    try {
+      final summaryMap = await _fetchSkuPayoutCountSummaryMap();
+      if (!mounted || summaryMap.isEmpty) return;
 
-    final mergedRows = _bySku
-        .map((row) => _mergeSkuPayoutCountSummaryRow(row, summaryMap))
-        .toList(growable: false);
+      final mergedRows = _bySku
+          .map((row) => _mergeSkuPayoutCountSummaryRow(row, summaryMap))
+          .toList(growable: false);
 
-    if (!mounted) return;
-    setState(() {
-      _bySku = mergedRows;
-    });
+      if (!mounted) return;
+      setState(() {
+        _bySku = mergedRows;
+      });
+    } catch (e) {
+      // Overlay hitungan settled/belum payout hanya data pendukung.
+      // Jangan pernah bikin laporan utama gagal dimuat gara-gara RPC overlay
+      // belum ada, beda signature, timeout, atau schema cache Supabase sedang malas hidup.
+      debugPrint('FINANCE_SKU_PAYOUT_COUNT_OVERLAY_SKIPPED: $e');
+      return;
+    }
   }
 
   double _numFirstNonZero(Iterable<dynamic> values) {
@@ -9732,6 +9740,7 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
+
 
 
 
