@@ -81,3 +81,21 @@ window_dump.xml
 
 # Supabase CLI local cache
 supabase/.temp/
+
+.env
+.env.*
+supabase/.env
+*.zip
+*.pem
+*.key
+*.p12
+secret_scan_result.txt
+
+.env
+.env.*
+supabase/.env
+*.zip
+*.pem
+*.key
+*.p12
+secret_scan_result.txt
