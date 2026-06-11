@@ -1,4 +1,4 @@
-﻿create extension if not exists pgcrypto;
+create extension if not exists pgcrypto;
 
 create table if not exists public.finance_company_cash_opening_balances (
   cash_opening_balance_id uuid primary key default gen_random_uuid(),
@@ -161,7 +161,7 @@ begin
     and (p_account_id is null or w.marketplace_account_id = p_account_id)
     and (v_scope_marketplace is null or lower(coalesce(w.marketplace, '')) = v_scope_marketplace);
 
-  select coalesce(sum(coalesce(i.net_settlement, i.received_amount, i.payout_amount, 0)), 0)
+  select coalesce(sum(coalesce(i.net_settlement, i.received_amount, 0)), 0)
     into v_settlement_current
   from public.marketplace_finance_items i
   where i.tenant_id = v_tenant_id
@@ -173,7 +173,7 @@ begin
     select date_trunc('month', coalesce(i.transaction_time, i.pulled_at, i.created_at))::date as period_month,
            coalesce(i.marketplace_account_id, p_account_id) as marketplace_account_id,
            lower(coalesce(i.marketplace, 'marketplace')) as marketplace,
-           sum(coalesce(i.net_settlement, i.received_amount, i.payout_amount, 0)) as settlement_amount
+           sum(coalesce(i.net_settlement, i.received_amount, 0)) as settlement_amount
     from public.marketplace_finance_items i
     where i.tenant_id = v_tenant_id
       and coalesce(i.transaction_time, i.pulled_at, i.created_at)::date < v_month_start
@@ -231,7 +231,7 @@ begin
     select date_trunc('month', coalesce(i.transaction_time, i.pulled_at, i.created_at))::date as period_month,
            i.marketplace_account_id,
            lower(coalesce(i.marketplace, 'marketplace')) as marketplace,
-           sum(coalesce(i.net_settlement, i.received_amount, i.payout_amount, 0)) as settlement_amount
+           sum(coalesce(i.net_settlement, i.received_amount, 0)) as settlement_amount
     from public.marketplace_finance_items i
     where i.tenant_id = v_tenant_id
       and coalesce(i.transaction_time, i.pulled_at, i.created_at)::date <= v_month_end
