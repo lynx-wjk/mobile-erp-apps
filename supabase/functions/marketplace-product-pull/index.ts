@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-product-pull-shopee-item-parser-v32-2026-06-09";
+const FUNCTION_VERSION = "marketplace-product-pull-cron-secret-worker-auth-v35-2026-06-11";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -24,45 +24,57 @@ Deno.serve(async (req) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
-    if (!bearer) return json({ ok: false, message: "Missing authorization header" }, 401);
-
-    const { data: userData, error: userError } = await admin.auth.getUser(bearer);
-    if (userError || !userData?.user) {
-      return json({ ok: false, message: "Invalid user session" }, 401);
-    }
-
-    const { data: profile, error: profileError } = await admin
-      .from("users")
-      .select("user_id, tenant_id, role_id, status")
-      .eq("user_id", userData.user.id)
-      .maybeSingle();
-
-    if (profileError || !profile) {
-      return json({ ok: false, message: profileError?.message || "User profile not found" }, 403);
-    }
-
-    if (profile.status !== "active") {
-      return json({ ok: false, message: "User is not active" }, 403);
-    }
-
     const body = await safeJson(req);
-    const tenantId = String(body.tenant_id || profile.tenant_id || "").trim();
-    const marketplaceAccountId = String(body.marketplace_account_id || "").trim();
-    const limit = clampInt(body.limit, 1, 100, 30);
+    const cronSecretHeader = (req.headers.get("x-marketplace-cron-secret") || "").trim();
+    const expectedCronSecret = (Deno.env.get("MARKETPLACE_CRON_SECRET") || "").trim();
+    const isTrustedWorkerCall = Boolean(
+      expectedCronSecret && cronSecretHeader && cronSecretHeader === expectedCronSecret,
+    );
+
+    let profile: any = null;
+
+    if (!isTrustedWorkerCall) {
+      const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+      if (!bearer) return json({ ok: false, message: "Missing authorization header" }, 401);
+
+      const { data: userData, error: userError } = await admin.auth.getUser(bearer);
+      if (userError || !userData?.user) {
+        return json({ ok: false, message: "Invalid user session" }, 401);
+      }
+
+      const { data: profileRow, error: profileError } = await admin
+        .from("users")
+        .select("user_id, tenant_id, role_id, status")
+        .eq("user_id", userData.user.id)
+        .maybeSingle();
+
+      if (profileError || !profileRow) {
+        return json({ ok: false, message: profileError?.message || "User profile not found" }, 403);
+      }
+
+      if (profileRow.status !== "active") {
+        return json({ ok: false, message: "User is not active" }, 403);
+      }
+
+      profile = profileRow;
+    }
+
+    const tenantId = String(body.tenant_id || profile?.tenant_id || "").trim();
+    const marketplaceAccountId = String(body.marketplace_account_id || body.account_id || "").trim();
+    const limit = clampInt(body.limit ?? body.page_size, 1, 100, 30);
 
     if (!tenantId) return json({ ok: false, message: "tenant_id is required" }, 400);
     if (!marketplaceAccountId) return json({ ok: false, message: "marketplace_account_id is required" }, 400);
 
-    const roleId = String(profile.role_id || "").trim();
+    const roleId = String(profile?.role_id || "").trim();
     const isSuperAdmin = roleId === "super_admin";
     const isDemoSuperAdmin = roleId === "demo_super_admin";
 
-    if (!isSuperAdmin && !isDemoSuperAdmin && tenantId !== profile.tenant_id) {
+    if (!isTrustedWorkerCall && !isSuperAdmin && !isDemoSuperAdmin && tenantId !== profile?.tenant_id) {
       return json({ ok: false, message: "Forbidden tenant access" }, 403);
     }
 
-    if (isDemoSuperAdmin) {
+    if (!isTrustedWorkerCall && isDemoSuperAdmin) {
       return json({ ok: false, message: "Demo account tidak boleh pull API marketplace production." }, 403);
     }
 
