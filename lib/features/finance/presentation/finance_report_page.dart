@@ -595,9 +595,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String _financeReportMonthEndParam() =>
       _toDateParam(_financeReportMonthEnd());
   Future<List<Map<String, dynamic>>> _fetchOperationalExpensesPeriod() async {
+    final monthStartParam = _financeReportMonthStartParam();
+    final monthEndParam = _financeReportMonthEndParam();
+
     final params = <String, dynamic>{
-      'p_start': _toDateParam(_start),
-      'p_end': _toDateParam(_end),
+      'p_start': monthStartParam,
+      'p_end': monthEndParam,
       'p_marketplace': _marketplaceRpcParam(),
       'p_account_id': _accountUuidParam(),
     };
@@ -617,8 +620,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final res = await _client
           .from('finance_operational_expenses')
           .select()
-          .gte('expense_date', _toDateParam(_start))
-          .lte('expense_date', _toDateParam(_end))
+          .gte('expense_date', monthStartParam)
+          .lte('expense_date', monthEndParam)
           .order('expense_date', ascending: false)
           .order('created_at', ascending: false)
           .range(0, 499);
@@ -2185,8 +2188,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Future<List<Map<String, dynamic>>> _fetchApprovedPurchasesPeriod() async {
-    final start = _dateOnly(_start);
-    final end = _dateOnly(_end);
+    final start = _dateOnly(_financeReportMonthStart());
+    final end = _dateOnly(_financeReportMonthEnd());
 
     bool isApproved(Map<String, dynamic> row) {
       final status = (row['status'] ??
