@@ -1062,6 +1062,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     displaySummary = _summaryWithLiveCosts(
         displaySummary, normalizedExpenses, approvedPurchases);
 
+    final companyCashflowSnapshot = includeOperationalExpenses
+        ? await _fetchCompanyCashflowMonthlySnapshot()
+        : <String, dynamic>{};
+    if (companyCashflowSnapshot.isNotEmpty) {
+      displaySummary.addAll(companyCashflowSnapshot);
+    }
     final normalizedMarketplace = _reconciledMarketplaceRows(
       _normalizeMarketplaceRows(
           _asList(data['by_marketplace'] ?? data['marketplaces'])),
