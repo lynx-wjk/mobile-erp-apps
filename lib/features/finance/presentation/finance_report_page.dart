@@ -341,6 +341,51 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
+  Future<void> _safeRefreshFinanceView() async {
+    // Refresh UI tidak boleh membuang data yang sedang tampil.
+    // Kalau server/cache rebuild sedang proses, pertahankan angka terakhir
+    // dan cukup beri pesan ringan. Manusia tidak butuh layar error cuma karena menekan refresh.
+    final keepSummary = Map<String, dynamic>.from(_summary);
+    final keepSources = List<Map<String, dynamic>>.from(_sources);
+    final keepApprovedPurchases = List<Map<String, dynamic>>.from(_approvedPurchases);
+    final keepByMarketplace = List<Map<String, dynamic>>.from(_byMarketplace);
+    final keepBySku = List<Map<String, dynamic>>.from(_bySku);
+    final keepCashFlow = List<Map<String, dynamic>>.from(_cashFlow);
+    final keepExpenses = List<Map<String, dynamic>>.from(_expenses);
+    final keepProfitLoss = List<Map<String, dynamic>>.from(_profitLoss);
+    final keepAbnormals = List<Map<String, dynamic>>.from(_abnormals);
+    final keepServerAbnormales = List<Map<String, dynamic>>.from(_serverAbnormales);
+    final keepError = _error;
+
+    try {
+      await _load(ignoreLocalCache: true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (keepSummary.isNotEmpty) _summary = keepSummary;
+        if (keepSources.isNotEmpty) _sources = keepSources;
+        if (keepApprovedPurchases.isNotEmpty) {
+          _approvedPurchases = keepApprovedPurchases;
+        }
+        if (keepByMarketplace.isNotEmpty) _byMarketplace = keepByMarketplace;
+        if (keepBySku.isNotEmpty) _bySku = keepBySku;
+        if (keepCashFlow.isNotEmpty) _cashFlow = keepCashFlow;
+        if (keepExpenses.isNotEmpty) _expenses = keepExpenses;
+        if (keepProfitLoss.isNotEmpty) _profitLoss = keepProfitLoss;
+        if (keepAbnormals.isNotEmpty) _abnormals = keepAbnormals;
+        if (keepServerAbnormales.isNotEmpty) {
+          _serverAbnormales = keepServerAbnormales;
+        }
+        _error = keepError;
+        _loading = false;
+      });
+      AppUi.safeSnack(
+        context,
+        'Data terakhir tetap ditampilkan. Refresh server masih diproses otomatis.',
+      );
+    }
+  }
+
   Future<void> _hardReloadFinanceView() async {
     await _clearFinanceLocalCacheForSelectedPeriod();
     await _load(ignoreLocalCache: true);
@@ -5729,7 +5774,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     return RefreshIndicator(
       color: Colors.cyan,
-      onRefresh: _hardReloadFinanceView,
+      onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 130),
         children: [
@@ -5793,7 +5838,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
-      onRefresh: _hardReloadFinanceView,
+      onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.all(14),
         children: [
@@ -5837,7 +5882,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
-      onRefresh: _hardReloadFinanceView,
+      onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.all(14),
         children: [
@@ -6121,7 +6166,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final cashRows = _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
-      onRefresh: _hardReloadFinanceView,
+      onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.all(14),
         children: [
@@ -6152,7 +6197,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return Center(child: FuturisticLoader(message: 'Memuat data¦'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
-      onRefresh: _hardReloadFinanceView,
+      onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 130),
         children: [
@@ -6208,7 +6253,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _profitLoss.isNotEmpty ? _profitLoss : _fallbackProfitLossRows();
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
-      onRefresh: _hardReloadFinanceView,
+      onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.all(14),
         children: [
@@ -9615,7 +9660,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (lower.contains('could not find the function') ||
         lower.contains('function public.') ||
         lower.contains('does not exist')) {
-      return 'Data laporan periode ini sedang diproses otomatis. Coba lagi beberapa saat lagi.';
+      return 'Data terakhir tetap ditampilkan. Refresh server masih diproses otomatis.';
     }
     if (lower.contains('null value in column') &&
         lower.contains('description')) {
@@ -9647,6 +9692,8 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
+
+
 
 
 
