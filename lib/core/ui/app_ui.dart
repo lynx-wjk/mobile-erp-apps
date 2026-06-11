@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../utils/app_action_guard.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
@@ -156,10 +157,13 @@ class AppUi {
       if (messenger == null) return;
       messenger.clearSnackBars();
       messenger.showSnackBar(SnackBar(
-        content: Text(message.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+        content: Text(message.toUpperCase(),
+            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
         backgroundColor: Colors.black,
         behavior: SnackBarBehavior.floating,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero, side: BorderSide(color: Colors.white, width: 2)),
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.zero,
+            side: BorderSide(color: Colors.white, width: 2)),
       ));
     });
   }
@@ -461,7 +465,7 @@ class AppGlobalBackdrop extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: theme.scaffoldBackgroundColor,
@@ -469,7 +473,9 @@ class AppGlobalBackdrop extends StatelessWidget {
       child: CustomPaint(
         painter: _GlobalBackdropPainter(
           isDark: isDark,
-          gridColor: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
+          gridColor: isDark
+              ? Colors.white.withOpacity(0.12)
+              : Colors.black.withOpacity(0.08),
         ),
         child: child,
       ),
@@ -512,30 +518,45 @@ class _GlobalBackdropPainter extends CustomPainter {
     const padding = 12.0;
 
     // Top Left
-    canvas.drawLine(const Offset(padding, padding), const Offset(padding + cornerSize, padding), cornerPaint);
-    canvas.drawLine(const Offset(padding, padding), const Offset(padding, padding + cornerSize), cornerPaint);
+    canvas.drawLine(const Offset(padding, padding),
+        const Offset(padding + cornerSize, padding), cornerPaint);
+    canvas.drawLine(const Offset(padding, padding),
+        const Offset(padding, padding + cornerSize), cornerPaint);
 
     // Top Right
-    canvas.drawLine(Offset(size.width - padding, padding), Offset(size.width - padding - cornerSize, padding), cornerPaint);
-    canvas.drawLine(Offset(size.width - padding, padding), Offset(size.width - padding, padding + cornerSize), cornerPaint);
+    canvas.drawLine(Offset(size.width - padding, padding),
+        Offset(size.width - padding - cornerSize, padding), cornerPaint);
+    canvas.drawLine(Offset(size.width - padding, padding),
+        Offset(size.width - padding, padding + cornerSize), cornerPaint);
 
     // Bottom Left
-    canvas.drawLine(Offset(padding, size.height - padding), Offset(padding + cornerSize, size.height - padding), cornerPaint);
-    canvas.drawLine(Offset(padding, size.height - padding), Offset(padding, size.height - padding - cornerSize), cornerPaint);
+    canvas.drawLine(Offset(padding, size.height - padding),
+        Offset(padding + cornerSize, size.height - padding), cornerPaint);
+    canvas.drawLine(Offset(padding, size.height - padding),
+        Offset(padding, size.height - padding - cornerSize), cornerPaint);
 
     // Bottom Right
-    canvas.drawLine(Offset(size.width - padding, size.height - padding), Offset(size.width - padding - cornerSize, size.height - padding), cornerPaint);
-    canvas.drawLine(Offset(size.width - padding, size.height - padding), Offset(size.width - padding, size.height - padding - cornerSize), cornerPaint);
+    canvas.drawLine(
+        Offset(size.width - padding, size.height - padding),
+        Offset(size.width - padding - cornerSize, size.height - padding),
+        cornerPaint);
+    canvas.drawLine(
+        Offset(size.width - padding, size.height - padding),
+        Offset(size.width - padding, size.height - padding - cornerSize),
+        cornerPaint);
 
     // Industrial data ornaments (pixel style)
     void drawPixelOrnament(Offset pos, Color color) {
-       final p = Paint()..color = color;
-       canvas.drawRect(Rect.fromLTWH(pos.dx, pos.dy, 8, 8), p);
-       canvas.drawRect(Rect.fromLTWH(pos.dx + 12, pos.dy, 4, 4), p);
+      final p = Paint()..color = color;
+      canvas.drawRect(Rect.fromLTWH(pos.dx, pos.dy, 8, 8), p);
+      canvas.drawRect(Rect.fromLTWH(pos.dx + 12, pos.dy, 4, 4), p);
     }
-    
-    drawPixelOrnament(const Offset(padding + 10, padding + 10), cornerPaint.color);
-    drawPixelOrnament(Offset(size.width - padding - 30, size.height - padding - 30), cornerPaint.color);
+
+    drawPixelOrnament(
+        const Offset(padding + 10, padding + 10), cornerPaint.color);
+    drawPixelOrnament(
+        Offset(size.width - padding - 30, size.height - padding - 30),
+        cornerPaint.color);
 
     // CRT Scanlines effect
     final scanlinePaint = Paint()
@@ -546,7 +567,7 @@ class _GlobalBackdropPainter extends CustomPainter {
     }
 
     void drawLabel(String text, Offset pos) {
-       final tp = TextPainter(
+      final tp = TextPainter(
         text: TextSpan(
           text: text,
           style: TextStyle(
@@ -562,13 +583,14 @@ class _GlobalBackdropPainter extends CustomPainter {
     }
 
     drawLabel('SYSTEM.v2.PX', const Offset(padding + 60, padding + 4));
-    drawLabel('LINK.STABLE', Offset(size.width - 160, size.height - padding - 14));
+    drawLabel(
+        'LINK.STABLE', Offset(size.width - 160, size.height - padding - 14));
 
     // Linear Industrial ornaments
     final linePaint = Paint()
       ..color = gridColor.withOpacity(isDark ? 0.15 : 0.1)
       ..strokeWidth = 1.0;
-    
+
     // Vertical sidebar line
     canvas.drawLine(const Offset(50, 0), Offset(50, size.height), linePaint);
     // Horizontal header line
@@ -576,7 +598,8 @@ class _GlobalBackdropPainter extends CustomPainter {
 
     // Pixel glitches (tiny rectangles)
     final rand = math.Random(1337);
-    final glitchPaint = Paint()..color = gridColor.withOpacity(isDark ? 0.08 : 0.05);
+    final glitchPaint = Paint()
+      ..color = gridColor.withOpacity(isDark ? 0.08 : 0.05);
     for (var i = 0; i < 15; i++) {
       final w = 20.0 + rand.nextDouble() * 40.0;
       final h = 2.0;
@@ -654,7 +677,12 @@ class NiceCard extends StatelessWidget {
     if (onTap == null) return container;
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: onTap == null
+          ? null
+          : AppActionGuard.tap(
+              'NiceCard:${identityHashCode(onTap)}',
+              onTap!,
+            ),
       child: container,
     );
   }
@@ -773,7 +801,8 @@ class SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final accent = theme.brightness == Brightness.dark ? Colors.white : Colors.black;
+    final accent =
+        theme.brightness == Brightness.dark ? Colors.white : Colors.black;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -784,13 +813,17 @@ class SectionTitle extends StatelessWidget {
           Expanded(
             child: Text(
               title.toUpperCase(),
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5, letterSpacing: 0.5),
+              style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14.5,
+                  letterSpacing: 0.5),
             ),
           ),
           if (actionText != null && onAction != null)
             TextButton(
               onPressed: onAction,
-              child: Text(actionText!.toUpperCase(), style: const TextStyle(decoration: TextDecoration.underline)),
+              child: Text(actionText!.toUpperCase(),
+                  style: const TextStyle(decoration: TextDecoration.underline)),
             ),
         ],
       ),

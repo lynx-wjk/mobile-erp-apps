@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:excel/excel.dart' hide Border;
@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/utils/app_action_guard.dart';
 import '../services/finance_local_cache.dart';
 
 class FinanceReportPage extends StatefulWidget {
@@ -237,7 +238,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<dynamic> _loadFinanceSnapshot(Map<String, dynamic> baseParams) async {
     dynamic normalizeAccount(dynamic value) {
       final text = value?.toString().trim();
-      if (text == null || text.isEmpty || text == '-' || text.toLowerCase() == 'all') {
+      if (text == null ||
+          text.isEmpty ||
+          text == '-' ||
+          text.toLowerCase() == 'all') {
         return null;
       }
       return value;
@@ -245,15 +249,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     String? normalizeMarketplace(dynamic value) {
       final text = value?.toString().trim();
-      if (text == null || text.isEmpty || text == '-' || text.toLowerCase() == 'all') {
+      if (text == null ||
+          text.isEmpty ||
+          text == '-' ||
+          text.toLowerCase() == 'all') {
         return null;
       }
       return text;
     }
 
     final params = <String, dynamic>{
-      'p_start': baseParams['p_start'] ?? baseParams['p_start_date'] ?? _toDateParam(_start),
-      'p_end': baseParams['p_end'] ?? baseParams['p_end_date'] ?? _toDateParam(_end),
+      'p_start': baseParams['p_start'] ??
+          baseParams['p_start_date'] ??
+          _toDateParam(_start),
+      'p_end':
+          baseParams['p_end'] ?? baseParams['p_end_date'] ?? _toDateParam(_end),
       'p_marketplace': normalizeMarketplace(
         baseParams['p_marketplace'] ?? baseParams['p_marketplace_filter'],
       ),
@@ -385,14 +395,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     // Jadi setelah _load selesai pun state tetap harus dicek dan direstore bila perlu.
     final keepSummary = Map<String, dynamic>.from(_summary);
     final keepSources = List<Map<String, dynamic>>.from(_sources);
-    final keepApprovedPurchases = List<Map<String, dynamic>>.from(_approvedPurchases);
+    final keepApprovedPurchases =
+        List<Map<String, dynamic>>.from(_approvedPurchases);
     final keepByMarketplace = List<Map<String, dynamic>>.from(_byMarketplace);
     final keepBySku = List<Map<String, dynamic>>.from(_bySku);
     final keepCashFlow = List<Map<String, dynamic>>.from(_cashFlow);
     final keepExpenses = List<Map<String, dynamic>>.from(_expenses);
     final keepProfitLoss = List<Map<String, dynamic>>.from(_profitLoss);
     final keepAbnormals = List<Map<String, dynamic>>.from(_abnormals);
-    final keepServerAbnormales = List<Map<String, dynamic>>.from(_serverAbnormales);
+    final keepServerAbnormales =
+        List<Map<String, dynamic>>.from(_serverAbnormales);
     final keepError = _error;
 
     final hadVisibleData = keepSummary.isNotEmpty ||
@@ -853,8 +865,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final summary = _asMap(data['summary']);
     if (summary.isNotEmpty) return false;
 
-    final hasDashboardRows =
-        _asList(data['by_marketplace']).isNotEmpty ||
+    final hasDashboardRows = _asList(data['by_marketplace']).isNotEmpty ||
         _asList(data['cash_flow']).isNotEmpty ||
         _asList(data['expenses']).isNotEmpty ||
         _asList(data['profit_loss']).isNotEmpty ||
@@ -865,7 +876,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     if (hasDashboardRows) return false;
 
-    return _asList(data['by_sku'] ?? data['sku_margin'] ?? data['sku']).isNotEmpty;
+    return _asList(data['by_sku'] ?? data['sku_margin'] ?? data['sku'])
+        .isNotEmpty;
   }
 
   Future<void> _saveFinanceRuntimeProgress({
@@ -6034,8 +6046,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   spacing: 6,
                   children: [
                     TextButton.icon(
-                      onPressed: () =>
-                          _showSkuOrderRefsV82o(row, payoutFilter: 'paid'),
+                      onPressed: AppActionGuard.tap(
+                        'finance_sku_detail_paid:${_text(row['marketplace_sku'] ?? row['marketplace_sku_id'])}:${_text(row['local_sku'])}',
+                        () {
+                          AppUi.safeSnack(
+                              context, 'Memuat detail Settled SKU...');
+                          return _showSkuOrderRefsV82o(row,
+                              payoutFilter: 'paid');
+                        },
+                      ),
                       icon: Icon(Icons.receipt_long_rounded, size: 16),
                       label: Text('Settled $paidQtyDisplay',
                           style: TextStyle(fontSize: 12)),
@@ -6047,8 +6066,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       ),
                     ),
                     TextButton.icon(
-                      onPressed: () =>
-                          _showSkuOrderRefsV82o(row, payoutFilter: 'unpaid'),
+                      onPressed: AppActionGuard.tap(
+                        'finance_sku_detail_unpaid:${_text(row['marketplace_sku'] ?? row['marketplace_sku_id'])}:${_text(row['local_sku'])}',
+                        () {
+                          AppUi.safeSnack(
+                              context, 'Memuat detail Belum Payout SKU...');
+                          return _showSkuOrderRefsV82o(row,
+                              payoutFilter: 'unpaid');
+                        },
+                      ),
                       icon: Icon(Icons.pending_actions_rounded, size: 16),
                       label: Text('Belum payout $unpaidQtyDisplay',
                           style: TextStyle(fontSize: 12)),
@@ -7152,7 +7178,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final warning = payoutFilter == 'unpaid' && (count > 0 || expectedQty > 0);
     return InkWell(
       borderRadius: BorderRadius.zero,
-      onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: payoutFilter),
+      onTap: AppActionGuard.tap(
+        'finance_sku_detail_badge:${_text(row['marketplace_sku'] ?? row['marketplace_sku_id'])}:${_text(row['local_sku'])}:$payoutFilter',
+        () {
+          final label = payoutFilter == 'paid' ? 'Settled' : 'Belum Payout';
+          AppUi.safeSnack(context, 'Memuat detail $label SKU...');
+          return _showSkuOrderRefsV82o(row, payoutFilter: payoutFilter);
+        },
+      ),
       child: Container(
         constraints: const BoxConstraints(minWidth: 180, maxWidth: 340),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -7875,8 +7908,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         pageSize: 100,
       );
     } catch (error) {
-      _setMessage(
-          'Detail order SKU ($payoutLabel) gagal dimuat: ${_cleanError(error)}');
+      final message =
+          'Detail order SKU ($payoutLabel) gagal dimuat: ${_cleanError(error)}';
+      _setMessage(message);
+      if (mounted) AppUi.safeSnack(context, message);
       return;
     }
 
@@ -8348,10 +8383,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var detailRow = row;
     var allRows =
         _filteredSkuOrderRows(_safeOrderRefRows(detailRow), payoutFilter);
-    final isV82oServerDetail = _text(detailRow['sku_detail_source'], '') ==
-            'v82o' ||
-        allRows.any((item) =>
-            _text(item['source'], '').contains(''));
+    final isV82oServerDetail =
+        _text(detailRow['sku_detail_source'], '') == 'v82o' ||
+            allRows.any((item) => _text(item['source'], '').contains(''));
 
     final needsLazyDetail = !isV82oServerDetail &&
         (allRows.isEmpty ||
@@ -9778,18 +9812,3 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
