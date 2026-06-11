@@ -2042,8 +2042,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final target = grouped.putIfAbsent(
           key,
           () => <String, dynamic>{
-                'marketplace_account_id': selectedAccountId,
-                'marketplace': selectedMarketplace,
+                'marketplace_account_id': accountId,
+                'marketplace': marketplace,
                 'shop_name': _accountNameFromRows(accountId, accounts),
                 'order_count': 0.0,
                 'finance_order_count': 0.0,
@@ -2094,7 +2094,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           _num(summary['net_profit'] ?? summary['profit'] ?? (payout - hpp));
       return [
         <String, dynamic>{
-          'marketplace_account_id': selectedAccountId,
+          'marketplace_account_id': accountId,
           'marketplace':
               _marketplaceFilter == 'all' ? 'Marketplace' : _marketplaceFilter,
           'shop_name': _accountNameFromRows(accountId, accounts),
