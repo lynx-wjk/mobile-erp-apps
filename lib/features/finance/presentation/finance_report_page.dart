@@ -243,7 +243,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     for (final rpcName in versions) {
       for (final rpcParams in _snapshotParamVariantsForRpc(rpcName, params)) {
         try {
-          final response = await _client.rpc(rpcName, params: rpcParams);
+          final safeRpcName = rpcName.toString().trim();
+          if (safeRpcName.isEmpty) {
+            debugPrint('FINANCE_SNAPSHOT_EMPTY_RPC_NAME_SKIPPED');
+            continue;
+          }
+          final response = await _client.rpc(safeRpcName, params: rpcParams);
           _lastSnapshotStats = '$rpcName · ${_snapshotStats(response)}';
           if (!_isFinanceSnapshotEmpty(response) &&
               !_isLegacySkuOnlySnapshot(response)) return response;
@@ -9740,6 +9745,8 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
+
+
 
 
 
