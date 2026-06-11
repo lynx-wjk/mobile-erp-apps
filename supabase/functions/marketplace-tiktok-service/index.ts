@@ -2,6 +2,7 @@
 // Supabase Edge Function, Deno runtime
 // Deploy with: supabase functions deploy marketplace-tiktok-service --no-verify-jwt=false
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+const FINANCE_UNPAID_BACKLOG_PATCH_VERSION = 'marketplace-tiktok-service-finance-unpaid-backlog-90d-v51-2026-06-11';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -1811,8 +1812,19 @@ async function actionEnqueueFinanceSyncJobs(ctx, params) {
   const tenantId = getString(params.tenant_id, '');
   const accountId = getString(params.account_id ?? params.marketplace_account_id, '');
   const mode = getString(params.mode, 'today_yesterday');
+  const jobTypeHint = getString(params.job_type_hint, '');
+  const backlogDays = Math.min(Math.max(getNumber(params.unpaid_backlog_days ?? params.finance_backlog_days ?? params.days_back, 90), 3), 90);
   let ranges = [];
-  if (mode === 'period') {
+  if (mode === 'recent_unpaid' || params.auto_unpaid_backlog_90d === true || jobTypeHint === 'auto_unpaid_backlog_90d') {
+    const end = getString(params.end_date, jakartaDateString(0));
+    const start = getString(params.start_date, jakartaDateString(-backlogDays));
+    ranges.push({
+      start_date: start,
+      end_date: end,
+      job_type: jobTypeHint || 'auto_unpaid_backlog_90d',
+      priority: 65
+    });
+  } else if (mode === 'period') {
     const start = getString(params.start_date, jakartaDateString(0));
     const end = getString(params.end_date, start);
     ranges.push({
@@ -1869,7 +1881,12 @@ async function actionEnqueueFinanceSyncJobs(ctx, params) {
         payload: {
           source: getString(params.source, 'finance_sync_jobs'),
           mode,
-          include_sku_details: params.include_sku_details !== false
+          include_sku_details: params.include_sku_details !== false,
+          days_back: mode === 'recent_unpaid' ? backlogDays : getNumber(params.days_back, 0),
+          unpaid_backlog_days: mode === 'recent_unpaid' ? backlogDays : null,
+          include_unpaid_backlog: params.include_unpaid_backlog === true,
+          auto_unpaid_backlog_90d: params.auto_unpaid_backlog_90d === true || jobTypeHint === 'auto_unpaid_backlog_90d',
+          job_type_hint: jobTypeHint || null
         },
         updated_at: new Date().toISOString()
       });
@@ -1949,7 +1966,7 @@ async function actionProcessFinanceSyncJobs(ctx, params) {
           end_date: job.period_end,
           max_orders: maxOrders,
           missing_only: true,
-          source: 'finance_sync_job_order_payout_v24_6_21'
+          source: getString(job.payload?.source, 'finance_sync_job_order_payout_v24_6_21')
         });
         lastResult = result;
         const checked = getNumber(result.checked, 0);
