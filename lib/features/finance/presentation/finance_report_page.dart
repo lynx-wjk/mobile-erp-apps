@@ -807,12 +807,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _isLegacySkuOnlySnapshot(dynamic response) {
-    if (_hasUsableFinanceSummary(response)) return false;
-    final days = _dateOnly(_end).difference(_dateOnly(_start)).inDays.abs();
-    if (days <= 1) return false;
     final data = _asMap(response);
-    return _asList(data['by_sku'] ?? data['sku_margin'] ?? data['sku'])
-        .isNotEmpty;
+    if (data.isEmpty) return false;
+
+    // Snapshot finance aktif boleh membawa summary + sku.
+    // Jangan tolak snapshot valid hanya karena ada list SKU.
+    final summary = _asMap(data['summary']);
+    if (summary.isNotEmpty) return false;
+
+    final hasDashboardRows =
+        _asList(data['by_marketplace']).isNotEmpty ||
+        _asList(data['cash_flow']).isNotEmpty ||
+        _asList(data['expenses']).isNotEmpty ||
+        _asList(data['profit_loss']).isNotEmpty ||
+        _asList(data['abnormal']).isNotEmpty ||
+        _asList(data['abnormals']).isNotEmpty ||
+        _asList(data['sources']).isNotEmpty ||
+        _asList(data['accounts']).isNotEmpty;
+
+    if (hasDashboardRows) return false;
+
+    return _asList(data['by_sku'] ?? data['sku_margin'] ?? data['sku']).isNotEmpty;
   }
 
   Future<void> _saveFinanceRuntimeProgress({
@@ -9717,6 +9732,7 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
+
 
 
 
