@@ -234,38 +234,71 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
-  Future<dynamic> _loadFinanceSnapshot(Map<String, dynamic> params) async {
-    final versions = <String>[
-      '',
+  Future<dynamic> _loadFinanceSnapshot(Map<String, dynamic> baseParams) async {
+    dynamic normalizeAccount(dynamic value) {
+      final text = value?.toString().trim();
+      if (text == null || text.isEmpty || text == '-' || text.toLowerCase() == 'all') {
+        return null;
+      }
+      return value;
+    }
+
+    String? normalizeMarketplace(dynamic value) {
+      final text = value?.toString().trim();
+      if (text == null || text.isEmpty || text == '-' || text.toLowerCase() == 'all') {
+        return null;
+      }
+      return text;
+    }
+
+    final params = <String, dynamic>{
+      'p_start': baseParams['p_start'] ?? baseParams['p_start_date'] ?? _toDateParam(_start),
+      'p_end': baseParams['p_end'] ?? baseParams['p_end_date'] ?? _toDateParam(_end),
+      'p_marketplace': normalizeMarketplace(
+        baseParams['p_marketplace'] ?? baseParams['p_marketplace_filter'],
+      ),
+      'p_account_id': normalizeAccount(
+        baseParams['p_account_id'] ?? baseParams['p_account_id_filter'],
+      ),
+    };
+
+    final candidates = <String>[
+      'finance_dashboard_snapshot',
+      'finance_customer_dashboard_snapshot_v24_6_82o',
     ];
+
     Object? lastError;
     dynamic firstEmptyResponse;
-    for (final rpcName in versions) {
-      for (final rpcParams in _snapshotParamVariantsForRpc(rpcName, params)) {
-        try {
-          final safeRpcName = rpcName.toString().trim();
-          if (safeRpcName.isEmpty) {
-            debugPrint('FINANCE_SNAPSHOT_EMPTY_RPC_NAME_SKIPPED');
-            continue;
-          }
-          final response = await _client.rpc(safeRpcName, params: rpcParams);
-          _lastSnapshotStats = '$rpcName · ${_snapshotStats(response)}';
-          if (!_isFinanceSnapshotEmpty(response) &&
-              !_isLegacySkuOnlySnapshot(response)) return response;
-          firstEmptyResponse ??= response;
-          break;
-        } catch (e) {
-          lastError = e;
-          if (!_isRpcParamMismatch(e)) break;
+
+    for (final rpcName in candidates) {
+      final safeRpcName = rpcName.trim();
+      if (safeRpcName.isEmpty) continue;
+
+      try {
+        final response = await _client.rpc(safeRpcName, params: params);
+        _lastSnapshotStats = '$safeRpcName · ${_snapshotStats(response)}';
+
+        if (!_isFinanceSnapshotEmpty(response) &&
+            !_isLegacySkuOnlySnapshot(response)) {
+          return response;
         }
+
+        firstEmptyResponse ??= response;
+      } catch (e) {
+        lastError = e;
+        debugPrint('FINANCE_SNAPSHOT_RPC_FAILED $safeRpcName: $e');
       }
     }
 
-    if (firstEmptyResponse != null) return firstEmptyResponse;
-    final message = lastError == null
-        ? 'Belum ada data pada filter ini.'
-        : 'Data belum bisa dimuat: ${_cleanError(lastError)}';
-    throw Exception(message);
+    if (firstEmptyResponse != null) {
+      return firstEmptyResponse;
+    }
+
+    if (lastError != null) {
+      throw lastError;
+    }
+
+    throw Exception('Belum ada data pada filter ini.');
   }
 
   List<Map<String, dynamic>> _snapshotParamVariantsForRpc(
@@ -9745,6 +9778,7 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
+
 
 
 
