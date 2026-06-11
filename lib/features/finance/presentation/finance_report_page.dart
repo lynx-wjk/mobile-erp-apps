@@ -6284,19 +6284,453 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     ];
   }
 
+  String? _cashInputTenantId() {
+    final summaryTenant = _text(_summary['tenant_id']);
+    if (_isUuid(summaryTenant)) return summaryTenant;
+    if (_isUuid(_currentTenantId)) return _currentTenantId;
+    for (final row in _accounts) {
+      final tenant = _text(row['tenant_id']);
+      if (_isUuid(tenant)) return tenant;
+    }
+    return null;
+  }
+
+  String? _cashSelectedMarketplace() {
+    final value = _marketplaceFilter.trim().toLowerCase();
+    if (value.isEmpty || value == 'all') return null;
+    return value;
+  }
+
+  String? _cashSelectedAccountId() {
+    return _isUuid(_accountFilter) ? _accountFilter : null;
+  }
+
+  DateTime _cashDefaultDateInSelectedMonth() {
+    final now = DateTime.now();
+    final start = _financeReportMonthStart();
+    final end = _financeReportMonthEnd();
+    if (now.isBefore(start)) return start;
+    if (now.isAfter(end)) return end;
+    return now;
+  }
+
+  double _cashInputAmount(String raw) {
+    final cleaned = raw
+        .replaceAll(RegExp(r'[^0-9,.\-]'), '')
+        .replaceAll('.', '')
+        .replaceAll(',', '.')
+        .trim();
+    return double.tryParse(cleaned) ?? 0;
+  }
+
+  Future<Map<String, dynamic>> _fetchCompanyCashflowMonthlySnapshot() async {
+    try {
+      final res = await _client.rpc(
+        'finance_company_cashflow_monthly_snapshot',
+        params: {
+          'p_start': _financeReportMonthStartParam(),
+          'p_end': _financeReportMonthEndParam(),
+          'p_marketplace': _marketplaceRpcParam(),
+          'p_account_id': _accountUuidParam(),
+        },
+      );
+      return _asMap(res);
+    } catch (e) {
+      debugPrint('FINANCE_COMPANY_CASHFLOW_MONTHLY_SNAPSHOT_SKIPPED: $e');
+      return <String, dynamic>{};
+    }
+  }
+
+  Future<void> _showOpeningCompanyCashDialog() async {
+    if (_isDemoSuperAdmin) {
+      _showDemoBlocked();
+      return;
+    }
+    if (_processing) return;
+
+    final tenantId = _cashInputTenantId();
+    if (tenantId == null) {
+      AppUi.safeSnack(
+          context, 'Tenant belum terbaca untuk menyimpan saldo kas.');
+      return;
+    }
+
+    final amountController = TextEditingController(
+      text: _num(_summary['opening_company_cash']).toStringAsFixed(0),
+    );
+    final noteController = TextEditingController(
+      text: _text(_summary['opening_company_cash_note']),
+    );
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Atur saldo awal kas'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Bulan: ${_date(_financeReportMonthStart())}',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: amountController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Saldo awal kas perusahaan',
+                hintText: 'Contoh: 100000000',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: noteController,
+              minLines: 2,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Catatan',
+                hintText: 'Contoh: saldo rekening akhir bulan sebelumnya',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    final amount = _cashInputAmount(amountController.text);
+    if (amount < 0) {
+      AppUi.safeSnack(context, 'Saldo awal tidak boleh minus.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      await _client.from('finance_company_cash_opening_balances').upsert({
+        'tenant_id': tenantId,
+        'period_month': _financeReportMonthStartParam(),
+        'amount': amount,
+        'note': noteController.text.trim(),
+      }, onConflict: 'tenant_id,period_month');
+
+      AppUi.safeSnack(context, 'Saldo awal kas disimpan.');
+      await _safeRefreshFinanceView();
+    } catch (e) {
+      AppUi.safeSnack(context, 'Gagal menyimpan saldo awal kas: $e');
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _showCompanyCashAdjustmentDialog(String direction) async {
+    if (_isDemoSuperAdmin) {
+      _showDemoBlocked();
+      return;
+    }
+    if (_processing) return;
+
+    final tenantId = _cashInputTenantId();
+    if (tenantId == null) {
+      AppUi.safeSnack(
+          context, 'Tenant belum terbaca untuk menyimpan kas manual.');
+      return;
+    }
+
+    final defaultDate = _cashDefaultDateInSelectedMonth();
+    final dateController =
+        TextEditingController(text: _toDateParam(defaultDate));
+    final amountController = TextEditingController();
+    final categoryController = TextEditingController(
+      text: direction == 'in' ? 'kas_masuk_manual' : 'kas_keluar_manual',
+    );
+    final noteController = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(direction == 'in'
+            ? 'Tambah kas masuk manual'
+            : 'Tambah kas keluar manual'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: dateController,
+              decoration: const InputDecoration(
+                labelText: 'Tanggal',
+                hintText: 'YYYY-MM-DD',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: amountController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Nominal',
+                hintText: 'Contoh: 5000000',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: categoryController,
+              decoration: const InputDecoration(
+                labelText: 'Kategori',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: noteController,
+              minLines: 2,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Catatan',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    final amount = _cashInputAmount(amountController.text);
+    if (amount <= 0) {
+      AppUi.safeSnack(context, 'Nominal harus lebih dari 0.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      await _client.from('finance_company_cash_adjustments').insert({
+        'tenant_id': tenantId,
+        'adjustment_date': dateController.text.trim(),
+        'direction': direction,
+        'amount': amount,
+        'category': categoryController.text.trim().isEmpty
+            ? 'manual'
+            : categoryController.text.trim(),
+        'note': noteController.text.trim(),
+      });
+
+      AppUi.safeSnack(context, 'Kas manual disimpan.');
+      await _safeRefreshFinanceView();
+    } catch (e) {
+      AppUi.safeSnack(context, 'Gagal menyimpan kas manual: $e');
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _showMarketplaceWithdrawalDialog() async {
+    if (_isDemoSuperAdmin) {
+      _showDemoBlocked();
+      return;
+    }
+    if (_processing) return;
+
+    final tenantId = _cashInputTenantId();
+    if (tenantId == null) {
+      AppUi.safeSnack(context,
+          'Tenant belum terbaca untuk menyimpan penarikan marketplace.');
+      return;
+    }
+
+    final defaultDate = _cashDefaultDateInSelectedMonth();
+    final withdrawalDateController =
+        TextEditingController(text: _toDateParam(defaultDate));
+    final sourceMonthController =
+        TextEditingController(text: _financeReportMonthStartParam());
+    final amountController = TextEditingController();
+    final bankController = TextEditingController();
+    final refController = TextEditingController();
+    final noteController = TextEditingController();
+
+    final accountId = _cashSelectedAccountId();
+    final marketplace = _cashSelectedMarketplace();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Tambah penarikan marketplace'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (accountId == null)
+                Text(
+                  'Catatan: filter akun marketplace dulu kalau penarikan ini khusus satu toko.',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              if (accountId == null) const SizedBox(height: 10),
+              TextField(
+                controller: withdrawalDateController,
+                decoration: const InputDecoration(
+                  labelText: 'Tanggal dana masuk rekening',
+                  hintText: 'YYYY-MM-DD',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: sourceMonthController,
+                decoration: const InputDecoration(
+                  labelText: 'Sumber bulan settlement',
+                  hintText: 'Contoh dana Mei: 2026-05-01',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: amountController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Nominal ditarik',
+                  hintText: 'Contoh: 30000000',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: bankController,
+                decoration: const InputDecoration(
+                  labelText: 'Rekening/bank tujuan',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: refController,
+                decoration: const InputDecoration(
+                  labelText: 'Referensi transfer',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: noteController,
+                minLines: 2,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Catatan',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    final amount = _cashInputAmount(amountController.text);
+    if (amount <= 0) {
+      AppUi.safeSnack(context, 'Nominal penarikan harus lebih dari 0.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      final inserted = await _client
+          .from('finance_marketplace_withdrawals')
+          .insert({
+            'tenant_id': tenantId,
+            'marketplace_account_id': accountId,
+            'marketplace': marketplace,
+            'withdrawal_date': withdrawalDateController.text.trim(),
+            'amount': amount,
+            'bank_account_name': bankController.text.trim(),
+            'bank_reference': refController.text.trim(),
+            'note': noteController.text.trim(),
+          })
+          .select('marketplace_withdrawal_id')
+          .single();
+
+      final withdrawalId = _text(inserted['marketplace_withdrawal_id']);
+      if (withdrawalId.isNotEmpty) {
+        await _client
+            .from('finance_marketplace_withdrawal_allocations')
+            .insert({
+          'marketplace_withdrawal_id': withdrawalId,
+          'tenant_id': tenantId,
+          'marketplace_account_id': accountId,
+          'marketplace': marketplace,
+          'source_period_month': sourceMonthController.text.trim(),
+          'amount': amount,
+          'allocation_method': 'manual',
+          'note': noteController.text.trim(),
+        });
+      }
+
+      AppUi.safeSnack(context, 'Penarikan marketplace disimpan.');
+      await _safeRefreshFinanceView();
+    } catch (e) {
+      AppUi.safeSnack(context, 'Gagal menyimpan penarikan marketplace: $e');
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
   Widget _cashFlowTab() {
     if (_loading) {
       return Center(child: FuturisticLoader(message: 'Memuat data…'));
     }
 
     final cashRows = _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
-    final cashInMarketplace = _numFirstNonZero([
+    final openingCompanyCash = _num(_summary['opening_company_cash']);
+    final openingMarketplace = _num(_summary['marketplace_opening_balance']);
+    final settlementCurrent = _numFirstNonZero([
+      _summary['marketplace_settlement_current'],
       _summary['payout_total'],
       _summary['payout_amount'],
       _summary['received_amount'],
       _summary['net_received'],
       _summary['net_settlement'],
     ]);
+    final withdrawnCurrent = _num(_summary['marketplace_withdrawn_current']);
+    final manualCashIn = _num(_summary['manual_cash_in']);
+    final manualCashOut = _num(_summary['manual_cash_out']);
     final cashOutOperational = _numFirstNonZero([
       _summary['manual_expense_total'],
       _summary['manual_operational_expense'],
@@ -6306,10 +6740,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _summary['purchase_cashout'],
       _summary['approved_purchase_cashout'],
     ]);
-    final totalCashOut = cashOutOperational + cashOutPurchases;
-    final companyCashBalance = cashInMarketplace - totalCashOut;
+    final totalCashOut = cashOutOperational + cashOutPurchases + manualCashOut;
+    final remainingMarketplace = _numFirstNonZero([
+      _summary['marketplace_remaining_balance'],
+      openingMarketplace + settlementCurrent - withdrawnCurrent,
+    ]);
+    final companyCashBalance = openingCompanyCash +
+        withdrawnCurrent +
+        manualCashIn -
+        cashOutOperational -
+        cashOutPurchases -
+        manualCashOut;
     final monthLabel =
         '${_date(_financeReportMonthStart())} s/d ${_date(_financeReportMonthEnd())}';
+    final withdrawalRows = _asList(_summary['withdrawals'])
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+    final marketplaceBalanceRows =
+        _asList(_summary['marketplace_monthly_balances'])
+            .whereType<Map>()
+            .map((row) => Map<String, dynamic>.from(row))
+            .toList();
 
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
@@ -6319,30 +6771,145 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           _sectionHeader('Arus Kas'),
           SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _processing ? null : _showOpeningCompanyCashDialog,
+                icon:
+                    const Icon(Icons.account_balance_wallet_rounded, size: 18),
+                label: const Text('Atur saldo awal'),
+              ),
+              OutlinedButton.icon(
+                onPressed:
+                    _processing ? null : _showMarketplaceWithdrawalDialog,
+                icon: const Icon(Icons.payments_rounded, size: 18),
+                label: const Text('Tambah penarikan marketplace'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _processing
+                    ? null
+                    : () => _showCompanyCashAdjustmentDialog('in'),
+                icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                label: const Text('Kas masuk manual'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _processing
+                    ? null
+                    : () => _showCompanyCashAdjustmentDialog('out'),
+                icon: const Icon(Icons.remove_circle_outline_rounded, size: 18),
+                label: const Text('Kas keluar manual'),
+              ),
+            ],
+          ),
+          SizedBox(height: 12),
           _simpleRowCard(
-            title: 'Sisa kas perusahaan periode ini',
+            title: 'Sisa kas perusahaan akhir periode',
             subtitle:
-                'Kas marketplace - biaya operasional - pembelian disetujui · $monthLabel',
+                'Saldo awal + dana ditarik + kas masuk manual - biaya - pembelian - kas keluar manual · $monthLabel',
             trailing: (companyCashBalance >= 0 ? '+ ' : '- ') +
                 _money(companyCashBalance.abs()),
             positive: companyCashBalance >= 0,
           ),
           SizedBox(height: 8),
           _simpleRowCard(
-            title: 'Kas masuk marketplace',
-            subtitle: 'Payout/settlement yang sudah masuk periode ini',
-            trailing: '+ ${_money(cashInMarketplace)}',
+            title: 'Saldo awal kas perusahaan',
+            subtitle: 'Saldo rekening/kas dari bulan sebelumnya',
+            trailing: _money(openingCompanyCash),
             positive: true,
           ),
           SizedBox(height: 8),
           _simpleRowCard(
-            title: 'Kas keluar operasional + pembelian',
+            title: 'Saldo marketplace awal',
+            subtitle: 'Settlement bulan sebelumnya yang belum ditarik',
+            trailing: _money(openingMarketplace),
+            positive: true,
+          ),
+          SizedBox(height: 8),
+          _simpleRowCard(
+            title: 'Settlement marketplace bulan ini',
+            subtitle: 'Dana marketplace yang sudah tercatat settlement/payout',
+            trailing: '+ ${_money(settlementCurrent)}',
+            positive: true,
+          ),
+          SizedBox(height: 8),
+          _simpleRowCard(
+            title: 'Dana marketplace ditarik ke rekening',
+            subtitle: 'Dana yang benar-benar masuk rekening perusahaan',
+            trailing: '+ ${_money(withdrawnCurrent)}',
+            positive: true,
+          ),
+          SizedBox(height: 8),
+          _simpleRowCard(
+            title: 'Sisa saldo marketplace belum ditarik',
             subtitle:
-                'Biaya operasional ${_money(cashOutOperational)} · pembelian disetujui ${_money(cashOutPurchases)}',
+                'Saldo awal marketplace + settlement bulan ini - penarikan',
+            trailing: _money(remainingMarketplace),
+            positive: remainingMarketplace >= 0,
+          ),
+          SizedBox(height: 8),
+          _simpleRowCard(
+            title: 'Kas keluar operasional + pembelian + manual',
+            subtitle:
+                'Operasional ${_money(cashOutOperational)} · pembelian disetujui ${_money(cashOutPurchases)} · manual ${_money(manualCashOut)}',
             trailing: '- ${_money(totalCashOut.abs())}',
             positive: false,
           ),
-          SizedBox(height: 12),
+          if (manualCashIn > 0) ...[
+            SizedBox(height: 8),
+            _simpleRowCard(
+              title: 'Kas masuk manual',
+              subtitle: 'Tambahan modal/koreksi kas masuk bulan ini',
+              trailing: '+ ${_money(manualCashIn)}',
+              positive: true,
+            ),
+          ],
+          SizedBox(height: 16),
+          _sectionHeader('Rincian penarikan marketplace'),
+          SizedBox(height: 8),
+          if (withdrawalRows.isEmpty)
+            _emptyCard('Belum ada penarikan marketplace pada bulan ini.')
+          else
+            ...withdrawalRows.map((row) {
+              final title = _text(
+                row['shop_name'] ?? row['store_alias'] ?? row['marketplace'],
+                'Marketplace',
+              );
+              final amount = _num(row['amount']);
+              return _simpleRowCard(
+                title: title,
+                subtitle:
+                    '${_date(row['withdrawal_date'])} · ${_text(row['bank_account_name'], 'rekening belum diisi')} · ${_text(row['bank_reference'], '-')}',
+                trailing: '+ ${_money(amount)}',
+                positive: true,
+              );
+            }),
+          SizedBox(height: 16),
+          _sectionHeader('Sisa saldo marketplace per bulan asal'),
+          SizedBox(height: 8),
+          if (marketplaceBalanceRows.isEmpty)
+            _emptyCard('Belum ada rincian saldo marketplace per bulan asal.')
+          else
+            ...marketplaceBalanceRows.map((row) {
+              final remaining = _num(row['remaining_amount']);
+              final withdrawn = _num(row['withdrawn_amount']);
+              final settlement = _num(row['settlement_amount']);
+              final title = _text(
+                row['shop_name'] ?? row['store_alias'] ?? row['marketplace'],
+                'Marketplace',
+              );
+              return _simpleRowCard(
+                title: '$title · ${_date(row['source_period_month'])}',
+                subtitle:
+                    'Settlement ${_money(settlement)} · ditarik ${_money(withdrawn)}',
+                trailing: _money(remaining),
+                positive: remaining >= 0,
+              );
+            }),
+          SizedBox(height: 16),
+          _sectionHeader('Arus kas ringkas'),
+          SizedBox(height: 8),
           if (cashRows.isEmpty)
             _emptyCard('Belum ada arus kas pada periode ini.')
           else
