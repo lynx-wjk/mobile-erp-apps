@@ -7829,7 +7829,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     final response = await _client.rpc(
-      '',
+      'finance_sku_order_details',
       params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
