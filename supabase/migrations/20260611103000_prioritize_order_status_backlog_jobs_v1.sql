@@ -1,4 +1,4 @@
-﻿update public.marketplace_order_pull_jobs
+update public.marketplace_order_pull_jobs
 set
   priority = greatest(coalesce(priority, 0), 96),
   next_run_at = now(),

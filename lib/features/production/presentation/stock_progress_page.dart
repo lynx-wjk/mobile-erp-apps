@@ -157,7 +157,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
   }
 
   bool _ensureCanWriteProduction() {
-    if (_isSuperAdmin || _currentRoleId == 'production' || _currentRoleId == 'produksi') {
+    if (_isSuperAdmin ||
+        _currentRoleId == 'production' ||
+        _currentRoleId == 'produksi' ||
+        _currentRoleId == 'platform_owner') {
       return true;
     }
     AppUi.showSnack('Akses tulis produksi tidak tersedia.');
@@ -332,7 +335,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   .map((stage) => stage['key'] as String)
                   .toList();
               if (activeStageKeys.isEmpty) {
-                AppUi.showSnack('Pilih minimal satu tahapan proses.');
+                AppUi.showSnack('Pilih minimal satu progress proses.');
                 return;
               }
 
@@ -519,7 +522,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  Text('Tahapan Proses',
+                  Text('Progress Proses',
                       style: Theme.of(sheetContext)
                           .textTheme
                           .titleMedium
@@ -548,7 +551,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           controller: customStageController,
                           enabled: !saving,
                           decoration: const InputDecoration(
-                            labelText: 'Tambah tahapan custom',
+                            labelText: 'Tambah progress custom',
                             hintText: 'Misal: bordir, sablon',
                             border: OutlineInputBorder(),
                             isDense: true,
@@ -565,7 +568,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                 if (text.isEmpty) return;
                                 final key = text.toLowerCase().replaceAll(' ', '_');
                                 if (availableStages.any((s) => s['key'] == key)) {
-                                  AppUi.showSnack('Tahapan "$text" sudah ada.');
+                                  AppUi.showSnack('Progress "$text" sudah ada.');
                                   return;
                                 }
                                 setSheetState(() {
@@ -962,6 +965,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
       text: AppUi.text(
           payment?['note'], depositOnly ? 'Deposit awal produksi' : ''),
     );
+    final paymentLabel = TextEditingController(
+      text: AppUi.text(payment?['payment_label']),
+    );
     final depositSuggestions = {
       'Deposit awal produksi',
       ..._deposits.map((e) => AppUi.text(e['note'])).where((t) => t.isNotEmpty),
@@ -1059,13 +1065,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     : 'Nominal pembayaran wajib lebih dari 0.');
                 return;
               }
-              if (paymentStatus == 'sudah_bayar' &&
-                  proofEvidence == null &&
-                  initialProofUrl.isEmpty) {
-                AppUi.showSnack(
-                    'Bukti foto/galeri wajib diisi untuk status sudah bayar.');
-                return;
-              }
+
 
               try {
                 setSheetState(() => saving = true);
@@ -1082,6 +1082,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       'p_proof_evidence_id': proofEvidence?.evidenceId,
                       'p_proof_url':
                           proofEvidence?.publicUrl ?? initialProofUrl,
+                      'p_payment_label': paymentLabel.text.trim().isEmpty ? null : paymentLabel.text.trim(),
                     },
                   );
                 } else {
@@ -1113,6 +1114,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       'p_proof_url':
                           proofEvidence?.publicUrl ?? initialProofUrl,
                       'p_stage_key': selectedStageKey,
+                      'p_payment_label': paymentLabel.text.trim().isEmpty ? null : paymentLabel.text.trim(),
                     },
                   );
                 }
@@ -1154,7 +1156,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     DropdownButtonFormField<String>(
                       value: selectedStageKey,
                       decoration: const InputDecoration(
-                        labelText: 'Pilih Proses / Tahapan',
+                        labelText: 'Pilih Proses / Progress',
                         border: OutlineInputBorder(),
                       ),
                       items: payableStages.map((stage) {
@@ -1274,6 +1276,31 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  LayoutBuilder(
+                    builder: (context, constraints) => DropdownMenu<String>(
+                      width: constraints.maxWidth,
+                      initialSelection: paymentLabel.text,
+                      label: const Text('Label Pembayaran (Opsional)'),
+                      controller: paymentLabel,
+                      enableFilter: true,
+                      enableSearch: true,
+                      dropdownMenuEntries: const [
+                        DropdownMenuEntry(value: 'Ongkos Potong', label: 'Ongkos Potong'),
+                        DropdownMenuEntry(value: 'Ongkos jahit', label: 'Ongkos jahit'),
+                        DropdownMenuEntry(value: 'Ongkos Finishing', label: 'Ongkos Finishing'),
+                        DropdownMenuEntry(value: 'Ongkos Packing', label: 'Ongkos Packing'),
+                        DropdownMenuEntry(value: 'Deposit Tambahan', label: 'Deposit Tambahan'),
+                      ],
+                      onSelected: (v) {
+                        if (v != null) setSheetState(() => paymentLabel.text = v);
+                      },
+                      inputDecorationTheme: const InputDecorationTheme(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       Expanded(
@@ -1363,6 +1390,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
     Future<void>.delayed(const Duration(milliseconds: 700), () {
       amount.dispose();
       note.dispose();
+      paymentLabel.dispose();
     });
     if (saved == true) _load();
   }
@@ -1373,7 +1401,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
       builder: (dialogContext) => AlertDialog(
         title: Text('Hapus pembayaran produksi?'),
         content: Text(
-          '${_paymentTypeLabel(AppUi.text(payment['payment_type']))} - ${AppUi.rupiah(AppUi.toNum(payment['amount']))}',
+          '${AppUi.text(payment['payment_label']).isNotEmpty ? AppUi.text(payment['payment_label']) : _paymentTypeLabel(AppUi.text(payment['payment_type']))} - ${AppUi.rupiah(AppUi.toNum(payment['amount']))}',
         ),
         actions: [
           TextButton(
@@ -1406,6 +1434,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
   Future<void> _updateStage(Map<String, dynamic> item, String stageKey, Map<String, dynamic> stage) async {
     if (!_ensureCanWriteProduction()) return;
+    final bool isProgressLocked = AppUi.text(item['status']) == 'done' ||
+        item['stock_in_transaction_id'] != null ||
+        item['stock_in_batch_key'] != null;
     String status = AppUi.text(stage['status'], 'progress');
     bool isSkipped = (stage['is_skipped'] == true || AppUi.text(stage['is_skipped']) == 'true') || status == 'skipped';
     String selectedTailorId = AppUi.text(stage['tailor_id'], '');
@@ -1563,7 +1594,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Update Stage: ${_stageLabel(stageKey)}',
+                        'Update Progress: ${_stageLabel(stageKey)}',
                         style: Theme.of(sheetContext)
                             .textTheme
                             .titleLarge
@@ -1572,10 +1603,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text('Lewati Stage'),
+                          const Text('Lewati Progress'),
                           Switch(
                             value: isSkipped,
-                            onChanged: saving
+                            onChanged: saving || isProgressLocked
                                 ? null
                                 : (val) {
                                     setSheetState(() {
@@ -1599,7 +1630,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     DropdownButtonFormField<String>(
                       value: status == 'skipped' ? 'progress' : status,
                       decoration: const InputDecoration(
-                        labelText: 'Status Stage',
+                        labelText: 'Status Progress',
                         border: OutlineInputBorder(),
                       ),
                       items: const [
@@ -1608,7 +1639,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         DropdownMenuItem(value: 'done', child: Text('Done')),
                         DropdownMenuItem(value: 'cancelled', child: Text('Dibatalkan')),
                       ],
-                      onChanged: saving
+                      onChanged: saving || isProgressLocked
                           ? null
                           : (value) => setSheetState(() => status = value ?? 'progress'),
                     ),
@@ -1629,7 +1660,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               child: Text(AppUi.text(tailor['tailor_name'])),
                             )),
                       ],
-                      onChanged: saving
+                      onChanged: saving || isProgressLocked
                           ? null
                           : (value) {
                               setSheetState(() {
@@ -1644,7 +1675,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: manualTailorController,
-                      enabled: !saving,
+                      enabled: !saving && !isProgressLocked,
                       decoration: const InputDecoration(
                         labelText: 'Nama Pekerja',
                         helperText: 'Bisa diisi manual jika nama tidak terdaftar di rekap.',
@@ -1674,47 +1705,47 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: input['qty_in_controller'] as TextEditingController,
-                                    keyboardType: TextInputType.number,
-                                    enabled: !saving,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Qty In',
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                      border: OutlineInputBorder(),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: input['qty_in_controller'] as TextEditingController,
+                                      keyboardType: TextInputType.number,
+                                      enabled: !saving && !isProgressLocked,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Qty In',
+                                        isDense: true,
+                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                        border: OutlineInputBorder(),
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextField(
-                                    controller: input['qty_out_controller'] as TextEditingController,
-                                    keyboardType: TextInputType.number,
-                                    enabled: !saving,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Qty Out',
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                      border: OutlineInputBorder(),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: input['qty_out_controller'] as TextEditingController,
+                                      keyboardType: TextInputType.number,
+                                      enabled: !saving && !isProgressLocked,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Qty Out',
+                                        isDense: true,
+                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                        border: OutlineInputBorder(),
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextField(
-                                    controller: input['qty_reject_controller'] as TextEditingController,
-                                    keyboardType: TextInputType.number,
-                                    enabled: !saving,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Reject',
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                      border: OutlineInputBorder(),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: input['qty_reject_controller'] as TextEditingController,
+                                      keyboardType: TextInputType.number,
+                                      enabled: !saving && !isProgressLocked,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Reject',
+                                        isDense: true,
+                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                        border: OutlineInputBorder(),
+                                      ),
                                     ),
                                   ),
-                                ),
                               ],
                             ),
                           ],
@@ -1726,7 +1757,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       controller: priceController,
                       keyboardType: TextInputType.number,
                       inputFormatters: const [AppMoneyInputFormatter()],
-                      enabled: !saving,
+                      enabled: !saving && !isProgressLocked,
                       decoration: const InputDecoration(
                         labelText: 'Tarif / Ongkos per pcs',
                         prefixText: 'Rp ',
@@ -1739,7 +1770,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     title: const Text('Tanggal Proses'),
                     subtitle: Text(AppUi.date(processDate)),
                     trailing: const Icon(Icons.calendar_today_outlined),
-                    onTap: saving
+                    onTap: saving || isProgressLocked
                         ? null
                         : () async {
                             final picked = await _pickDate(processDate);
@@ -1749,23 +1780,26 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           },
                   ),
                   const SizedBox(height: 12),
-                  EvidenceCameraField(
-                    label: 'Foto update stage',
-                    moduleName: 'production_progress',
-                    purpose: 'stage_$stageKey',
-                    referenceId: item['progress_id']?.toString(),
-                    initialPhotoUrl: initialProofUrl,
-                    allowGallery: true,
-                    onUploaded: (evidence) {
-                      proofEvidence = evidence;
-                      if (sheetContext.mounted) setSheetState(() {});
-                    },
+                  IgnorePointer(
+                    ignoring: isProgressLocked,
+                    child: EvidenceCameraField(
+                      label: 'Foto update progress',
+                      moduleName: 'production_progress',
+                      purpose: 'stage_$stageKey',
+                      referenceId: item['progress_id']?.toString(),
+                      initialPhotoUrl: initialProofUrl,
+                      allowGallery: true,
+                      onUploaded: (evidence) {
+                        proofEvidence = evidence;
+                        if (sheetContext.mounted) setSheetState(() {});
+                      },
+                    ),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: noteController,
                     maxLines: 3,
-                    enabled: !saving,
+                    enabled: !saving && !isProgressLocked,
                     decoration: InputDecoration(
                       labelText: isSkipped ? 'Alasan dilewati (Wajib)' : 'Catatan (Opsional)',
                       border: const OutlineInputBorder(),
@@ -1783,27 +1817,85 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         );
                       },
                       icon: const Icon(Icons.payments_outlined, color: Colors.cyan),
-                      label: const Text('Bayar Ongkos Stage Ini'),
+                      label: const Text('Bayar Ongkos Progress Ini'),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(44),
                         side: const BorderSide(color: Colors.cyan),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: saving ? null : submit,
-                    icon: saving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.task_alt_outlined),
-                    label: Text(stageKey == 'packing' && status == 'done' && !isSkipped
-                        ? 'Selesaikan dan Masuk Stock'
-                        : 'Simpan Stage'),
-                  ),
+                  if (stage.isNotEmpty &&
+                      (_currentRoleId == 'platform_owner' ||
+                          _currentRoleId == 'super_admin' ||
+                          ((_currentRoleId == 'production' || _currentRoleId == 'produksi') && !isProgressLocked)) &&
+                      !saving) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (dialogContext) => AlertDialog(
+                            title: const Text('Hapus progress ini?'),
+                            content: Text(
+                              'Menghapus progress "${_stageLabel(stageKey)}" akan mem-void semua rincian pembayaran terkait progress ini.\n\nApakah Anda yakin?'
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => AppUi.safePop(dialogContext, false),
+                                child: const Text('Batal'),
+                              ),
+                              FilledButton.icon(
+                                onPressed: () => AppUi.safePop(dialogContext, true),
+                                icon: const Icon(Icons.delete_outline),
+                                label: const Text('Hapus'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed != true) return;
+                        
+                        try {
+                          setSheetState(() => saving = true);
+                          await _client.rpc(
+                            'delete_production_progress_stage_for_app',
+                            params: <String, dynamic>{
+                              'p_progress_id': item['progress_id'],
+                              'p_stage_key': stageKey,
+                            },
+                          );
+                          if (sheetContext.mounted) AppUi.safePop(sheetContext, true);
+                        } on PostgrestException catch (e) {
+                          AppUi.showSnack(e.message);
+                        } catch (e) {
+                          AppUi.showSnack(AppUi.userMessage(e.toString()));
+                        } finally {
+                          if (sheetContext.mounted) setSheetState(() => saving = false);
+                        }
+                      },
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      label: const Text('Hapus Progress Ini'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                        side: const BorderSide(color: Colors.red),
+                      ),
+                    ),
+                  ],
+                  if (!isProgressLocked) ...[
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: saving ? null : submit,
+                      icon: saving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.task_alt_outlined),
+                      label: Text(stageKey == 'packing' && status == 'done' && !isSkipped
+                          ? 'Selesaikan dan Masuk Stock'
+                          : 'Simpan Progress'),
+                    ),
+                  ],
                 ],
               ),
             );
@@ -1985,13 +2077,27 @@ class _StockProgressPageState extends State<StockProgressPage> {
   }
 
   Future<void> _deleteProgress(Map<String, dynamic> item) async {
-    if (!_isSuperAdmin) return;
+    final bool isAllowedRole = _currentRoleId == 'platform_owner' ||
+        _currentRoleId == 'super_admin' ||
+        _currentRoleId == 'production' ||
+        _currentRoleId == 'produksi';
+    if (!isAllowedRole) return;
+
+    final status = AppUi.text(item['status'], 'progress');
+    final isDoneOrStockIn = status == 'done' ||
+        item['stock_in_transaction_id'] != null ||
+        item['stock_in_batch_key'] != null;
+
+    if ((_currentRoleId == 'production' || _currentRoleId == 'produksi') && isDoneOrStockIn) {
+      AppUi.showSnack('Produksi sudah Done/Stock In. Role production tidak bisa menghapus.');
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Hapus progress produksi?'),
         content: Text(
-          'Menghapus Surat Jalan ini akan menghapus semua tahapan proses, catatan pembayaran pekerja, '
+          'Menghapus Surat Jalan ini akan menghapus semua progress proses, catatan pembayaran pekerja, '
           'dan otomatis membatalkan penambahan stok barang di master SKU (jika sudah Done).\n\n'
           'Apakah Anda yakin ingin menghapus "${AppUi.text(item['surat_jalan_number'])}"?'
         ),
@@ -3092,7 +3198,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
     for (final progress in _items) {
       for (final payment in _mapList(progress['payments'])) {
         paymentRows.add(<String, dynamic>{
-          'Type': _paymentTypeLabel(AppUi.text(payment['payment_type'])),
+          'Type': AppUi.text(payment['payment_label']).isNotEmpty ? AppUi.text(payment['payment_label']) : _paymentTypeLabel(AppUi.text(payment['payment_type'])),
           'Tailor': progress['tailor_name'],
           'Ref Pattern': progress['pattern_code'],
           'Amount': AppUi.toNum(payment['amount']),
@@ -3938,17 +4044,25 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   if (value == 'edit') _editProgress(item);
                   if (value == 'delete') _deleteProgress(item);
                 },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(
-                    value: 'edit',
-                    child: Text('Edit metadata'),
-                  ),
-                  if (_isSuperAdmin)
+                itemBuilder: (_) {
+                  final isDoneOrStockIn = status == 'done' ||
+                      item['stock_in_transaction_id'] != null ||
+                      item['stock_in_batch_key'] != null;
+                  final canDelete = _currentRoleId == 'platform_owner' ||
+                      _currentRoleId == 'super_admin' ||
+                      ((_currentRoleId == 'production' || _currentRoleId == 'produksi') && !isDoneOrStockIn);
+                  return [
                     const PopupMenuItem(
-                      value: 'delete',
-                      child: Text('Hapus'),
+                      value: 'edit',
+                      child: Text('Edit metadata'),
                     ),
-                ],
+                    if (canDelete)
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Hapus'),
+                      ),
+                  ];
+                },
               ),
             ],
           ),
@@ -3969,7 +4083,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   children: [
                     Expanded(
                       child: Text(
-                        '${_paymentTypeLabel(AppUi.text(payment['payment_type']))} - ${AppUi.date(payment['payment_date'])}',
+                        '${AppUi.text(payment['payment_label']).isNotEmpty ? AppUi.text(payment['payment_label']) : _paymentTypeLabel(AppUi.text(payment['payment_type']))} - ${AppUi.date(payment['payment_date'])}',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -4136,9 +4250,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
         ),
       ),
       child: InkWell(
-        onTap: AppUi.text(item['status']) == 'done'
-            ? null
-            : () => _updateStage(item, stageKey, stage),
+        onTap: () => _updateStage(item, stageKey, stage),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -4357,14 +4469,14 @@ class _StockProgressPageState extends State<StockProgressPage> {
     }).toList();
 
     if (payableStages.isEmpty) {
-      AppUi.showSnack('Tidak ada tahapan aktif yang bisa dibayar.');
+      AppUi.showSnack('Tidak ada progress aktif yang bisa dibayar.');
       return;
     }
 
     final selectedStageKey = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Pilih Tahapan Pembayaran'),
+        title: const Text('Pilih Progress Pembayaran'),
         content: SizedBox(
           width: 320,
           child: ListView.builder(

@@ -24,6 +24,7 @@ where status in ('pending','running')
     'manual_stale_status_refresh_batch_v51'
   );
 
+drop view if exists public.marketplace_sync_reconciliation_audit cascade;
 create or replace view public.marketplace_sync_reconciliation_audit as
 with order_base as (
   select

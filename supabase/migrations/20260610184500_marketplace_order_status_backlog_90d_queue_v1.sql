@@ -1,4 +1,4 @@
-﻿create or replace function public.marketplace_order_status_backlog_90d_queue_v1(
+create or replace function public.marketplace_order_status_backlog_90d_queue_v1(
   p_max_days integer default 3
 )
 returns jsonb
