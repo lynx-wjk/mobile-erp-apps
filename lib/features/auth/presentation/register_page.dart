@@ -38,11 +38,14 @@ class _RegisterPageState extends State<RegisterPage> {
   void initState() {
     super.initState();
     if (widget.initialToken != null && widget.initialToken!.trim().isNotEmpty) {
-      _tokenController.text = widget.initialToken!;
-      // Auto check invite if token is provided
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _checkInvite();
-      });
+      final extracted = _extractInviteTokenStatic(widget.initialToken!.trim());
+      if (extracted.isNotEmpty) {
+        _tokenController.text = extracted;
+        // Auto check invite if a valid token was provided via deep-link
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _checkInvite();
+        });
+      }
     }
   }
 
@@ -57,25 +60,27 @@ class _RegisterPageState extends State<RegisterPage> {
     super.dispose();
   }
 
-  String _extractInviteToken(String input) {
+  /// Static version for use in initState before build context is available.
+  static String _extractInviteTokenStatic(String input) {
     final trimmed = input.trim();
     if (trimmed.isEmpty) return '';
     try {
       final uri = Uri.parse(trimmed);
       final invite = uri.queryParameters['invite'];
-      if (invite != null && invite.isNotEmpty) {
-        return invite.trim();
-      }
+      if (invite != null && invite.isNotEmpty) return invite.trim();
     } catch (_) {}
     final regExp = RegExp(r'[?&]invite=([^&]+)');
     final match = regExp.firstMatch(trimmed);
     if (match != null && match.groupCount >= 1) {
       final token = match.group(1);
-      if (token != null && token.isNotEmpty) {
-        return token.trim();
-      }
+      if (token != null && token.isNotEmpty) return token.trim();
     }
+    // Return as-is if no URL structure detected (raw token)
     return trimmed;
+  }
+
+  String _extractInviteToken(String input) {
+    return _RegisterPageState._extractInviteTokenStatic(input);
   }
 
   Future<void> _checkInvite() async {
@@ -132,7 +137,8 @@ class _RegisterPageState extends State<RegisterPage> {
         });
         AppUi.showSnack('Undangan tidak valid atau sudah kedaluwarsa.');
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[CHECK_INVITE_ERROR] $e\n$st');
       setState(() {
         _inviteChecked = true;
         _inviteValid = false;

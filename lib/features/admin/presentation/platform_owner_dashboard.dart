@@ -41,13 +41,10 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
           .from('app_tenants')
           .select('tenant_id, tenant_name, status')
           .order('tenant_name');
-      if (tenantsRes is List) {
-        _tenantsList = tenantsRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-      } else {
-        _tenantsList = [];
-      }
-    } catch (e) {
-      AppUi.showSnack('GAGAL MEMUAT DATA: $e');
+      _tenantsList = (tenantsRes as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (e, st) {
+      debugPrint('[PLATFORM_DASHBOARD_LOAD_ERROR] $e\n$st');
+      AppUi.showSnack('GAGAL MEMUAT DATA: ${e.toString()}');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -117,14 +114,25 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                 Navigator.pop(context);
                 setState(() => _isLoading = true);
                 try {
-                  await _client.from('app_tenants').insert({
-                    'tenant_name': name,
-                    'status': 'active',
-                  });
-                  AppUi.showSnack('TENANT BERHASIL DIBUAT.');
-                  _loadData();
-                } catch (e) {
-                  AppUi.showSnack('GAGAL MEMBUAT TENANT: $e');
+                  final result = await _client.rpc(
+                    'platform_create_tenant_for_app',
+                    params: {
+                      'p_tenant_name': name,
+                      'p_owner_name': null,
+                      'p_owner_email': null,
+                      'p_notes': null,
+                    },
+                  );
+                  final ok = result is Map && (result['ok'] as bool? ?? false);
+                  if (ok) {
+                    AppUi.showSnack('TENANT BERHASIL DIBUAT: ${result['tenant_name']} (${result['tenant_code']})');
+                    _loadData();
+                  } else {
+                    throw Exception('RPC returned ok=false. $result');
+                  }
+                } catch (e, st) {
+                  debugPrint('[TENANT_CREATE_ERROR] $e\n$st');
+                  AppUi.showSnack('GAGAL MEMBUAT TENANT: ${e.toString()}');
                   setState(() => _isLoading = false);
                 }
               },
@@ -253,10 +261,11 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                               Navigator.pop(context);
                               _showTokenSuccessDialog(token, selectedRole);
                             } else {
-                              throw Exception('Gagal mendapatkan token.');
+                              throw Exception('Gagal mendapatkan token undangan.');
                             }
-                          } catch (e) {
-                            AppUi.showSnack('GAGAL: $e');
+                          } catch (e, st) {
+                            debugPrint('[CREATE_INVITE_ERROR] $e\n$st');
+                            AppUi.showSnack('GAGAL MEMBUAT UNDANGAN: ${e.toString()}');
                             setDialogState(() => generating = false);
                           }
                         },
