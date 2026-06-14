@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import 'register_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -254,6 +255,18 @@ class _LoginPageState extends State<LoginPage>
             onPressed: () => setState(() => _isRegister = !_isRegister),
             child: Text(_isRegister ? 'BACK TO LOGIN' : 'REQUEST ACCESS'),
           ),
+          if (!_isRegister) ...[
+            const SizedBox(height: 4),
+            TextButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const RegisterPage()),
+                );
+              },
+              icon: const Icon(Icons.mail_outline_rounded, size: 16),
+              label: const Text('DAFTAR LEWAT UNDANGAN'),
+            ),
+          ],
         ],
       ),
     );

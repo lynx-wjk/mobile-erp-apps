@@ -2,16 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../models/app_user.dart';
+import '../../../core/constants/app_roles.dart';
 import '../../../repositories/user_repository.dart';
 import '../../../services/auth_service.dart';
 import '../../dashboard/presentation/dashboard_page.dart';
 import 'login_page.dart';
+
+import 'register_page.dart';
+import '../../admin/presentation/platform_owner_dashboard.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Check for web deep link '/register'
+    final uri = Uri.base;
+    final isRegisterPath = uri.path.contains('/register');
+    if (isRegisterPath) {
+      final token = uri.queryParameters['invite'];
+      return RegisterPage(initialToken: token);
+    }
+
     final authService = AuthService();
 
     return StreamBuilder<AuthState>(
@@ -54,6 +66,10 @@ class AuthGate extends StatelessWidget {
                 message:
                     'Akun Anda saat ini tidak aktif. Silakan hubungi admin untuk bantuan.',
               );
+            }
+
+            if (user.role == AppRole.platformOwner) {
+              return const PlatformOwnerDashboard();
             }
 
             return DashboardPage(currentUser: user);
