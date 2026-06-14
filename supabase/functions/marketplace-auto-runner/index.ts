@@ -1,4 +1,4 @@
-﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 const FUNCTION_VERSION = "marketplace-auto-runner-status-finance-reconciliation-v52-2026-06-10";
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -54,6 +54,7 @@ Deno.serve(async (req)=>{
     const cleanupStale = body.cleanup_stale !== false;
     const runStock = body.run_stock === true;
     const runOrder = body.run_order !== false;
+    const runOrderEnqueue = body.run_order_enqueue !== false && body.skip_order_enqueue !== true;
     const runFinanceStatement = body.run_finance_statement === true || body.run_finance === true || body.run_payout === true;
     const runFinancePayout = body.run_finance_payout_direct === true || body.run_direct_payout === true;
     const admin = createClient(supabaseUrl, serviceRoleKey, {
@@ -97,6 +98,7 @@ Deno.serve(async (req)=>{
         childTimeoutMs,
         statusRefreshRangeDays,
         maxStatusRefreshPerAccount,
+        runOrderEnqueue,
         runPendingDrain,
         runStatusRefresh,
         runReturnRefund,
@@ -368,7 +370,13 @@ async function runAutoOrderPull(args) {
         status: "skipped_by_config"
       });
     }
-    if (!orderDue) {
+    if (!args.runOrderEnqueue) {
+      result.details.push({
+        type: "order_pull",
+        tenant_id: tenantId,
+        status: "skipped_enqueue_by_config"
+      });
+    } else if (!orderDue) {
       result.skipped += 1;
       result.details.push({
         type: "order_pull",
@@ -376,66 +384,67 @@ async function runAutoOrderPull(args) {
         status: "skipped_enqueue_interval_but_pending_drained",
         interval_minutes: interval
       });
-      continue;
-    }
-    result.tenants_run += 1;
-    const orderJobs = await invokeFunction(args.supabaseUrl, args.serviceRoleKey, args.cronSecret, "marketplace-order-sync-jobs", {
-      mode: args.force ? "backfill" : "today",
-      tenant_id: tenantId,
-      marketplace_account_id: args.accountFilter || undefined,
-      enqueue: true,
-      process: true,
-      max_accounts: args.maxAccounts,
-      max_jobs: args.maxOrderJobs,
-      window_minutes: args.force ? 720 : 10,
-      days_back: args.force ? 3 : 0,
-      page_size: Math.min(args.maxOrdersPerAccount, 50),
-      max_pages: args.force ? Math.max(args.maxPagesPerAccount, 2) : args.maxPagesPerAccount,
-      max_details: args.maxDetailsPerAccount,
-      include_update_time_search: true,
-      only_latest: true,
-      only_active_orders: true,
-      skip_completed_orders: true,
-      skip_final_orders: true,
-      include_completed: false,
-      source: "marketplace-auto-runner-v7-order-bounded-active-only",
-      refresh_existing_status: false
-    }, args.childTimeoutMs);
-    if (orderJobs.ok && orderJobs.http_status >= 200 && orderJobs.http_status < 300 && orderJobs.data?.ok !== false) {
-      const queued = Number(orderJobs.data?.queued || 0);
-      const processedJobs = Number(orderJobs.data?.processed || orderJobs.data?.processed_jobs || 0);
-      const remainingJobs = Number(orderJobs.data?.remaining || orderJobs.data?.remaining_jobs || 0);
-      const orders = Number(orderJobs.data?.orders || 0);
-      const items = Number(orderJobs.data?.items || 0);
-      const accounts = Number(orderJobs.data?.accounts || 0);
-      result.queued += queued;
-      result.processed_jobs += processedJobs;
-      result.remaining_jobs += remainingJobs;
-      result.orders += orders;
-      result.items += items;
-      result.accounts_run += accounts;
-      result.details.push({
-        type: "order_pull_jobs",
-        tenant_id: tenantId,
-        status: "jobs_processed",
-        queued,
-        processed_jobs: processedJobs,
-        remaining_jobs: remainingJobs,
-        orders,
-        items,
-        response: orderJobs.data
-      });
+      if (!args.runStatusRefresh && !args.runReturnRefund) continue;
     } else {
-      result.failed += 1;
-      result.details.push({
-        type: "order_pull_jobs",
+      result.tenants_run += 1;
+      const orderJobs = await invokeFunction(args.supabaseUrl, args.serviceRoleKey, args.cronSecret, "marketplace-order-sync-jobs", {
+        mode: args.force ? "backfill" : "today",
         tenant_id: tenantId,
-        status: "jobs_failed",
-        response: orderJobs.data,
-        http_status: orderJobs.http_status
-      });
-      await updateOrderSetting(args.admin, tenantId, `Auto order jobs gagal: ${JSON.stringify(orderJobs.data || {})}`);
-      continue;
+        marketplace_account_id: args.accountFilter || undefined,
+        enqueue: true,
+        process: true,
+        max_accounts: args.maxAccounts,
+        max_jobs: args.maxOrderJobs,
+        window_minutes: args.force ? 720 : 10,
+        days_back: args.force ? 3 : 0,
+        page_size: Math.min(args.maxOrdersPerAccount, 50),
+        max_pages: args.force ? Math.max(args.maxPagesPerAccount, 2) : args.maxPagesPerAccount,
+        max_details: args.maxDetailsPerAccount,
+        include_update_time_search: true,
+        only_latest: true,
+        only_active_orders: true,
+        skip_completed_orders: true,
+        skip_final_orders: true,
+        include_completed: false,
+        source: "marketplace-auto-runner-v7-order-bounded-active-only",
+        refresh_existing_status: false
+      }, args.childTimeoutMs);
+      if (orderJobs.ok && orderJobs.http_status >= 200 && orderJobs.http_status < 300 && orderJobs.data?.ok !== false) {
+        const queued = Number(orderJobs.data?.queued || 0);
+        const processedJobs = Number(orderJobs.data?.processed || orderJobs.data?.processed_jobs || 0);
+        const remainingJobs = Number(orderJobs.data?.remaining || orderJobs.data?.remaining_jobs || 0);
+        const orders = Number(orderJobs.data?.orders || 0);
+        const items = Number(orderJobs.data?.items || 0);
+        const accounts = Number(orderJobs.data?.accounts || 0);
+        result.queued += queued;
+        result.processed_jobs += processedJobs;
+        result.remaining_jobs += remainingJobs;
+        result.orders += orders;
+        result.items += items;
+        result.accounts_run += accounts;
+        result.details.push({
+          type: "order_pull_jobs",
+          tenant_id: tenantId,
+          status: "jobs_processed",
+          queued,
+          processed_jobs: processedJobs,
+          remaining_jobs: remainingJobs,
+          orders,
+          items,
+          response: orderJobs.data
+        });
+      } else {
+        result.failed += 1;
+        result.details.push({
+          type: "order_pull_jobs",
+          tenant_id: tenantId,
+          status: "jobs_failed",
+          response: orderJobs.data,
+          http_status: orderJobs.http_status
+        });
+        await updateOrderSetting(args.admin, tenantId, `Auto order jobs gagal: ${JSON.stringify(orderJobs.data || {})}`);
+        if (!args.runStatusRefresh && !args.runReturnRefund) continue;
+      }
     }
     const { data: accounts, error: accountsError } = await args.admin.from("marketplace_accounts").select("marketplace_account_id, marketplace, shop_name, store_alias, status").eq("tenant_id", tenantId).eq("status", "active").eq("is_deleted", false).order("created_at", {
       ascending: true
@@ -838,7 +847,7 @@ function isDue(lastRunAt, intervalMinutes) {
   if (!lastRunAt) return true;
   const last = new Date(String(lastRunAt)).getTime();
   if (!Number.isFinite(last)) return true;
-  return Date.now() - last >= Math.max(1, intervalMinutes) * 60_000 - 5_000;
+  return Date.now() - last >= Math.max(1, intervalMinutes) * 60_000 - 50_000;
 }
 function text(value) {
   return String(value ?? "").trim();

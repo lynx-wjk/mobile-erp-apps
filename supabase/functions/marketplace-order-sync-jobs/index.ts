@@ -1,4 +1,4 @@
-﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 const FUNCTION_VERSION = "marketplace-order-sync-jobs-bootstrap-pagination-v53-2026-06-10";
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -352,16 +352,23 @@ async function enqueueOrderPullJobs(args) {
   };
 }
 async function countActiveAutoOrderJobs(admin, tenantId, accountId) {
-  const { count, error } = await admin.from("marketplace_order_pull_jobs").select("order_pull_job_id", {
-    count: "exact",
-    head: true
-  }).eq("tenant_id", tenantId).eq("marketplace_account_id", accountId).in("status", [
+  const { data, error } = await admin.from("marketplace_order_pull_jobs").select("order_pull_job_id, payload, window_label").eq("tenant_id", tenantId).eq("marketplace_account_id", accountId).in("status", [
     "pending",
     "retry",
     "running"
   ]).like("job_type", "auto_%");
   if (error) throw new Error(`Cek antrean order aktif gagal: ${error.message}`);
-  return Number(count || 0);
+
+  const activeRealJobs = (data || []).filter((j) => {
+    const payload = j.payload || {};
+    const source = String(payload.source || "");
+    const label = String(j.window_label || "");
+    if (source.includes("stale_status_refresh") || label.includes("stale refresh")) {
+      return false; // ignore stale status refresh jobs
+    }
+    return true;
+  });
+  return activeRealJobs.length;
 }
 async function processOrderPullJobs(args) {
   await resetStaleBootstrapJobs(args.admin, args.tenantId, args.accountId);
@@ -936,7 +943,7 @@ function buildDateRanges(modeRaw, startDateRaw, endDateRaw) {
         startDate: today,
         endDate: today,
         jobType: "auto_today_window",
-        priority: 90
+        priority: 3000
       }
     ];
   }
@@ -948,13 +955,13 @@ function buildDateRanges(modeRaw, startDateRaw, endDateRaw) {
         startDate: today,
         endDate: today,
         jobType: "auto_today_window",
-        priority: 90
+        priority: 3000
       },
       {
         startDate: yesterday,
         endDate: yesterday,
         jobType: "auto_yesterday_window",
-        priority: 70
+        priority: 2000
       }
     ];
   }
@@ -972,7 +979,7 @@ function buildDateRanges(modeRaw, startDateRaw, endDateRaw) {
       startDate: date,
       endDate: date,
       jobType: "manual_period_window",
-      priority: 80
+      priority: 1000
     });
     cursorSeconds += 86400;
   }

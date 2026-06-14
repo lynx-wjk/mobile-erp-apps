@@ -79,9 +79,12 @@ class _StockOutPageState extends State<StockOutPage> {
       _stockOutMarketplaceResiMatchEnabledMemory;
   String? _verifiedResi;
   String? _marketplaceOrderId;
+  String? _marketplaceName;
+  String? _marketplaceAccountName;
   String? _marketplaceOrderNumber;
   String? _marketplaceTrackingNumber;
   String? _marketplaceOrderMessage;
+  String? _marketplaceNote;
   List<_MarketplacePickItem> _marketplacePickItems = [];
 
   final List<String> _tujuanOptions = const [
@@ -115,9 +118,12 @@ class _StockOutPageState extends State<StockOutPage> {
       setState(() {
         _verifiedResi = null;
         _marketplaceOrderId = null;
+        _marketplaceName = null;
+        _marketplaceAccountName = null;
         _marketplaceOrderNumber = null;
         _marketplaceTrackingNumber = null;
         _marketplaceOrderMessage = null;
+        _marketplaceNote = null;
         _marketplacePickItems = [];
       });
     }
@@ -271,9 +277,12 @@ class _StockOutPageState extends State<StockOutPage> {
         setState(() {
           _verifiedResi = null;
           _marketplaceOrderId = null;
+          _marketplaceName = null;
+          _marketplaceAccountName = null;
           _marketplaceOrderNumber = null;
           _marketplaceTrackingNumber = null;
           _marketplaceOrderMessage = result.message;
+          _marketplaceNote = null;
           _marketplacePickItems = [];
         });
         rootScaffoldMessengerKey.currentState?.showSnackBar(
@@ -287,9 +296,12 @@ class _StockOutPageState extends State<StockOutPage> {
       setState(() {
         _verifiedResi = resi;
         _marketplaceOrderId = result.marketplaceOrderId;
+        _marketplaceName = result.marketplace;
+        _marketplaceAccountName = result.accountName;
         _marketplaceOrderNumber = result.externalOrderId;
         _marketplaceTrackingNumber = result.trackingNumber;
         _marketplaceOrderMessage = result.message;
+        _marketplaceNote = result.marketplaceNote;
         _items.clear();
       });
 
@@ -383,11 +395,14 @@ class _StockOutPageState extends State<StockOutPage> {
       setState(() {
         _verifiedResi = resi;
         _marketplaceOrderId = result.marketplaceOrderId ?? _marketplaceOrderId;
+        _marketplaceName = result.marketplace ?? _marketplaceName;
+        _marketplaceAccountName = result.accountName ?? _marketplaceAccountName;
         _marketplaceOrderNumber =
             result.externalOrderId ?? _marketplaceOrderNumber;
         _marketplaceTrackingNumber =
             result.trackingNumber ?? _marketplaceTrackingNumber;
         _marketplaceOrderMessage = result.message;
+        _marketplaceNote = result.marketplaceNote ?? _marketplaceNote;
       });
 
       await _loadMarketplacePickItems();
@@ -469,10 +484,13 @@ class _StockOutPageState extends State<StockOutPage> {
 
       setState(() {
         _marketplaceOrderId = result.marketplaceOrderId ?? _marketplaceOrderId;
+        _marketplaceName = result.marketplace ?? _marketplaceName;
+        _marketplaceAccountName = result.accountName ?? _marketplaceAccountName;
         _marketplaceOrderNumber =
             result.externalOrderId ?? _marketplaceOrderNumber;
         _marketplaceTrackingNumber =
             result.trackingNumber ?? _marketplaceTrackingNumber;
+        _marketplaceNote = result.marketplaceNote ?? _marketplaceNote;
         _verifiedResi = resi;
       });
 
@@ -651,6 +669,7 @@ class _StockOutPageState extends State<StockOutPage> {
         ? true
         : await _verifyMarketplaceResi();
     if (!verified) return;
+    if (!mounted) return;
 
     if (_marketplacePickItems.isEmpty) {
       rootScaffoldMessengerKey.currentState?.showSnackBar(
@@ -673,6 +692,15 @@ class _StockOutPageState extends State<StockOutPage> {
       );
       return;
     }
+
+    final actualProduct = await _showProductPicker(
+      title: 'Pilih SKU Aktual',
+      searchLabel: 'Cari SKU aktual / nama / barcode',
+      helperText:
+          'Mode manual marketplace memakai daftar semua SKU tenant. QR/barcode tetap harus cocok dengan item order.',
+    );
+    if (actualProduct == null) return;
+    if (!mounted) return;
 
     final selected = await showModalBottomSheet<_MarketplacePickItem>(
       context: context,
@@ -704,7 +732,17 @@ class _StockOutPageState extends State<StockOutPage> {
                       ),
                       SizedBox(height: 6),
                       Text(
-                          'Dipakai saat barcode produk sulit discan. Tetap hanya item dari order/resi yang sama.'),
+                          'SKU aktual sudah dipilih dari daftar semua produk tenant. Pilih item order/resi yang dipenuhi SKU ini.'),
+                      SizedBox(height: 6),
+                      Text(
+                        'SKU aktual: ${actualProduct.kodeSku} - ${actualProduct.namaBarang}',
+                        style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.72),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -726,9 +764,10 @@ class _StockOutPageState extends State<StockOutPage> {
                               style: TextStyle(fontWeight: FontWeight.w900)),
                           subtitle: Text(
                             'Varian: ${item.variantName}\n'
-                            'SKU lokal: ${item.mappedLocalSku}\n'
-                            'Barcode lokal: ${item.localBarcode}\n'
-                            'Scan: ${item.scannedQtyText}/${item.quantityText}',
+                            'Mapping order: ${item.mappedLocalSku}\n'
+                            'Barcode mapping: ${item.localBarcode}\n'
+                            'Scan: ${item.scannedQtyText}/${item.quantityText}'
+                            '${item.fulfillmentOverrideQty > 0 ? '\nOverride ke: ${item.fulfillmentOverrideLocalSkus}' : ''}',
                           ),
                           isThreeLine: true,
                           onTap: () => AppUi.safePop(context, item),
@@ -745,20 +784,133 @@ class _StockOutPageState extends State<StockOutPage> {
     );
 
     if (selected == null) return;
-    await _manualScanMarketplaceItem(selected.marketplaceOrderItemId);
+
+    final isOverride = !_sameProductForMarketplace(selected, actualProduct);
+    String? overrideNote;
+    if (isOverride) {
+      overrideNote = await _confirmMarketplaceManualOverride(
+        orderItem: selected,
+        actualProduct: actualProduct,
+      );
+      if (overrideNote == null) return;
+    }
+
+    await _manualScanMarketplaceItem(
+      item: selected,
+      actualProduct: actualProduct,
+      overrideNote: overrideNote,
+    );
   }
 
-  Future<void> _manualScanMarketplaceItem(String marketplaceOrderItemId) async {
+  bool _sameProductForMarketplace(
+    _MarketplacePickItem item,
+    _ProductItem product,
+  ) {
+    final mappedProductId = item.mappedProductId.trim();
+    if (mappedProductId.isNotEmpty && mappedProductId == product.productId) {
+      return true;
+    }
+    return _normalize(item.mappedLocalSku) == _normalize(product.kodeSku);
+  }
+
+  Future<String?> _confirmMarketplaceManualOverride({
+    required _MarketplacePickItem orderItem,
+    required _ProductItem actualProduct,
+  }) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final note = controller.text.trim();
+            return AlertDialog(
+              title: const Text('Konfirmasi Override SKU'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SKU aktual berbeda dari item order/resi.',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    SizedBox(height: 10),
+                    Text('Item order: ${orderItem.productName}'),
+                    Text('Varian order: ${orderItem.variantName}'),
+                    Text('SKU mapping order: ${orderItem.mappedLocalSku}'),
+                    SizedBox(height: 8),
+                    Text('SKU aktual: ${actualProduct.kodeSku}'),
+                    Text('Produk aktual: ${actualProduct.namaBarang}'),
+                    Text('Barcode aktual: ${actualProduct.kodeBarcode}'),
+                    if ((_marketplaceNote ?? '').trim().isNotEmpty) ...[
+                      SizedBox(height: 12),
+                      Text(
+                        'Catatan Marketplace',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      SizedBox(height: 4),
+                      Text(_marketplaceNote!.trim()),
+                    ],
+                    SizedBox(height: 14),
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      maxLines: 3,
+                      onChanged: (_) => setDialogState(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'Alasan/catatan user wajib',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => AppUi.safePop(context),
+                  child: Text('Batal'),
+                ),
+                FilledButton(
+                  onPressed:
+                      note.isEmpty ? null : () => AppUi.safePop(context, note),
+                  child: Text('Simpan Override'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    Future<void>.delayed(const Duration(milliseconds: 700), () {
+      controller.dispose();
+    });
+    return result?.trim().isEmpty == true ? null : result?.trim();
+  }
+
+  Future<void> _manualScanMarketplaceItem({
+    required _MarketplacePickItem item,
+    required _ProductItem actualProduct,
+    String? overrideNote,
+  }) async {
     final tenantId = _tenantId;
     final resi = _resiController.text.trim();
     if (tenantId == null || tenantId.isEmpty) return;
 
     setState(() => _isSaving = true);
     try {
-      final result = await _marketplacePickService.scanOrderItemManualByResi(
+      final result =
+          await _marketplacePickService.scanOrderItemManualOverrideByResi(
         tenantId: tenantId,
         resiCode: resi,
-        marketplaceOrderItemId: marketplaceOrderItemId,
+        marketplaceOrderItemId: item.marketplaceOrderItemId,
+        actualProductId: actualProduct.productId,
+        overrideNote: overrideNote,
       );
 
       if (!result.ok) {
@@ -770,10 +922,13 @@ class _StockOutPageState extends State<StockOutPage> {
 
       setState(() {
         _marketplaceOrderId = result.marketplaceOrderId ?? _marketplaceOrderId;
+        _marketplaceName = result.marketplace ?? _marketplaceName;
+        _marketplaceAccountName = result.accountName ?? _marketplaceAccountName;
         _marketplaceOrderNumber =
             result.externalOrderId ?? _marketplaceOrderNumber;
         _marketplaceTrackingNumber =
             result.trackingNumber ?? _marketplaceTrackingNumber;
+        _marketplaceNote = result.marketplaceNote ?? _marketplaceNote;
         _verifiedResi = resi;
       });
 
@@ -792,7 +947,11 @@ class _StockOutPageState extends State<StockOutPage> {
     }
   }
 
-  Future<_ProductItem?> _showProductPicker() async {
+  Future<_ProductItem?> _showProductPicker({
+    String title = 'Pilih Produk',
+    String searchLabel = 'Cari nama / SKU / barcode',
+    String? helperText,
+  }) async {
     final searchController = TextEditingController();
     List<_ProductItem> filtered = List<_ProductItem>.from(_products);
 
@@ -832,7 +991,7 @@ class _StockOutPageState extends State<StockOutPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Pilih Produk',
+                            title,
                             style: Theme.of(context)
                                 .textTheme
                                 .titleLarge
@@ -844,12 +1003,24 @@ class _StockOutPageState extends State<StockOutPage> {
                           TextField(
                             controller: searchController,
                             onChanged: filter,
-                            decoration: const InputDecoration(
-                              labelText: 'Cari nama / SKU / barcode',
-                              prefixIcon: Icon(Icons.search),
+                            decoration: InputDecoration(
+                              labelText: searchLabel,
+                              prefixIcon: const Icon(Icons.search),
                               border: OutlineInputBorder(),
                             ),
                           ),
+                          if ((helperText ?? '').trim().isNotEmpty) ...[
+                            SizedBox(height: 8),
+                            Text(
+                              helperText!,
+                              style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.72),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -1154,9 +1325,12 @@ class _StockOutPageState extends State<StockOutPage> {
 
       setState(() {
         _marketplaceOrderId = null;
+        _marketplaceName = null;
+        _marketplaceAccountName = null;
         _marketplaceOrderNumber = null;
         _marketplaceTrackingNumber = null;
         _marketplaceOrderMessage = null;
+        _marketplaceNote = null;
         _marketplacePickItems = [];
         _verifiedResi = null;
         _tujuan = 'penjualan';
@@ -1269,8 +1443,11 @@ class _StockOutPageState extends State<StockOutPage> {
                   _marketplaceOrderMessage = null;
                   _marketplacePickItems = [];
                   _marketplaceOrderId = null;
+                  _marketplaceName = null;
+                  _marketplaceAccountName = null;
                   _marketplaceOrderNumber = null;
                   _marketplaceTrackingNumber = null;
+                  _marketplaceNote = null;
                   _verifiedResi = null;
                 });
               },
@@ -1367,7 +1544,7 @@ class _StockOutPageState extends State<StockOutPage> {
                         ? Icons.playlist_add_check_rounded
                         : Icons.add),
                     label: Text(isMarketplaceActive
-                        ? 'Pilih Item Order'
+                        ? 'Pilih Manual SKU'
                         : 'Pilih Manual'),
                   ),
                 ),
@@ -1399,10 +1576,36 @@ class _StockOutPageState extends State<StockOutPage> {
           ),
           SizedBox(height: 4),
           Text(_marketplaceOrderMessage ?? '-'),
+          if ((_marketplaceName ?? '').trim().isNotEmpty)
+            Text('Marketplace: $_marketplaceName'),
+          if ((_marketplaceAccountName ?? '').trim().isNotEmpty)
+            Text('Toko/Penjual: $_marketplaceAccountName'),
           if ((_marketplaceOrderNumber ?? '').trim().isNotEmpty)
             Text('Order: $_marketplaceOrderNumber'),
           if ((_marketplaceTrackingNumber ?? '').trim().isNotEmpty)
             Text('Resi: $_marketplaceTrackingNumber'),
+          if ((_marketplaceNote ?? '').trim().isNotEmpty) ...[
+            SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface.withOpacity(0.75),
+                border: Border.all(color: color.withOpacity(0.22)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Catatan Marketplace',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  SizedBox(height: 4),
+                  Text(_marketplaceNote!.trim()),
+                ],
+              ),
+            ),
+          ],
           if (ok) ...[
             SizedBox(height: 10),
             OutlinedButton.icon(
@@ -1546,7 +1749,8 @@ class _StockOutPageState extends State<StockOutPage> {
                 'Varian: ${item.variantName}\n'
                 'SKU lokal: ${item.mappedLocalSku}\n'
                 'Barcode lokal: ${item.localBarcode}\n'
-                'Scan: ${item.scannedQtyText}/${item.quantityText} · Status: ${item.displayStatusLabel}',
+                'Scan: ${item.scannedQtyText}/${item.quantityText} · Status: ${item.displayStatusLabel}'
+                '${item.fulfillmentOverrideQty > 0 ? '\nOverride ke: ${item.fulfillmentOverrideLocalSkus}' : ''}',
               ),
               isThreeLine: true,
             ),
@@ -1699,6 +1903,7 @@ class _StockOutDraftItem {
 
 class _MarketplacePickItem {
   final String marketplaceOrderItemId;
+  final String mappedProductId;
   final String productName;
   final String variantName;
   final String mappedLocalSku;
@@ -1706,9 +1911,14 @@ class _MarketplacePickItem {
   final num quantity;
   final num scannedQty;
   final String stockActionLabel;
+  final num fulfillmentOverrideQty;
+  final String fulfillmentOverrideLocalSkus;
+  final String fulfillmentOverrideProductNames;
+  final String fulfillmentOverrideNote;
 
   const _MarketplacePickItem({
     required this.marketplaceOrderItemId,
+    required this.mappedProductId,
     required this.productName,
     required this.variantName,
     required this.mappedLocalSku,
@@ -1716,11 +1926,16 @@ class _MarketplacePickItem {
     required this.quantity,
     required this.scannedQty,
     required this.stockActionLabel,
+    required this.fulfillmentOverrideQty,
+    required this.fulfillmentOverrideLocalSkus,
+    required this.fulfillmentOverrideProductNames,
+    required this.fulfillmentOverrideNote,
   });
 
   factory _MarketplacePickItem.fromMap(Map<String, dynamic> map) {
     return _MarketplacePickItem(
       marketplaceOrderItemId: _asText(map['marketplace_order_item_id']),
+      mappedProductId: _asText(map['mapped_product_id']),
       productName: _asText(map['product_name'], '-'),
       variantName: _asText(map['variant_name'], '-'),
       mappedLocalSku: _asText(map['mapped_local_sku'], '-'),
@@ -1728,6 +1943,12 @@ class _MarketplacePickItem {
       quantity: _asNum(map['quantity']),
       scannedQty: _asNum(map['scanned_qty']),
       stockActionLabel: _asText(map['stock_action_label'], '-'),
+      fulfillmentOverrideQty: _asNum(map['fulfillment_override_qty']),
+      fulfillmentOverrideLocalSkus:
+          _asText(map['fulfillment_override_local_skus']),
+      fulfillmentOverrideProductNames:
+          _asText(map['fulfillment_override_product_names']),
+      fulfillmentOverrideNote: _asText(map['fulfillment_override_note']),
     );
   }
 

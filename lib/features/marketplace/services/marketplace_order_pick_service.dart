@@ -32,8 +32,11 @@ class MarketplaceResiOrderResult {
   final bool ok;
   final String message;
   final String? marketplaceOrderId;
+  final String? marketplace;
+  final String? accountName;
   final String? externalOrderId;
   final String? trackingNumber;
+  final String? marketplaceNote;
   final bool orderReadyToFinalize;
   final int processed;
   final int failed;
@@ -42,8 +45,11 @@ class MarketplaceResiOrderResult {
     required this.ok,
     required this.message,
     this.marketplaceOrderId,
+    this.marketplace,
+    this.accountName,
     this.externalOrderId,
     this.trackingNumber,
+    this.marketplaceNote,
     this.orderReadyToFinalize = false,
     this.processed = 0,
     this.failed = 0,
@@ -54,8 +60,12 @@ class MarketplaceResiOrderResult {
       ok: map['ok'] == true,
       message: map['message']?.toString() ?? 'Selesai.',
       marketplaceOrderId: map['marketplace_order_id']?.toString(),
+      marketplace: map['marketplace']?.toString(),
+      accountName: (map['account_name'] ?? map['shop_name'])?.toString(),
       externalOrderId: map['external_order_id']?.toString(),
       trackingNumber: map['tracking_number']?.toString(),
+      marketplaceNote:
+          (map['marketplace_note'] ?? map['seller_note'])?.toString(),
       orderReadyToFinalize: map['order_ready_to_finalize'] == true,
       processed: _asInt(map['processed'] ?? map['scanned_qty']),
       failed: _asInt(map['failed']),
@@ -194,6 +204,27 @@ class MarketplaceOrderPickService {
         'p_tenant_id': tenantId,
         'p_resi_code': resiCode,
         'p_marketplace_order_item_id': marketplaceOrderItemId,
+      },
+    );
+
+    return MarketplaceResiOrderResult.fromMap(_rpcMap(response));
+  }
+
+  Future<MarketplaceResiOrderResult> scanOrderItemManualOverrideByResi({
+    required String tenantId,
+    required String resiCode,
+    required String marketplaceOrderItemId,
+    required String actualProductId,
+    String? overrideNote,
+  }) async {
+    final response = await _client.rpc(
+      'marketplace_scan_order_item_manual_override_by_resi',
+      params: {
+        'p_tenant_id': tenantId,
+        'p_resi_code': resiCode,
+        'p_marketplace_order_item_id': marketplaceOrderItemId,
+        'p_actual_product_id': actualProductId,
+        'p_override_note': overrideNote,
       },
     );
 

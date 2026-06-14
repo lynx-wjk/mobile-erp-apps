@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:excel/excel.dart' hide Border;
@@ -51,6 +51,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String? _error;
   String _currentRoleId = '';
   String _currentTenantId = '';
+  String _currentUserId = '';
+  String _currentUserName = '';
+  String _currentUserEmail = '';
   String _lastSnapshotStats = '';
   Map<String, dynamic> _marketplaceBootstrapUiStatus =
       const <String, dynamic>{};
@@ -65,6 +68,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       AppRolePermissions.isDemoSuperAdminId(_currentRoleId);
   bool get _canAccessFinance =>
       AppRolePermissions.canAccessFinance(_currentRoleId);
+  bool get _canWriteFinance =>
+      _canAccessFinance &&
+      !_isDemoSuperAdmin &&
+      _currentTenantId.trim().isNotEmpty;
 
   static DateTime? _savedStartDate;
   static DateTime? _savedEndDate;
@@ -84,6 +91,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _byMarketplace = [];
   List<Map<String, dynamic>> _bySku = [];
   List<Map<String, dynamic>> _cashFlow = [];
+  List<Map<String, dynamic>> _cashOpeningBalances = [];
+  List<Map<String, dynamic>> _cashAdjustments = [];
+  List<Map<String, dynamic>> _marketplaceWithdrawals = [];
+  List<Map<String, dynamic>> _withdrawalAllocations = [];
   List<Map<String, dynamic>> _expenses = [];
   List<Map<String, dynamic>> _profitLoss = [];
   List<Map<String, dynamic>> _abnormals = [];
@@ -92,6 +103,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     'Salary',
     'Utilitas',
     'Operasional',
+    'Ongkos Produksi',
   ];
   List<String> _expenseCategoryOptions =
       List<String>.from(_baseExpenseCategories);
@@ -125,17 +137,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       final authUser = _client.auth.currentUser;
       if (authUser == null) return;
+      _currentUserId = authUser.id;
       final user = await _client
           .from('users')
-          .select('role_id, tenant_id')
+          .select('role_id, tenant_id, nama, email')
           .eq('user_id', authUser.id)
           .maybeSingle();
       if (!mounted) return;
       _currentRoleId = user?['role_id']?.toString() ?? '';
       _currentTenantId = user?['tenant_id']?.toString() ?? '';
+      _currentUserName = user?['nama']?.toString() ?? '';
+      _currentUserEmail = user?['email']?.toString() ?? authUser.email ?? '';
     } catch (_) {
       _currentRoleId = '';
       _currentTenantId = '';
+      _currentUserId = '';
+      _currentUserName = '';
+      _currentUserEmail = '';
     }
   }
 
@@ -237,7 +255,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<dynamic> _loadFinanceSnapshot(Map<String, dynamic> baseParams) async {
     dynamic normalizeAccount(dynamic value) {
       final text = value?.toString().trim();
-      if (text == null || text.isEmpty || text == '-' || text.toLowerCase() == 'all') {
+      if (text == null ||
+          text.isEmpty ||
+          text == '-' ||
+          text.toLowerCase() == 'all') {
         return null;
       }
       return value;
@@ -245,15 +266,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     String? normalizeMarketplace(dynamic value) {
       final text = value?.toString().trim();
-      if (text == null || text.isEmpty || text == '-' || text.toLowerCase() == 'all') {
+      if (text == null ||
+          text.isEmpty ||
+          text == '-' ||
+          text.toLowerCase() == 'all') {
         return null;
       }
       return text;
     }
 
     final params = <String, dynamic>{
-      'p_start': baseParams['p_start'] ?? baseParams['p_start_date'] ?? _toDateParam(_start),
-      'p_end': baseParams['p_end'] ?? baseParams['p_end_date'] ?? _toDateParam(_end),
+      'p_start': baseParams['p_start'] ??
+          baseParams['p_start_date'] ??
+          _toDateParam(_start),
+      'p_end':
+          baseParams['p_end'] ?? baseParams['p_end_date'] ?? _toDateParam(_end),
       'p_marketplace': normalizeMarketplace(
         baseParams['p_marketplace'] ?? baseParams['p_marketplace_filter'],
       ),
@@ -385,14 +412,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     // Jadi setelah _load selesai pun state tetap harus dicek dan direstore bila perlu.
     final keepSummary = Map<String, dynamic>.from(_summary);
     final keepSources = List<Map<String, dynamic>>.from(_sources);
-    final keepApprovedPurchases = List<Map<String, dynamic>>.from(_approvedPurchases);
+    final keepApprovedPurchases =
+        List<Map<String, dynamic>>.from(_approvedPurchases);
     final keepByMarketplace = List<Map<String, dynamic>>.from(_byMarketplace);
     final keepBySku = List<Map<String, dynamic>>.from(_bySku);
     final keepCashFlow = List<Map<String, dynamic>>.from(_cashFlow);
     final keepExpenses = List<Map<String, dynamic>>.from(_expenses);
     final keepProfitLoss = List<Map<String, dynamic>>.from(_profitLoss);
     final keepAbnormals = List<Map<String, dynamic>>.from(_abnormals);
-    final keepServerAbnormales = List<Map<String, dynamic>>.from(_serverAbnormales);
+    final keepServerAbnormales =
+        List<Map<String, dynamic>>.from(_serverAbnormales);
     final keepError = _error;
 
     final hadVisibleData = keepSummary.isNotEmpty ||
@@ -478,27 +507,160 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     });
   }
 
+  bool _isProductionPaymentExpenseRow(Map<String, dynamic> row) {
+    final haystack = [
+      row['source_table'],
+      row['source_module'],
+      row['source_ref'],
+      row['payment_type'],
+      row['payment_method'],
+      row['category'],
+      row['title'],
+      row['label'],
+      row['description'],
+    ].map((value) => _text(value, '').toLowerCase()).join(' ');
+    return haystack.contains('production_tailor_payments') ||
+        haystack.contains('ongkos jahit') ||
+        haystack.contains('ongkos produksi') ||
+        (haystack.contains('production') &&
+            (haystack.contains('sewing_payment') ||
+                haystack.contains('kasbon') ||
+                haystack.contains('penjahit')));
+  }
+
+  String _firstStableText(List<dynamic> values) {
+    for (final value in values) {
+      final text = _text(value, '').trim();
+      if (text.isNotEmpty && text != '-') return text;
+    }
+    return '';
+  }
+
   String _expenseDedupeKey(Map<String, dynamic> row) {
-    final rawId = _text(
-            row['expense_id'] ??
-                row['id'] ??
-                row['purchase_id'] ??
-                row['request_id'],
-            '')
-        .trim();
+    final sourceId = _firstStableText([
+      row['source_id'],
+      row['payment_id'],
+      row['reference_id'],
+      row['source_reference_id'],
+    ]);
+    if (sourceId.isNotEmpty && _isProductionPaymentExpenseRow(row)) {
+      return 'source:production_tailor_payments:${sourceId.toLowerCase()}';
+    }
+
+    final sourceTable = _firstStableText([
+      row['source_table'],
+      row['source_module'],
+      row['source'],
+    ]);
+    if (sourceTable.isNotEmpty && sourceId.isNotEmpty) {
+      return 'source:${sourceTable.toLowerCase()}:${sourceId.toLowerCase()}';
+    }
+
+    final paymentId = _firstStableText([row['payment_id']]);
+    if (paymentId.isNotEmpty) return 'payment:${paymentId.toLowerCase()}';
+
+    final rawId = _firstStableText([
+      row['expense_id'],
+      row['id'],
+      row['finance_operational_expense_id'],
+      row['operational_expense_id'],
+      row['purchase_id'],
+      row['request_id'],
+    ]);
     if (rawId.isNotEmpty) return 'id:${rawId.toLowerCase()}';
-    return [
-      _text(row['source'], '').toLowerCase(),
-      _text(row['category'] ?? row['title'] ?? row['label'], '').toLowerCase(),
-      _text(row['description'] ?? row['note'], '').toLowerCase(),
-      _purchaseAmount(row).abs().toStringAsFixed(2),
-      _text(
-          row['expense_date'] ??
-              row['date'] ??
-              row['approved_at'] ??
-              row['created_at'],
-          ''),
-    ].join('|');
+
+    return 'row:${identityHashCode(row)}';
+  }
+
+  List<String> _productionExpenseAliases(Map<String, dynamic> row) {
+    if (!_isProductionPaymentExpenseRow(row)) return const <String>[];
+    final aliases = <String>{};
+
+    void add(dynamic value) {
+      final clean = _text(value, '').trim().toLowerCase();
+      if (clean.isEmpty || clean == '-') return;
+      aliases.add('production_expense:$clean');
+    }
+
+    add(row['source_id']);
+    add(row['payment_id']);
+    add(row['production_payment_id']);
+    add(row['finance_expense_id']);
+    add(row['expense_id']);
+    add(row['finance_operational_expense_id']);
+    add(row['operational_expense_id']);
+    add(row['id']);
+    return aliases.toList(growable: false);
+  }
+
+  bool _isProductionTailorFallbackExpense(Map<String, dynamic> row) {
+    if (!_isProductionPaymentExpenseRow(row)) return false;
+    final sourceTable = _text(row['source_table'], '').toLowerCase().trim();
+    final paymentType = _text(row['payment_type'], '').toLowerCase().trim();
+    final paymentMethod = _text(row['payment_method'], '').toLowerCase().trim();
+    return sourceTable == 'production_tailor_payments' &&
+        paymentType.isNotEmpty &&
+        paymentMethod.isEmpty;
+  }
+
+  int _productionExpensePriority(Map<String, dynamic> row) {
+    if (!_isProductionPaymentExpenseRow(row)) return 0;
+    // The finance operational expense mirror is the canonical finance row.
+    // Raw production_tailor_payments is only a fallback when the mirror does not exist.
+    if (_isProductionTailorFallbackExpense(row)) return 1;
+    if (_firstStableText([
+      row['expense_id'],
+      row['finance_operational_expense_id'],
+      row['operational_expense_id'],
+    ]).isNotEmpty) return 3;
+    return 2;
+  }
+
+  List<Map<String, dynamic>> _dedupeProductionExpenseRows(
+      List<Map<String, dynamic>> rows) {
+    final out = <Map<String, dynamic>>[];
+    final aliasIndex = <String, int>{};
+    final seenGeneric = <String>{};
+
+    for (final raw in rows) {
+      final row =
+          _normalizeProductionExpenseRow(Map<String, dynamic>.from(raw));
+      final aliases = _productionExpenseAliases(row);
+      if (aliases.isEmpty) {
+        final key = _expenseDedupeKey(row);
+        if (seenGeneric.add(key)) out.add(row);
+        continue;
+      }
+
+      int? existingIndex;
+      for (final alias in aliases) {
+        final index = aliasIndex[alias];
+        if (index != null) {
+          existingIndex = index;
+          break;
+        }
+      }
+
+      if (existingIndex == null) {
+        final index = out.length;
+        out.add(row);
+        for (final alias in aliases) {
+          aliasIndex[alias] = index;
+        }
+        continue;
+      }
+
+      final existing = out[existingIndex];
+      if (_productionExpensePriority(row) >
+          _productionExpensePriority(existing)) {
+        out[existingIndex] = row;
+      }
+      for (final alias in aliases) {
+        aliasIndex[alias] = existingIndex;
+      }
+    }
+
+    return out;
   }
 
   List<Map<String, dynamic>> _dedupeByStableKey(
@@ -506,10 +668,64 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final out = <Map<String, dynamic>>[];
     final seen = <String>{};
     for (final row in rows) {
-      final map = Map<String, dynamic>.from(row);
+      final map =
+          _normalizeProductionExpenseRow(Map<String, dynamic>.from(row));
       if (seen.add(_expenseDedupeKey(map))) out.add(map);
     }
     return out;
+  }
+
+  Map<String, dynamic> _normalizeProductionExpenseRow(
+      Map<String, dynamic> row) {
+    if (!_isProductionPaymentExpenseRow(row)) return row;
+
+    final sourceId = _firstStableText([
+      row['source_id'],
+      row['payment_id'],
+      row['reference_id'],
+      row['source_reference_id'],
+    ]);
+    if (sourceId.isNotEmpty) {
+      final existingSourceTable = _firstStableText([row['source_table']]);
+      if (existingSourceTable.isEmpty) {
+        row['source_table'] = 'production_tailor_payments';
+      }
+      row['source_module'] = 'production';
+      row['source_id'] = sourceId;
+      row['production_payment_id'] = sourceId;
+      row['payment_id'] = _firstStableText([row['payment_id'], sourceId]);
+    }
+    row['category'] = 'Ongkos Produksi';
+    row['title'] = 'Ongkos Produksi';
+    row['label'] = 'Ongkos Produksi';
+    return row;
+  }
+
+  Map<String, dynamic> _productionPaymentExpenseFromRow(
+      Map<String, dynamic> row) {
+    final paymentId = _text(row['payment_id'], '').trim();
+    final financeExpenseId = _text(row['finance_expense_id'], '').trim();
+    final expenseId = _isUuid(financeExpenseId)
+        ? financeExpenseId
+        : 'production_tailor_payment:$paymentId';
+
+    return _normalizeProductionExpenseRow(<String, dynamic>{
+      ...row,
+      'expense_id': expenseId,
+      'payment_id': paymentId,
+      'source_table': 'production_tailor_payments',
+      'source_module': 'production',
+      'source_id': paymentId,
+      'source_ref': row['payment_type'],
+      'expense_date': row['payment_date'],
+      'paid_at': row['payment_date'],
+      'category': 'Ongkos Produksi',
+      'title': 'Ongkos Produksi',
+      'label': 'Ongkos Produksi',
+      'amount': AppUi.toNum(row['amount']),
+      'note': AppUi.text(row['note'], 'Bayar Ongkos Produksi'),
+      'created_at': row['created_at'],
+    });
   }
 
   Map<String, dynamic> _summaryWithLiveCosts(
@@ -578,6 +794,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'p_account_id': _accountUuidParam(),
     };
 
+    List<Map<String, dynamic>> results = [];
     try {
       final res = await _client.rpc(
         'finance_list_manual_operational_expenses_v24_6_80m',
@@ -585,25 +802,219 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       );
       final rows = _asList(_asMap(res)['rows'] ?? res);
       if (rows.isNotEmpty) {
-        return rows.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        results = rows
+            .map((e) => _normalizeProductionExpenseRow(
+                Map<String, dynamic>.from(e as Map)))
+            .toList();
       }
     } catch (_) {}
 
+    if (results.isEmpty) {
+      try {
+        dynamic query = _client
+            .from('finance_operational_expenses')
+            .select()
+            .gte('expense_date', _toDateParam(_start))
+            .lte('expense_date', _toDateParam(_end));
+        if (_currentTenantId.trim().isNotEmpty) {
+          query = query.eq('tenant_id', _currentTenantId);
+        }
+        final res = await query
+            .order('expense_date', ascending: false)
+            .order('created_at', ascending: false)
+            .range(0, 499);
+        results = _asList(res)
+            .map((e) => _normalizeProductionExpenseRow(
+                Map<String, dynamic>.from(e as Map)))
+            .toList();
+      } catch (_) {}
+    }
+
     try {
-      final res = await _client
-          .from('finance_operational_expenses')
+      dynamic tailorQuery = _client
+          .from('production_tailor_payments')
           .select()
-          .gte('expense_date', _toDateParam(_start))
-          .lte('expense_date', _toDateParam(_end))
-          .order('expense_date', ascending: false)
+          .gte('payment_date', _toDateParam(_start))
+          .lte('payment_date', _toDateParam(_end));
+      if (_currentTenantId.trim().isNotEmpty) {
+        tailorQuery = tailorQuery.eq('tenant_id', _currentTenantId);
+      }
+      final tailorRes = await tailorQuery
+          .eq('payment_status', 'sudah_bayar')
+          .inFilter('payment_type', ['sewing_payment', 'kasbon']);
+
+      final mirroredProductionIds = <String>{};
+      for (final row in results) {
+        if (!_isProductionPaymentExpenseRow(row)) continue;
+        for (final alias in _productionExpenseAliases(row)) {
+          mirroredProductionIds.add(alias);
+        }
+      }
+
+      final tailorPayments = _asList(tailorRes).map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        return _productionPaymentExpenseFromRow(map);
+      }).where((row) {
+        final aliases = _productionExpenseAliases(row);
+        return aliases.every((alias) => !mirroredProductionIds.contains(alias));
+      }).toList();
+
+      results.addAll(tailorPayments);
+      results.sort((a, b) {
+        final dateA = a['expense_date']?.toString() ?? '';
+        final dateB = b['expense_date']?.toString() ?? '';
+        return dateB.compareTo(dateA);
+      });
+    } catch (_) {}
+
+    return results;
+  }
+
+  Future<Map<String, List<Map<String, dynamic>>>>
+      _fetchCashWalletPeriodData() async {
+    if (_currentTenantId.trim().isEmpty) {
+      return <String, List<Map<String, dynamic>>>{
+        'opening': <Map<String, dynamic>>[],
+        'adjustments': <Map<String, dynamic>>[],
+        'withdrawals': <Map<String, dynamic>>[],
+        'allocations': <Map<String, dynamic>>[],
+      };
+    }
+
+    final startMonth = _monthStart(_start);
+    final endMonth = _monthStart(_end);
+    final accountId = _accountUuidParam();
+    final marketplace = _marketplaceRpcParam();
+
+    Future<List<Map<String, dynamic>>> safeRows(
+        Future<dynamic> Function() action) async {
+      try {
+        final res = await action();
+        return _asList(res)
+            .map((row) => Map<String, dynamic>.from(row))
+            .toList();
+      } catch (_) {
+        return <Map<String, dynamic>>[];
+      }
+    }
+
+    final opening = await safeRows(() {
+      return _client
+          .from('finance_company_cash_opening_balances')
+          .select()
+          .eq('tenant_id', _currentTenantId)
+          .gte('period_month', _toDateParam(startMonth))
+          .lte('period_month', _toDateParam(endMonth))
+          .order('period_month', ascending: false)
+          .range(0, 119);
+    });
+
+    final adjustments = await safeRows(() {
+      return _client
+          .from('finance_company_cash_adjustments')
+          .select()
+          .eq('tenant_id', _currentTenantId)
+          .gte('adjustment_date', _toDateParam(_dateOnly(_start)))
+          .lte('adjustment_date', _toDateParam(_dateOnly(_end)))
+          .order('adjustment_date', ascending: false)
           .order('created_at', ascending: false)
           .range(0, 499);
-      return _asList(res)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
-    } catch (_) {
-      return <Map<String, dynamic>>[];
+    });
+
+    final withdrawals = await safeRows(() {
+      dynamic query = _client
+          .from('finance_marketplace_withdrawals')
+          .select()
+          .eq('tenant_id', _currentTenantId)
+          .gte('withdrawal_date', _toDateParam(_dateOnly(_start)))
+          .lte('withdrawal_date', _toDateParam(_dateOnly(_end)));
+      if (accountId != null)
+        query = query.eq('marketplace_account_id', accountId);
+      if (marketplace != null) query = query.eq('marketplace', marketplace);
+      return query
+          .order('withdrawal_date', ascending: false)
+          .order('created_at', ascending: false)
+          .range(0, 499);
+    });
+
+    final allocations = await safeRows(() {
+      dynamic query = _client
+          .from('finance_marketplace_withdrawal_allocations')
+          .select()
+          .eq('tenant_id', _currentTenantId)
+          .gte('source_period_month', _toDateParam(startMonth))
+          .lte('source_period_month', _toDateParam(endMonth));
+      if (accountId != null)
+        query = query.eq('marketplace_account_id', accountId);
+      if (marketplace != null) query = query.eq('marketplace', marketplace);
+      return query
+          .order('source_period_month', ascending: false)
+          .order('created_at', ascending: false)
+          .range(0, 499);
+    });
+
+    return <String, List<Map<String, dynamic>>>{
+      'opening': opening,
+      'adjustments': adjustments,
+      'withdrawals': withdrawals,
+      'allocations': allocations,
+    };
+  }
+
+  List<Map<String, dynamic>> _cashWalletRowsForDisplay({
+    required List<Map<String, dynamic>> opening,
+    required List<Map<String, dynamic>> adjustments,
+    required List<Map<String, dynamic>> withdrawals,
+  }) {
+    final rows = <Map<String, dynamic>>[];
+
+    for (final row in opening) {
+      rows.add({
+        ...row,
+        '_cash_wallet_kind': 'opening',
+        'source': 'Saldo awal kas',
+        'category': 'Saldo awal kas',
+        'cash_type': 'in',
+        'type': 'in',
+        'date': row['period_month'],
+        'amount': _num(row['amount']),
+      });
     }
+
+    for (final row in adjustments) {
+      final direction = _text(row['direction'], 'in').toLowerCase();
+      final amount = _num(row['amount']).abs();
+      rows.add({
+        ...row,
+        '_cash_wallet_kind': 'adjustment',
+        'source': direction == 'out' ? 'Kas keluar manual' : 'Kas masuk manual',
+        'category': row['category'],
+        'cash_type': direction,
+        'type': direction,
+        'date': row['adjustment_date'],
+        'amount': direction == 'out' ? -amount : amount,
+      });
+    }
+
+    for (final row in withdrawals) {
+      rows.add({
+        ...row,
+        '_cash_wallet_kind': 'withdrawal',
+        'source': 'Penarikan marketplace',
+        'category': 'Penarikan marketplace',
+        'cash_type': 'in',
+        'type': 'in',
+        'date': row['withdrawal_date'],
+        'amount': _num(row['amount']),
+      });
+    }
+
+    rows.sort((a, b) {
+      final aDate = _parseDate(a['date'] ?? a['created_at']) ?? DateTime(1970);
+      final bDate = _parseDate(b['date'] ?? b['created_at']) ?? DateTime(1970);
+      return bDate.compareTo(aDate);
+    });
+    return rows;
   }
 
   // ignore: unused_element
@@ -853,8 +1264,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final summary = _asMap(data['summary']);
     if (summary.isNotEmpty) return false;
 
-    final hasDashboardRows =
-        _asList(data['by_marketplace']).isNotEmpty ||
+    final hasDashboardRows = _asList(data['by_marketplace']).isNotEmpty ||
         _asList(data['cash_flow']).isNotEmpty ||
         _asList(data['expenses']).isNotEmpty ||
         _asList(data['profit_loss']).isNotEmpty ||
@@ -865,7 +1275,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     if (hasDashboardRows) return false;
 
-    return _asList(data['by_sku'] ?? data['sku_margin'] ?? data['sku']).isNotEmpty;
+    return _asList(data['by_sku'] ?? data['sku_margin'] ?? data['sku'])
+        .isNotEmpty;
   }
 
   Future<void> _saveFinanceRuntimeProgress({
@@ -1038,6 +1449,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     displaySummary = _summaryWithLiveCosts(
         displaySummary, normalizedExpenses, approvedPurchases);
 
+    final cashWalletData = await _fetchCashWalletPeriodData();
     final normalizedMarketplace = _reconciledMarketplaceRows(
       _normalizeMarketplaceRows(
           _asList(data['by_marketplace'] ?? data['marketplaces'])),
@@ -1058,6 +1470,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _byMarketplace = normalizedMarketplace;
       _bySku = normalizedSku;
       _cashFlow = normalizedCashFlow;
+      _cashOpeningBalances =
+          cashWalletData['opening'] ?? <Map<String, dynamic>>[];
+      _cashAdjustments =
+          cashWalletData['adjustments'] ?? <Map<String, dynamic>>[];
+      _marketplaceWithdrawals =
+          cashWalletData['withdrawals'] ?? <Map<String, dynamic>>[];
+      _withdrawalAllocations =
+          cashWalletData['allocations'] ?? <Map<String, dynamic>>[];
       _expenses = normalizedExpenses;
       _profitLoss = normalizedProfitLoss;
       _abnormals = _normalizeAbnormalRows(_asList(data['abnormals']));
@@ -1108,6 +1528,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _byMarketplace = [];
       _bySku = [];
       _cashFlow = [];
+      _cashOpeningBalances = [];
+      _cashAdjustments = [];
+      _marketplaceWithdrawals = [];
+      _withdrawalAllocations = [];
       _expenses = [];
       _profitLoss = [];
       _serverAbnormales = [];
@@ -1131,6 +1555,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
       await _loadFinanceAutoSyncSetting(showError: false);
       if (!isCurrentFinanceLoad()) return;
+
       _marketplaceFilter =
           _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
       final fallbackAccounts = await _fetchMarketplaceAccounts();
@@ -1558,7 +1983,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 .abs() >
             0)
         .toList();
-    return _dedupeByStableKey(manualOnly);
+    return _dedupeProductionExpenseRows(manualOnly);
   }
 
   List<Map<String, dynamic>> _skuRowsFromSnapshot(Map<String, dynamic> data) {
@@ -3454,28 +3879,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   List<String> _abnormalStatusOptions() {
-    final values = <String>{
+    return const [
       'all',
       'NEGATIVE_PAYOUT',
       'MISSING_PAYOUT_FINAL',
-      'PENDING_PAYOUT'
-    };
-    final source = _abnormalServerLoaded ? _serverAbnormales : _abnormals;
-    for (final row in source) {
-      final status = _text(row['abnormal_status'] ??
-              row['payout_status'] ??
-              row['order_status'] ??
-              row['status'])
-          .trim();
-      if (status.isNotEmpty && status != '-') values.add(status);
-    }
-    final list = values.toList();
-    list.sort((a, b) {
-      if (a == 'all') return -1;
-      if (b == 'all') return 1;
-      return a.compareTo(b);
-    });
-    return list;
+      'PENDING_PAYOUT',
+      'SAFE_CANCEL_UNPAID',
+    ];
   }
 
   String _abnormalFilterLabel(String value) {
@@ -3483,7 +3893,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       case 'ALL':
         return 'Semua abnormal';
       case 'NEGATIVE_PAYOUT':
-        return 'Payout minus';
+        return 'Payout minus / rugi';
       case 'MISSING_PAYOUT_FINAL':
         return 'Final tanpa payout';
       case 'PENDING_PAYOUT':
@@ -3491,7 +3901,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       case 'SAFE_CANCEL_UNPAID':
         return 'Batal/unpaid aman';
       default:
-        return 'Status: $value';
+        return value;
     }
   }
 
@@ -4023,42 +4433,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
-  Widget _abnormalStatusFilterBar() {
-    final options = _abnormalStatusOptions();
-    if (!options.contains(_abnormalStatusFilter)) _abnormalStatusFilter = 'all';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: (Theme.of(context).cardColor),
-        borderRadius: BorderRadius.zero,
-        border:
-            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.28)),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _abnormalStatusFilter,
-          isExpanded: true,
-          dropdownColor: (Theme.of(context).cardColor),
-          iconEnabledColor: Theme.of(context).colorScheme.outline,
-          style: TextStyle(
-              color: Theme.of(context).dividerColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w700),
-          items: options
-              .map((value) => DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(_abnormalFilterLabel(value)),
-                  ))
-              .toList(),
-          onChanged: (value) {
-            setState(() => _abnormalStatusFilter = value ?? 'all');
-            _refreshAbnormalTab(resetPage: true);
-          },
-        ),
-      ),
-    );
-  }
-
   Future<void> _clearMarketplaceFinanceData() async {
     if (_isDemoSuperAdmin) {
       _showDemoBlocked();
@@ -4513,40 +4887,314 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
-  Future<void> _pickStart() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _start,
-      firstDate: DateTime.now().subtract(const Duration(days: 90)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+  Future<void> _pickDateRange() async {
+    final firstDate = _dateOnly(
+      DateTime.now().subtract(const Duration(days: 90)),
+    );
+    final lastDate = _dateOnly(
+      DateTime.now().add(const Duration(days: 365)),
+    );
+    final picked = await _showCompactDateRangePicker(
+      initialStart: _start,
+      initialEnd: _end,
+      firstDate: firstDate,
+      lastDate: lastDate,
     );
     if (picked == null) return;
     setState(() {
-      _start = DateTime(picked.year, picked.month, picked.day);
-      if (_end.isBefore(_start)) {
-        _end = DateTime(_start.year, _start.month, _start.day, 23, 59, 59);
-      }
+      _start =
+          DateTime(picked.start.year, picked.start.month, picked.start.day);
+      _end = DateTime(
+          picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
       _rememberFilters();
     });
     await _load();
   }
 
-  Future<void> _pickEnd() async {
-    final picked = await showDatePicker(
+  Future<DateTimeRange?> _showCompactDateRangePicker({
+    required DateTime initialStart,
+    required DateTime initialEnd,
+    required DateTime firstDate,
+    required DateTime lastDate,
+  }) {
+    var draftStart = _clampDate(_dateOnly(initialStart), firstDate, lastDate);
+    var draftEnd = _clampDate(_dateOnly(initialEnd), firstDate, lastDate);
+    if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+    var visibleMonth = DateTime(draftStart.year, draftStart.month);
+    var pickingStart = true;
+
+    const monthNames = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
+    const weekdayNames = <String>[
+      'Sen',
+      'Sel',
+      'Rab',
+      'Kam',
+      'Jum',
+      'Sab',
+      'Min'
+    ];
+    final firstVisibleMonth = DateTime(firstDate.year, firstDate.month);
+    final lastVisibleMonth = DateTime(lastDate.year, lastDate.month);
+
+    return showDialog<DateTimeRange>(
       context: context,
-      initialDate: _end,
-      firstDate: DateTime.now().subtract(const Duration(days: 90)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final colorScheme = Theme.of(context).colorScheme;
+
+          String monthTitle(DateTime value) =>
+              '${monthNames[value.month - 1]} ${value.year}';
+
+          void setDraftRange(DateTime start, DateTime end) {
+            draftStart = _clampDate(_dateOnly(start), firstDate, lastDate);
+            draftEnd = _clampDate(_dateOnly(end), firstDate, lastDate);
+            if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+            visibleMonth = DateTime(draftStart.year, draftStart.month);
+            pickingStart = false;
+          }
+
+          void selectDay(DateTime value) {
+            final picked = _clampDate(_dateOnly(value), firstDate, lastDate);
+            setSheetState(() {
+              if (pickingStart) {
+                draftStart = picked;
+                if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+                pickingStart = false;
+              } else {
+                draftEnd = picked;
+                if (draftStart.isAfter(draftEnd)) draftStart = draftEnd;
+              }
+            });
+          }
+
+          Widget dayCell(int index) {
+            final firstOfMonth =
+                DateTime(visibleMonth.year, visibleMonth.month);
+            final daysInMonth =
+                DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+            final day = index - (firstOfMonth.weekday - DateTime.monday) + 1;
+            if (day < 1 || day > daysInMonth) {
+              return const SizedBox(width: 40, height: 36);
+            }
+
+            final date =
+                _dateOnly(DateTime(visibleMonth.year, visibleMonth.month, day));
+            final disabled = date.isBefore(firstDate) || date.isAfter(lastDate);
+            final isStart = DateUtils.isSameDay(date, draftStart);
+            final isEnd = DateUtils.isSameDay(date, draftEnd);
+            final inRange = date.isAfter(draftStart) && date.isBefore(draftEnd);
+            final selected = isStart || isEnd;
+
+            Color? backgroundColor;
+            Color? foregroundColor;
+            if (selected) {
+              backgroundColor =
+                  isStart ? colorScheme.primary : colorScheme.secondary;
+              foregroundColor = colorScheme.onPrimary;
+            } else if (inRange) {
+              backgroundColor = colorScheme.primary.withValues(alpha: 0.10);
+              foregroundColor = colorScheme.onSurface;
+            } else if (disabled) {
+              foregroundColor = colorScheme.onSurface.withValues(alpha: 0.38);
+            } else {
+              foregroundColor = colorScheme.onSurface;
+            }
+
+            return SizedBox(
+              width: 40,
+              height: 36,
+              child: TextButton(
+                onPressed: disabled ? null : () => selectDay(date),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(40, 36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  foregroundColor: foregroundColor,
+                  backgroundColor: backgroundColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: Text('$day'),
+              ),
+            );
+          }
+
+          Widget calendarGrid() {
+            final firstOfMonth =
+                DateTime(visibleMonth.year, visibleMonth.month);
+            final daysInMonth =
+                DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+            final leading = firstOfMonth.weekday - DateTime.monday;
+            final totalCells = ((leading + daysInMonth + 6) ~/ 7) * 7;
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (final weekday in weekdayNames)
+                      SizedBox(
+                        width: 40,
+                        height: 24,
+                        child: Center(
+                          child: Text(
+                            weekday,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (var i = 0; i < totalCells; i++) dayCell(i),
+                  ],
+                ),
+              ],
+            );
+          }
+
+          return AlertDialog(
+            title: const Text('Pilih periode'),
+            content: SizedBox(
+              width: 332,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: Text('Dari ${_date(draftStart)}'),
+                        selected: pickingStart,
+                        onSelected: (_) =>
+                            setSheetState(() => pickingStart = true),
+                      ),
+                      ChoiceChip(
+                        label: Text('Sampai ${_date(draftEnd)}'),
+                        selected: !pickingStart,
+                        onSelected: (_) =>
+                            setSheetState(() => pickingStart = false),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Bulan sebelumnya',
+                        onPressed: visibleMonth.isAfter(firstVisibleMonth)
+                            ? () => setSheetState(() {
+                                  visibleMonth = DateTime(visibleMonth.year,
+                                      visibleMonth.month - 1);
+                                })
+                            : null,
+                        icon: const Icon(Icons.chevron_left_rounded),
+                      ),
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            monthTitle(visibleMonth),
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Bulan berikutnya',
+                        onPressed: visibleMonth.isBefore(lastVisibleMonth)
+                            ? () => setSheetState(() {
+                                  visibleMonth = DateTime(visibleMonth.year,
+                                      visibleMonth.month + 1);
+                                })
+                            : null,
+                        icon: const Icon(Icons.chevron_right_rounded),
+                      ),
+                    ],
+                  ),
+                  calendarGrid(),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ActionChip(
+                        label: const Text('Hari ini'),
+                        onPressed: () => setSheetState(() {
+                          final today = _dateOnly(DateTime.now());
+                          setDraftRange(today, today);
+                        }),
+                      ),
+                      ActionChip(
+                        label: const Text('Bulan ini'),
+                        onPressed: () => setSheetState(() {
+                          final now = DateTime.now();
+                          setDraftRange(
+                            DateTime(now.year, now.month),
+                            _dateOnly(now),
+                          );
+                        }),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(
+                    dialogContext,
+                    DateTimeRange(start: draftStart, end: draftEnd),
+                  );
+                },
+                child: const Text('Terapkan'),
+              ),
+            ],
+          );
+        },
+      ),
     );
-    if (picked == null) return;
-    setState(() {
-      _end = DateTime(picked.year, picked.month, picked.day, 23, 59, 59);
-      if (_start.isAfter(_end)) {
-        _start = DateTime(_end.year, _end.month, _end.day);
-      }
-      _rememberFilters();
-    });
-    await _load();
+  }
+
+  DateTime _clampDate(DateTime value, DateTime firstDate, DateTime lastDate) {
+    final date = _dateOnly(value);
+    if (date.isBefore(firstDate)) return firstDate;
+    if (date.isAfter(lastDate)) return lastDate;
+    return date;
   }
 
   Future<void> _applyDatePreset(String preset) async {
@@ -5026,6 +5674,891 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
+  bool _ensureCanWriteCashWallet() {
+    if (_isDemoSuperAdmin) {
+      _showDemoBlocked();
+      return false;
+    }
+    if (!_canWriteFinance) {
+      AppUi.safeSnack(context, 'Akses tulis Arus Kas tidak tersedia.');
+      return false;
+    }
+    return true;
+  }
+
+  Map<String, dynamic> _cashWalletActorPayload() {
+    return {
+      'created_by': _isUuid(_currentUserId) ? _currentUserId : null,
+      'created_by_name': _currentUserName.trim().isEmpty
+          ? _currentUserEmail
+          : _currentUserName.trim(),
+      'created_by_email': _currentUserEmail.trim(),
+      'created_by_role': _currentRoleId.trim(),
+    };
+  }
+
+  Future<void> _refreshAfterCashWalletWrite(String message) async {
+    await _refreshFinanceCacheForSelectedPeriod();
+    if (!mounted) return;
+    AppUi.safeSnack(context, message);
+    await _load(ignoreLocalCache: true);
+  }
+
+  num _moneyFromController(TextEditingController controller) {
+    return num.tryParse(
+          controller.text.replaceAll('.', '').replaceAll(',', '.'),
+        ) ??
+        0;
+  }
+
+  String _marketplaceByAccountId(String? accountId) {
+    final clean = accountId?.trim() ?? '';
+    if (clean.isEmpty) return _marketplaceRpcParam() ?? 'marketplace';
+    for (final account in _accounts) {
+      if (_accountId(account) == clean) {
+        final marketplace = _text(account['marketplace'], '').trim();
+        if (marketplace.isNotEmpty && marketplace != '-') return marketplace;
+      }
+    }
+    return _marketplaceRpcParam() ?? 'marketplace';
+  }
+
+  String _bankLabel(String bank, String reference) {
+    final parts = <String>[
+      bank.trim(),
+      if (reference.trim().isNotEmpty) reference.trim(),
+    ].where((part) => part.isNotEmpty && part != '-').toList();
+    return parts.isEmpty ? '-' : parts.join(' / ');
+  }
+
+  List<String> _knownBankAccounts({String? include}) {
+    final values = <String>{
+      for (final row in _marketplaceWithdrawals)
+        _text(row['bank_account_name'], '').trim(),
+      if ((include ?? '').trim().isNotEmpty) include!.trim(),
+    };
+    values.removeWhere((item) => item.isEmpty || item == '-');
+    final list = values.toList()..sort();
+    return list;
+  }
+
+  Future<void> _editCashOpeningBalance([Map<String, dynamic>? row]) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final fallbackMonth = _monthStart(_start);
+    DateTime period = _parseDate(row?['period_month']) ?? fallbackMonth;
+    Map<String, dynamic>? existing = row;
+    if (existing == null) {
+      for (final item in _cashOpeningBalances) {
+        final itemMonth = _parseDate(item['period_month']);
+        if (itemMonth != null &&
+            itemMonth.year == period.year &&
+            itemMonth.month == period.month) {
+          existing = item;
+          break;
+        }
+      }
+    }
+
+    final amount =
+        TextEditingController(text: _moneyInput(_num(existing?['amount'])));
+    final note = TextEditingController(text: _text(existing?['note'], ''));
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit saldo awal bulan'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Bulan'),
+                  subtitle: Text(_monthLabel(period)),
+                  trailing: const Icon(Icons.calendar_month_rounded),
+                  onTap: () async {
+                    final picked = await _pickMonth(period);
+                    if (picked == null) return;
+                    setDialogState(() => period = picked);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amount,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: const [_ThousandsInputFormatter()],
+                  decoration: const InputDecoration(
+                    labelText: 'Saldo awal bulan',
+                    prefixText: 'Rp ',
+                    helperText:
+                        'Edit saldo awal bulan ini, bukan tambah saldo baru.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: note,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Catatan'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Batal')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Simpan')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+
+    final parsed = _moneyFromController(amount);
+    if (parsed < 0) {
+      AppUi.safeSnack(context, 'Saldo awal tidak valid.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      final monthParam = _toDateParam(_monthStart(period));
+      Map<String, dynamic>? target = existing;
+      if (target == null) {
+        final rows = await _client
+            .from('finance_company_cash_opening_balances')
+            .select()
+            .eq('tenant_id', _currentTenantId)
+            .eq('period_month', monthParam)
+            .limit(1);
+        final found = _asList(rows);
+        if (found.isNotEmpty) target = found.first;
+      }
+      final id = _text(target?['cash_opening_balance_id'], '');
+      final payload = {
+        'tenant_id': _currentTenantId,
+        'period_month': monthParam,
+        'amount': parsed,
+        'note': note.text.trim(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      if (_isUuid(id)) {
+        await _client
+            .from('finance_company_cash_opening_balances')
+            .update(payload)
+            .eq('tenant_id', _currentTenantId)
+            .eq('cash_opening_balance_id', id);
+      } else {
+        await _client.from('finance_company_cash_opening_balances').insert({
+          ...payload,
+          ..._cashWalletActorPayload(),
+        });
+      }
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite(
+          'Saldo awal ${_monthLabel(period)} disimpan.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _resetCashOpeningBalance(Map<String, dynamic> row) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final id = _text(row['cash_opening_balance_id'], '');
+    if (!_isUuid(id)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset saldo awal?'),
+        content: Text(
+            'Saldo awal ${_monthLabel(_parseDate(row['period_month']) ?? _start)} akan diatur menjadi Rp0.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Reset')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _processing = true);
+    try {
+      await _client
+          .from('finance_company_cash_opening_balances')
+          .update({'amount': 0, 'updated_at': DateTime.now().toIso8601String()})
+          .eq('tenant_id', _currentTenantId)
+          .eq('cash_opening_balance_id', id);
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Saldo awal direset menjadi Rp0.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _deleteCashOpeningBalance(Map<String, dynamic> row) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final id = _text(row['cash_opening_balance_id'], '');
+    if (!_isUuid(id)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus saldo awal?'),
+        content: Text(
+            'Saldo awal ${_monthLabel(_parseDate(row['period_month']) ?? _start)} akan dihapus dari Arus Kas.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _processing = true);
+    try {
+      await _client
+          .from('finance_company_cash_opening_balances')
+          .delete()
+          .eq('tenant_id', _currentTenantId)
+          .eq('cash_opening_balance_id', id);
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Saldo awal dihapus.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _editCashAdjustment({
+    Map<String, dynamic>? row,
+    String direction = 'in',
+  }) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    String selectedDirection =
+        _text(row?['direction'], direction).toLowerCase() == 'out'
+            ? 'out'
+            : 'in';
+    DateTime adjustmentDate =
+        _parseDate(row?['adjustment_date']) ?? DateTime.now();
+    final amount =
+        TextEditingController(text: _moneyInput(_num(row?['amount'])));
+    final category = TextEditingController(
+        text: _text(row?['category'],
+            selectedDirection == 'out' ? 'Kas keluar' : 'Kas masuk'));
+    final note = TextEditingController(text: _text(row?['note'], ''));
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(row == null ? 'Tambah kas manual' : 'Edit kas manual'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                        value: 'in',
+                        label: Text('Masuk'),
+                        icon: Icon(Icons.south_west_rounded)),
+                    ButtonSegment(
+                        value: 'out',
+                        label: Text('Keluar'),
+                        icon: Icon(Icons.north_east_rounded)),
+                  ],
+                  selected: {selectedDirection},
+                  onSelectionChanged: (value) {
+                    setDialogState(() => selectedDirection = value.first);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amount,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: const [_ThousandsInputFormatter()],
+                  decoration: const InputDecoration(
+                    labelText: 'Nominal',
+                    prefixText: 'Rp ',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: category,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Kategori'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: note,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Catatan'),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Tanggal transaksi'),
+                  subtitle: Text(_date(adjustmentDate)),
+                  trailing: const Icon(Icons.calendar_month_rounded),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: adjustmentDate,
+                      firstDate:
+                          DateTime.now().subtract(const Duration(days: 365)),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (picked == null) return;
+                    setDialogState(() => adjustmentDate = picked);
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Batal')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Simpan')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+
+    final parsed = _moneyFromController(amount);
+    if (parsed <= 0 || category.text.trim().isEmpty) {
+      AppUi.safeSnack(context, 'Kategori dan nominal wajib diisi.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      final id = _text(row?['cash_adjustment_id'], '');
+      final payload = {
+        'tenant_id': _currentTenantId,
+        'adjustment_date': _toDateParam(adjustmentDate),
+        'direction': selectedDirection,
+        'amount': parsed,
+        'category': category.text.trim(),
+        'note': note.text.trim(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      if (_isUuid(id)) {
+        await _client
+            .from('finance_company_cash_adjustments')
+            .update(payload)
+            .eq('tenant_id', _currentTenantId)
+            .eq('cash_adjustment_id', id);
+      } else {
+        await _client.from('finance_company_cash_adjustments').insert({
+          ...payload,
+          ..._cashWalletActorPayload(),
+        });
+      }
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Kas manual disimpan.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _deleteCashAdjustment(Map<String, dynamic> row) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final id = _text(row['cash_adjustment_id'], '');
+    if (!_isUuid(id)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus kas manual?'),
+        content: Text(
+            '${_text(row['category'], 'Kas manual')} akan dihapus dari Arus Kas.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _processing = true);
+    try {
+      await _client
+          .from('finance_company_cash_adjustments')
+          .delete()
+          .eq('tenant_id', _currentTenantId)
+          .eq('cash_adjustment_id', id);
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Kas manual dihapus.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _editMarketplaceWithdrawal([Map<String, dynamic>? row]) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    DateTime withdrawalDate =
+        _parseDate(row?['withdrawal_date']) ?? DateTime.now();
+    final amount =
+        TextEditingController(text: _moneyInput(_num(row?['amount'])));
+    final reference =
+        TextEditingController(text: _text(row?['bank_reference'], ''));
+    final note = TextEditingController(text: _text(row?['note'], ''));
+
+    final accountOptions = _accounts.where((account) {
+      final id = _accountId(account);
+      if (!_isUuid(id)) return false;
+      final marketplace = _marketplaceRpcParam();
+      return marketplace == null ||
+          _text(account['marketplace']).toLowerCase() ==
+              marketplace.toLowerCase();
+    }).toList();
+    String? selectedAccountId =
+        _isUuid(_text(row?['marketplace_account_id'], ''))
+            ? _text(row?['marketplace_account_id'], '')
+            : _accountUuidParam();
+    if (selectedAccountId == null && accountOptions.isNotEmpty) {
+      selectedAccountId = _accountId(accountOptions.first);
+    }
+
+    final bankOptions =
+        _knownBankAccounts(include: _text(row?['bank_account_name'], ''));
+    String selectedBank =
+        bankOptions.contains(_text(row?['bank_account_name'], ''))
+            ? _text(row?['bank_account_name'], '')
+            : (bankOptions.isEmpty ? '__manual__' : bankOptions.first);
+    final manualBank = TextEditingController(
+        text: selectedBank == '__manual__' ? '' : selectedBank);
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(row == null
+              ? 'Tambah penarikan marketplace'
+              : 'Edit penarikan marketplace'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: selectedAccountId,
+                  isExpanded: true,
+                  decoration:
+                      const InputDecoration(labelText: 'Toko marketplace'),
+                  items: accountOptions.map((account) {
+                    final id = _accountId(account);
+                    final name = _text(
+                      account['store_label'] ??
+                          account['shop_name'] ??
+                          account['store_alias'] ??
+                          account['seller_name'],
+                      id,
+                    );
+                    return DropdownMenuItem<String>(
+                      value: id,
+                      child: Text(
+                        '${_marketplaceName(_text(account['marketplace']))} - $name',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) =>
+                      setDialogState(() => selectedAccountId = value),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amount,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: const [_ThousandsInputFormatter()],
+                  decoration: const InputDecoration(
+                    labelText: 'Nominal penarikan',
+                    prefixText: 'Rp ',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedBank,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Rekening bank'),
+                  items: [
+                    ...bankOptions.map((item) => DropdownMenuItem<String>(
+                        value: item, child: Text(item))),
+                    const DropdownMenuItem<String>(
+                      value: '__manual__',
+                      child: Text('Tambah rekening baru'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() {
+                      selectedBank = value;
+                      if (value != '__manual__') manualBank.text = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: manualBank,
+                  enabled: selectedBank == '__manual__',
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Nama/nomor rekening',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reference,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Reference / mutasi bank',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: note,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Catatan'),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Tanggal penarikan'),
+                  subtitle: Text(_date(withdrawalDate)),
+                  trailing: const Icon(Icons.calendar_month_rounded),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: withdrawalDate,
+                      firstDate:
+                          DateTime.now().subtract(const Duration(days: 365)),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (picked == null) return;
+                    setDialogState(() => withdrawalDate = picked);
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Batal')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Simpan')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+
+    final parsed = _moneyFromController(amount);
+    final bank = manualBank.text.trim();
+    if (parsed <= 0 || bank.isEmpty) {
+      AppUi.safeSnack(context, 'Nominal dan rekening bank wajib diisi.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      final id = _text(row?['marketplace_withdrawal_id'], '');
+      final payload = {
+        'tenant_id': _currentTenantId,
+        'marketplace_account_id':
+            _isUuid(selectedAccountId ?? '') ? selectedAccountId : null,
+        'marketplace': _marketplaceByAccountId(selectedAccountId),
+        'withdrawal_date': _toDateParam(withdrawalDate),
+        'amount': parsed,
+        'bank_account_name': bank,
+        'bank_reference': reference.text.trim(),
+        'note': note.text.trim(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      if (_isUuid(id)) {
+        await _client
+            .from('finance_marketplace_withdrawals')
+            .update(payload)
+            .eq('tenant_id', _currentTenantId)
+            .eq('marketplace_withdrawal_id', id);
+      } else {
+        await _client.from('finance_marketplace_withdrawals').insert({
+          ...payload,
+          ..._cashWalletActorPayload(),
+        });
+      }
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Penarikan marketplace disimpan.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _deleteMarketplaceWithdrawal(Map<String, dynamic> row) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final id = _text(row['marketplace_withdrawal_id'], '');
+    if (!_isUuid(id)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus penarikan marketplace?'),
+        content: const Text(
+            'Penarikan dan alokasi terkait akan dihapus dari Arus Kas.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _processing = true);
+    try {
+      await _client
+          .from('finance_marketplace_withdrawals')
+          .delete()
+          .eq('tenant_id', _currentTenantId)
+          .eq('marketplace_withdrawal_id', id);
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Penarikan marketplace dihapus.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Map<String, dynamic>? _withdrawalById(String id) {
+    if (!_isUuid(id)) return null;
+    for (final row in _marketplaceWithdrawals) {
+      if (_text(row['marketplace_withdrawal_id'], '') == id) return row;
+    }
+    return null;
+  }
+
+  Future<void> _editWithdrawalAllocation({
+    Map<String, dynamic>? row,
+    Map<String, dynamic>? withdrawal,
+  }) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final withdrawalId = _text(
+      row?['marketplace_withdrawal_id'] ??
+          withdrawal?['marketplace_withdrawal_id'],
+      '',
+    );
+    final parent = withdrawal ?? _withdrawalById(withdrawalId);
+    if (!_isUuid(withdrawalId) || parent == null) {
+      AppUi.safeSnack(context, 'Data penarikan tidak valid untuk alokasi.');
+      return;
+    }
+
+    DateTime sourceMonth = _monthStart(
+      _parseDate(row?['source_period_month'] ?? parent['withdrawal_date']) ??
+          _start,
+    );
+    final amount = TextEditingController(
+        text: _moneyInput(_num(row?['amount'] ?? parent['amount'])));
+    final note = TextEditingController(text: _text(row?['note'], ''));
+    String method = _text(row?['allocation_method'], 'manual').toLowerCase();
+    if (!const ['manual', 'fifo', 'system'].contains(method)) method = 'manual';
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(row == null
+              ? 'Tambah alokasi penarikan'
+              : 'Edit alokasi penarikan'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Bulan sumber'),
+                  subtitle: Text(_monthLabel(sourceMonth)),
+                  trailing: const Icon(Icons.calendar_month_rounded),
+                  onTap: () async {
+                    final picked = await _pickMonth(sourceMonth);
+                    if (picked == null) return;
+                    setDialogState(() => sourceMonth = picked);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amount,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: const [_ThousandsInputFormatter()],
+                  decoration: const InputDecoration(
+                    labelText: 'Nominal alokasi',
+                    prefixText: 'Rp ',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: method,
+                  decoration:
+                      const InputDecoration(labelText: 'Metode alokasi'),
+                  items: const [
+                    DropdownMenuItem(value: 'manual', child: Text('Manual')),
+                    DropdownMenuItem(value: 'fifo', child: Text('FIFO')),
+                    DropdownMenuItem(value: 'system', child: Text('System')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() => method = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: note,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Catatan'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Batal')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Simpan')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+
+    final parsed = _moneyFromController(amount);
+    if (parsed <= 0) {
+      AppUi.safeSnack(context, 'Nominal alokasi wajib diisi.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      final id = _text(row?['marketplace_withdrawal_allocation_id'], '');
+      final payload = {
+        'marketplace_withdrawal_id': withdrawalId,
+        'tenant_id': _currentTenantId,
+        'marketplace_account_id':
+            _isUuid(_text(parent['marketplace_account_id'], ''))
+                ? _text(parent['marketplace_account_id'], '')
+                : null,
+        'marketplace':
+            _text(parent['marketplace'], _marketplaceByAccountId(null)),
+        'source_period_month': _toDateParam(sourceMonth),
+        'amount': parsed,
+        'allocation_method': method,
+        'note': note.text.trim(),
+      };
+      if (_isUuid(id)) {
+        await _client
+            .from('finance_marketplace_withdrawal_allocations')
+            .update(payload)
+            .eq('tenant_id', _currentTenantId)
+            .eq('marketplace_withdrawal_allocation_id', id);
+      } else {
+        await _client
+            .from('finance_marketplace_withdrawal_allocations')
+            .insert(payload);
+      }
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Alokasi penarikan disimpan.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _deleteWithdrawalAllocation(Map<String, dynamic> row) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final id = _text(row['marketplace_withdrawal_allocation_id'], '');
+    if (!_isUuid(id)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus alokasi penarikan?'),
+        content: Text(
+            'Alokasi bulan ${_monthLabel(_parseDate(row['source_period_month']) ?? _start)} akan dihapus.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _processing = true);
+    try {
+      await _client
+          .from('finance_marketplace_withdrawal_allocations')
+          .delete()
+          .eq('tenant_id', _currentTenantId)
+          .eq('marketplace_withdrawal_allocation_id', id);
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Alokasi penarikan dihapus.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
   Widget _marketplaceBootstrapFinanceBanner() {
     final status = _marketplaceBootstrapUiStatus;
     if (status.isEmpty || status['show_banner'] != true) {
@@ -5297,8 +6830,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 animation: tabController,
                 builder: (context, _) {
                   final isExpenseTab = tabController.index == 4;
-                  if (!_canAccessFinance || _isDemoSuperAdmin || !isExpenseTab)
+                  if (!_canAccessFinance ||
+                      _isDemoSuperAdmin ||
+                      !isExpenseTab) {
                     return const SizedBox.shrink();
+                  }
 
                   if (_processing) {
                     return FloatingActionButton.small(
@@ -5405,16 +6941,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     children: [
                       _dateChip(
                         icon: Icons.calendar_today_rounded,
-                        label: 'D',
-                        value: _date(_start),
-                        onTap: _pickStart,
-                      ),
-                      const SizedBox(width: 6),
-                      _dateChip(
-                        icon: Icons.event_rounded,
-                        label: 'S',
-                        value: _date(_end),
-                        onTap: _pickEnd,
+                        label: 'Periode',
+                        value: '${_date(_start)} - ${_date(_end)}',
+                        onTap: _pickDateRange,
                       ),
                     ],
                   ),
@@ -5684,7 +7213,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               Icon(icon, size: 14, color: Colors.cyan),
               const SizedBox(width: 6),
               ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 86, maxWidth: 116),
+                constraints: const BoxConstraints(minWidth: 86, maxWidth: 220),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -5921,7 +7450,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _marketplaceTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -5965,7 +7494,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _skuTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -6117,8 +7646,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       targetMargin <= 0
                           ? '-'
                           : '${targetMargin.toStringAsFixed(2)}%'),
-                  _orderRefMetric(row, payoutFilter: 'paid'),
-                  _orderRefMetric(row, payoutFilter: 'unpaid'),
                 ],
               );
             }),
@@ -6167,7 +7694,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'description': 'Pembelian yang sudah disetujui finance'
         },
       {
-        'category': 'Arus Kas Bersih',
+        'category': 'Jumlah Arus Kas',
         'type': netCash >= 0 ? 'in' : 'out',
         'amount': netCash,
         'description': 'Payout - biaya manual - pembelian disetujui'
@@ -6247,32 +7774,120 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _cashFlowTab() {
-    if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+    if (_loading) {
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
+    }
     final cashRows = _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
+    final walletRows = _cashWalletRowsForDisplay(
+      opening: _cashOpeningBalances,
+      adjustments: _cashAdjustments,
+      withdrawals: _marketplaceWithdrawals,
+    );
+    bool isNetRow(Map<String, dynamic> row) {
+      final label = _text(row['source'] ?? row['category']).toLowerCase();
+      return label.contains('arus kas bersih') ||
+          label.contains('total arus kas') ||
+          label.contains('jumlah arus kas');
+    }
+
+    final detailCashRows =
+        cashRows.where((row) => !isNetRow(row)).toList(growable: false);
+
+    num totalIn = 0;
+    num totalOut = 0;
+    for (final row in [
+      ...cashRows.where((row) => !isNetRow(row)),
+      ...walletRows,
+    ]) {
+      final amount = _num(row['amount']);
+      if (amount >= 0) {
+        totalIn += amount;
+      } else {
+        totalOut += amount.abs();
+      }
+    }
+    final netCash = totalIn - totalOut;
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.all(14),
         children: [
-          _sectionHeader('Arus Kas'),
+          _sectionHeader('Jumlah / Total Arus Kas'),
           SizedBox(height: 8),
-          if (cashRows.isEmpty)
+          _metricGrid([
+            _Metric('Total Masuk', _money(totalIn), Icons.south_west_rounded),
+            _Metric('Total Keluar', _money(totalOut), Icons.north_east_rounded),
+            _Metric(
+              'Jumlah Arus Kas',
+              _money(netCash),
+              Icons.account_balance_wallet_rounded,
+            ),
+          ]),
+          SizedBox(height: 12),
+          if (_canWriteFinance) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _processing ? null : _editCashOpeningBalance,
+                  icon: const Icon(Icons.account_balance_wallet_rounded,
+                      size: 18),
+                  label: const Text('Saldo awal'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _processing
+                      ? null
+                      : () => _editCashAdjustment(direction: 'in'),
+                  icon: const Icon(Icons.south_west_rounded, size: 18),
+                  label: const Text('Kas masuk'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _processing
+                      ? null
+                      : () => _editCashAdjustment(direction: 'out'),
+                  icon: const Icon(Icons.north_east_rounded, size: 18),
+                  label: const Text('Kas keluar'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _processing ? null : _editMarketplaceWithdrawal,
+                  icon: const Icon(Icons.account_balance_rounded, size: 18),
+                  label: const Text('Penarikan'),
+                ),
+              ],
+            ),
+            SizedBox(height: 12),
+          ],
+          if (detailCashRows.isEmpty)
             _emptyCard('Belum ada arus kas pada periode ini.')
           else
-            ...cashRows.map((row) {
+            ...detailCashRows.map((row) {
               final type = _text(row['cash_type'] ?? row['type']);
               final amount = _num(row['amount']);
               return _simpleRowCard(
                 title: _sourceLabel(
                     _text(row['source'] ?? row['category'] ?? type)),
                 subtitle:
-                    '${_date(row['date'] ?? row['created_at'])}  ·  ${type.toUpperCase()}',
+                    '${_date(row['date'] ?? row['created_at'])} - ${type.toUpperCase()}',
                 trailing: (amount >= 0 ? '+ ' : '- ') + _money(amount.abs()),
                 positive: amount >= 0,
               );
             }),
+          if (_cashOpeningBalances.isNotEmpty ||
+              _cashAdjustments.isNotEmpty ||
+              _marketplaceWithdrawals.isNotEmpty) ...[
+            SizedBox(height: 16),
+            _sectionHeader('Kelola Input Arus Kas'),
+            SizedBox(height: 8),
+            ...walletRows.map(_cashWalletInputRowCard),
+          ],
+          if (_withdrawalAllocations.isNotEmpty) ...[
+            SizedBox(height: 16),
+            _sectionHeader('Alokasi Penarikan'),
+            SizedBox(height: 8),
+            ..._withdrawalAllocations.map(_withdrawalAllocationRowCard),
+          ],
         ],
       ),
     );
@@ -6280,7 +7895,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _expensesTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -6334,7 +7949,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _profitLossTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
     final profitRows =
         _profitLoss.isNotEmpty ? _profitLoss : _fallbackProfitLossRows();
     return RefreshIndicator(
@@ -6365,7 +7980,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _abnormalTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
     final visibleAbnormales = _filteredAbnormales();
     final pageMax = (_abnormalTotal <= 0)
         ? 1
@@ -6418,9 +8033,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               ),
             ),
           ),
-          SizedBox(height: 8),
-          _abnormalStatusFilterBar(),
-          SizedBox(height: 8),
 
           // Action buttons row
           Row(
@@ -6446,8 +8058,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           if (_abnormalSearchBusy)
             Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
-              child:
-                  Center(child: FuturisticLoader(message: 'Mencari abnormal¦')),
+              child: Center(
+                  child: FuturisticLoader(message: 'Mencari abnormal...')),
             )
           else ...[
             // Info bar
@@ -6966,7 +8578,203 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
+  Widget _cashWalletInputRowCard(Map<String, dynamic> row) {
+    final kind = _text(row['_cash_wallet_kind'], '');
+    final amount = _num(row['amount']);
+    final positive = amount >= 0;
+    final title = _sourceLabel(_text(row['source'] ?? row['category']));
+    final subtitleParts = <String>[
+      if (kind == 'opening')
+        _monthLabel(_parseDate(row['period_month']) ?? _start)
+      else
+        _date(row['date'] ?? row['created_at']),
+      if (kind == 'withdrawal')
+        _bankLabel(_text(row['bank_account_name'], ''),
+            _text(row['bank_reference'], '')),
+      if (kind == 'withdrawal')
+        _accountNameById(_text(row['marketplace_account_id'])),
+      if (_text(row['note'], '').trim().isNotEmpty) _text(row['note'], ''),
+    ].where((item) => item.trim().isNotEmpty && item != '-').toList();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.zero,
+        color: Theme.of(context).cardColor,
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: Theme.of(context).dividerColor),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  subtitleParts.join(' - '),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color: Theme.of(context).colorScheme.outline),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                (positive ? '+ ' : '- ') + _money(amount.abs()),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  color: positive
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.error,
+                ),
+              ),
+              SizedBox(height: 4),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                alignment: WrapAlignment.end,
+                children: [
+                  _tinyActionButton(Icons.edit_rounded, 'Edit', () {
+                    if (kind == 'opening') {
+                      _editCashOpeningBalance(row);
+                    } else if (kind == 'adjustment') {
+                      _editCashAdjustment(row: row);
+                    } else if (kind == 'withdrawal') {
+                      _editMarketplaceWithdrawal(row);
+                    }
+                  }),
+                  if (kind == 'opening')
+                    _tinyActionButton(Icons.restart_alt_rounded, 'Reset',
+                        () => _resetCashOpeningBalance(row)),
+                  if (kind == 'withdrawal')
+                    _tinyActionButton(Icons.account_tree_rounded, 'Alokasi',
+                        () => _editWithdrawalAllocation(withdrawal: row)),
+                  _tinyActionButton(Icons.delete_outline_rounded, 'Hapus', () {
+                    if (kind == 'opening') {
+                      _deleteCashOpeningBalance(row);
+                    } else if (kind == 'adjustment') {
+                      _deleteCashAdjustment(row);
+                    } else if (kind == 'withdrawal') {
+                      _deleteMarketplaceWithdrawal(row);
+                    }
+                  }, danger: true),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _withdrawalAllocationRowCard(Map<String, dynamic> row) {
+    final parent = _withdrawalById(_text(row['marketplace_withdrawal_id'], ''));
+    final bank = parent == null
+        ? '-'
+        : _bankLabel(_text(parent['bank_account_name'], ''),
+            _text(parent['bank_reference'], ''));
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.zero,
+        color: Theme.of(context).cardColor,
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Alokasi ${_monthLabel(_parseDate(row['source_period_month']) ?? _start)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: Theme.of(context).dividerColor),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  [
+                    bank,
+                    _text(row['allocation_method'], 'manual').toUpperCase(),
+                    if (_text(row['note'], '').trim().isNotEmpty)
+                      _text(row['note'], ''),
+                  ]
+                      .where((item) => item.trim().isNotEmpty && item != '-')
+                      .join(' - '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color: Theme.of(context).colorScheme.outline),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _money(_num(row['amount'])),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.primary),
+              ),
+              SizedBox(height: 4),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                alignment: WrapAlignment.end,
+                children: [
+                  _tinyActionButton(Icons.edit_rounded, 'Edit',
+                      () => _editWithdrawalAllocation(row: row)),
+                  _tinyActionButton(Icons.delete_outline_rounded, 'Hapus',
+                      () => _deleteWithdrawalAllocation(row),
+                      danger: true),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _expenseRowCard(Map<String, dynamic> row) {
+    final canEditExpense = _expenseId(row).isNotEmpty;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -7024,18 +8832,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   ),
                 ),
                 SizedBox(height: 4),
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
-                  alignment: WrapAlignment.end,
-                  children: [
-                    _tinyActionButton(Icons.edit_rounded, 'Edit',
-                        () => _editManualExpense(row)),
-                    _tinyActionButton(Icons.delete_outline_rounded, 'Hapus',
-                        () => _deleteManualExpense(row),
-                        danger: true),
-                  ],
-                ),
+                if (canEditExpense)
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      _tinyActionButton(Icons.edit_rounded, 'Edit',
+                          () => _editManualExpense(row)),
+                      _tinyActionButton(Icons.delete_outline_rounded, 'Hapus',
+                          () => _deleteManualExpense(row),
+                          danger: true),
+                    ],
+                  ),
               ],
             ),
           ),
@@ -7111,99 +8920,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           SizedBox(height: 12),
           Wrap(spacing: 6, runSpacing: 6, children: children),
         ],
-      ),
-    );
-  }
-
-  Widget _orderRefMetric(Map<String, dynamic> row,
-      {String payoutFilter = 'all'}) {
-    final rows = _filteredSkuOrderRows(_safeOrderRefRows(row), payoutFilter);
-    final refs = rows
-        .map(_orderRefLine)
-        .where((item) => item.trim().isNotEmpty && item.trim() != '-')
-        .toList();
-    final count = rows.length;
-    final labelPrefix = payoutFilter == 'paid'
-        ? 'Sudah payout'
-        : payoutFilter == 'unpaid'
-            ? 'Belum payout'
-            : 'Semua payout';
-    final label = count > 0
-        ? '$labelPrefix: Pesanan / Resi + Gross/Payout ($count)'
-        : '$labelPrefix: Pesanan / Resi + Gross/Payout';
-    final visibleRefs = refs.take(4).toList();
-    final hidden = refs.length - visibleRefs.length;
-    final expectedQty = payoutFilter == 'paid'
-        ? _numFirstNonZero(
-            [row['paid_qty'], row['settled_qty'], row['qty_paid']]).round()
-        : payoutFilter == 'unpaid'
-            ? _numFirstNonZero([
-                row['unpaid_qty'],
-                row['pending_payout_qty'],
-                row['qty_unpaid']
-              ]).round()
-            : _num(row['qty']).round();
-    final value = refs.isEmpty
-        ? (expectedQty > 0
-            ? 'Tap ikon info untuk muat detail resi/order dari server.'
-            : '-')
-        : visibleRefs.join('\n') +
-            (hidden > 0 ? '\n+$hidden pesanan lagi' : '');
-    final warning = payoutFilter == 'unpaid' && (count > 0 || expectedQty > 0);
-    return InkWell(
-      borderRadius: BorderRadius.zero,
-      onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: payoutFilter),
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 180, maxWidth: 340),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: warning
-              ? Colors.red.withOpacity(0.08)
-              : Theme.of(context).colorScheme.primary.withOpacity(0.08),
-          borderRadius: BorderRadius.zero,
-          border: Border.all(
-              color: warning
-                  ? Colors.red.withOpacity(0.22)
-                  : Theme.of(context).colorScheme.primary.withOpacity(0.18)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: Theme.of(context).colorScheme.outline,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ),
-                Icon(
-                    rows.isEmpty
-                        ? Icons.info_outline_rounded
-                        : Icons.open_in_new_rounded,
-                    size: 13,
-                    color: warning
-                        ? Colors.redAccent
-                        : Theme.of(context).colorScheme.primary),
-              ],
-            ),
-            SizedBox(height: 2),
-            Text(
-              value,
-              maxLines: 6,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: Theme.of(context).dividerColor,
-                  height: 1.25),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -7796,7 +9512,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     final response = await _client.rpc(
-      '',
+      'finance_sku_order_details',
       params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
@@ -8348,10 +10064,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var detailRow = row;
     var allRows =
         _filteredSkuOrderRows(_safeOrderRefRows(detailRow), payoutFilter);
-    final isV82oServerDetail = _text(detailRow['sku_detail_source'], '') ==
-            'v82o' ||
-        allRows.any((item) =>
-            _text(item['source'], '').contains(''));
+    final isV82oServerDetail =
+        _text(detailRow['sku_detail_source'], '') == 'v82o' ||
+            allRows.any((item) => _text(item['source'], '').contains(''));
 
     final needsLazyDetail = !isV82oServerDetail &&
         (allRows.isEmpty ||
@@ -8925,7 +10640,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _expenseId(Map<String, dynamic> row) {
-    final datas = [row['expense_id'], row['id'], row['operational_expense_id']];
+    final datas = [
+      row['expense_id'],
+      row['id'],
+      row['finance_expense_id'],
+      row['operational_expense_id'],
+    ];
     for (final value in datas) {
       final text = value?.toString().trim() ?? '';
       if (_isUuid(text)) return text;
@@ -9702,6 +11422,110 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   DateTime _dateOnly(DateTime value) =>
       DateTime(value.year, value.month, value.day);
 
+  DateTime _monthStart(DateTime value) => DateTime(value.year, value.month, 1);
+
+  String _monthLabel(DateTime value) {
+    const names = [
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember',
+    ];
+    final monthName = names[(value.month - 1).clamp(0, 11).toInt()];
+    return '$monthName ${value.year}';
+  }
+
+  Future<DateTime?> _pickMonth(DateTime initial) async {
+    var year = initial.year;
+    var selectedMonth = initial.month;
+    return showDialog<DateTime>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Pilih bulan'),
+          content: SizedBox(
+            width: 320,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Tahun sebelumnya',
+                      onPressed: () => setDialogState(() => year--),
+                      icon: const Icon(Icons.chevron_left_rounded),
+                    ),
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          '$year',
+                          style: const TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Tahun berikutnya',
+                      onPressed: () => setDialogState(() => year++),
+                      icon: const Icon(Icons.chevron_right_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: 12,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisExtent: 42,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemBuilder: (context, index) {
+                    final month = index + 1;
+                    final selected = month == selectedMonth;
+                    return OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: selected
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
+                        foregroundColor: selected ? Colors.black : null,
+                      ),
+                      onPressed: () =>
+                          setDialogState(() => selectedMonth = month),
+                      child: Text(_monthLabel(DateTime(year, month, 1))
+                          .split(' ')
+                          .first),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Batal')),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(context, DateTime(year, selectedMonth, 1)),
+              child: const Text('Pilih'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _toDateParam(DateTime value) {
     return '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
   }
@@ -9716,6 +11540,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   String _sourceLabel(String value) {
     final clean = value.toLowerCase().replaceAll('_', ' ').trim();
+    if (clean.contains('arus kas bersih') ||
+        clean.contains('jumlah arus kas') ||
+        clean.contains('total arus kas')) return 'Jumlah Arus Kas';
     if (clean.contains('potongan marketplace')) return 'Potongan marketplace';
     if (clean.contains('marketplace')) return 'Marketplace';
     if (clean.contains('purchase') || clean.contains('pembelian'))
@@ -9778,18 +11605,3 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

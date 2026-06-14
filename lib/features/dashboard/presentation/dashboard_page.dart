@@ -324,11 +324,13 @@ class _DashboardPageState extends State<DashboardPage> {
         _allOpenTasks = allOpenTasks;
         _myTodayLive = myTodayLive;
         _pendingLiveReview = pendingLiveReview;
-        _financeAbnormalCount =
-            AppUi.toNum(financeSummary['abnormal_count'] ?? financeSummary['anomaly_count']).toInt();
+        _financeAbnormalCount = AppUi.toNum(financeSummary['abnormal_count'] ??
+                financeSummary['anomaly_count'])
+            .toInt();
         _financeNetProfit = AppUi.toNum(financeSummary['net_profit']);
         _financeOmzet = AppUi.toNum(financeSummary['omzet_total']);
-        _financeOrderCount = AppUi.toNum(financeSummary['orders_count']).toInt();
+        _financeOrderCount =
+            AppUi.toNum(financeSummary['orders_count']).toInt();
         _financeTrend = (financeSummary['trend'] as List<_TrendPoint>?) ??
             const <_TrendPoint>[];
         _notifications = notifications;
@@ -384,7 +386,8 @@ class _DashboardPageState extends State<DashboardPage> {
       var negativeAbs = 0.0;
 
       for (final row in rows) {
-        final orderKey = AppUi.text(row['order_id'] ?? row['marketplace_order_id']);
+        final orderKey =
+            AppUi.text(row['order_id'] ?? row['marketplace_order_id']);
         if (orderKey.trim().isNotEmpty) orderKeys.add(orderKey);
         final rowGross = AppUi.toNum(row['gross_amount'] ?? row['gross_sales']);
         final rowPayout = AppUi.toNum(row['payout_amount'] ??
@@ -401,12 +404,15 @@ class _DashboardPageState extends State<DashboardPage> {
 
         final rawDate = AppUi.text(row['period_start']);
         if (rawDate.trim().isEmpty) continue;
-        final dateKey = rawDate.length >= 10 ? rawDate.substring(0, 10) : rawDate;
-        final bucket = daily.putIfAbsent(dateKey, () => <String, dynamic>{
-              'date': dateKey,
-              'gross': 0.0,
-              'orders': <String>{},
-            });
+        final dateKey =
+            rawDate.length >= 10 ? rawDate.substring(0, 10) : rawDate;
+        final bucket = daily.putIfAbsent(
+            dateKey,
+            () => <String, dynamic>{
+                  'date': dateKey,
+                  'gross': 0.0,
+                  'orders': <String>{},
+                });
         bucket['gross'] = AppUi.toNum(bucket['gross']) + rowGross;
         if (orderKey.trim().isNotEmpty) {
           (bucket['orders'] as Set<String>).add(orderKey);
@@ -414,7 +420,8 @@ class _DashboardPageState extends State<DashboardPage> {
       }
 
       final trend = daily.entries.map((entry) {
-        final date = DateTime.tryParse(entry.key) ?? DateTime(now.year, now.month, now.day);
+        final date = DateTime.tryParse(entry.key) ??
+            DateTime(now.year, now.month, now.day);
         final orders = entry.value['orders'] is Set<String>
             ? (entry.value['orders'] as Set<String>).length
             : 0;
@@ -451,7 +458,8 @@ class _DashboardPageState extends State<DashboardPage> {
     final live = await _safeFinanceSummaryFromSnapshot(now, startDate, endDate);
     if (_dashboardFinanceSummaryUsable(live)) return live;
 
-    final cached = await _safeFinanceSummaryFromLocalCache(now, startDate, endDate);
+    final cached =
+        await _safeFinanceSummaryFromLocalCache(now, startDate, endDate);
     if (_dashboardFinanceSummaryUsable(cached)) return cached;
 
     final rawSummary = await _safeRawFinanceSummary(now);
@@ -494,8 +502,8 @@ class _DashboardPageState extends State<DashboardPage> {
 
     Object? lastError;
     for (final rpcName in rpcCandidates) {
-      for (final rpcParams
-          in _dashboardFinanceSnapshotParamVariants(rpcName, startDate, endDate)) {
+      for (final rpcParams in _dashboardFinanceSnapshotParamVariants(
+          rpcName, startDate, endDate)) {
         try {
           final response = await _client.rpc(rpcName, params: rpcParams);
           final parsed =
@@ -508,7 +516,8 @@ class _DashboardPageState extends State<DashboardPage> {
                 marketplace: 'all',
                 accountId: 'all',
               );
-              final cacheKey = '$keyBase::finance_live_20260606_local_cache_fast_v20';
+              final cacheKey =
+                  '$keyBase::finance_live_20260606_local_cache_fast_v20';
               await FinanceLocalCache.writeJson(cacheKey, _asMap(response));
             } catch (_) {}
             return parsed;
@@ -563,7 +572,9 @@ class _DashboardPageState extends State<DashboardPage> {
     return lower.contains('could not find the function') ||
         lower.contains('function public.') ||
         lower.contains('does not exist') ||
-        lower.contains('pgrst202') || lower.contains('pgrst204') || lower.contains('pgrst301');
+        lower.contains('pgrst202') ||
+        lower.contains('pgrst204') ||
+        lower.contains('pgrst301');
   }
 
   Future<Map<String, dynamic>> _safeFinanceSummaryFromLocalCache(
@@ -588,7 +599,8 @@ class _DashboardPageState extends State<DashboardPage> {
 
     for (final version in versions) {
       try {
-        final cached = await FinanceLocalCache.readJson('$keyBase::$version', ttlDays: 90);
+        final cached =
+            await FinanceLocalCache.readJson('$keyBase::$version', ttlDays: 90);
         if (cached == null || cached.isEmpty) continue;
         final parsed = _financeSummaryFromSnapshot(now, cached, 'local_cache');
         if (_dashboardFinanceSummaryUsable(parsed)) return parsed;
@@ -760,8 +772,8 @@ class _DashboardPageState extends State<DashboardPage> {
     for (var date = monthStart;
         !date.isAfter(today);
         date = date.add(const Duration(days: 1))) {
-      result.add(grouped[_ymd(date)] ??
-          _TrendPoint(date: date, omzet: 0, orders: 0));
+      result.add(
+          grouped[_ymd(date)] ?? _TrendPoint(date: date, omzet: 0, orders: 0));
     }
     return result;
   }
@@ -900,7 +912,6 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ],
         ),
-
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -912,8 +923,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.zero,
                     color: Theme.of(context).colorScheme.primary,
-                    border:
-                        Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
+                    border: Border.all(
+                        color: (Theme.of(context).dividerColor), width: 1.4),
                     boxShadow: [
                       BoxShadow(
                         color: Theme.of(context).colorScheme.tertiary,
@@ -938,7 +949,6 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ),
                 ),
-
               ],
             ),
             const SizedBox(height: 14),
@@ -959,7 +969,6 @@ class _DashboardPageState extends State<DashboardPage> {
                 letterSpacing: 0.9,
               ),
             ),
-
             const SizedBox(height: 8),
             Expanded(
               child: ListView(
@@ -1004,12 +1013,14 @@ class _DashboardPageState extends State<DashboardPage> {
                 color: Colors.black,
                 width: 2,
               ),
-              boxShadow: selected ? [
-                const BoxShadow(
-                  color: Colors.black,
-                  offset: Offset(3, 3),
-                )
-              ] : null,
+              boxShadow: selected
+                  ? [
+                      const BoxShadow(
+                        color: Colors.black,
+                        offset: Offset(3, 3),
+                      )
+                    ]
+                  : null,
             ),
             child: Row(
               children: [
@@ -1024,7 +1035,9 @@ class _DashboardPageState extends State<DashboardPage> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: selected ? Colors.black : Theme.of(context).colorScheme.onSurface,
+                          color: selected
+                              ? Colors.black
+                              : Theme.of(context).colorScheme.onSurface,
                           fontWeight: FontWeight.w900,
                           fontSize: 12,
                           letterSpacing: 0.5,
@@ -1041,7 +1054,6 @@ class _DashboardPageState extends State<DashboardPage> {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-
                     ],
                   ),
                 ),
@@ -1070,7 +1082,8 @@ class _DashboardPageState extends State<DashboardPage> {
                 _greeting(),
                 style: TextStyle(
                   fontSize: 12,
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.85),
+                  color:
+                      Theme.of(context).colorScheme.primary.withOpacity(0.85),
                   fontWeight: FontWeight.w600,
                   letterSpacing: 1.0,
                 ),
@@ -1086,7 +1099,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   letterSpacing: 0,
                   color: Theme.of(context).colorScheme.onSurface,
                 ),
-
               ),
             ],
           ),
@@ -1142,7 +1154,8 @@ class _DashboardPageState extends State<DashboardPage> {
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.error,
                 borderRadius: BorderRadius.zero,
-                border: Border.all(color: (Theme.of(context).dividerColor), width: 1),
+                border: Border.all(
+                    color: (Theme.of(context).dividerColor), width: 1),
               ),
               child: Text(
                 count > 99 ? '99+' : count.toString(),
@@ -1154,8 +1167,6 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
             ),
-
-
           ),
       ],
     );
@@ -1177,7 +1188,8 @@ class _DashboardPageState extends State<DashboardPage> {
           decoration: BoxDecoration(
             color: (Theme.of(context).cardColor),
             borderRadius: BorderRadius.zero,
-            border: Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
+            border:
+                Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
             boxShadow: [
               BoxShadow(
                 color: Theme.of(context).dividerColor.withOpacity(0.16),
@@ -1186,7 +1198,6 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
             ],
           ),
-
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1199,8 +1210,8 @@ class _DashboardPageState extends State<DashboardPage> {
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.secondary,
                       borderRadius: BorderRadius.zero,
-                      border:
-                          Border.all(color: (Theme.of(context).dividerColor), width: 1),
+                      border: Border.all(
+                          color: (Theme.of(context).dividerColor), width: 1),
                     ),
                     child: Icon(Icons.notifications_active_rounded,
                         color: Theme.of(context).colorScheme.onSurface),
@@ -1216,7 +1227,6 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ),
                   ),
-
                   TextButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
@@ -1264,8 +1274,12 @@ class _DashboardPageState extends State<DashboardPage> {
                                 decoration: BoxDecoration(
                                   color: Color.alphaBlend(
                                     (isRead
-                                            ? Theme.of(context).colorScheme.surfaceVariant
-                                            : Theme.of(context).colorScheme.secondary)
+                                            ? Theme.of(context)
+                                                .colorScheme
+                                                .surfaceVariant
+                                            : Theme.of(context)
+                                                .colorScheme
+                                                .secondary)
                                         .withOpacity(isRead ? 0.20 : 0.12),
                                     (Theme.of(context).cardColor),
                                   ),
@@ -1274,7 +1288,6 @@ class _DashboardPageState extends State<DashboardPage> {
                                       color: (Theme.of(context).dividerColor)
                                           .withOpacity(isRead ? 0.18 : 0.42)),
                                 ),
-
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -1293,7 +1306,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                           Text(
                                             item.title,
                                             style: TextStyle(
-                                              color: Theme.of(context).colorScheme.onSurface,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface,
                                               fontWeight: FontWeight.w900,
                                             ),
                                           ),
@@ -1301,7 +1316,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                           Text(
                                             item.body,
                                             style: TextStyle(
-                                              color: Theme.of(context).colorScheme.outline,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .outline,
                                               fontWeight: FontWeight.w600,
                                               height: 1.32,
                                             ),
@@ -1310,13 +1327,14 @@ class _DashboardPageState extends State<DashboardPage> {
                                           Text(
                                             'Update ${AppUi.dateTime(item.lastTriggeredAt)}',
                                             style: TextStyle(
-                                              color: Theme.of(context).colorScheme.outline
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .outline
                                                   ?.withOpacity(0.78),
                                               fontSize: 11,
                                               fontWeight: FontWeight.w700,
                                             ),
                                           ),
-
                                         ],
                                       ),
                                     ),
@@ -1384,8 +1402,8 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
             ],
           ),
-          child: Icon(icon, size: 20, color: Theme.of(context).colorScheme.onSurface),
-
+          child: Icon(icon,
+              size: 20, color: Theme.of(context).colorScheme.onSurface),
         ),
       ),
     );
@@ -1397,7 +1415,8 @@ class _DashboardPageState extends State<DashboardPage> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.zero,
         color: Theme.of(context).colorScheme.secondary.withOpacity(0.10),
-        border: Border.all(color: Theme.of(context).colorScheme.secondary.withOpacity(0.28)),
+        border: Border.all(
+            color: Theme.of(context).colorScheme.secondary.withOpacity(0.28)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1449,7 +1468,6 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ],
             ),
-
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1461,12 +1479,19 @@ class _DashboardPageState extends State<DashboardPage> {
                       height: 36,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.zero,
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withOpacity(0.12),
                         border: Border.all(
-                            color: Theme.of(context).colorScheme.primary.withOpacity(0.24)),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withOpacity(0.24)),
                       ),
                       child: Icon(Icons.settings_rounded,
-                          color: Theme.of(context).colorScheme.primary, size: 20),
+                          color: Theme.of(context).colorScheme.primary,
+                          size: 20),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -1496,7 +1521,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   ],
                 ),
                 const SizedBox(height: 14),
-
                 _settingsTile(
                   icon: Icons.manage_accounts_rounded,
                   title: 'User Management',
@@ -1658,8 +1682,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ],
             ),
-            child:
-                Icon(Icons.person_rounded, color: Colors.black, size: 30),
+            child: Icon(Icons.person_rounded, color: Colors.black, size: 30),
           ),
           const SizedBox(width: 14),
           // Info
@@ -1684,7 +1707,10 @@ class _DashboardPageState extends State<DashboardPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.50),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.50),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1709,7 +1735,8 @@ class _DashboardPageState extends State<DashboardPage> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
         borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.28)),
+        border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.28)),
       ),
       child: Text(
         label,
@@ -1726,7 +1753,9 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _statusDot(bool active) {
-    final color = active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.error;
+    final color = active
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.error;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1747,7 +1776,6 @@ class _DashboardPageState extends State<DashboardPage> {
       ],
     );
   }
-
 
   List<_TrendPoint> _financeTrendForChart() {
     if (_financeTrend.length >= 2) return _financeTrend;
@@ -1872,9 +1900,11 @@ class _DashboardPageState extends State<DashboardPage> {
           const SizedBox(height: 10),
           Row(
             children: [
-              _legendDot(Theme.of(context).colorScheme.primary, 'Omzet per hari'),
+              _legendDot(
+                  Theme.of(context).colorScheme.primary, 'Omzet per hari'),
               const SizedBox(width: 14),
-              _legendDot(Theme.of(context).colorScheme.tertiary, 'Pesanan per hari'),
+              _legendDot(
+                  Theme.of(context).colorScheme.tertiary, 'Pesanan per hari'),
             ],
           ),
           if (selected != null) ...[
@@ -1949,7 +1979,7 @@ class _DashboardPageState extends State<DashboardPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: _pixelDecoration(item.color),
-            child: Row(
+              child: Row(
                 children: [
                   Container(
                     width: 38,
@@ -1983,7 +2013,10 @@ class _DashboardPageState extends State<DashboardPage> {
                           style: TextStyle(
                             fontSize: 10.5,
                             height: 1.2,
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.6),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -2101,8 +2134,12 @@ class _DashboardPageState extends State<DashboardPage> {
             _pendingPurchase.toString(),
             Theme.of(context).colorScheme.secondary,
             _summaryTap('pembelian')),
-        _summaryItem(Icons.task_alt_rounded, 'Task Saya',
-            _myOpenTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
+        _summaryItem(
+            Icons.task_alt_rounded,
+            'Task Saya',
+            _myOpenTasks.toString(),
+            Theme.of(context).colorScheme.secondary,
+            _summaryTap('task')),
         _summaryItem(
             Icons.warning_amber_rounded,
             'Abnormal Finance',
@@ -2131,10 +2168,18 @@ class _DashboardPageState extends State<DashboardPage> {
             _runningProduction.toString(),
             Theme.of(context).colorScheme.primary,
             _summaryTap('produksi')),
-        _summaryItem(Icons.task_alt_rounded, 'Task Saya',
-            _myOpenTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
-        _summaryItem(Icons.how_to_reg_rounded, 'Absensi Saya',
-            _myAttendanceLabel, Theme.of(context).colorScheme.primary, _summaryTap('absensi')),
+        _summaryItem(
+            Icons.task_alt_rounded,
+            'Task Saya',
+            _myOpenTasks.toString(),
+            Theme.of(context).colorScheme.secondary,
+            _summaryTap('task')),
+        _summaryItem(
+            Icons.how_to_reg_rounded,
+            'Absensi Saya',
+            _myAttendanceLabel,
+            Theme.of(context).colorScheme.primary,
+            _summaryTap('absensi')),
       ];
     }
     if (role == 'host_live') {
@@ -2145,10 +2190,18 @@ class _DashboardPageState extends State<DashboardPage> {
             _myTodayLive.toString(),
             Theme.of(context).colorScheme.primary,
             _summaryTap('live')),
-        _summaryItem(Icons.task_alt_rounded, 'Task Saya',
-            _myOpenTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
-        _summaryItem(Icons.how_to_reg_rounded, 'Absensi Saya',
-            _myAttendanceLabel, Theme.of(context).colorScheme.primary, _summaryTap('absensi')),
+        _summaryItem(
+            Icons.task_alt_rounded,
+            'Task Saya',
+            _myOpenTasks.toString(),
+            Theme.of(context).colorScheme.secondary,
+            _summaryTap('task')),
+        _summaryItem(
+            Icons.how_to_reg_rounded,
+            'Absensi Saya',
+            _myAttendanceLabel,
+            Theme.of(context).colorScheme.primary,
+            _summaryTap('absensi')),
         _summaryItem(
             Icons.fact_check_rounded,
             'Bukti Perlu Cek',
@@ -2165,8 +2218,12 @@ class _DashboardPageState extends State<DashboardPage> {
             _todayAttendance.toString(),
             Theme.of(context).colorScheme.primary,
             _summaryTap('absensi')),
-        _summaryItem(Icons.task_alt_rounded, 'Task Review',
-            managedTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
+        _summaryItem(
+            Icons.task_alt_rounded,
+            'Task Review',
+            managedTasks.toString(),
+            Theme.of(context).colorScheme.secondary,
+            _summaryTap('task')),
         _summaryItem(
             Icons.live_tv_rounded,
             'Live Review',
@@ -2183,16 +2240,24 @@ class _DashboardPageState extends State<DashboardPage> {
     }
     if (role == 'content_creator') {
       return [
-        _summaryItem(Icons.task_alt_rounded, 'Task Saya',
-            _myOpenTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
+        _summaryItem(
+            Icons.task_alt_rounded,
+            'Task Saya',
+            _myOpenTasks.toString(),
+            Theme.of(context).colorScheme.secondary,
+            _summaryTap('task')),
         _summaryItem(
             Icons.video_collection_rounded,
             'Konten',
             _contentTotal.toString(),
             Theme.of(context).colorScheme.primary,
             _summaryTap('konten')),
-        _summaryItem(Icons.how_to_reg_rounded, 'Absensi Saya',
-            _myAttendanceLabel, Theme.of(context).colorScheme.primary, _summaryTap('absensi')),
+        _summaryItem(
+            Icons.how_to_reg_rounded,
+            'Absensi Saya',
+            _myAttendanceLabel,
+            Theme.of(context).colorScheme.primary,
+            _summaryTap('absensi')),
         _summaryItem(
             Icons.schedule_rounded,
             'Deadline',
@@ -2214,8 +2279,12 @@ class _DashboardPageState extends State<DashboardPage> {
           _lowStock.toString(),
           Theme.of(context).colorScheme.secondary,
           _summaryTap('stok rendah')),
-      _summaryItem(Icons.task_alt_rounded, 'Task Review',
-          managedTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
+      _summaryItem(
+          Icons.task_alt_rounded,
+          'Task Review',
+          managedTasks.toString(),
+          Theme.of(context).colorScheme.secondary,
+          _summaryTap('task')),
       _summaryItem(
           Icons.verified_rounded,
           'Pembelian Pending',
@@ -2243,13 +2312,13 @@ class _DashboardPageState extends State<DashboardPage> {
     ];
   }
 
-
   Widget _metricsAnalyticsChartCard(
     String title,
     List<_OpsMetric> metrics, {
     String badge = 'Realtime',
   }) {
-    final maxValue = metrics.fold<int>(1, (max, item) => math.max(max, item.value));
+    final maxValue =
+        metrics.fold<int>(1, (max, item) => math.max(max, item.value));
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2338,7 +2407,9 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _opsBar(_OpsMetric item, int maxValue) {
-    final fraction = maxValue <= 0 ? 0.0 : (item.value / maxValue).clamp(0.06, 1.0).toDouble();
+    final fraction = maxValue <= 0
+        ? 0.0
+        : (item.value / maxValue).clamp(0.06, 1.0).toDouble();
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: InkWell(
@@ -2392,7 +2463,10 @@ class _DashboardPageState extends State<DashboardPage> {
                         height: 9,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.zero,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.08),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.08),
                         ),
                       ),
                       FractionallySizedBox(
@@ -2469,55 +2543,185 @@ class _DashboardPageState extends State<DashboardPage> {
       }
       if (_isAdmin || _isOperationalAdmin) {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Stock Out', value: _todayStockOut, icon: Icons.local_shipping_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const StockOutPage())),
-          _OpsMetric(label: 'Stok Rendah', value: _lowStock, icon: Icons.warning_amber_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const LowStockPage())),
-          _OpsMetric(label: 'Task Review', value: _allOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.tertiary, onTap: () => _open(const TaskPage())),
-          _OpsMetric(label: 'Pembelian', value: _pendingPurchase, icon: Icons.verified_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const PurchaseVerificationPage())),
-          _OpsMetric(label: 'Produksi', value: _runningProduction, icon: Icons.precision_manufacturing_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const StockProgressPage())),
-          _OpsMetric(label: 'People Ops', value: _todayAttendance, icon: Icons.groups_rounded, color: Theme.of(context).colorScheme.tertiary, onTap: () => _open(const HrPerformancePage())),
+          _OpsMetric(
+              label: 'Stock Out',
+              value: _todayStockOut,
+              icon: Icons.local_shipping_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const StockOutPage())),
+          _OpsMetric(
+              label: 'Stok Rendah',
+              value: _lowStock,
+              icon: Icons.warning_amber_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const LowStockPage())),
+          _OpsMetric(
+              label: 'Task Review',
+              value: _allOpenTasks,
+              icon: Icons.task_alt_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              onTap: () => _open(const TaskPage())),
+          _OpsMetric(
+              label: 'Pembelian',
+              value: _pendingPurchase,
+              icon: Icons.verified_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const PurchaseVerificationPage())),
+          _OpsMetric(
+              label: 'Produksi',
+              value: _runningProduction,
+              icon: Icons.precision_manufacturing_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const StockProgressPage())),
+          _OpsMetric(
+              label: 'People Ops',
+              value: _todayAttendance,
+              icon: Icons.groups_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              onTap: () => _open(const HrPerformancePage())),
         ];
       }
       if (role == 'warehouse') {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Stock Out Hari Ini', value: _todayStockOut, icon: Icons.qr_code_scanner_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const StockOutPage())),
-          _OpsMetric(label: 'Stock In Hari Ini', value: _todayStockIn, icon: Icons.qr_code_scanner_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const StockInPage())),
-          _OpsMetric(label: 'Stok Rendah', value: _lowStock, icon: Icons.warning_amber_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const LowStockPage())),
-          _OpsMetric(label: 'SKU Aktif', value: _activeProducts, icon: Icons.inventory_2_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const ProductListPage())),
+          _OpsMetric(
+              label: 'Stock Out Hari Ini',
+              value: _todayStockOut,
+              icon: Icons.qr_code_scanner_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const StockOutPage())),
+          _OpsMetric(
+              label: 'Stock In Hari Ini',
+              value: _todayStockIn,
+              icon: Icons.qr_code_scanner_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const StockInPage())),
+          _OpsMetric(
+              label: 'Stok Rendah',
+              value: _lowStock,
+              icon: Icons.warning_amber_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const LowStockPage())),
+          _OpsMetric(
+              label: 'SKU Aktif',
+              value: _activeProducts,
+              icon: Icons.inventory_2_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const ProductListPage())),
         ];
       }
       if (role == 'production' || role == 'produksi') {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Produksi Aktif', value: _runningProduction, icon: Icons.precision_manufacturing_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const StockProgressPage())),
-          _OpsMetric(label: 'Pembelian Pending', value: _pendingPurchase, icon: Icons.shopping_cart_checkout_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const PurchaseVerificationPage())),
-          _OpsMetric(label: 'Task Saya', value: _myOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const TaskPage())),
-          _OpsMetric(label: 'Supplier', value: _pendingPurchase, icon: Icons.storefront_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const SupplierPage())),
+          _OpsMetric(
+              label: 'Produksi Aktif',
+              value: _runningProduction,
+              icon: Icons.precision_manufacturing_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const StockProgressPage())),
+          _OpsMetric(
+              label: 'Pembelian Pending',
+              value: _pendingPurchase,
+              icon: Icons.shopping_cart_checkout_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const PurchaseVerificationPage())),
+          _OpsMetric(
+              label: 'Task Saya',
+              value: _myOpenTasks,
+              icon: Icons.task_alt_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const TaskPage())),
+          _OpsMetric(
+              label: 'Supplier',
+              value: _pendingPurchase,
+              icon: Icons.storefront_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const SupplierPage())),
         ];
       }
       if (role == 'hr') {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Absensi Hari Ini', value: _todayAttendance, icon: Icons.how_to_reg_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(AbsensiPage(currentUser: _requiredAppUser))),
-          _OpsMetric(label: 'Telat', value: _lateAttendance, icon: Icons.schedule_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const HrPerformancePage())),
-          _OpsMetric(label: 'Absen', value: _absentAttendance, icon: Icons.person_off_rounded, color: Theme.of(context).colorScheme.error, onTap: () => _open(const HrPerformancePage())),
-          _OpsMetric(label: 'Task Review', value: _allOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.tertiary, onTap: () => _open(const TaskPage())),
+          _OpsMetric(
+              label: 'Absensi Hari Ini',
+              value: _todayAttendance,
+              icon: Icons.how_to_reg_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(AbsensiPage(currentUser: _requiredAppUser))),
+          _OpsMetric(
+              label: 'Telat',
+              value: _lateAttendance,
+              icon: Icons.schedule_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const HrPerformancePage())),
+          _OpsMetric(
+              label: 'Absen',
+              value: _absentAttendance,
+              icon: Icons.person_off_rounded,
+              color: Theme.of(context).colorScheme.error,
+              onTap: () => _open(const HrPerformancePage())),
+          _OpsMetric(
+              label: 'Task Review',
+              value: _allOpenTasks,
+              icon: Icons.task_alt_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              onTap: () => _open(const TaskPage())),
         ];
       }
       if (role == 'host_live') {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Live Hari Ini', value: _myTodayLive, icon: Icons.live_tv_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const HostLivePage())),
-          _OpsMetric(label: 'Live Review', value: _pendingLiveReview, icon: Icons.fact_check_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const HostLivePage())),
-          _OpsMetric(label: 'Task Saya', value: _myOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.tertiary, onTap: () => _open(const TaskPage())),
+          _OpsMetric(
+              label: 'Live Hari Ini',
+              value: _myTodayLive,
+              icon: Icons.live_tv_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const HostLivePage())),
+          _OpsMetric(
+              label: 'Live Review',
+              value: _pendingLiveReview,
+              icon: Icons.fact_check_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const HostLivePage())),
+          _OpsMetric(
+              label: 'Task Saya',
+              value: _myOpenTasks,
+              icon: Icons.task_alt_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              onTap: () => _open(const TaskPage())),
         ];
       }
       if (role == 'content_creator') {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Konten Aktif', value: _contentTotal, icon: Icons.video_collection_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const ContentMonitoringPage())),
-          _OpsMetric(label: 'Deadline Dekat', value: _contentDueSoon, icon: Icons.schedule_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const ContentMonitoringPage())),
-          _OpsMetric(label: 'Task Saya', value: _myOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.tertiary, onTap: () => _open(const TaskPage())),
+          _OpsMetric(
+              label: 'Konten Aktif',
+              value: _contentTotal,
+              icon: Icons.video_collection_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const ContentMonitoringPage())),
+          _OpsMetric(
+              label: 'Deadline Dekat',
+              value: _contentDueSoon,
+              icon: Icons.schedule_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const ContentMonitoringPage())),
+          _OpsMetric(
+              label: 'Task Saya',
+              value: _myOpenTasks,
+              icon: Icons.task_alt_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              onTap: () => _open(const TaskPage())),
         ];
       }
       return <_OpsMetric>[
-        _OpsMetric(label: 'Task Saya', value: _myOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const TaskPage())),
-        _OpsMetric(label: 'Absensi Saya', value: _myAttendanceLabel == 'Belum' ? 0 : 1, icon: Icons.how_to_reg_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(AbsensiPage(currentUser: _requiredAppUser))),
+        _OpsMetric(
+            label: 'Task Saya',
+            value: _myOpenTasks,
+            icon: Icons.task_alt_rounded,
+            color: Theme.of(context).colorScheme.secondary,
+            onTap: () => _open(const TaskPage())),
+        _OpsMetric(
+            label: 'Absensi Saya',
+            value: _myAttendanceLabel == 'Belum' ? 0 : 1,
+            icon: Icons.how_to_reg_rounded,
+            color: Theme.of(context).colorScheme.primary,
+            onTap: () => _open(AbsensiPage(currentUser: _requiredAppUser))),
       ];
     }
 
@@ -2539,7 +2743,8 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _roleScopeInfoCard() {
     final role = _role;
     final isSuper = AppRolePermissions.isSuperRoleId(role) || _isDemoSuperAdmin;
-    final title = isSuper ? 'Analytics Super Admin' : 'Analytics ${_roleLabel(role)}';
+    final title =
+        isSuper ? 'Analytics Super Admin' : 'Analytics ${_roleLabel(role)}';
     final subtitle = isSuper
         ? 'Ringkasan lintas finance, stock, marketplace, produksi, dan people ops.'
         : 'Ringkasan data disesuaikan dengan role aktif.';
@@ -2590,9 +2795,7 @@ class _DashboardPageState extends State<DashboardPage> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: items
-                .map((item) => _miniBadge(item))
-                .toList(),
+            children: items.map((item) => _miniBadge(item)).toList(),
           ),
         ],
       ),
@@ -2789,7 +2992,10 @@ class _DashboardPageState extends State<DashboardPage> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12.5,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.60),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.60),
                         height: 1.35,
                       ),
                     ),
@@ -2848,7 +3054,10 @@ class _DashboardPageState extends State<DashboardPage> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.60),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.60),
                         height: 1.3,
                         fontWeight: FontWeight.w600,
                       ),
@@ -2864,8 +3073,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   color: color.withOpacity(0.10),
                   border: Border.all(color: Colors.black, width: 1.5),
                 ),
-                child: Icon(Icons.chevron_right_rounded,
-                    color: color, size: 19),
+                child:
+                    Icon(Icons.chevron_right_rounded, color: color, size: 19),
               ),
             ],
           ),
@@ -3045,7 +3254,8 @@ class _DashboardPageState extends State<DashboardPage> {
           decoration: BoxDecoration(
             color: (Theme.of(context).cardColor),
             borderRadius: BorderRadius.zero,
-            border: Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
+            border:
+                Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
             boxShadow: [
               BoxShadow(
                 color: Theme.of(context).dividerColor.withOpacity(0.16),
@@ -3054,7 +3264,6 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
             ],
           ),
-
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3272,23 +3481,35 @@ class _DashboardPageState extends State<DashboardPage> {
     }
     if (role == 'finance') {
       return [
-        _DashboardMenu(Icons.account_balance_wallet_rounded, 'Laporan Keuangan',
+        _DashboardMenu(
+            Icons.account_balance_wallet_rounded,
+            'Laporan Keuangan',
             'Pantau omzet, HPP, biaya, margin, dan laba rugi.',
             () => _open(const FinanceReportPage())),
-        _DashboardMenu(Icons.verified_rounded, 'Verifikasi Pembelian',
+        _DashboardMenu(
+            Icons.verified_rounded,
+            'Verifikasi Pembelian',
             'Review nota pembelian yang masuk.',
             () => _open(const PurchaseVerificationPage())),
-        _DashboardMenu(Icons.warning_amber_rounded, 'Abnormal Marketplace',
+        _DashboardMenu(
+            Icons.warning_amber_rounded,
+            'Abnormal Marketplace',
             'Temukan pesanan dengan payout atau margin di luar batas.',
             () => _open(const FinanceReportPage(initialTabIndex: 6))),
-        _DashboardMenu(Icons.receipt_long_rounded, 'Arus Kas',
+        _DashboardMenu(
+            Icons.receipt_long_rounded,
+            'Arus Kas',
             'Pantau mutasi dana masuk dan keluar.',
             () => _open(const FinanceReportPage(initialTabIndex: 3))),
         _attendanceMenu(),
-        _DashboardMenu(Icons.task_alt_rounded, 'Tugas Finance',
+        _DashboardMenu(
+            Icons.task_alt_rounded,
+            'Tugas Finance',
             'Lihat task yang ditugaskan ke akun finance.',
             () => _open(const TaskPage())),
-        _DashboardMenu(Icons.file_download_rounded, 'Export Data',
+        _DashboardMenu(
+            Icons.file_download_rounded,
+            'Export Data',
             'Download data finance ke Excel.',
             () => _open(const DataExportImportPage())),
       ];
@@ -3403,7 +3624,8 @@ class _DashboardPageState extends State<DashboardPage> {
           Icons.link_rounded,
           'Mapping SKU',
           'Cocokkan SKU lokal dengan varian marketplace.',
-          () => _open(MarketplaceSkuMappingPage(currentUser: _requiredAppUser))),
+          () =>
+              _open(MarketplaceSkuMappingPage(currentUser: _requiredAppUser))),
       _DashboardMenu(
           Icons.sync_rounded,
           'Sync Stock',
@@ -3413,12 +3635,14 @@ class _DashboardPageState extends State<DashboardPage> {
           Icons.compare_arrows_rounded,
           'Selisih Stock',
           'Bandingkan stok lokal dengan stok marketplace.',
-          () => _open(MarketplaceStockDifferencePage(currentUser: _requiredAppUser))),
+          () => _open(
+              MarketplaceStockDifferencePage(currentUser: _requiredAppUser))),
       _DashboardMenu(
           Icons.rule_rounded,
           'Review Stock Out',
           'Review stock out tanpa mode match marketplace.',
-          () => _open(MarketplaceStockOutReviewPage(currentUser: _requiredAppUser))),
+          () => _open(
+              MarketplaceStockOutReviewPage(currentUser: _requiredAppUser))),
       _DashboardMenu(
           Icons.assignment_return_rounded,
           'Refund & Retur',
@@ -3495,9 +3719,6 @@ class _DashboardPageState extends State<DashboardPage> {
         _DashboardMenu(Icons.shopping_cart_checkout_rounded, 'Pembelian', '',
             () => _open(const PurchaseRequestPage()),
             shortTitle: 'Beli'),
-        _DashboardMenu(Icons.precision_manufacturing_rounded, 'Produksi', '',
-            () => _open(const StockProgressPage()),
-            shortTitle: 'Produksi'),
         _DashboardMenu(Icons.storefront_rounded, 'Supplier', '',
             () => _open(const SupplierPage()),
             shortTitle: 'Supplier'),
@@ -3576,9 +3797,6 @@ class _DashboardPageState extends State<DashboardPage> {
       _DashboardMenu(Icons.verified_rounded, 'Verifikasi', '',
           () => _open(const PurchaseVerificationPage()),
           shortTitle: 'Verif'),
-      _DashboardMenu(Icons.precision_manufacturing_rounded, 'Produksi', '',
-          () => _open(const StockProgressPage()),
-          shortTitle: 'Produksi'),
     ];
   }
 

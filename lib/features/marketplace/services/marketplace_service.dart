@@ -2233,6 +2233,8 @@ class MarketplaceService {
     final safeOffset = offset < 0 ? 0 : offset;
     final data = await query
         .order('order_created_at', ascending: false)
+        .order('pulled_at', ascending: false)
+        .order('updated_at', ascending: false)
         .range(safeOffset, safeOffset + safeLimit - 1);
 
     final rows = (data as List<dynamic>)

@@ -16,6 +16,7 @@ import '../../../core/ui/app_ui.dart';
 import '../../marketplace/models/marketplace_sku_map.dart';
 import '../../marketplace/services/marketplace_service.dart';
 import '../../stock/models/product.dart';
+import 'package:collection/collection.dart';
 
 class StockProgressPage extends StatefulWidget {
   const StockProgressPage({super.key});
@@ -32,6 +33,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
   bool _loading = true;
   bool _isSuperAdmin = false;
+  String _currentTenantId = '';
+  String _currentRoleId = '';
   String? _error;
   String _tailorFilter = 'all';
   String _statusFilter = 'all';
@@ -69,8 +72,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
     try {
       final userRow = await _loadCurrentUser();
-      final tenantId = AppUi.text(userRow['tenant_id'], '');
-      _isSuperAdmin = AppUi.text(userRow['role_id']) == 'super_admin';
+      _currentTenantId = AppUi.text(userRow['tenant_id'], '');
+      _currentRoleId = AppUi.text(userRow['role_id'], '');
+      _isSuperAdmin = _currentRoleId == 'super_admin';
 
       final payload = await _client.rpc(
         'list_production_progress_full_for_app',
@@ -85,16 +89,16 @@ class _StockProgressPageState extends State<StockProgressPage> {
         },
       );
 
-      final products = tenantId.isEmpty
+      final products = _currentTenantId.isEmpty
           ? <Product>[]
           : await _marketplaceService.listLocalProducts(
-              tenantId: tenantId,
+              tenantId: _currentTenantId,
               limit: 200,
             );
-      final skuMaps = tenantId.isEmpty
+      final skuMaps = _currentTenantId.isEmpty
           ? <MarketplaceSkuMap>[]
           : await _marketplaceService.listSkuMaps(
-              tenantId: tenantId,
+              tenantId: _currentTenantId,
               limit: 500,
             );
 
@@ -150,6 +154,14 @@ class _StockProgressPageState extends State<StockProgressPage> {
         });
       }
     }
+  }
+
+  bool _ensureCanWriteProduction() {
+    if (_isSuperAdmin || _currentRoleId == 'production' || _currentRoleId == 'produksi') {
+      return true;
+    }
+    AppUi.showSnack('Akses tulis produksi tidak tersedia.');
+    return false;
   }
 
   Future<Map<String, dynamic>> _loadCurrentUser() async {
@@ -261,12 +273,20 @@ class _StockProgressPageState extends State<StockProgressPage> {
   }
 
   Future<void> _createProgress() async {
-    final tailorName = TextEditingController();
+    if (!_ensureCanWriteProduction()) return;
+    final suratJalanNumber = TextEditingController();
     final patternCode = TextEditingController();
     final note = TextEditingController();
+    final customStageController = TextEditingController();
     final lines = <_ProductionLineInput>[_ProductionLineInput()];
-    String? selectedTailorId;
-    String? selectedPatternCode;
+
+    final availableStages = <Map<String, dynamic>>[
+      {'key': 'potong_kain', 'label': 'Potong Kain', 'active': true},
+      {'key': 'jahit', 'label': 'Jahit', 'active': true},
+      {'key': 'lubang_kancing', 'label': 'Lubang Kancing', 'active': false},
+      {'key': 'finishing', 'label': 'Finishing', 'active': true},
+      {'key': 'packing', 'label': 'Packing', 'active': true},
+    ];
 
     final uniquePatternCodes = _items
         .map((item) => AppUi.text(item['pattern_code']))
@@ -292,51 +312,66 @@ class _StockProgressPageState extends State<StockProgressPage> {
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
             num totalQty() => lines.fold<num>(0, (sum, line) => sum + line.qty);
-            num totalAmount() =>
-                lines.fold<num>(0, (sum, line) => sum + line.total);
 
             Future<void> submit() async {
+              final manualSuratJalan = suratJalanNumber.text.trim();
+              if (manualSuratJalan.isEmpty) {
+                AppUi.showSnack('Nomor Surat Jalan wajib diisi manual.');
+                return;
+              }
               final validLines = lines
                   .where((line) =>
                       (line.productId ?? '').trim().isNotEmpty && line.qty > 0)
                   .toList();
               if (validLines.isEmpty) {
-                AppUi.showSnack('Pilih minimal satu SKU lokal dan qty jahit.');
+                AppUi.showSnack('Pilih minimal satu SKU lokal dan qty proses.');
                 return;
               }
-              if ((selectedTailorId ?? '').isEmpty &&
-                  tailorName.text.trim().isEmpty) {
-                AppUi.showSnack('Penjahit wajib dipilih atau ditambahkan.');
+              final activeStageKeys = availableStages
+                  .where((stage) => stage['active'] == true)
+                  .map((stage) => stage['key'] as String)
+                  .toList();
+              if (activeStageKeys.isEmpty) {
+                AppUi.showSnack('Pilih minimal satu tahapan proses.');
                 return;
               }
 
               try {
                 setSheetState(() => saving = true);
+                if (_currentTenantId.isNotEmpty) {
+                  final duplicate = await _client
+                      .from('production_progress')
+                      .select('progress_id')
+                      .eq('tenant_id', _currentTenantId)
+                      .eq('surat_jalan_number', manualSuratJalan)
+                      .limit(1);
+                  if (_mapList(duplicate).isNotEmpty) {
+                    AppUi.showSnack('Nomor Surat Jalan sudah dipakai.');
+                    return;
+                  }
+                }
+
                 await _client.rpc(
                   'create_production_progress_full_for_app',
                   params: <String, dynamic>{
-                    'p_tailor_id': selectedTailorId,
-                    'p_tailor_name': tailorName.text.trim(),
                     'p_pattern_code': patternCode.text.trim(),
                     'p_production_date': _dateOnly(productionDate),
                     'p_target_finish_date':
                         targetDate == null ? null : _dateOnly(targetDate!),
                     'p_items': validLines.map((line) {
                       return <String, dynamic>{
-                        'marketplace_sku_map_id': line.marketplaceSkuMapId,
                         'product_id': line.productId,
                         'size_label': line.sizeLabel,
                         'qty': line.qty,
-                        'sewing_price_per_pcs': line.price,
+                        'sewing_price_per_pcs': 0,
                         'sort_order': lines.indexOf(line) + 1,
                       };
                     }).toList(),
-                    'p_deposit_amount': null,
-                    'p_deposit_date': null,
-                    'p_deposit_payment_status': null,
                     'p_surat_jalan_url': suratJalanUrl,
                     'p_catatan': note.text.trim(),
                     'p_proof_url': proofEvidence?.publicUrl,
+                    'p_surat_jalan_number': manualSuratJalan,
+                    'p_active_stages': activeStageKeys,
                   },
                 );
 
@@ -367,59 +402,71 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         .titleLarge
                         ?.copyWith(fontWeight: FontWeight.w900),
                   ),
-                  SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    value: selectedTailorId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Penjahit',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _tailors.map((tailor) {
-                      return DropdownMenuItem<String>(
-                        value: AppUi.text(tailor['tailor_id'], ''),
-                        child: Text(
-                          AppUi.text(tailor['tailor_name']),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: saving
-                        ? null
-                        : (value) {
-                            setSheetState(() {
-                              selectedTailorId = value;
-                              tailorName.clear();
-                            });
-                          },
-                  ),
-                  SizedBox(height: 10),
+                  const SizedBox(height: 10),
                   TextField(
-                    controller: tailorName,
-                    enabled: selectedTailorId == null && !saving,
+                    controller: suratJalanNumber,
+                    enabled: !saving,
+                    textCapitalization: TextCapitalization.characters,
                     decoration: const InputDecoration(
-                      labelText: 'Tambah penjahit manual',
+                      labelText: 'Nomor Surat Jalan',
+                      helperText: 'Isi manual sesuai nomor fisik/admin.',
                       border: OutlineInputBorder(),
                     ),
                   ),
-                  SizedBox(height: 10),
+                  const SizedBox(height: 10),
                   Autocomplete<String>(
                     optionsBuilder: (TextEditingValue textEditingValue) {
                       if (textEditingValue.text.isEmpty) {
                         return uniquePatternCodes;
                       }
                       return uniquePatternCodes.where((String option) {
-                        return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                        return option
+                            .toLowerCase()
+                            .contains(textEditingValue.text.toLowerCase());
                       });
                     },
                     onSelected: (String selection) {
                       patternCode.text = selection;
                     },
-                    fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+                    optionsViewBuilder: (BuildContext context,
+                        AutocompleteOnSelected<String> onSelected,
+                        Iterable<String> options) {
+                      return Align(
+                        alignment: Alignment.topLeft,
+                        child: Material(
+                          elevation: 4.0,
+                          borderRadius: BorderRadius.circular(8),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxHeight: 200,
+                              minWidth: MediaQuery.of(context).size.width - 32,
+                              maxWidth: MediaQuery.of(context).size.width - 32,
+                            ),
+                            child: ListView.builder(
+                              padding: EdgeInsets.zero,
+                              shrinkWrap: true,
+                              itemCount: options.length,
+                              itemBuilder: (BuildContext context, int index) {
+                                final String option = options.elementAt(index);
+                                return ListTile(
+                                  title: Text(option),
+                                  onTap: () {
+                                    onSelected(option);
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    fieldViewBuilder:
+                        (context, controller, focusNode, onEditingComplete) {
                       controller.addListener(() {
                         patternCode.text = controller.text;
                       });
-                      if (controller.text.isEmpty && patternCode.text.isNotEmpty) {
+                      if (controller.text.isEmpty &&
+                          patternCode.text.isNotEmpty) {
                         controller.text = patternCode.text;
                       }
                       return TextField(
@@ -433,7 +480,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       );
                     },
                   ),
-                  SizedBox(height: 10),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       Expanded(
@@ -448,11 +495,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                         () => productionDate = picked);
                                   }
                                 },
-                          icon: Icon(Icons.event_outlined),
+                          icon: const Icon(Icons.event_outlined),
                           label: Text('Tanggal ${AppUi.date(productionDate)}'),
                         ),
                       ),
-                      SizedBox(width: 10),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: saving
@@ -463,7 +510,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                     setSheetState(() => targetDate = picked);
                                   }
                                 },
-                          icon: Icon(Icons.flag_outlined),
+                          icon: const Icon(Icons.flag_outlined),
                           label: Text(targetDate == null
                               ? 'Target'
                               : AppUi.date(targetDate)),
@@ -471,13 +518,75 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       ),
                     ],
                   ),
-                  SizedBox(height: 14),
+                  const SizedBox(height: 14),
+                  Text('Tahapan Proses',
+                      style: Theme.of(sheetContext)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 6),
+                  ...availableStages.map((stage) {
+                    return CheckboxListTile(
+                      title: Text(stage['label'] as String),
+                      value: stage['active'] as bool,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: saving
+                          ? null
+                          : (bool? value) {
+                              setSheetState(() {
+                                stage['active'] = value ?? false;
+                              });
+                            },
+                    );
+                  }),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: customStageController,
+                          enabled: !saving,
+                          decoration: const InputDecoration(
+                            labelText: 'Tambah tahapan custom',
+                            hintText: 'Misal: bordir, sablon',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle_outline),
+                        onPressed: saving
+                            ? null
+                            : () {
+                                final text = customStageController.text.trim();
+                                if (text.isEmpty) return;
+                                final key = text.toLowerCase().replaceAll(' ', '_');
+                                if (availableStages.any((s) => s['key'] == key)) {
+                                  AppUi.showSnack('Tahapan "$text" sudah ada.');
+                                  return;
+                                }
+                                setSheetState(() {
+                                  availableStages.add({
+                                    'key': key,
+                                    'label': text,
+                                    'active': true,
+                                  });
+                                  customStageController.clear();
+                                });
+                              },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
                   Text('Breakdown Size',
                       style: Theme.of(sheetContext)
                           .textTheme
                           .titleMedium
                           ?.copyWith(fontWeight: FontWeight.w900)),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   if (_localProducts.isEmpty)
                     const EmptyState(
                       title: 'SKU lokal belum ada',
@@ -508,20 +617,19 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           ? null
                           : () => setSheetState(
                               () => lines.add(_ProductionLineInput())),
-                      icon: Icon(Icons.add_circle_outline),
-                      label: Text('Tambah size'),
+                      icon: const Icon(Icons.add_circle_outline),
+                      label: const Text('Tambah size'),
                     ),
                   ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
                       _miniMetric('Total qty', totalQty().toStringAsFixed(0)),
-                      _miniMetric('Total ongkos', AppUi.rupiah(totalAmount())),
                     ],
                   ),
-                  SizedBox(height: 14),
+                  const SizedBox(height: 14),
                   OutlinedButton.icon(
                     onPressed: saving || uploadingFile
                         ? null
@@ -543,17 +651,17 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             }
                           },
                     icon: uploadingFile
-                        ? SizedBox(
+                        ? const SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : Icon(Icons.attach_file_outlined),
+                        : const Icon(Icons.attach_file_outlined),
                     label: Text(suratJalanUrl == null
                         ? 'Upload surat jalan'
                         : 'Surat jalan tersimpan'),
                   ),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
                   EvidenceCameraField(
                     label: 'Foto produksi',
                     moduleName: 'production_progress',
@@ -564,7 +672,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       if (sheetContext.mounted) setSheetState(() {});
                     },
                   ),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: note,
                     maxLines: 3,
@@ -573,16 +681,16 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       border: OutlineInputBorder(),
                     ),
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   FilledButton.icon(
                     onPressed: saving ? null : submit,
                     icon: saving
-                        ? SizedBox(
+                        ? const SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : Icon(Icons.save_outlined),
+                        : const Icon(Icons.save_outlined),
                     label: Text(saving ? 'Menyimpan...' : 'Simpan Progress'),
                   ),
                 ],
@@ -594,9 +702,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
     );
 
     Future<void>.delayed(const Duration(milliseconds: 700), () {
-      tailorName.dispose();
+      suratJalanNumber.dispose();
       patternCode.dispose();
       note.dispose();
+      customStageController.dispose();
       for (final line in lines) {
         line.dispose();
       }
@@ -613,13 +722,6 @@ class _StockProgressPageState extends State<StockProgressPage> {
     required VoidCallback onChanged,
     required VoidCallback onRemove,
   }) {
-    final mappedOptions = _skuMaps
-        .where((item) => (item.productId ?? '').trim().isNotEmpty)
-        .toList();
-    final mappedProductIds = mappedOptions.map((e) => e.productId).toSet();
-    final unmappedProducts = _localProducts
-        .where((p) => !mappedProductIds.contains(p.productId))
-        .toList();
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
@@ -629,82 +731,60 @@ class _StockProgressPageState extends State<StockProgressPage> {
             Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: line.selectedValue,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Pilih SKU Master / Produk',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: [
-                      ..._localProducts.map((product) {
-                        return DropdownMenuItem<String>(
-                          value: 'local:${product.productId}',
-                          child: Text(
-                            '${product.kodeSku} - ${product.namaBarang} - Stok ${AppUi.money(product.stockSaatIni)}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      }),
-                    ],
-                    onChanged: saving
+                  child: InkWell(
+                    onTap: saving
                         ? null
-                        : (value) {
-                            if (value == null) return;
-                            final productId = value.substring(6);
-                            line.skuMap = null;
-                            line.product = _localProducts.firstWhere(
-                              (product) => product.productId == productId,
-                            );
-                            onChanged();
+                        : () async {
+                            final selected = await _showProductPicker();
+                            if (selected != null) {
+                              line.product = selected;
+                              onChanged();
+                            }
                           },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Pilih SKU Master / Produk',
+                        border: OutlineInputBorder(),
+                        suffixIcon: Icon(Icons.arrow_drop_down),
+                      ),
+                      child: Text(
+                        line.product != null
+                            ? _productionSkuLabel(line.product!)
+                            : 'Ketuk untuk memilih SKU/Produk',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: line.product != null
+                              ? null
+                              : Theme.of(context).hintColor,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
                 if (canRemove)
                   IconButton(
                     tooltip: 'Hapus size',
                     onPressed: saving ? null : onRemove,
-                    icon: Icon(Icons.remove_circle_outline),
+                    icon: const Icon(Icons.remove_circle_outline),
                   ),
               ],
             ),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: line.qtyController,
                     keyboardType: TextInputType.number,
+                    enabled: !saving,
                     decoration: const InputDecoration(
-                      labelText: 'Qty jahit',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (_) => onChanged(),
-                  ),
-                ),
-                SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: line.priceController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: const [AppMoneyInputFormatter()],
-                    decoration: const InputDecoration(
-                      labelText: 'Harga/pcs',
-                      prefixText: 'Rp ',
+                      labelText: 'Qty proses',
                       border: OutlineInputBorder(),
                     ),
                     onChanged: (_) => onChanged(),
                   ),
                 ),
               ],
-            ),
-            SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                'Total ${AppUi.rupiah(line.total)}',
-                style: TextStyle(fontWeight: FontWeight.w900),
-              ),
             ),
           ],
         ),
@@ -712,21 +792,171 @@ class _StockProgressPageState extends State<StockProgressPage> {
     );
   }
 
+  Future<Product?> _showProductPicker({
+    String title = 'Pilih SKU Master / Produk',
+    String searchLabel = 'Cari nama / SKU / barcode',
+    String? helperText,
+  }) async {
+    final searchController = TextEditingController();
+    List<Product> filtered = List<Product>.from(_localProducts);
+
+    final result = await showModalBottomSheet<Product>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            void filter(String value) {
+              final keyword = value.trim().toLowerCase();
+
+              setSheetState(() {
+                 filtered = _localProducts.where((product) {
+                  return product.namaBarang.toLowerCase().contains(keyword) ||
+                      product.kodeSku.toLowerCase().contains(keyword) ||
+                      (product.kodeBarcode?.toLowerCase() ?? '').contains(keyword);
+                }).toList();
+              });
+            }
+
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.88,
+              minChildSize: 0.48,
+              maxChildSize: 0.96,
+              builder: (context, scrollController) {
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: searchController,
+                            onChanged: filter,
+                            decoration: InputDecoration(
+                              labelText: searchLabel,
+                              prefixIcon: const Icon(Icons.search),
+                              border: const OutlineInputBorder(),
+                            ),
+                          ),
+                          if ((helperText ?? '').trim().isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              helperText!,
+                              style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.72),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(child: Text('Produk tidak ditemukan'))
+                          : ListView.builder(
+                              controller: scrollController,
+                              padding: const EdgeInsets.fromLTRB(14, 4, 14, 20),
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final product = filtered[index];
+
+                                return Card(
+                                  shape: const RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.zero,
+                                  ),
+                                  child: ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withOpacity(0.12),
+                                      child: const Icon(Icons.inventory_2_outlined),
+                                    ),
+                                    title: Text(
+                                      product.namaBarang,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w800),
+                                    ),
+                                    subtitle: Text(
+                                      'SKU: ${product.kodeSku}\n'
+                                      'Barcode: ${product.kodeBarcode}\n'
+                                      'Stock: ${product.stockSaatIni.toStringAsFixed(0)} ${product.satuan}',
+                                    ),
+                                    isThreeLine: true,
+                                    onTap: () =>
+                                        AppUi.safePop(context, product),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+
+    Future<void>.delayed(const Duration(milliseconds: 700), () {
+      searchController.dispose();
+    });
+    return result;
+  }
+
+  String _productionSkuLabel(Product product) {
+    return '${product.kodeSku} - ${product.namaBarang} (Stok: ${product.stockSaatIni.toStringAsFixed(0)} ${product.satuan})';
+  }
+
   Future<void> _showPaymentSheet({
     Map<String, dynamic>? progress,
     Map<String, dynamic>? tailor,
     Map<String, dynamic>? payment,
     String initialType = 'sewing_payment',
+    String? initialStageKey,
   }) async {
+    if (!_ensureCanWriteProduction()) return;
     final existingType = AppUi.text(payment?['payment_type'], initialType);
     final depositOnly = existingType == 'deposit' ||
         (progress == null && tailor == null && initialType == 'deposit');
+
+    final stages = progress != null ? _mapList(progress['stages']) : <Map<String, dynamic>>[];
+    final payableStages = stages.where((stage) {
+      final status = AppUi.text(stage['status']);
+      final skipped = status == 'skipped' || AppUi.text(stage['is_skipped']) == 'true';
+      return !skipped;
+    }).toList();
+
+    String? selectedStageKey = payment != null
+        ? AppUi.text(payment['stage_key'])
+        : (initialStageKey ?? (payableStages.isNotEmpty ? AppUi.text(payableStages.first['stage_key']) : null));
+
+    String? selectedTailorIdForPayment = tailor?['tailor_id'] ?? payment?['tailor_id'];
+
     final amount = TextEditingController(
       text: payment != null
           ? AppUi.moneyInput(AppUi.toNum(payment['amount']))
-          : initialType == 'sewing_payment' && progress != null
-              ? AppUi.moneyInput(AppUi.toNum(progress['payment_unpaid_amount']))
-              : '',
+          : '',
     );
     final note = TextEditingController(
       text: AppUi.text(
@@ -749,6 +979,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
     PhotoEvidence? proofEvidence;
     final initialProofUrl = AppUi.text(payment?['proof_url'], '');
     bool saving = false;
+    bool initialized = false;
 
     final saved = await showModalBottomSheet<bool>(
       context: context,
@@ -760,6 +991,66 @@ class _StockProgressPageState extends State<StockProgressPage> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
+            num getStageUnpaidAmount(String stageKey) {
+              final stage = stages.firstWhere((s) => AppUi.text(s['stage_key']) == stageKey, orElse: () => <String, dynamic>{});
+              final totalAmount = AppUi.toNum(stage['total_amount']);
+              final paymentsList = progress != null ? _mapList(progress['payments']) : <Map<String, dynamic>>[];
+              final paidAmount = paymentsList
+                  .where((p) => AppUi.text(p['stage_key']) == stageKey && 
+                                AppUi.text(p['payment_status']) == 'sudah_bayar' && 
+                                AppUi.text(p['payment_id']) != AppUi.text(payment?['payment_id']))
+                  .fold<num>(0, (sum, p) => sum + AppUi.toNum(p['amount']));
+              final unpaid = totalAmount - paidAmount;
+              return unpaid < 0 ? 0 : unpaid;
+            }
+
+            void updateStageFields(String stageKey) {
+              final stage = stages.firstWhere((s) => AppUi.text(s['stage_key']) == stageKey, orElse: () => <String, dynamic>{});
+              final unpaid = getStageUnpaidAmount(stageKey);
+              final stageTailorId = AppUi.text(stage['tailor_id'], '');
+              setSheetState(() {
+                selectedStageKey = stageKey;
+                if (payment == null && paymentType == 'sewing_payment') {
+                  amount.text = AppUi.moneyInput(unpaid);
+                }
+                if (stageTailorId.isNotEmpty) {
+                  selectedTailorIdForPayment = stageTailorId;
+                }
+                if (note.text.isEmpty || note.text.startsWith('Bayar ') || note.text.startsWith('Kasbon ') || note.text == 'Deposit awal produksi') {
+                  if (paymentType == 'sewing_payment') {
+                    note.text = 'Bayar ${_stageLabel(stageKey)} - ${AppUi.text(progress?['surat_jalan_number'])}';
+                  } else {
+                    note.text = 'Kasbon ${_stageLabel(stageKey)} - ${AppUi.text(progress?['surat_jalan_number'])}';
+                  }
+                }
+              });
+            }
+
+            if (!initialized) {
+              initialized = true;
+              if (progress != null && (paymentType == 'sewing_payment' || paymentType == 'kasbon') && selectedStageKey != null) {
+                final unpaid = getStageUnpaidAmount(selectedStageKey!);
+                final stage = stages.firstWhere((s) => AppUi.text(s['stage_key']) == selectedStageKey!, orElse: () => <String, dynamic>{});
+                final stageTailorId = AppUi.text(stage['tailor_id'], '');
+                if (stageTailorId.isNotEmpty) {
+                  selectedTailorIdForPayment = stageTailorId;
+                }
+                if (paymentType == 'kasbon' && selectedTailorIdForPayment == null && _tailors.isNotEmpty) {
+                  selectedTailorIdForPayment = progress?['tailor_id'];
+                }
+                if (payment == null && paymentType == 'sewing_payment') {
+                  amount.text = AppUi.moneyInput(unpaid);
+                }
+                if (note.text.isEmpty || note.text == 'Deposit awal produksi') {
+                  if (paymentType == 'sewing_payment') {
+                    note.text = 'Bayar ${_stageLabel(selectedStageKey!)} - ${AppUi.text(progress?['surat_jalan_number'])}';
+                  } else {
+                    note.text = 'Kasbon ${_stageLabel(selectedStageKey!)} - ${AppUi.text(progress?['surat_jalan_number'])}';
+                  }
+                }
+              }
+            }
+
             Future<void> submit() async {
               final nominal = AppUi.parseMoneyInput(amount.text);
               if (nominal <= 0) {
@@ -794,12 +1085,22 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     },
                   );
                 } else {
+                  final stage = stages.firstWhere(
+                    (s) => AppUi.text(s['stage_key']) == selectedStageKey,
+                    orElse: () => <String, dynamic>{},
+                  );
+                  final stageTailorId = AppUi.text(stage['tailor_id'], '').isNotEmpty
+                      ? AppUi.text(stage['tailor_id'])
+                      : null;
+
                   await _client.rpc(
                     'upsert_production_tailor_payment_for_app',
                     params: <String, dynamic>{
                       'p_payment_id': payment?['payment_id'],
                       'p_progress_id': progress?['progress_id'],
                       'p_tailor_id': tailor?['tailor_id'] ??
+                          selectedTailorIdForPayment ??
+                          stageTailorId ??
                           progress?['tailor_id'] ??
                           payment?['tailor_id'],
                       'p_payment_type': paymentType,
@@ -811,6 +1112,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       'p_proof_evidence_id': proofEvidence?.evidenceId,
                       'p_proof_url':
                           proofEvidence?.publicUrl ?? initialProofUrl,
+                      'p_stage_key': selectedStageKey,
                     },
                   );
                 }
@@ -838,16 +1140,43 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     payment != null
                         ? (depositOnly
                             ? 'Edit Deposit Awal'
-                            : 'Edit Pembayaran Penjahit')
+                            : 'Edit Pembayaran Pekerja')
                         : (depositOnly
                             ? 'Tambah Deposit Awal'
-                            : 'Pembayaran Penjahit'),
+                            : 'Pembayaran Pekerja'),
                     style: Theme.of(sheetContext)
                         .textTheme
                         .titleLarge
                         ?.copyWith(fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 12),
+                  if (progress != null && (paymentType == 'sewing_payment' || paymentType == 'kasbon')) ...[
+                    DropdownButtonFormField<String>(
+                      value: selectedStageKey,
+                      decoration: const InputDecoration(
+                        labelText: 'Pilih Proses / Tahapan',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: payableStages.map((stage) {
+                        final key = AppUi.text(stage['stage_key']);
+                        final label = _stageLabel(key);
+                        final worker = AppUi.text(stage['tailor_name'], '');
+                        final displayLabel = worker.isNotEmpty ? '$label ($worker)' : label;
+                        return DropdownMenuItem<String>(
+                          value: key,
+                          child: Text(displayLabel),
+                        );
+                      }).toList(),
+                      onChanged: saving
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                updateStageFields(value);
+                              }
+                            },
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   if (depositOnly)
                     LayoutBuilder(
                       builder: (context, constraints) => DropdownMenu<String>(
@@ -870,7 +1199,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         ),
                       ),
                     )
-                  else
+                  else ...[
                     DropdownButtonFormField<String>(
                       value: paymentType,
                       decoration: const InputDecoration(
@@ -881,21 +1210,58 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           ? const [
                               DropdownMenuItem(
                                   value: 'sewing_payment',
-                                  child: Text('Pembayaran ongkos jahit')),
+                                  child: Text('Pembayaran ongkos proses')),
                               DropdownMenuItem(
                                   value: 'kasbon',
-                                  child: Text('Kasbon penjahit')),
+                                  child: Text('Kasbon pekerja')),
                             ]
                           : const [
                               DropdownMenuItem(
                                   value: 'kasbon',
-                                  child: Text('Kasbon penjahit')),
+                                  child: Text('Kasbon pekerja')),
                             ],
                       onChanged: saving
                           ? null
-                          : (value) => setSheetState(
-                              () => paymentType = value ?? 'sewing_payment'),
+                          : (value) {
+                              if (value != null) {
+                                setSheetState(() {
+                                  paymentType = value;
+                                  if (selectedStageKey != null) {
+                                    updateStageFields(selectedStageKey!);
+                                  }
+                                });
+                              }
+                            },
                     ),
+                    const SizedBox(height: 10),
+                    if (paymentType == 'kasbon') ...[
+                      DropdownButtonFormField<String>(
+                        value: selectedTailorIdForPayment,
+                        decoration: const InputDecoration(
+                          labelText: 'Pilih Pekerja untuk Kasbon',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: null,
+                            child: Text('Pekerja manual / Belum dipilih'),
+                          ),
+                          ..._tailors.map((tailor) => DropdownMenuItem<String>(
+                                value: AppUi.text(tailor['tailor_id']),
+                                child: Text(AppUi.text(tailor['tailor_name'])),
+                              )),
+                        ],
+                        onChanged: saving
+                            ? null
+                            : (value) {
+                                setSheetState(() {
+                                  selectedTailorIdForPayment = value;
+                                });
+                              },
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                  ],
                   const SizedBox(height: 10),
                   TextField(
                     controller: amount,
@@ -907,7 +1273,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       border: OutlineInputBorder(),
                     ),
                   ),
-                  SizedBox(height: 10),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       Expanded(
@@ -920,11 +1286,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                     setSheetState(() => paymentDate = picked);
                                   }
                                 },
-                          icon: Icon(Icons.event_outlined),
+                          icon: const Icon(Icons.event_outlined),
                           label: Text(AppUi.date(paymentDate)),
                         ),
                       ),
-                      SizedBox(width: 10),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: DropdownButtonFormField<String>(
                           value: paymentStatus,
@@ -948,7 +1314,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       ),
                     ],
                   ),
-                  SizedBox(height: 10),
+                  const SizedBox(height: 10),
                   EvidenceCameraField(
                     label: 'Bukti pembayaran',
                     moduleName: depositOnly
@@ -978,12 +1344,12 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   FilledButton.icon(
                     onPressed: saving ? null : submit,
                     icon: saving
-                        ? SizedBox(
+                        ? const SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : Icon(Icons.payments_outlined),
+                        : const Icon(Icons.payments_outlined),
                     label: Text(saving ? 'Menyimpan...' : 'Simpan Pembayaran'),
                   ),
                 ],
@@ -1038,10 +1404,436 @@ class _StockProgressPageState extends State<StockProgressPage> {
     }
   }
 
-  Future<void> _updateStage(Map<String, dynamic> item, String stageKey) async {
-    String status = 'done';
-    final note = TextEditingController();
+  Future<void> _updateStage(Map<String, dynamic> item, String stageKey, Map<String, dynamic> stage) async {
+    if (!_ensureCanWriteProduction()) return;
+    String status = AppUi.text(stage['status'], 'progress');
+    bool isSkipped = (stage['is_skipped'] == true || AppUi.text(stage['is_skipped']) == 'true') || status == 'skipped';
+    String selectedTailorId = AppUi.text(stage['tailor_id'], '');
+    final manualTailorController = TextEditingController(text: AppUi.text(stage['tailor_name']));
+
+    final priceController = TextEditingController(
+      text: AppUi.moneyInput(AppUi.toNum(stage['price_per_pcs'])),
+    );
+    final noteController = TextEditingController(text: AppUi.text(stage['note']));
+    
+    DateTime processDate = stage['process_date'] != null
+        ? DateTime.tryParse(AppUi.text(stage['process_date'])) ?? DateTime.now()
+        : DateTime.now();
+
     PhotoEvidence? proofEvidence;
+    final initialProofUrl = AppUi.text(stage['proof_url'], '');
+    bool saving = false;
+
+    if (selectedTailorId.isNotEmpty) {
+      if (!_tailors.any((t) => AppUi.text(t['tailor_id']) == selectedTailorId)) {
+        selectedTailorId = '';
+      }
+    }
+    if (selectedTailorId.isEmpty && manualTailorController.text.isNotEmpty) {
+      final match = _tailors.firstWhere(
+        (t) => AppUi.text(t['tailor_name']).trim().toLowerCase() == manualTailorController.text.trim().toLowerCase(),
+        orElse: () => <String, dynamic>{},
+      );
+      if (match.isNotEmpty) {
+        selectedTailorId = AppUi.text(match['tailor_id']);
+      }
+    }
+
+    final items = _mapList(item['items']);
+    final existingBreakdown = _mapList(stage['size_breakdown']);
+    
+    final List<Map<String, dynamic>> sizeInputs = [];
+    for (final row in items) {
+      final productId = AppUi.text(row['product_id']);
+      final sizeLabel = AppUi.text(row['size_label']);
+      final double sizeDefaultQty = AppUi.toNum(row['qty']).toDouble();
+
+      final exist = existingBreakdown.firstWhere(
+        (e) => AppUi.text(e['product_id']) == productId && AppUi.text(e['size_label']) == sizeLabel,
+        orElse: () => <String, dynamic>{},
+      );
+
+      final double sizeQtyIn = exist.isNotEmpty ? AppUi.toNum(exist['qty_in']).toDouble() : sizeDefaultQty;
+      final double sizeQtyOut = exist.isNotEmpty ? AppUi.toNum(exist['qty_out']).toDouble() : (exist.isNotEmpty ? AppUi.toNum(exist['qty_in']).toDouble() : sizeDefaultQty);
+      final double sizeQtyReject = exist.isNotEmpty ? AppUi.toNum(exist['qty_reject']).toDouble() : 0.0;
+
+      sizeInputs.add({
+        'product_id': productId,
+        'size_label': sizeLabel,
+        'local_sku': AppUi.text(row['local_sku']),
+        'local_product_name': AppUi.text(row['local_product_name']),
+        'qty_in_controller': TextEditingController(text: sizeQtyIn.toStringAsFixed(0)),
+        'qty_out_controller': TextEditingController(text: sizeQtyOut.toStringAsFixed(0)),
+        'qty_reject_controller': TextEditingController(text: sizeQtyReject.toStringAsFixed(0)),
+      });
+    }
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            Future<void> submit() async {
+              final double price = AppUi.parseMoneyInput(priceController.text).toDouble();
+              final String tailorName = manualTailorController.text.trim();
+
+              if (!isSkipped && tailorName.isEmpty) {
+                AppUi.showSnack('Pekerja proses wajib diisi.');
+                return;
+              }
+              if (isSkipped && noteController.text.trim().isEmpty) {
+                AppUi.showSnack('Catatan wajib diisi jika proses dilewati.');
+                return;
+              }
+
+              final List<Map<String, dynamic>> sizeBreakdownJson = [];
+              double totalQtyIn = 0;
+              double totalQtyOut = 0;
+              double totalQtyReject = 0;
+
+              for (final input in sizeInputs) {
+                final qi = double.tryParse((input['qty_in_controller'] as TextEditingController).text.trim()) ?? 0;
+                final qo = double.tryParse((input['qty_out_controller'] as TextEditingController).text.trim()) ?? 0;
+                final qr = double.tryParse((input['qty_reject_controller'] as TextEditingController).text.trim()) ?? 0;
+
+                totalQtyIn += qi;
+                totalQtyOut += qo;
+                totalQtyReject += qr;
+
+                sizeBreakdownJson.add({
+                  'product_id': input['product_id'],
+                  'size_label': input['size_label'],
+                  'qty_in': qi,
+                  'qty_out': qo,
+                  'qty_reject': qr,
+                });
+              }
+
+              try {
+                setSheetState(() => saving = true);
+                
+                final String? finalTailorId = selectedTailorId.isNotEmpty ? selectedTailorId : null;
+
+                await _client.rpc(
+                  'upsert_production_process_stage_for_app',
+                  params: <String, dynamic>{
+                    'p_progress_id': item['progress_id'],
+                    'p_stage_key': stageKey,
+                    'p_status': isSkipped ? 'skipped' : status,
+                    'p_tailor_id': finalTailorId,
+                    'p_tailor_name': tailorName.isEmpty ? null : tailorName,
+                    'p_qty_in': totalQtyIn,
+                    'p_qty_out': totalQtyOut,
+                    'p_qty_reject': totalQtyReject,
+                    'p_price_per_pcs': price,
+                    'p_process_date': _dateOnly(processDate),
+                    'p_proof_url': proofEvidence?.publicUrl ?? (initialProofUrl.isNotEmpty ? initialProofUrl : null),
+                    'p_note': noteController.text.trim().isEmpty ? null : noteController.text.trim(),
+                    'p_is_skipped': isSkipped,
+                    'p_size_breakdown': sizeBreakdownJson,
+                  },
+                );
+
+                if (sheetContext.mounted) AppUi.safePop(sheetContext, true);
+              } on PostgrestException catch (e) {
+                AppUi.showSnack(e.message);
+              } catch (e) {
+                AppUi.showSnack(AppUi.userMessage(e.toString()));
+              } finally {
+                if (sheetContext.mounted) setSheetState(() => saving = false);
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 18,
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+              ),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Update Stage: ${_stageLabel(stageKey)}',
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('Lewati Stage'),
+                          Switch(
+                            value: isSkipped,
+                            onChanged: saving
+                                ? null
+                                : (val) {
+                                    setSheetState(() {
+                                      isSkipped = val;
+                                      if (isSkipped) {
+                                        status = 'skipped';
+                                      } else {
+                                        status = AppUi.text(stage['status'], 'progress') == 'skipped' 
+                                            ? 'progress' 
+                                            : AppUi.text(stage['status'], 'progress');
+                                      }
+                                    });
+                                  },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (!isSkipped) ...[
+                    DropdownButtonFormField<String>(
+                      value: status == 'skipped' ? 'progress' : status,
+                      decoration: const InputDecoration(
+                        labelText: 'Status Stage',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'pending', child: Text('Pending')),
+                        DropdownMenuItem(value: 'progress', child: Text('Progress')),
+                        DropdownMenuItem(value: 'done', child: Text('Done')),
+                        DropdownMenuItem(value: 'cancelled', child: Text('Dibatalkan')),
+                      ],
+                      onChanged: saving
+                          ? null
+                          : (value) => setSheetState(() => status = value ?? 'progress'),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedTailorId.isEmpty ? null : selectedTailorId,
+                      decoration: const InputDecoration(
+                        labelText: 'Pilih Pekerja (Tailor)',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: null,
+                          child: Text('Pekerja manual / Belum dipilih'),
+                        ),
+                        ..._tailors.map((tailor) => DropdownMenuItem<String>(
+                              value: AppUi.text(tailor['tailor_id']),
+                              child: Text(AppUi.text(tailor['tailor_name'])),
+                            )),
+                      ],
+                      onChanged: saving
+                          ? null
+                          : (value) {
+                              setSheetState(() {
+                                selectedTailorId = value ?? '';
+                                if (selectedTailorId.isNotEmpty) {
+                                  final t = _tailors.firstWhere((element) => AppUi.text(element['tailor_id']) == selectedTailorId);
+                                  manualTailorController.text = AppUi.text(t['tailor_name']);
+                                }
+                              });
+                            },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: manualTailorController,
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: 'Nama Pekerja',
+                        helperText: 'Bisa diisi manual jika nama tidak terdaftar di rekap.',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Size Breakdown Qty:',
+                      style: Theme.of(sheetContext).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 6),
+                    ...sizeInputs.map((input) {
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Theme.of(sheetContext).dividerColor.withOpacity(0.2)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${input['size_label']} - ${input['local_sku']} (${input['local_product_name']})',
+                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11),
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: input['qty_in_controller'] as TextEditingController,
+                                    keyboardType: TextInputType.number,
+                                    enabled: !saving,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Qty In',
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: input['qty_out_controller'] as TextEditingController,
+                                    keyboardType: TextInputType.number,
+                                    enabled: !saving,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Qty Out',
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: input['qty_reject_controller'] as TextEditingController,
+                                    keyboardType: TextInputType.number,
+                                    enabled: !saving,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Reject',
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: priceController,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: const [AppMoneyInputFormatter()],
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: 'Tarif / Ongkos per pcs',
+                        prefixText: 'Rp ',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  ListTile(
+                    title: const Text('Tanggal Proses'),
+                    subtitle: Text(AppUi.date(processDate)),
+                    trailing: const Icon(Icons.calendar_today_outlined),
+                    onTap: saving
+                        ? null
+                        : () async {
+                            final picked = await _pickDate(processDate);
+                            if (picked != null) {
+                              setSheetState(() => processDate = picked);
+                            }
+                          },
+                  ),
+                  const SizedBox(height: 12),
+                  EvidenceCameraField(
+                    label: 'Foto update stage',
+                    moduleName: 'production_progress',
+                    purpose: 'stage_$stageKey',
+                    referenceId: item['progress_id']?.toString(),
+                    initialPhotoUrl: initialProofUrl,
+                    allowGallery: true,
+                    onUploaded: (evidence) {
+                      proofEvidence = evidence;
+                      if (sheetContext.mounted) setSheetState(() {});
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: noteController,
+                    maxLines: 3,
+                    enabled: !saving,
+                    decoration: InputDecoration(
+                      labelText: isSkipped ? 'Alasan dilewati (Wajib)' : 'Catatan (Opsional)',
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  if (!isSkipped && manualTailorController.text.trim().isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        AppUi.safePop(sheetContext, false);
+                        _showPaymentSheet(
+                          progress: item,
+                          initialStageKey: stageKey,
+                          initialType: 'sewing_payment',
+                        );
+                      },
+                      icon: const Icon(Icons.payments_outlined, color: Colors.cyan),
+                      label: const Text('Bayar Ongkos Stage Ini'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                        side: const BorderSide(color: Colors.cyan),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: saving ? null : submit,
+                    icon: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.task_alt_outlined),
+                    label: Text(stageKey == 'packing' && status == 'done' && !isSkipped
+                        ? 'Selesaikan dan Masuk Stock'
+                        : 'Simpan Stage'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    Future<void>.delayed(const Duration(milliseconds: 700), () {
+      manualTailorController.dispose();
+      priceController.dispose();
+      noteController.dispose();
+      for (final input in sizeInputs) {
+        (input['qty_in_controller'] as TextEditingController).dispose();
+        (input['qty_out_controller'] as TextEditingController).dispose();
+        (input['qty_reject_controller'] as TextEditingController).dispose();
+      }
+    });
+    if (saved == true) _load();
+  }
+
+  Future<void> _markDone(Map<String, dynamic> item) async {
+    if (!_ensureCanWriteProduction()) return;
+    final items = _mapList(item['items']);
+    final Map<String, TextEditingController> controllers = {};
+    for (final row in items) {
+      final itemId = AppUi.text(row['progress_item_id']);
+      final qty = AppUi.toNum(row['qty']).toDouble();
+      controllers[itemId] = TextEditingController(text: qty.toStringAsFixed(0));
+    }
     bool saving = false;
 
     final saved = await showModalBottomSheet<bool>(
@@ -1057,16 +1849,32 @@ class _StockProgressPageState extends State<StockProgressPage> {
             Future<void> submit() async {
               try {
                 setSheetState(() => saving = true);
+
+                // 1. Update quantities in database for each size
+                for (final row in items) {
+                  final itemId = AppUi.text(row['progress_item_id']);
+                  final controller = controllers[itemId];
+                  if (controller == null) continue;
+                  final double newQty = double.tryParse(controller.text.trim()) ?? 0.0;
+                  
+                  await _client
+                      .from('production_progress_items')
+                      .update({'qty': newQty})
+                      .eq('progress_item_id', itemId);
+                }
+
+                // 2. Call the RPC to finalize and stock in
                 await _client.rpc(
                   'update_production_progress_status_full_for_app',
                   params: <String, dynamic>{
                     'p_progress_id': item['progress_id'],
-                    'p_status': status,
-                    'p_stage_key': stageKey,
-                    'p_proof_url': proofEvidence?.publicUrl,
-                    'p_catatan': note.text.trim(),
+                    'p_status': 'done',
+                    'p_stage_key': 'finishing',
+                    'p_proof_url': item['proof_url'] ?? item['proof_photo_url'],
+                    'p_catatan': item['catatan'],
                   },
                 );
+
                 if (sheetContext.mounted) AppUi.safePop(sheetContext, true);
               } on PostgrestException catch (e) {
                 AppUi.showSnack(e.message);
@@ -1088,65 +1896,79 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 shrinkWrap: true,
                 children: [
                   Text(
-                    _stageLabel(stageKey),
+                    'Selesaikan & Stock In',
                     style: Theme.of(sheetContext)
                         .textTheme
                         .titleLarge
                         ?.copyWith(fontWeight: FontWeight.w900),
                   ),
-                  SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: status,
-                    decoration: const InputDecoration(
-                      labelText: 'Status stage',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'progress', child: Text('Progress')),
-                      DropdownMenuItem(value: 'done', child: Text('Done')),
-                      DropdownMenuItem(
-                          value: 'cancelled', child: Text('Dibatalkan')),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Masukkan kuantitas masuk riil per size. Stock lokal akan bertambah sesuai kuantitas ini.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  ...items.map((row) {
+                    final itemId = AppUi.text(row['progress_item_id']);
+                    final controller = controllers[itemId];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${AppUi.text(row['size_label'])} - ${AppUi.text(row['local_sku'])} (${AppUi.text(row['local_product_name'])}):',
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 100,
+                            child: TextField(
+                              controller: controller,
+                              keyboardType: TextInputType.number,
+                              enabled: !saving,
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: saving ? null : () => AppUi.safePop(sheetContext, false),
+                          child: const Text('Batal'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 44),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: saving ? null : submit,
+                          icon: saving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.inventory_2_outlined),
+                          label: const Text('Stock In'),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(0, 44),
+                          ),
+                        ),
+                      ),
                     ],
-                    onChanged: saving
-                        ? null
-                        : (value) =>
-                            setSheetState(() => status = value ?? 'done'),
-                  ),
-                  SizedBox(height: 12),
-                  EvidenceCameraField(
-                    label: 'Foto update stage',
-                    moduleName: 'production_progress',
-                    purpose: 'stage_$stageKey',
-                    referenceId: item['progress_id']?.toString(),
-                    allowGallery: true,
-                    onUploaded: (evidence) {
-                      proofEvidence = evidence;
-                      if (sheetContext.mounted) setSheetState(() {});
-                    },
-                  ),
-                  SizedBox(height: 12),
-                  TextField(
-                    controller: note,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Catatan',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: saving ? null : submit,
-                    icon: saving
-                        ? SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(Icons.task_alt_outlined),
-                    label: Text(stageKey == 'finishing' && status == 'done'
-                        ? 'Done dan Masuk Stock'
-                        : 'Simpan Stage'),
                   ),
                 ],
               ),
@@ -1156,51 +1978,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
       },
     );
 
-    Future<void>.delayed(const Duration(milliseconds: 700), note.dispose);
-    if (saved == true) _load();
-  }
-
-  Future<void> _markDone(Map<String, dynamic> item) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Selesaikan produksi?'),
-        content: Text(
-          'Saat Done, stock lokal bertambah per baris size dari SKU Mapping. Proses ini dicegah dobel oleh backend.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => AppUi.safePop(dialogContext, false),
-            child: Text('Batal'),
-          ),
-          FilledButton.icon(
-            onPressed: () => AppUi.safePop(dialogContext, true),
-            icon: Icon(Icons.inventory_2_outlined),
-            label: Text('Done'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    try {
-      await _client.rpc(
-        'update_production_progress_status_full_for_app',
-        params: <String, dynamic>{
-          'p_progress_id': item['progress_id'],
-          'p_status': 'done',
-          'p_stage_key': 'finishing',
-          'p_proof_url': item['proof_url'] ?? item['proof_photo_url'],
-          'p_catatan': item['catatan'],
-        },
-      );
-      AppUi.showSnack('Produksi selesai dan stock lokal sudah ditambah.');
-      await _load();
-    } on PostgrestException catch (e) {
-      AppUi.showSnack(e.message);
-    } catch (e) {
-      AppUi.showSnack(AppUi.userMessage(e.toString()));
+    for (final controller in controllers.values) {
+      Future.delayed(const Duration(milliseconds: 700), () => controller.dispose());
     }
+    if (saved == true) _load();
   }
 
   Future<void> _deleteProgress(Map<String, dynamic> item) async {
@@ -1208,17 +1989,21 @@ class _StockProgressPageState extends State<StockProgressPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Hapus progress produksi?'),
-        content: Text(AppUi.text(item['product_name'], 'Progress ini')),
+        title: const Text('Hapus progress produksi?'),
+        content: Text(
+          'Menghapus Surat Jalan ini akan menghapus semua tahapan proses, catatan pembayaran pekerja, '
+          'dan otomatis membatalkan penambahan stok barang di master SKU (jika sudah Done).\n\n'
+          'Apakah Anda yakin ingin menghapus "${AppUi.text(item['surat_jalan_number'])}"?'
+        ),
         actions: [
           TextButton(
             onPressed: () => AppUi.safePop(dialogContext, false),
-            child: Text('Batal'),
+            child: const Text('Batal'),
           ),
           FilledButton.icon(
             onPressed: () => AppUi.safePop(dialogContext, true),
-            icon: Icon(Icons.delete_outline),
-            label: Text('Hapus'),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Hapus'),
           ),
         ],
       ),
@@ -1237,6 +2022,362 @@ class _StockProgressPageState extends State<StockProgressPage> {
     } catch (e) {
       AppUi.showSnack(AppUi.userMessage(e.toString()));
     }
+  }
+
+  Future<void> _editProgress(Map<String, dynamic> item) async {
+    if (!_ensureCanWriteProduction()) return;
+    final suratJalanNumber = TextEditingController(text: AppUi.text(item['surat_jalan_number']));
+    final patternCode = TextEditingController(text: AppUi.text(item['pattern_code']));
+    final note = TextEditingController(text: AppUi.text(item['catatan']));
+    DateTime productionDate = DateTime.tryParse(AppUi.text(item['production_date'])) ?? DateTime.now();
+    DateTime? targetDate = DateTime.tryParse(AppUi.text(item['target_finish_date']));
+    bool saving = false;
+
+    // Load initial size breakdown lines
+    final initialItems = _mapList(item['items']);
+    final lines = initialItems.map((itemRow) {
+      final line = _ProductionLineInput();
+      final pId = AppUi.text(itemRow['product_id']);
+      final prod = _localProducts.firstWhereOrNull((p) => p.productId == pId) ??
+          Product(
+            productId: pId,
+            kodeSku: AppUi.text(itemRow['size_label']),
+            kodeBarcode: null,
+            namaBarang: AppUi.text(itemRow['nama_barang'] ?? itemRow['size_label']),
+            kategori: null,
+            satuan: 'pcs',
+            stockAwal: 0,
+            stockSaatIni: 0,
+            lowStockLimit: 0,
+            lokasiRak: null,
+            status: 'active',
+          );
+      line.product = prod;
+      line.qtyController.text = AppUi.toNum(itemRow['qty']).toStringAsFixed(0);
+      return line;
+    }).toList();
+    if (lines.isEmpty) {
+      lines.add(_ProductionLineInput());
+    }
+
+    final uniquePatternCodes = _items
+        .map((e) => AppUi.text(e['pattern_code']))
+        .where((c) => c.isNotEmpty)
+        .toSet()
+        .toList();
+    uniquePatternCodes.sort();
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            num totalQty() => lines.fold<num>(0, (sum, line) => sum + line.qty);
+
+            Future<void> submit() async {
+              final manualSuratJalan = suratJalanNumber.text.trim();
+              if (manualSuratJalan.isEmpty) {
+                AppUi.showSnack('Nomor Surat Jalan wajib diisi.');
+                return;
+              }
+
+              final validLines = lines
+                  .where((line) =>
+                      (line.productId ?? '').trim().isNotEmpty && line.qty > 0)
+                  .toList();
+              if (validLines.isEmpty) {
+                AppUi.showSnack('Pilih minimal satu SKU lokal dan qty proses.');
+                return;
+              }
+
+              try {
+                setSheetState(() => saving = true);
+                
+                final firstLine = validLines.first;
+                final firstProductId = firstLine.productId;
+                final firstProductName = firstLine.product?.namaBarang ?? '';
+                final firstSku = firstLine.product?.kodeSku ?? '';
+
+                await _client.from('production_progress').update({
+                  'surat_jalan_number': manualSuratJalan,
+                  'pattern_code': patternCode.text.trim(),
+                  'production_date': _dateOnly(productionDate),
+                  'target_finish_date': targetDate == null ? null : _dateOnly(targetDate!),
+                  'catatan': note.text.trim(),
+                  'product_id': firstProductId,
+                  'product_name': firstProductName,
+                  'nama_barang': firstProductName,
+                  'sku': firstSku,
+                  'updated_at': DateTime.now().toIso8601String(),
+                }).eq('progress_id', item['progress_id']);
+
+                // Delete existing items
+                await _client
+                    .from('production_progress_items')
+                    .delete()
+                    .eq('progress_id', item['progress_id']);
+
+                // Insert new/updated items
+                int sortOrder = 0;
+                final newItems = validLines.map((line) {
+                  sortOrder++;
+                  return <String, dynamic>{
+                    'progress_id': item['progress_id'],
+                    'tenant_id': _currentTenantId,
+                    'product_id': line.productId,
+                    'local_sku': line.product?.kodeSku ?? '',
+                    'local_product_name': line.product?.namaBarang ?? '',
+                    'local_product_barcode': line.product?.kodeBarcode,
+                    'size_label': line.sizeLabel,
+                    'qty': line.qty,
+                    'sewing_price_per_pcs': 0,
+                    'line_total': 0,
+                    'sort_order': sortOrder,
+                  };
+                }).toList();
+
+                await _client.from('production_progress_items').insert(newItems);
+
+                // Recalculate totals
+                await _client.rpc(
+                  'production_recalculate_progress_totals',
+                  params: <String, dynamic>{
+                    'p_progress_id': item['progress_id'],
+                  },
+                );
+
+                if (sheetContext.mounted) AppUi.safePop(sheetContext, true);
+              } on PostgrestException catch (e) {
+                AppUi.showSnack(e.message);
+              } catch (e) {
+                AppUi.showSnack(AppUi.userMessage(e.toString()));
+              } finally {
+                if (sheetContext.mounted) setSheetState(() => saving = false);
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 18,
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+              ),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  Text(
+                    'Edit Surat Jalan / Progress',
+                    style: Theme.of(sheetContext)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: suratJalanNumber,
+                    enabled: !saving,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(
+                      labelText: 'Nomor Surat Jalan',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Autocomplete<String>(
+                    optionsBuilder: (TextEditingValue textEditingValue) {
+                      if (textEditingValue.text.isEmpty) {
+                        return uniquePatternCodes;
+                      }
+                      return uniquePatternCodes.where((String option) {
+                        return option
+                            .toLowerCase()
+                            .contains(textEditingValue.text.toLowerCase());
+                      });
+                    },
+                    initialValue: TextEditingValue(text: patternCode.text),
+                    onSelected: (String selection) {
+                      patternCode.text = selection;
+                    },
+                    optionsViewBuilder: (BuildContext context,
+                        AutocompleteOnSelected<String> onSelected,
+                        Iterable<String> options) {
+                      return Align(
+                        alignment: Alignment.topLeft,
+                        child: Material(
+                          elevation: 4.0,
+                          borderRadius: BorderRadius.circular(8),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxHeight: 200,
+                              minWidth: MediaQuery.of(context).size.width - 32,
+                              maxWidth: MediaQuery.of(context).size.width - 32,
+                            ),
+                            child: ListView.builder(
+                              padding: EdgeInsets.zero,
+                              shrinkWrap: true,
+                              itemCount: options.length,
+                              itemBuilder: (BuildContext context, int index) {
+                                final String option = options.elementAt(index);
+                                return ListTile(
+                                  title: Text(option),
+                                  onTap: () => onSelected(option),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    fieldViewBuilder:
+                        (context, controller, focusNode, onEditingComplete) {
+                      controller.addListener(() {
+                        patternCode.text = controller.text;
+                      });
+                      if (controller.text.isEmpty &&
+                          patternCode.text.isNotEmpty) {
+                        controller.text = patternCode.text;
+                      }
+                      return TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        enabled: !saving,
+                        decoration: const InputDecoration(
+                          labelText: 'Kode Pola (Pilih atau Ketik Manual)',
+                          border: OutlineInputBorder(),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: saving
+                              ? null
+                              : () async {
+                                  final picked = await _pickDate(productionDate);
+                                  if (picked != null) {
+                                    setSheetState(() => productionDate = picked);
+                                  }
+                                },
+                          icon: const Icon(Icons.event_outlined),
+                          label: Text('Mulai: ${AppUi.date(productionDate)}'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: saving
+                              ? null
+                              : () async {
+                                  final picked = await _pickDate(targetDate);
+                                  if (picked != null) {
+                                    setSheetState(() => targetDate = picked);
+                                  }
+                                },
+                          icon: const Icon(Icons.flag_outlined),
+                          label: Text(targetDate == null
+                              ? 'Target: -'
+                              : 'Target: ${AppUi.date(targetDate!)}'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text('Breakdown Size',
+                      style: Theme.of(sheetContext)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 8),
+                  if (_localProducts.isEmpty)
+                    const EmptyState(
+                      title: 'SKU lokal belum ada',
+                      subtitle:
+                          'Tambahkan produk/SKU lokal aktif dulu di menu stok.',
+                      icon: Icons.inventory_2_outlined,
+                    )
+                  else
+                    ...lines.map((line) {
+                      return _lineEditor(
+                        context: sheetContext,
+                        line: line,
+                        canRemove: lines.length > 1,
+                        saving: saving,
+                        onChanged: () => setSheetState(() {}),
+                        onRemove: () {
+                          setSheetState(() {
+                            line.dispose();
+                            lines.remove(line);
+                          });
+                        },
+                      );
+                    }),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: saving
+                          ? null
+                          : () => setSheetState(
+                              () => lines.add(_ProductionLineInput())),
+                      icon: const Icon(Icons.add_circle_outline),
+                      label: const Text('Tambah size'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _miniMetric('Total qty', totalQty().toStringAsFixed(0)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: note,
+                    maxLines: 3,
+                    enabled: !saving,
+                    decoration: const InputDecoration(
+                      labelText: 'Catatan',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: saving ? null : submit,
+                    icon: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined),
+                    label: Text(saving ? 'Menyimpan...' : 'Simpan Perubahan'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    Future.delayed(const Duration(milliseconds: 700), () {
+      suratJalanNumber.dispose();
+      patternCode.dispose();
+      note.dispose();
+      for (final line in lines) {
+        line.dispose();
+      }
+    });
+    if (saved == true) _load();
   }
 
   Future<void> _showTailorSheet({Map<String, dynamic>? tailor}) async {
@@ -2057,75 +3198,101 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
     if (_error != null) {
       return Scaffold(
-        appBar: AppBar(title: Text('Produksi Berjalan')),
+        appBar: AppBar(title: const Text('Produksi Berjalan')),
         body: ErrorState(message: _error!, onRetry: _load),
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Produksi Berjalan'),
-        actions: [
-          IconButton(onPressed: _load, icon: Icon(Icons.refresh)),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _createProgress,
-        icon: Icon(Icons.add),
-        label: Text('Progress'),
-      ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Produksi Berjalan'),
+          actions: [
+            IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+          ],
+          bottom: const TabBar(
+            tabs: [
+              Tab(icon: Icon(Icons.assignment_outlined), text: 'Progress'),
+              Tab(icon: Icon(Icons.account_balance_wallet_outlined), text: 'Keuangan'),
+              Tab(icon: Icon(Icons.people_outline), text: 'Pekerja'),
+            ],
+          ),
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _createProgress,
+          icon: const Icon(Icons.add),
+          label: const Text('Progress'),
+        ),
+        body: TabBarView(
           children: [
-            FuturisticHeader(
-              icon: Icons.precision_manufacturing_outlined,
-              title: 'Produksi Berjalan',
-              subtitle:
-                  'Pantau potong kain, jahit, finishing, pembayaran penjahit, dan stock-in otomatis per SKU lokal.',
-              stats: [
-                StatPill(
-                    label: 'Progress',
-                    value: AppUi.toNum(_summary['progress_count'])
-                        .toStringAsFixed(0)),
-                StatPill(
-                    label: 'Done',
-                    value:
-                        AppUi.toNum(_summary['done_count']).toStringAsFixed(0)),
-                StatPill(
-                    label: 'Kasbon',
-                    value: AppUi.rupiah(
-                        AppUi.toNum(_summary['kasbon_active_total']))),
-              ],
+            // Tab 1: Surat Jalan
+            RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  FuturisticHeader(
+                    icon: Icons.precision_manufacturing_outlined,
+                    title: 'Produksi Berjalan',
+                    subtitle:
+                        'Pantau potong kain, jahit, finishing, pembayaran penjahit, dan stock-in otomatis per SKU lokal.',
+                    stats: [
+                      StatPill(
+                          label: 'Progress',
+                          value: AppUi.toNum(_summary['progress_count'])
+                              .toStringAsFixed(0)),
+                      StatPill(
+                          label: 'Done',
+                          value:
+                              AppUi.toNum(_summary['done_count']).toStringAsFixed(0)),
+                      StatPill(
+                          label: 'Kasbon',
+                          value: AppUi.rupiah(
+                              AppUi.toNum(_summary['kasbon_active_total']))),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  SearchBox(
+                    controller: _searchController,
+                    onChanged: _onSearchChanged,
+                    hint: 'Cari produk, SKU, kode pola, penjahit',
+                  ),
+                  const SizedBox(height: 12),
+                  _filters(),
+                  const SizedBox(height: 14),
+                  if (_items.isEmpty)
+                    const EmptyState(
+                      title: 'Belum ada data',
+                      subtitle: 'Tambah progress produksi dari tombol bawah.',
+                      icon: Icons.precision_manufacturing_outlined,
+                    )
+                  else
+                    ..._items.map(_progressCard),
+                ],
+              ),
             ),
-            SizedBox(height: 14),
-            _monthToolbar(),
-            SizedBox(height: 14),
-            _summaryGrid(),
-            SizedBox(height: 14),
-            _depositLedger(),
-            SizedBox(height: 14),
-            _materialPurchaseSection(),
-            SizedBox(height: 14),
-            SearchBox(
-              controller: _searchController,
-              onChanged: _onSearchChanged,
-              hint: 'Cari produk, SKU, kode pola, penjahit',
+            // Tab 2: Keuangan
+            RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _monthToolbar(),
+                  const SizedBox(height: 14),
+                  _summaryGrid(),
+                  const SizedBox(height: 14),
+                  _depositLedger(),
+                  const SizedBox(height: 14),
+                  _materialPurchaseSection(),
+                ],
+              ),
             ),
-            SizedBox(height: 12),
-            _filters(),
-            SizedBox(height: 14),
-            _tailorDashboard(),
-            SizedBox(height: 14),
-            if (_items.isEmpty)
-              const EmptyState(
-                title: 'Belum ada data',
-                subtitle: 'Tambah progress produksi dari tombol bawah.',
-                icon: Icons.precision_manufacturing_outlined,
-              )
-            else
-              ..._items.map(_progressCard),
+            // Tab 3: Pekerja
+            RefreshIndicator(
+              onRefresh: _load,
+              child: _tailorDashboard(),
+            ),
           ],
         ),
       ),
@@ -2177,11 +3344,6 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 onPressed: () => _showMaterialPurchaseSheet(),
                 icon: Icon(Icons.shopping_cart_checkout_outlined),
                 label: Text('Pembelian bahan'),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => _showTailorSheet(),
-                icon: Icon(Icons.person_add_alt_1_outlined),
-                label: Text('Penjahit'),
               ),
               OutlinedButton.icon(
                 onPressed: _downloadProductionArchive,
@@ -2618,83 +3780,108 @@ class _StockProgressPageState extends State<StockProgressPage> {
       ..sort((a, b) => AppUi.text(a['tailor_name'])
           .toLowerCase()
           .compareTo(AppUi.text(b['tailor_name']).toLowerCase()));
-    if (visibleTailors.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+
+    debugPrint('DEBUG TAILORS: _tailors=${_tailors.length}, _tailorCards=${_tailorCards.length}, byId=${byId.length}, visibleTailors=${visibleTailors.length}');
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
       children: [
-        Text('Rekap Penjahit',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w900)),
-        SizedBox(height: 8),
-        ...visibleTailors.map((tailor) {
-          final status = AppUi.text(tailor['status'], 'active');
-          return NiceCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(AppUi.text(tailor['tailor_name']),
-                          style: TextStyle(fontWeight: FontWeight.w900)),
-                    ),
-                    if (status == 'inactive')
-                      Chip(
-                        label: Text('Nonaktif'),
-                        backgroundColor: Theme.of(context)
-                            .colorScheme
-                            .secondary
-                            .withOpacity(.14),
-                        side: BorderSide(
-                          color: Theme.of(context)
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Rekap Pekerja',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w900),
+            ),
+            FilledButton.icon(
+              onPressed: () => _showTailorSheet(),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 44),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              ),
+              icon: const Icon(Icons.add),
+              label: const Text('Tambah Pekerja'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (visibleTailors.isEmpty)
+          const EmptyState(
+            title: 'Belum ada pekerja',
+            subtitle: 'Klik tombol di atas untuk menambah pekerja baru.',
+            icon: Icons.people_outline,
+          )
+        else
+          ...visibleTailors.map((tailor) {
+            final status = AppUi.text(tailor['status'], 'active');
+            return NiceCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(AppUi.text(tailor['tailor_name']),
+                            style: const TextStyle(fontWeight: FontWeight.w900)),
+                      ),
+                      if (status == 'inactive')
+                        Chip(
+                          label: const Text('Nonaktif'),
+                          backgroundColor: Theme.of(context)
                               .colorScheme
                               .secondary
-                              .withOpacity(.45),
+                              .withOpacity(.14),
+                          side: BorderSide(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .secondary
+                                .withOpacity(.45),
+                          ),
                         ),
+                      TextButton.icon(
+                        onPressed: () => _showTailorSheet(tailor: tailor),
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('Edit'),
                       ),
-                    TextButton.icon(
-                      onPressed: () => _showTailorSheet(tailor: tailor),
-                      icon: Icon(Icons.edit_outlined),
-                      label: Text('Edit'),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => _deleteTailor(tailor),
-                      icon: Icon(Icons.delete_outline),
-                      label: Text('Hapus'),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => _showPaymentSheet(
-                        tailor: tailor,
-                        initialType: 'kasbon',
+                      TextButton.icon(
+                        onPressed: () => _deleteTailor(tailor),
+                        icon: const Icon(Icons.delete_outline),
+                        label: const Text('Hapus'),
                       ),
-                      icon: Icon(Icons.add_card_outlined),
-                      label: Text('Kasbon'),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _miniMetric('Total jahit',
-                        AppUi.toNum(tailor['total_jahit']).toStringAsFixed(0)),
-                    _miniMetric('Ongkos',
-                        AppUi.rupiah(AppUi.toNum(tailor['total_ongkos']))),
-                    _miniMetric('Sudah',
-                        AppUi.rupiah(AppUi.toNum(tailor['sudah_bayar']))),
-                    _miniMetric('Belum',
-                        AppUi.rupiah(AppUi.toNum(tailor['belum_bayar']))),
-                    _miniMetric(
-                        'Kasbon', AppUi.rupiah(AppUi.toNum(tailor['kasbon']))),
-                  ],
-                ),
-              ],
-            ),
-          );
-        }),
+                      TextButton.icon(
+                        onPressed: () => _showPaymentSheet(
+                          tailor: tailor,
+                          initialType: 'kasbon',
+                        ),
+                        icon: const Icon(Icons.add_card_outlined),
+                        label: const Text('Kasbon'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _miniMetric('Total jahit',
+                          AppUi.toNum(tailor['total_jahit']).toStringAsFixed(0)),
+                      _miniMetric('Ongkos',
+                          AppUi.rupiah(AppUi.toNum(tailor['total_ongkos']))),
+                      _miniMetric('Sudah',
+                          AppUi.rupiah(AppUi.toNum(tailor['sudah_bayar']))),
+                      _miniMetric('Belum',
+                          AppUi.rupiah(AppUi.toNum(tailor['belum_bayar']))),
+                      _miniMetric(
+                          'Kasbon', AppUi.rupiah(AppUi.toNum(tailor['kasbon']))),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }),
       ],
     );
   }
@@ -2705,6 +3892,12 @@ class _StockProgressPageState extends State<StockProgressPage> {
     final items = _mapList(item['items']);
     final stages = _mapList(item['stages']);
     final payments = _mapList(item['payments']);
+
+    final stageTailors = stages
+        .map((s) => AppUi.text(s['tailor_name']).trim())
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .join(', ');
 
     return NiceCard(
       child: Column(
@@ -2724,13 +3917,17 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      AppUi.text(item['pattern_code'],
-                          AppUi.text(item['product_name'])),
-                      style: TextStyle(fontWeight: FontWeight.w900),
+                      AppUi.text(item['surat_jalan_number'], '-'),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
-                        'Penjahit: ${AppUi.text(item['tailor_name'])} - Tanggal: ${AppUi.date(item['production_date'])}'),
+                      'Kode Pola: ${AppUi.text(item['pattern_code'], '-')}',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                        'Pekerja: ${stageTailors.isEmpty ? '-' : stageTailors} - Tanggal: ${AppUi.date(item['production_date'])}'),
                     Text(
                         'Qty ${AppUi.toNum(item['qty']).toStringAsFixed(0)} - Status $status - Bayar ${AppUi.text(item['payment_status'])}'),
                   ],
@@ -2738,25 +3935,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
               ),
               PopupMenuButton<String>(
                 onSelected: (value) {
-                  if (value == 'pay') _showPaymentSheet(progress: item);
-                  if (value == 'kasbon') {
-                    _showPaymentSheet(progress: item, initialType: 'kasbon');
-                  }
-                  if (value == 'done') _markDone(item);
+                  if (value == 'edit') _editProgress(item);
                   if (value == 'delete') _deleteProgress(item);
                 },
                 itemBuilder: (_) => [
                   const PopupMenuItem(
-                    value: 'pay',
-                    child: Text('Bayar ongkos jahit'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'kasbon',
-                    child: Text('Kasbon penjahit'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'done',
-                    child: Text('Done masuk stock'),
+                    value: 'edit',
+                    child: Text('Edit metadata'),
                   ),
                   if (_isSuperAdmin)
                     const PopupMenuItem(
@@ -2767,14 +3952,14 @@ class _StockProgressPageState extends State<StockProgressPage> {
               ),
             ],
           ),
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           if (payments.isNotEmpty) ...[
             Text('Rincian pembayaran',
                 style: Theme.of(context)
                     .textTheme
                     .labelLarge
                     ?.copyWith(fontWeight: FontWeight.w900)),
-            SizedBox(height: 6),
+            const SizedBox(height: 6),
             ...payments.map((payment) {
               final statusText = AppUi.text(payment['payment_status']);
               final statusColor = AppUi.statusColor(statusText);
@@ -2807,10 +3992,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         ),
                       ),
                     ),
-                    SizedBox(width: 8),
+                    const SizedBox(width: 8),
                     Text(
                       AppUi.rupiah(AppUi.toNum(payment['amount'])),
-                      style: TextStyle(fontWeight: FontWeight.w900),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                     PopupMenuButton<String>(
                       onSelected: (value) {
@@ -2833,9 +4018,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 ),
               );
             }),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
           ],
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -2848,14 +4033,14 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   AppUi.rupiah(AppUi.toNum(item['payment_unpaid_amount']))),
             ],
           ),
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           if (items.isNotEmpty) ...[
             Text('Size breakdown',
                 style: Theme.of(context)
                     .textTheme
                     .labelLarge
                     ?.copyWith(fontWeight: FontWeight.w900)),
-            SizedBox(height: 6),
+            const SizedBox(height: 6),
             ...items.map((row) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 6),
@@ -2868,50 +4053,42 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       ),
                     ),
                     Text(
-                      '${AppUi.toNum(row['qty']).toStringAsFixed(0)} x ${AppUi.rupiah(AppUi.toNum(row['sewing_price_per_pcs']))}',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                      '${AppUi.toNum(row['qty']).toStringAsFixed(0)} pcs',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ],
                 ),
               );
             }),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
           ],
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final stageKey in const [
-                'potong_kain',
-                'jahit',
-                'finishing',
-              ])
-                _stageButton(
+              for (final stage in stages)
+                _stageCard(
                   item: item,
-                  stageKey: stageKey,
-                  stage: stages.firstWhere(
-                    (stage) => AppUi.text(stage['stage_key']) == stageKey,
-                    orElse: () => <String, dynamic>{'status': 'pending'},
-                  ),
+                  stageKey: AppUi.text(stage['stage_key']),
+                  stage: stage,
                 ),
             ],
           ),
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: status == 'done' ? null : () => _markDone(item),
-                  icon: Icon(Icons.inventory_2_outlined),
-                  label: Text('Done / Stock In'),
+                  icon: const Icon(Icons.inventory_2_outlined),
+                  label: const Text('Done / Stock In'),
                 ),
               ),
-              SizedBox(width: 10),
+              const SizedBox(width: 10),
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: () => _showPaymentSheet(progress: item),
-                  icon: Icon(Icons.payments_outlined),
-                  label: Text('Bayar'),
+                  onPressed: () => _showStageSelectionForPayment(item),
+                  icon: const Icon(Icons.payments_outlined),
+                  label: const Text('Bayar'),
                 ),
               ),
             ],
@@ -2921,21 +4098,188 @@ class _StockProgressPageState extends State<StockProgressPage> {
     );
   }
 
-  Widget _stageButton({
+  Widget _stageCard({
     required Map<String, dynamic> item,
     required String stageKey,
     required Map<String, dynamic> stage,
   }) {
     final status = AppUi.text(stage['status'], 'pending');
+    final paymentStatus = AppUi.text(stage['payment_status'], 'belum_bayar');
     final color = AppUi.statusColor(status);
-    return ActionChip(
-      avatar: Icon(Icons.task_alt_outlined, color: color, size: 18),
-      label: Text('${_stageLabel(stageKey)}: $status'),
-      onPressed: AppUi.text(item['status']) == 'done'
-          ? null
-          : () => _updateStage(item, stageKey),
-      backgroundColor: color.withOpacity(0.10),
-      side: BorderSide(color: color.withOpacity(0.35)),
+    final isSkipped = status == 'skipped';
+
+    final totalAmount = AppUi.toNum(stage['total_amount']);
+    final tailorName = AppUi.text(stage['tailor_name']);
+    final pricePerPcs = AppUi.toNum(stage['price_per_pcs'] ?? stage['sewing_price_per_pcs']);
+    final qtyIn = AppUi.toNum(stage['qty_in']);
+    final qtyOut = AppUi.toNum(stage['qty_out']);
+    final qtyReject = AppUi.toNum(stage['qty_reject']);
+    final catatan = AppUi.text(stage['note'] ?? stage['catatan']);
+    final dates = AppUi.text(stage['updated_at']);
+
+    final sizeBreakdownRaw = stage['size_breakdown'];
+    List<dynamic> sizeBreakdown = [];
+    if (sizeBreakdownRaw != null) {
+      if (sizeBreakdownRaw is List) {
+        sizeBreakdown = sizeBreakdownRaw;
+      }
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      color: Theme.of(context).cardColor.withOpacity(0.4),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: Theme.of(context).dividerColor.withOpacity(0.2),
+        ),
+      ),
+      child: InkWell(
+        onTap: AppUi.text(item['status']) == 'done'
+            ? null
+            : () => _updateStage(item, stageKey, stage),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isSkipped
+                        ? Icons.skip_next_outlined
+                        : status == 'done'
+                            ? Icons.check_circle_outline
+                            : status == 'progress'
+                                ? Icons.pending_actions_outlined
+                                : Icons.circle_outlined,
+                    color: color,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _stageLabel(stageKey),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: color,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: color.withOpacity(0.35)),
+                    ),
+                    child: Text(
+                      status.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        color: color,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Pekerja: ${tailorName.isNotEmpty ? tailorName : '-'}',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  Text(
+                    'Tarif: ${AppUi.rupiah(pricePerPcs)}/pcs',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Total Ongkos: ${AppUi.rupiah(totalAmount)}',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: paymentStatus == 'sudah_bayar'
+                          ? Colors.green.withOpacity(0.12)
+                          : Colors.orange.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      paymentStatus == 'sudah_bayar' ? 'LUNAS' : 'BELUM BAYAR',
+                      style: TextStyle(
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                        color: paymentStatus == 'sudah_bayar' ? Colors.green : Colors.orange,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('In: ${qtyIn.toStringAsFixed(0)} pcs', style: const TextStyle(fontSize: 10)),
+                  Text('Out: ${qtyOut.toStringAsFixed(0)} pcs', style: const TextStyle(fontSize: 10)),
+                  Text('Reject: ${qtyReject.toStringAsFixed(0)} pcs', style: const TextStyle(fontSize: 10)),
+                ],
+              ),
+              if (sizeBreakdown.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: sizeBreakdown.map((sb) {
+                    final label = AppUi.text(sb['size_label']);
+                    final sbIn = AppUi.toNum(sb['qty_in']);
+                    final sbOut = AppUi.toNum(sb['qty_out']);
+                    final sbReject = AppUi.toNum(sb['qty_reject']);
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '$label (In: ${sbIn.toStringAsFixed(0)}, Out: ${sbOut.toStringAsFixed(0)}, Rej: ${sbReject.toStringAsFixed(0)})',
+                        style: const TextStyle(fontSize: 9),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+              if (catatan.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Catatan: $catatan',
+                  style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic),
+                ),
+              ],
+              if (dates.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.bottomRight,
+                  child: Text(
+                    'Update terakhir: ${AppUi.dateTime(dates)}',
+                    style: TextStyle(fontSize: 8, color: Theme.of(context).hintColor),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2963,11 +4307,15 @@ class _StockProgressPageState extends State<StockProgressPage> {
       case 'potong_kain':
         return 'Potong Kain';
       case 'jahit':
-        return 'Proses Jahit';
+        return 'Jahit';
+      case 'lubang_kancing':
+        return 'Lubang Kancing';
       case 'finishing':
         return 'Finishing';
+      case 'packing':
+        return 'Packing';
       default:
-        return stageKey;
+        return stageKey.split('_').map((str) => str.isEmpty ? '' : '${str[0].toUpperCase()}${str.substring(1)}').join(' ');
     }
   }
 
@@ -2998,6 +4346,67 @@ class _StockProgressPageState extends State<StockProgressPage> {
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
+  }
+
+  Future<void> _showStageSelectionForPayment(Map<String, dynamic> item) async {
+    final stages = _mapList(item['stages']);
+    final payableStages = stages.where((stage) {
+      final status = AppUi.text(stage['status']);
+      final skipped = status == 'skipped' || AppUi.text(stage['is_skipped']) == 'true';
+      return !skipped;
+    }).toList();
+
+    if (payableStages.isEmpty) {
+      AppUi.showSnack('Tidak ada tahapan aktif yang bisa dibayar.');
+      return;
+    }
+
+    final selectedStageKey = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Pilih Tahapan Pembayaran'),
+        content: SizedBox(
+          width: 320,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: payableStages.length,
+            itemBuilder: (ctx, index) {
+              final stage = payableStages[index];
+              final key = AppUi.text(stage['stage_key']);
+              final label = _stageLabel(key);
+              final worker = AppUi.text(stage['tailor_name'], '');
+              final total = AppUi.toNum(stage['total_amount']);
+              
+              // Calculate paid amount
+              final paymentsList = _mapList(item['payments']);
+              final paid = paymentsList
+                  .where((p) => AppUi.text(p['stage_key']) == key && 
+                                AppUi.text(p['payment_status']) == 'sudah_bayar')
+                  .fold<num>(0, (sum, p) => sum + AppUi.toNum(p['amount']));
+              
+              final unpaid = total - paid;
+              final unpaidText = unpaid > 0 ? ' - Sisa: ${AppUi.rupiah(unpaid)}' : ' (Lunas)';
+
+              return ListTile(
+                title: Text(worker.isNotEmpty ? '$label ($worker)' : label),
+                subtitle: Text('Total: ${AppUi.rupiah(total)}$unpaidText'),
+                onTap: () => Navigator.pop(dialogContext, key),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Batal'),
+          ),
+        ],
+      ),
+    );
+
+    if (selectedStageKey != null) {
+      _showPaymentSheet(progress: item, initialStageKey: selectedStageKey);
+    }
   }
 }
 

@@ -48,6 +48,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   String? _autoPullSettingWarning;
   String? _errorMessage;
   int _backgroundRefreshToken = 0;
+  int _ordersLoadToken = 0;
+  String _lastOrderDigestSignature = '';
   bool get _canDeleteBusinessData =>
       AppRolePermissions.canDeleteBusinessData(widget.currentUser.role.roleId);
 
@@ -66,7 +68,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   String _filterAccountId = _savedFilterAccountId ?? 'all';
   String _filterStatus = _savedFilterStatus ?? 'all';
   int _daysBack = 1;
-  DateTime _pullStartDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _pullStartDate = _savedPullStartDate ??
+      DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _pullEndDate = _savedPullEndDate ??
       DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
 
@@ -103,6 +106,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   @override
   void dispose() {
     _backgroundRefreshToken += 1;
+    _ordersLoadToken += 1;
     _searchController.dispose();
     super.dispose();
   }
@@ -183,6 +187,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   Future<void> _loadOrders({bool showLoader = true}) async {
+    final requestToken = ++_ordersLoadToken;
     if (showLoader) {
       setState(() {
         _isLoading = true;
@@ -206,22 +211,25 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       final hasMore = data.length > _ordersPageSize;
       final visible = hasMore ? data.take(_ordersPageSize).toList() : data;
 
-      if (!mounted) return;
+      if (!mounted || requestToken != _ordersLoadToken) return;
       setState(() {
         _orders = visible;
         _hasMoreOrders = hasMore;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || requestToken != _ordersLoadToken) return;
       setState(() => _errorMessage = _cleanError(error));
     } finally {
-      if (mounted && showLoader) setState(() => _isLoading = false);
+      if (mounted && showLoader && requestToken == _ordersLoadToken) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   Future<void> _loadMoreOrders() async {
     if (_isLoadingMoreOrders || !_hasMoreOrders) return;
     if (!mounted) return;
+    final requestToken = _ordersLoadToken;
     setState(() => _isLoadingMoreOrders = true);
 
     try {
@@ -239,7 +247,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
 
       final hasMore = data.length > _ordersPageSize;
       final visible = hasMore ? data.take(_ordersPageSize).toList() : data;
-      if (!mounted) return;
+      if (!mounted || requestToken != _ordersLoadToken) return;
       setState(() {
         _orders = [..._orders, ...visible];
         _hasMoreOrders = hasMore;
@@ -314,6 +322,9 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
           ),
         ),
       );
+      await _refreshPersistentOrderPullLog();
+      await _loadOrders(showLoader: false);
+      if (setting.enabled) unawaited(_refreshOrdersAfterBackgroundJob());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -341,12 +352,12 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     );
   }
 
-  Future<void> _refreshPersistentOrderPullLog() async {
+  Future<bool> _refreshPersistentOrderPullLog() async {
     final digest = await _service.getRecentOrderPullJobDigest(
       tenantId: widget.currentUser.tenantId,
       limit: 20,
     );
-    if (!mounted || digest == null || digest.total == 0) return;
+    if (!mounted || digest == null || digest.total == 0) return false;
 
     final updatedLabel = digest.latestUpdatedAt == null
         ? '-'
@@ -361,6 +372,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
 
     setState(() {
       _orderJobDigest = digest;
+      _lastOrderDigestSignature = _orderDigestSignature(digest);
       _pullProgressFromServerActive = active;
       _pullProgressTitle = header;
       _pullProgressLines
@@ -369,6 +381,18 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
         ..addAll(digest.lines.take(7).map(AppUi.userMessage));
       _cachePullProgress();
     });
+    return _lastOrderDigestSignature.isNotEmpty;
+  }
+
+  String _orderDigestSignature(MarketplaceOrderPullJobDigest digest) {
+    return [
+      digest.running,
+      digest.pending,
+      digest.done,
+      digest.failed,
+      digest.latestUpdatedAt?.toUtc().toIso8601String() ?? '',
+      ...digest.lines.take(3),
+    ].join('|');
   }
 
   Future<void> _pullOrders() async {
@@ -390,6 +414,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
           ),
         ),
       );
+      await _loadOrders(showLoader: false);
+      unawaited(_refreshOrdersAfterBackgroundJob());
       return;
     }
 
@@ -486,7 +512,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       decoration: BoxDecoration(
         color: (Theme.of(context).cardColor),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.35)),
+        border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -498,7 +525,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Theme.of(context).colorScheme.primary))
+                        strokeWidth: 2,
+                        color: Theme.of(context).colorScheme.primary))
               else
                 Icon(Icons.check_circle_rounded,
                     size: 16, color: Theme.of(context).colorScheme.primary),
@@ -525,7 +553,9 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        fontSize: 11, color: Theme.of(context).colorScheme.outline, height: 1.25),
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.outline,
+                        height: 1.25),
                   ),
                 )),
           ],
@@ -578,32 +608,323 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     return '$d/$m/${wib.year} $h:$minute';
   }
 
-  Future<void> _pickPullDate({required bool isStart}) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isStart ? _pullStartDate : _pullEndDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 90)),
-      lastDate: DateTime.now().add(const Duration(days: 1)),
+  Future<void> _pickPullDateRange() async {
+    final firstDate = _dateOnly(
+      DateTime.now().subtract(const Duration(days: 90)),
+    );
+    final lastDate = _dateOnly(DateTime.now().add(const Duration(days: 1)));
+    final picked = await _showCompactPullDateRangePicker(
+      initialStart: _pullStartDate,
+      initialEnd: _pullEndDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
     );
     if (picked == null) return;
     setState(() {
-      if (isStart) {
-        _pullStartDate = _dateOnly(picked);
-        if (_pullEndDate.isBefore(_pullStartDate))
-          _pullEndDate = _pullStartDate;
-      } else {
-        _pullEndDate = _dateOnly(picked);
-        if (_pullStartDate.isAfter(_pullEndDate)) _pullStartDate = _pullEndDate;
-      }
+      _pullStartDate = _dateOnly(picked.start);
+      _pullEndDate = _dateOnly(picked.end);
       _daysBack = _selectedPullDays.clamp(1, 90).toInt();
       _rememberFilters();
     });
     await _loadOrders(showLoader: false);
   }
 
-  Widget _periodPickerField({
+  Future<DateTimeRange?> _showCompactPullDateRangePicker({
+    required DateTime initialStart,
+    required DateTime initialEnd,
+    required DateTime firstDate,
+    required DateTime lastDate,
+  }) {
+    var draftStart =
+        _clampPullDate(_dateOnly(initialStart), firstDate, lastDate);
+    var draftEnd = _clampPullDate(_dateOnly(initialEnd), firstDate, lastDate);
+    if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+    var visibleMonth = DateTime(draftStart.year, draftStart.month);
+    var pickingStart = true;
+
+    const monthNames = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
+    const weekdayNames = <String>[
+      'Sen',
+      'Sel',
+      'Rab',
+      'Kam',
+      'Jum',
+      'Sab',
+      'Min'
+    ];
+    final firstVisibleMonth = DateTime(firstDate.year, firstDate.month);
+    final lastVisibleMonth = DateTime(lastDate.year, lastDate.month);
+
+    return showDialog<DateTimeRange>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final colorScheme = Theme.of(context).colorScheme;
+
+          String monthTitle(DateTime value) =>
+              '${monthNames[value.month - 1]} ${value.year}';
+
+          void setDraftRange(DateTime start, DateTime end) {
+            draftStart = _clampPullDate(_dateOnly(start), firstDate, lastDate);
+            draftEnd = _clampPullDate(_dateOnly(end), firstDate, lastDate);
+            if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+            visibleMonth = DateTime(draftStart.year, draftStart.month);
+            pickingStart = false;
+          }
+
+          void selectDay(DateTime value) {
+            final picked =
+                _clampPullDate(_dateOnly(value), firstDate, lastDate);
+            setSheetState(() {
+              if (pickingStart) {
+                draftStart = picked;
+                if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+                pickingStart = false;
+              } else {
+                draftEnd = picked;
+                if (draftStart.isAfter(draftEnd)) draftStart = draftEnd;
+              }
+            });
+          }
+
+          Widget dayCell(int index) {
+            final firstOfMonth =
+                DateTime(visibleMonth.year, visibleMonth.month);
+            final daysInMonth =
+                DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+            final day = index - (firstOfMonth.weekday - DateTime.monday) + 1;
+            if (day < 1 || day > daysInMonth) {
+              return const SizedBox(width: 40, height: 36);
+            }
+
+            final date =
+                _dateOnly(DateTime(visibleMonth.year, visibleMonth.month, day));
+            final disabled = date.isBefore(firstDate) || date.isAfter(lastDate);
+            final isStart = DateUtils.isSameDay(date, draftStart);
+            final isEnd = DateUtils.isSameDay(date, draftEnd);
+            final inRange = date.isAfter(draftStart) && date.isBefore(draftEnd);
+            final selected = isStart || isEnd;
+
+            Color? backgroundColor;
+            Color? foregroundColor;
+            if (selected) {
+              backgroundColor =
+                  isStart ? colorScheme.primary : colorScheme.secondary;
+              foregroundColor = colorScheme.onPrimary;
+            } else if (inRange) {
+              backgroundColor = colorScheme.primary.withValues(alpha: 0.10);
+              foregroundColor = colorScheme.onSurface;
+            } else if (disabled) {
+              foregroundColor = colorScheme.onSurface.withValues(alpha: 0.38);
+            } else {
+              foregroundColor = colorScheme.onSurface;
+            }
+
+            return SizedBox(
+              width: 40,
+              height: 36,
+              child: TextButton(
+                onPressed: disabled ? null : () => selectDay(date),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(40, 36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  foregroundColor: foregroundColor,
+                  backgroundColor: backgroundColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: Text('$day'),
+              ),
+            );
+          }
+
+          Widget calendarGrid() {
+            final firstOfMonth =
+                DateTime(visibleMonth.year, visibleMonth.month);
+            final daysInMonth =
+                DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+            final leading = firstOfMonth.weekday - DateTime.monday;
+            final totalCells = ((leading + daysInMonth + 6) ~/ 7) * 7;
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (final weekday in weekdayNames)
+                      SizedBox(
+                        width: 40,
+                        height: 24,
+                        child: Center(
+                          child: Text(
+                            weekday,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (var i = 0; i < totalCells; i++) dayCell(i),
+                  ],
+                ),
+              ],
+            );
+          }
+
+          return AlertDialog(
+            title: const Text('Pilih periode penarikan'),
+            content: SizedBox(
+              width: 332,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: Text('Dari ${_dateLabel(draftStart)}'),
+                        selected: pickingStart,
+                        onSelected: (_) =>
+                            setSheetState(() => pickingStart = true),
+                      ),
+                      ChoiceChip(
+                        label: Text('Sampai ${_dateLabel(draftEnd)}'),
+                        selected: !pickingStart,
+                        onSelected: (_) =>
+                            setSheetState(() => pickingStart = false),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Bulan sebelumnya',
+                        onPressed: visibleMonth.isAfter(firstVisibleMonth)
+                            ? () => setSheetState(() {
+                                  visibleMonth = DateTime(visibleMonth.year,
+                                      visibleMonth.month - 1);
+                                })
+                            : null,
+                        icon: const Icon(Icons.chevron_left_rounded),
+                      ),
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            monthTitle(visibleMonth),
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Bulan berikutnya',
+                        onPressed: visibleMonth.isBefore(lastVisibleMonth)
+                            ? () => setSheetState(() {
+                                  visibleMonth = DateTime(visibleMonth.year,
+                                      visibleMonth.month + 1);
+                                })
+                            : null,
+                        icon: const Icon(Icons.chevron_right_rounded),
+                      ),
+                    ],
+                  ),
+                  calendarGrid(),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ActionChip(
+                        label: const Text('Hari ini'),
+                        onPressed: () => setSheetState(() {
+                          final today = _dateOnly(DateTime.now());
+                          setDraftRange(today, today);
+                        }),
+                      ),
+                      ActionChip(
+                        label: const Text('Bulan ini'),
+                        onPressed: () => setSheetState(() {
+                          final now = DateTime.now();
+                          setDraftRange(
+                            DateTime(now.year, now.month),
+                            _dateOnly(now),
+                          );
+                        }),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(
+                    dialogContext,
+                    DateTimeRange(start: draftStart, end: draftEnd),
+                  );
+                },
+                child: const Text('Terapkan'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  DateTime _clampPullDate(
+    DateTime value,
+    DateTime firstDate,
+    DateTime lastDate,
+  ) {
+    final date = _dateOnly(value);
+    if (date.isBefore(firstDate)) return firstDate;
+    if (date.isAfter(lastDate)) return lastDate;
+    return date;
+  }
+
+  Widget _dateRangePickerField({
     required String label,
-    required DateTime value,
+    required DateTime startDate,
+    required DateTime endDate,
     required VoidCallback onTap,
   }) {
     return InkWell(
@@ -615,7 +936,10 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
           border: const OutlineInputBorder(),
           suffixIcon: Icon(Icons.calendar_month_rounded, size: 18),
         ),
-        child: Text(_dateLabel(value), overflow: TextOverflow.ellipsis),
+        child: Text(
+          '${_dateLabel(startDate)} - ${_dateLabel(endDate)}',
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     );
   }
@@ -1288,24 +1612,11 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
           },
         ),
         SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _periodPickerField(
-                label: 'Dari',
-                value: _pullStartDate,
-                onTap: () => _pickPullDate(isStart: true),
-              ),
-            ),
-            SizedBox(width: 10),
-            Expanded(
-              child: _periodPickerField(
-                label: 'Sampai',
-                value: _pullEndDate,
-                onTap: () => _pickPullDate(isStart: false),
-              ),
-            ),
-          ],
+        _dateRangePickerField(
+          label: 'Periode Penarikan',
+          startDate: _pullStartDate,
+          endDate: _pullEndDate,
+          onTap: _pickPullDateRange,
         ),
         SizedBox(height: 10),
         TextField(
@@ -1399,8 +1710,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                 Text(order.lastError!,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style:
-                        TextStyle(color: (Theme.of(context).colorScheme).error)),
+                    style: TextStyle(
+                        color: (Theme.of(context).colorScheme).error)),
               ],
               SizedBox(height: 10),
               Wrap(
@@ -1553,8 +1864,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
         children: [
           SizedBox(
               width: 120,
-              child: Text(label,
-                  style: TextStyle(fontWeight: FontWeight.w700))),
+              child:
+                  Text(label, style: TextStyle(fontWeight: FontWeight.w700))),
           Expanded(child: SelectableText(value)),
         ],
       ),
@@ -1609,8 +1920,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
           borderRadius: BorderRadius.circular(12),
           color: (Theme.of(context).colorScheme).errorContainer),
       child: Text(text,
-          style:
-              TextStyle(color: (Theme.of(context).colorScheme).onErrorContainer)),
+          style: TextStyle(
+              color: (Theme.of(context).colorScheme).onErrorContainer)),
     );
   }
 

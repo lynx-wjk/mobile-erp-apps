@@ -267,23 +267,17 @@ class _MarketplaceRefundMonitorPageState
     });
   }
 
-  Future<void> _pickDate({required bool start}) async {
-    final initial = start ? _startDate : _endDate;
-    final picked = await showDatePicker(
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
       context: context,
-      initialDate: initial,
+      initialDateRange: DateTimeRange(start: _startDate, end: _endDate),
       firstDate: DateTime.now().subtract(const Duration(days: 90)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (picked == null) return;
     setState(() {
-      if (start) {
-        _startDate = picked;
-        if (_endDate.isBefore(_startDate)) _endDate = _startDate;
-      } else {
-        _endDate = picked;
-        if (_startDate.isAfter(_endDate)) _startDate = _endDate;
-      }
+      _startDate = picked.start;
+      _endDate = picked.end;
     });
     await _load(resetPage: true);
   }
@@ -1160,25 +1154,13 @@ class _MarketplaceRefundMonitorPageState
                 ],
               ),
               SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _loading ? null : () => _pickDate(start: true),
-                      icon: Icon(Icons.calendar_today, size: 16),
-                      label: Text('Dari ${_dateLabel(_startDate)}'),
-                    ),
-                  ),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed:
-                          _loading ? null : () => _pickDate(start: false),
-                      icon: Icon(Icons.event, size: 16),
-                      label: Text('Sampai ${_dateLabel(_endDate)}'),
-                    ),
-                  ),
-                ],
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : _pickDateRange,
+                  icon: Icon(Icons.calendar_month, size: 16),
+                  label: Text('Periode: ${_dateLabel(_startDate)} - ${_dateLabel(_endDate)}'),
+                ),
               ),
               SizedBox(height: 12),
               DropdownButtonFormField<String>(
