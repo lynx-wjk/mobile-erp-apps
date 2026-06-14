@@ -1351,7 +1351,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     referenceId: payment?['payment_id']?.toString(),
                     initialPhotoUrl: initialProofUrl,
                     helperText:
-                        'Bisa ambil kamera atau pilih dari galeri. Wajib untuk status sudah bayar.',
+                        'Bukti pembayaran opsional. Bisa ambil kamera atau pilih dari galeri.',
                     allowGallery: true,
                     onUploaded: (evidence) {
                       proofEvidence = evidence;
@@ -1401,7 +1401,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
       builder: (dialogContext) => AlertDialog(
         title: Text('Hapus pembayaran produksi?'),
         content: Text(
-          '${AppUi.text(payment['payment_label']).isNotEmpty ? AppUi.text(payment['payment_label']) : _paymentTypeLabel(AppUi.text(payment['payment_type']))} - ${AppUi.rupiah(AppUi.toNum(payment['amount']))}',
+          '${_getPaymentDisplayLabel(payment)} - ${AppUi.rupiah(AppUi.toNum(payment['amount']))}',
         ),
         actions: [
           TextButton(
@@ -1434,9 +1434,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
   Future<void> _updateStage(Map<String, dynamic> item, String stageKey, Map<String, dynamic> stage) async {
     if (!_ensureCanWriteProduction()) return;
-    final bool isProgressLocked = AppUi.text(item['status']) == 'done' ||
-        item['stock_in_transaction_id'] != null ||
-        item['stock_in_batch_key'] != null;
+    final bool isProgressLocked = false;
     String status = AppUi.text(stage['status'], 'progress');
     bool isSkipped = (stage['is_skipped'] == true || AppUi.text(stage['is_skipped']) == 'true') || status == 'skipped';
     String selectedTailorId = AppUi.text(stage['tailor_id'], '');
@@ -1593,13 +1591,16 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Update Progress: ${_stageLabel(stageKey)}',
-                        style: Theme.of(sheetContext)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w900),
+                      Expanded(
+                        child: Text(
+                          'Update Progress: ${_stageLabel(stageKey)}',
+                          style: Theme.of(sheetContext)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -2135,9 +2136,46 @@ class _StockProgressPageState extends State<StockProgressPage> {
     final suratJalanNumber = TextEditingController(text: AppUi.text(item['surat_jalan_number']));
     final patternCode = TextEditingController(text: AppUi.text(item['pattern_code']));
     final note = TextEditingController(text: AppUi.text(item['catatan']));
+    final customStageController = TextEditingController();
     DateTime productionDate = DateTime.tryParse(AppUi.text(item['production_date'])) ?? DateTime.now();
     DateTime? targetDate = DateTime.tryParse(AppUi.text(item['target_finish_date']));
     bool saving = false;
+
+    List<Map<String, dynamic>> dbStages = [];
+    final availableStages = <Map<String, dynamic>>[
+      {'key': 'potong_kain', 'label': 'Potong Kain', 'active': false},
+      {'key': 'jahit', 'label': 'Jahit', 'active': false},
+      {'key': 'lubang_kancing', 'label': 'Lubang Kancing', 'active': false},
+      {'key': 'finishing', 'label': 'Finishing', 'active': false},
+      {'key': 'packing', 'label': 'Packing', 'active': false},
+    ];
+
+    try {
+      final stagesRes = await _client
+          .from('production_progress_stages')
+          .select('stage_key, stage_label, is_active')
+          .eq('progress_id', item['progress_id']);
+      dbStages = _mapList(stagesRes);
+
+      for (final dbStage in dbStages) {
+        final key = AppUi.text(dbStage['stage_key']);
+        final label = AppUi.text(dbStage['stage_label']);
+        final isActive = dbStage['is_active'] == true;
+
+        final existing = availableStages.firstWhereOrNull((s) => s['key'] == key);
+        if (existing != null) {
+          existing['active'] = isActive;
+        } else {
+          availableStages.add({
+            'key': key,
+            'label': label,
+            'active': isActive,
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading stages: $e');
+    }
 
     // Load initial size breakdown lines
     final initialItems = _mapList(item['items']);
@@ -2203,6 +2241,33 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
               try {
                 setSheetState(() => saving = true);
+
+                for (final stage in availableStages) {
+                  final key = stage['key'] as String;
+                  final isActive = stage['active'] as bool;
+                  final wasActive = dbStages.any((s) => AppUi.text(s['stage_key']) == key && s['is_active'] == true);
+
+                  if (isActive != wasActive) {
+                    if (isActive) {
+                      await _client.rpc(
+                        'upsert_production_process_stage_for_app',
+                        params: <String, dynamic>{
+                          'p_progress_id': item['progress_id'],
+                          'p_stage_key': key,
+                          'p_status': 'pending',
+                        },
+                      );
+                    } else {
+                      await _client.rpc(
+                        'delete_production_progress_stage_for_app',
+                        params: <String, dynamic>{
+                          'p_progress_id': item['progress_id'],
+                          'p_stage_key': key,
+                        },
+                      );
+                    }
+                  }
+                }
                 
                 final firstLine = validLines.first;
                 final firstProductId = firstLine.productId;
@@ -2445,6 +2510,68 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       _miniMetric('Total qty', totalQty().toStringAsFixed(0)),
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  Text('Progress Proses',
+                      style: Theme.of(sheetContext)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 6),
+                  ...availableStages.map((stage) {
+                    return CheckboxListTile(
+                      title: Text(stage['label'] as String),
+                      value: stage['active'] as bool,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: saving
+                          ? null
+                          : (bool? value) {
+                              setSheetState(() {
+                                stage['active'] = value ?? false;
+                              });
+                            },
+                    );
+                  }),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: customStageController,
+                          enabled: !saving,
+                          decoration: const InputDecoration(
+                            labelText: 'Tambah progress custom',
+                            hintText: 'Misal: bordir, sablon',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle_outline),
+                        onPressed: saving
+                            ? null
+                            : () {
+                                final text = customStageController.text.trim();
+                                if (text.isEmpty) return;
+                                final key = text.toLowerCase().replaceAll(' ', '_');
+                                if (availableStages.any((s) => s['key'] == key)) {
+                                  AppUi.showSnack('Progress "$text" sudah ada.');
+                                  return;
+                                }
+                                setSheetState(() {
+                                  availableStages.add({
+                                    'key': key,
+                                    'label': text,
+                                    'active': true,
+                                  });
+                                  customStageController.clear();
+                                });
+                              },
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: note,
@@ -2479,6 +2606,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
       suratJalanNumber.dispose();
       patternCode.dispose();
       note.dispose();
+      customStageController.dispose();
       for (final line in lines) {
         line.dispose();
       }
@@ -3198,7 +3326,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
     for (final progress in _items) {
       for (final payment in _mapList(progress['payments'])) {
         paymentRows.add(<String, dynamic>{
-          'Type': AppUi.text(payment['payment_label']).isNotEmpty ? AppUi.text(payment['payment_label']) : _paymentTypeLabel(AppUi.text(payment['payment_type'])),
+          'Type': _getPaymentDisplayLabel(payment),
           'Tailor': progress['tailor_name'],
           'Ref Pattern': progress['pattern_code'],
           'Amount': AppUi.toNum(payment['amount']),
@@ -4045,16 +4173,14 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   if (value == 'delete') _deleteProgress(item);
                 },
                 itemBuilder: (_) {
-                  final isDoneOrStockIn = status == 'done' ||
-                      item['stock_in_transaction_id'] != null ||
-                      item['stock_in_batch_key'] != null;
                   final canDelete = _currentRoleId == 'platform_owner' ||
                       _currentRoleId == 'super_admin' ||
-                      ((_currentRoleId == 'production' || _currentRoleId == 'produksi') && !isDoneOrStockIn);
+                      _currentRoleId == 'production' ||
+                      _currentRoleId == 'produksi';
                   return [
                     const PopupMenuItem(
                       value: 'edit',
-                      child: Text('Edit metadata'),
+                      child: Text('Edit'),
                     ),
                     if (canDelete)
                       const PopupMenuItem(
@@ -4083,7 +4209,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   children: [
                     Expanded(
                       child: Text(
-                        '${AppUi.text(payment['payment_label']).isNotEmpty ? AppUi.text(payment['payment_label']) : _paymentTypeLabel(AppUi.text(payment['payment_type']))} - ${AppUi.date(payment['payment_date'])}',
+                        '${_getPaymentDisplayLabel(payment)} - ${AppUi.date(payment['payment_date'])}',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -4429,6 +4555,30 @@ class _StockProgressPageState extends State<StockProgressPage> {
       default:
         return stageKey.split('_').map((str) => str.isEmpty ? '' : '${str[0].toUpperCase()}${str.substring(1)}').join(' ');
     }
+  }
+
+  String _getPaymentDisplayLabel(Map<String, dynamic> payment) {
+    final paymentLabel = AppUi.text(payment['payment_label']).trim();
+    if (paymentLabel.isNotEmpty && paymentLabel != '--') {
+      return paymentLabel;
+    }
+
+    final stageKey = AppUi.text(payment['stage_key']).trim();
+    if (stageKey.isNotEmpty && stageKey != '--') {
+      return _stageLabel(stageKey);
+    }
+
+    final paymentType = AppUi.text(payment['payment_type']).trim();
+    if (paymentType.isNotEmpty && paymentType != '--') {
+      return _paymentTypeLabel(paymentType);
+    }
+
+    final note = AppUi.text(payment['note']).trim();
+    if (note.isNotEmpty && note != '--') {
+      return note;
+    }
+
+    return 'Pembayaran';
   }
 
   String _paymentTypeLabel(String paymentType) {
