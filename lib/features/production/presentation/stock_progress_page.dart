@@ -330,11 +330,14 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 AppUi.showSnack('Pilih minimal satu SKU lokal dan qty proses.');
                 return;
               }
-              final activeStageKeys = availableStages
+              final activeStagesPayload = availableStages
                   .where((stage) => stage['active'] == true)
-                  .map((stage) => stage['key'] as String)
+                  .map((stage) => <String, dynamic>{
+                        'key': stage['key'] as String,
+                        'label': stage['label'] as String,
+                      })
                   .toList();
-              if (activeStageKeys.isEmpty) {
+              if (activeStagesPayload.isEmpty) {
                 AppUi.showSnack('Pilih minimal satu progress proses.');
                 return;
               }
@@ -374,7 +377,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     'p_catatan': note.text.trim(),
                     'p_proof_url': proofEvidence?.publicUrl,
                     'p_surat_jalan_number': manualSuratJalan,
-                    'p_active_stages': activeStageKeys,
+                    'p_active_stages': activeStagesPayload,
                   },
                 );
 
@@ -566,7 +569,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             : () {
                                 final text = customStageController.text.trim();
                                 if (text.isEmpty) return;
-                                final key = text.toLowerCase().replaceAll(' ', '_');
+                                final key = _normalizeStageKey(text);
                                 if (availableStages.any((s) => s['key'] == key)) {
                                   AppUi.showSnack('Progress "$text" sudah ada.');
                                   return;
@@ -2084,15 +2087,6 @@ class _StockProgressPageState extends State<StockProgressPage> {
         _currentRoleId == 'produksi';
     if (!isAllowedRole) return;
 
-    final status = AppUi.text(item['status'], 'progress');
-    final isDoneOrStockIn = status == 'done' ||
-        item['stock_in_transaction_id'] != null ||
-        item['stock_in_batch_key'] != null;
-
-    if ((_currentRoleId == 'production' || _currentRoleId == 'produksi') && isDoneOrStockIn) {
-      AppUi.showSnack('Produksi sudah Done/Stock In. Role production tidak bisa menghapus.');
-      return;
-    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -2255,6 +2249,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           'p_progress_id': item['progress_id'],
                           'p_stage_key': key,
                           'p_status': 'pending',
+                          'p_stage_label': stage['label'],
                         },
                       );
                     } else {
@@ -2555,7 +2550,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             : () {
                                 final text = customStageController.text.trim();
                                 if (text.isEmpty) return;
-                                final key = text.toLowerCase().replaceAll(' ', '_');
+                                final key = _normalizeStageKey(text);
                                 if (availableStages.any((s) => s['key'] == key)) {
                                   AppUi.showSnack('Progress "$text" sudah ada.');
                                   return;
@@ -4558,23 +4553,30 @@ class _StockProgressPageState extends State<StockProgressPage> {
   }
 
   String _getPaymentDisplayLabel(Map<String, dynamic> payment) {
-    final paymentLabel = AppUi.text(payment['payment_label']).trim();
-    if (paymentLabel.isNotEmpty && paymentLabel != '--') {
+    String clean(dynamic val) {
+      if (val == null) return '';
+      final s = val.toString().trim();
+      if (s == '-' || s == '--') return '';
+      return s;
+    }
+
+    final paymentLabel = clean(payment['payment_label']);
+    if (paymentLabel.isNotEmpty) {
       return paymentLabel;
     }
 
-    final stageKey = AppUi.text(payment['stage_key']).trim();
-    if (stageKey.isNotEmpty && stageKey != '--') {
+    final stageKey = clean(payment['stage_key']);
+    if (stageKey.isNotEmpty) {
       return _stageLabel(stageKey);
     }
 
-    final paymentType = AppUi.text(payment['payment_type']).trim();
-    if (paymentType.isNotEmpty && paymentType != '--') {
+    final paymentType = clean(payment['payment_type']);
+    if (paymentType.isNotEmpty) {
       return _paymentTypeLabel(paymentType);
     }
 
-    final note = AppUi.text(payment['note']).trim();
-    if (note.isNotEmpty && note != '--') {
+    final note = clean(payment['note']);
+    if (note.isNotEmpty) {
       return note;
     }
 
@@ -4594,6 +4596,15 @@ class _StockProgressPageState extends State<StockProgressPage> {
       default:
         return paymentType;
     }
+  }
+
+  String _normalizeStageKey(String input) {
+    return input
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
   }
 
   Map<String, dynamic> _map(dynamic raw) {

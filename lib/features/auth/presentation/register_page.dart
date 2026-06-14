@@ -57,11 +57,37 @@ class _RegisterPageState extends State<RegisterPage> {
     super.dispose();
   }
 
+  String _extractInviteToken(String input) {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return '';
+    try {
+      final uri = Uri.parse(trimmed);
+      final invite = uri.queryParameters['invite'];
+      if (invite != null && invite.isNotEmpty) {
+        return invite.trim();
+      }
+    } catch (_) {}
+    final regExp = RegExp(r'[?&]invite=([^&]+)');
+    final match = regExp.firstMatch(trimmed);
+    if (match != null && match.groupCount >= 1) {
+      final token = match.group(1);
+      if (token != null && token.isNotEmpty) {
+        return token.trim();
+      }
+    }
+    return trimmed;
+  }
+
   Future<void> _checkInvite() async {
-    final token = _tokenController.text.trim();
+    final tokenInput = _tokenController.text.trim();
+    final token = _extractInviteToken(tokenInput);
     if (token.isEmpty) {
-      AppUi.showSnack('MASUKKAN KODE UNDANGAN.');
+      AppUi.showSnack('Masukkan kode atau link undangan.');
       return;
+    }
+
+    if (token != tokenInput) {
+      _tokenController.text = token;
     }
 
     setState(() {
@@ -78,7 +104,6 @@ class _RegisterPageState extends State<RegisterPage> {
       if (response != null && response is List && response.isNotEmpty) {
         final data = Map<String, dynamic>.from(response.first as Map);
         final isValid = data['is_valid'] as bool? ?? false;
-        final message = data['message'] as String? ?? 'Terjadi kesalahan.';
         final tenantName = data['tenant_name'] as String?;
         final roleId = data['role_id'] as String?;
         final email = data['email'] as String?;
@@ -86,7 +111,7 @@ class _RegisterPageState extends State<RegisterPage> {
         setState(() {
           _inviteChecked = true;
           _inviteValid = isValid;
-          _inviteMessage = message;
+          _inviteMessage = isValid ? 'Undangan valid' : 'Undangan tidak valid atau sudah kedaluwarsa.';
           _tenantName = tenantName;
           _roleId = roleId;
           _inviteEmail = email;
@@ -97,23 +122,23 @@ class _RegisterPageState extends State<RegisterPage> {
         });
 
         if (!isValid) {
-          AppUi.showSnack(message.toUpperCase());
+          AppUi.showSnack('Undangan tidak valid atau sudah kedaluwarsa.');
         }
       } else {
         setState(() {
           _inviteChecked = true;
           _inviteValid = false;
-          _inviteMessage = 'Undangan tidak ditemukan atau tidak valid.';
+          _inviteMessage = 'Undangan tidak valid atau sudah kedaluwarsa.';
         });
-        AppUi.showSnack('UNDANGAN TIDAK VALID.');
+        AppUi.showSnack('Undangan tidak valid atau sudah kedaluwarsa.');
       }
     } catch (e) {
       setState(() {
         _inviteChecked = true;
         _inviteValid = false;
-        _inviteMessage = 'Gagal memeriksa undangan: $e';
+        _inviteMessage = 'Undangan tidak valid atau sudah kedaluwarsa.';
       });
-      AppUi.showSnack('GAGAL MEMERIKSA UNDANGAN.');
+      AppUi.showSnack('Undangan tidak valid atau sudah kedaluwarsa.');
     } finally {
       setState(() {
         _checkingToken = false;
@@ -244,7 +269,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         ),
                         const SizedBox(height: 18),
                         Text(
-                          'DAFTAR LEWAT UNDANGAN'.toUpperCase(),
+                          'Daftar Lewat Undangan',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: theme.colorScheme.onSurface,
@@ -255,7 +280,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'MASUKKAN KODE KHUSUS UNTUK BERGABUNG'.toUpperCase(),
+                          'Masukkan kode khusus untuk bergabung'.toUpperCase(),
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: theme.colorScheme.primary,
@@ -274,10 +299,15 @@ class _RegisterPageState extends State<RegisterPage> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           const Text(
-                            'KODE UNDANGAN',
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+                            'Kode / Link Undangan',
+                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Masukkan kode undangan atau link invite yang diberikan oleh Platform Owner.',
+                            style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 12),
                           Row(
                             children: [
                               Expanded(
@@ -285,7 +315,7 @@ class _RegisterPageState extends State<RegisterPage> {
                                   controller: _tokenController,
                                   enabled: !_checkingToken && !_submitting,
                                   decoration: const InputDecoration(
-                                    hintText: 'Masukkan token UUID undangan...',
+                                    hintText: 'Masukkan kode atau link...',
                                     prefixIcon: Icon(Icons.key),
                                   ),
                                 ),
@@ -293,18 +323,16 @@ class _RegisterPageState extends State<RegisterPage> {
                               const SizedBox(width: 8),
                               SizedBox(
                                 height: 50,
-                                child: FilledButton(
+                                child: FilledButton.icon(
                                   onPressed: (_checkingToken || _submitting) ? null : _checkInvite,
-                                  style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                                  ),
-                                  child: _checkingToken
+                                  icon: _checkingToken
                                       ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black),
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                                         )
                                       : const Icon(Icons.search),
+                                  label: const Text('Cek Undangan'),
                                 ),
                               ),
                             ],
@@ -459,12 +487,16 @@ class _RegisterPageState extends State<RegisterPage> {
                     const SizedBox(height: 24),
                     TextButton.icon(
                       onPressed: () {
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(builder: (_) => const AuthGate()),
-                        );
+                        if (Navigator.of(context).canPop()) {
+                          Navigator.of(context).pop();
+                        } else {
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(builder: (_) => const AuthGate()),
+                          );
+                        }
                       },
                       icon: const Icon(Icons.arrow_back),
-                      label: Text('KEMBALI KE HALAMAN LOGIN'.toUpperCase()),
+                      label: const Text('Kembali ke Login'),
                     ),
                   ],
                 ),

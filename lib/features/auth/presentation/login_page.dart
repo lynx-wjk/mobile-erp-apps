@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'dart:math' as math;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
 import 'register_page.dart';
+import 'request_access_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -18,26 +18,17 @@ class _LoginPageState extends State<LoginPage>
   final SupabaseClient _client = Supabase.instance.client;
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
 
   bool _isLoading = false;
-  bool _isRegister = false;
   bool _obscure = true;
 
   late final AnimationController _animCtrl;
-  late final Animation<double> _fadeAnim;
-  late final Animation<Offset> _slideAnim;
 
   @override
   void initState() {
     super.initState();
     _animCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 400));
-    _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
-    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
     _animCtrl.forward();
   }
 
@@ -46,9 +37,6 @@ class _LoginPageState extends State<LoginPage>
     _animCtrl.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _nameController.dispose();
-    _usernameController.dispose();
-    _phoneController.dispose();
     super.dispose();
   }
 
@@ -83,39 +71,6 @@ class _LoginPageState extends State<LoginPage>
     }
   }
 
-  Future<void> _register() async {
-    FocusManager.instance.primaryFocus?.unfocus();
-    final email = _emailController.text.trim().toLowerCase();
-    final password = _passwordController.text;
-    final nama = _nameController.text.trim();
-    if (nama.isEmpty || email.isEmpty || password.isEmpty) {
-      AppUi.showSnack('Isi semua bidang.');
-      return;
-    }
-    setState(() => _isLoading = true);
-    try {
-      final response = await _client.auth.signUp(
-        email: email,
-        password: password,
-        data: {'nama': nama},
-      );
-      final userId = response.user?.id;
-      if (userId != null) {
-        await _client.rpc('register_pending_user_profile', params: {
-          'p_user_id': userId,
-          'p_nama': nama,
-          'p_email': email,
-        });
-      }
-      AppUi.showSnack('Berhasil. Tunggu approval admin.');
-      await _client.auth.signOut();
-      if (mounted) setState(() => _isRegister = false);
-    } catch (error) {
-      AppUi.showSnack(_friendlyAuthError(error));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
 
   // ── Hero section ─────────────────────────────────────────────────────────────
   Widget _hero() {
@@ -206,25 +161,17 @@ class _LoginPageState extends State<LoginPage>
 
   // ── Form card ────────────────────────────────────────────────────────────────
   Widget _form() {
-    final theme = Theme.of(context);
     return NiceCard(
       borderColor: Colors.black,
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            (_isRegister ? 'REGISTER' : 'LOGIN').toUpperCase(),
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 24),
+          const Text(
+            'SYSTEM LOGIN',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 24),
           ),
           const SizedBox(height: 22),
-          if (_isRegister) ...[
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'FULL NAME', prefixIcon: Icon(Icons.badge)),
-            ),
-            const SizedBox(height: 14),
-          ],
           TextField(
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
@@ -245,28 +192,30 @@ class _LoginPageState extends State<LoginPage>
           ),
           const SizedBox(height: 24),
           FilledButton(
-            onPressed: _isLoading ? null : (_isRegister ? _register : _login),
+            onPressed: _isLoading ? null : _login,
             child: _isLoading
                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : Text((_isRegister ? 'CREATE ACCOUNT' : 'SYSTEM LOGIN').toUpperCase()),
+                : const Text('SYSTEM LOGIN'),
           ),
           const SizedBox(height: 12),
           TextButton(
-            onPressed: () => setState(() => _isRegister = !_isRegister),
-            child: Text(_isRegister ? 'BACK TO LOGIN' : 'REQUEST ACCESS'),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const RequestAccessPage()),
+              );
+            },
+            child: const Text('REQUEST ACCESS'),
           ),
-          if (!_isRegister) ...[
-            const SizedBox(height: 4),
-            TextButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const RegisterPage()),
-                );
-              },
-              icon: const Icon(Icons.mail_outline_rounded, size: 16),
-              label: const Text('DAFTAR LEWAT UNDANGAN'),
-            ),
-          ],
+          const SizedBox(height: 4),
+          TextButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const RegisterPage()),
+              );
+            },
+            icon: const Icon(Icons.mail_outline_rounded, size: 16),
+            label: const Text('DAFTAR LEWAT UNDANGAN'),
+          ),
         ],
       ),
     );
