@@ -388,8 +388,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     // Jangan hapus semua local cache. Kalau server timeout, cache lama tetap
     // dipakai sebagai tampilan cepat.
     try {
-      await _client
-          .rpc('finance_fix_exact_cache_settled_hpp', params: {
+      await _client.rpc('finance_fix_exact_cache_settled_hpp', params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
         'p_marketplace': _marketplaceParam() ?? 'all',
@@ -4357,8 +4356,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (ok != true) return;
     setState(() => _processing = true);
     try {
-      final res = await _client
-          .rpc('finance_auto_mark_cancel_no_payout', params: {
+      final res =
+          await _client.rpc('finance_auto_mark_cancel_no_payout', params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
         'p_account_id': _accountUuidParam(),
@@ -5345,7 +5344,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       value:
                           useManualCategory ? '__manual__' : selectedCategory,
                       isExpanded: true,
-                      decoration: const InputDecoration(labelText: 'Kategori'),
+                      decoration: const InputDecoration(
+                        labelText: 'Kategori',
+                        helperText:
+                            'Contoh: Modal tambahan, Refund, Kas keluar.',
+                      ),
                       items: [
                         ..._expenseCategoryOptions.map(
                           (item) => DropdownMenuItem<String>(
@@ -5504,6 +5507,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
           title: Text('Edit biaya operasional'),
           content: SingleChildScrollView(
             child: Column(
@@ -5512,7 +5518,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 DropdownButtonFormField<String>(
                   value: useManualCategory ? '__manual__' : selectedCategory,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Kategori'),
+                  decoration: const InputDecoration(
+                    labelText: 'Kategori',
+                    helperText: 'Contoh: Modal tambahan, Refund, Kas keluar.',
+                  ),
                   items: [
                     ...options.map(
                       (item) => DropdownMenuItem<String>(
@@ -5781,6 +5790,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
           title: const Text('Edit saldo awal bulan'),
           content: SingleChildScrollView(
             child: Column(
@@ -5983,6 +5995,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
           title: Text(row == null ? 'Tambah kas manual' : 'Edit kas manual'),
           content: SingleChildScrollView(
             child: Column(
@@ -6012,13 +6027,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   decoration: const InputDecoration(
                     labelText: 'Nominal',
                     prefixText: 'Rp ',
+                    helperText: 'Format titik ditambahkan otomatis.',
                   ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: category,
                   textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(labelText: 'Kategori'),
+                  decoration: const InputDecoration(
+                    labelText: 'Kategori',
+                    helperText: 'Contoh: Modal tambahan, Refund, Kas keluar.',
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -6180,6 +6199,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
           title: Text(row == null
               ? 'Tambah penarikan marketplace'
               : 'Edit penarikan marketplace'),
@@ -6423,6 +6445,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
           title: Text(row == null
               ? 'Tambah alokasi penarikan'
               : 'Edit alokasi penarikan'),
@@ -11464,6 +11489,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
           title: const Text('Pilih bulan'),
           content: SizedBox(
             width: 320,
