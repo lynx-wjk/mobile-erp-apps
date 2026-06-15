@@ -71,7 +71,6 @@ class _LoginPageState extends State<LoginPage>
     }
   }
 
-
   // ── Hero section ─────────────────────────────────────────────────────────────
   Widget _hero() {
     final theme = Theme.of(context);
@@ -88,7 +87,8 @@ class _LoginPageState extends State<LoginPage>
               BoxShadow(color: Colors.black, offset: Offset(5, 5)),
             ],
           ),
-          child: const Icon(Icons.account_balance_rounded, color: Colors.black, size: 42),
+          child: const Icon(Icons.account_balance_rounded,
+              color: Colors.black, size: 42),
         ),
         const SizedBox(height: 28),
         Text(
@@ -124,7 +124,8 @@ class _LoginPageState extends State<LoginPage>
       spacing: 10,
       runSpacing: 10,
       children: [
-        _previewChip(Icons.trending_up_rounded, 'FINANCE', AppTheme.primaryColor),
+        _previewChip(
+            Icons.trending_up_rounded, 'FINANCE', AppTheme.primaryColor),
         _previewChip(Icons.inventory_2_rounded, 'STOCK', AppTheme.accentColor),
         _previewChip(Icons.store_rounded, 'MARKET', AppTheme.pinkColor),
       ],
@@ -133,7 +134,8 @@ class _LoginPageState extends State<LoginPage>
 
   Widget _previewChip(IconData icon, String label, Color color) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final background = isDark ? color.withOpacity(0.92) : color.withOpacity(0.22);
+    final background =
+        isDark ? color.withOpacity(0.92) : color.withOpacity(0.22);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -175,7 +177,8 @@ class _LoginPageState extends State<LoginPage>
           TextField(
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(labelText: 'EMAIL', prefixIcon: Icon(Icons.email)),
+            decoration: const InputDecoration(
+                labelText: 'EMAIL', prefixIcon: Icon(Icons.email)),
           ),
           const SizedBox(height: 14),
           TextField(
@@ -194,7 +197,10 @@ class _LoginPageState extends State<LoginPage>
           FilledButton(
             onPressed: _isLoading ? null : _login,
             child: _isLoading
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
                 : const Text('SYSTEM LOGIN'),
           ),
           const SizedBox(height: 12),
@@ -204,7 +210,7 @@ class _LoginPageState extends State<LoginPage>
                 MaterialPageRoute(builder: (_) => const RequestAccessPage()),
               );
             },
-            child: const Text('REQUEST ACCESS'),
+            child: const Text('LIHAT PAKET & REQUEST ACCESS'),
           ),
           const SizedBox(height: 4),
           TextButton.icon(
@@ -240,7 +246,10 @@ class _LoginPageState extends State<LoginPage>
                     Text(
                       'AUTHORIZED PERSONNEL ONLY'.toUpperCase(),
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outline
+                            .withOpacity(0.5),
                         fontSize: 10,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 2,
