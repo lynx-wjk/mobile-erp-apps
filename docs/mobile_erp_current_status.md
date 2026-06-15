@@ -87,16 +87,27 @@ This document provides a summary of the current verified state of the Mobile ERP
 
 ---
 
-## Phase 6: Entitlement RPCs
+## Phase 6: Entitlement RPCs & Platform UI
 * **Status**: **ACTIVE (COMPLETED)**
   - Migration `supabase/migrations/20260615170000_phase6_entitlement_rpcs.sql` has been applied and validated on VPS self-host DB.
   - Created unversioned platform owner helper `app_is_platform_owner` and entitlement RPCs: `tenant_has_feature`, `get_my_entitlements`, `platform_tenant_subscription_set`, and `platform_tenant_subscription_override_set`.
   - Added safe fallbacks for unassigned tenants returning a default active status with core features (`stock_basic`, `production_basic`, `finance_basic`, `invite_management`).
-  - Read-only RPCs do not block any UI or login actions.
+  - Added read-only Subscription Plans Page, Tenant Subscription Detail Page with plan updating, feature overrides, and live entitlement preview, and integrated it into the Platform Owner Dashboard.
+  - Read-only RPCs and UI elements do not block any user login or features.
 
 ---
 
-## Phase 7 to Phase 10: Autojobs & Platform UI
+## Phase 7: Lifecycle Maintenance Routine
+* **Status**: **STAGED / PENDING SELF-HOST APPLY**
+  - Migration `supabase/migrations/20260615180000_phase7_subscription_lifecycle.sql` is staged locally.
+  - Created unversioned routine `run_subscription_lifecycle_maintenance(p_dry_run, p_now)` with dry-run capabilities and transition logic: `trialing -> expired`, `active -> past_due`, `past_due -> suspended`, and `canceled -> expired`.
+  - Deployed unversioned preview helper `preview_subscription_lifecycle_maintenance(p_now)`.
+  - Gated write operations strictly to platform owner with no automated cron runs or app suspension enabled.
+
+---
+
+## Phase 8 to Phase 10: data wipe & remaining phases
 * **Status**: **NOT IMPLEMENTED (ANALYSIS ONLY)**
   - Analysis and roadmap prepared. See corresponding markdown files in `docs/` for each phase.
-  - No lifecycle crons scheduled, and no operational purges executed.
+  - No operational data purges or automatic account disconnections executed.
+

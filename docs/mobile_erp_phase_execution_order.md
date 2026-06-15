@@ -17,8 +17,10 @@ This document outlines the final consolidated roadmap, detailing the exact order
   7. `20260615120000_phase3_canonical_wrappers.sql`
   8. `20260615120100_phase3_remaining_wrappers.sql`
   9. `20260615150000_phase4b_marketplace_rls_hardening.sql`
-  10. `20260615160000_phase5_subscription_core.sql` (Staged - Pending Self-Host Apply)
-  11. `20260615170000_phase6_entitlement_rpcs.sql` (Staged - Pending Self-Host Apply)
+  10. `20260615160000_phase5_subscription_core.sql` (ACTIVE - COMPLETED)
+  11. `20260615170000_phase6_entitlement_rpcs.sql` (ACTIVE - COMPLETED)
+  12. `20260615180000_phase7_subscription_lifecycle.sql` (Staged - Pending Self-Host Apply)
+
 
 ---
 
@@ -90,12 +92,13 @@ This document outlines the final consolidated roadmap, detailing the exact order
 
 ---
 
-### Phase 7: Lifecycle Maintenance
+### Phase 7: Lifecycle Maintenance (Staged - Pending Self-Host Apply)
 - **Goal**: Manual trial/billing expiration routine.
 - **Files Likely Changed**: None (Database schema only).
-- **Migration Suggestion**: `supabase/migrations/20260615180000_phase7_lifecycle.sql`
-- **SQL Functions**: `run_subscription_lifecycle_maintenance`
+- **Migration Suggestion**: `supabase/migrations/20260615180000_phase7_subscription_lifecycle.sql`
+- **SQL Functions**: `run_subscription_lifecycle_maintenance`, `preview_subscription_lifecycle_maintenance`
 - **Rollback Risk**: Medium. Dry-run capability mitigates data issues.
+
 
 ---
 
