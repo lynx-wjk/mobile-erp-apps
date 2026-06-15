@@ -17,6 +17,7 @@ This document outlines the final consolidated roadmap, detailing the exact order
   7. `20260615120000_phase3_canonical_wrappers.sql`
   8. `20260615120100_phase3_remaining_wrappers.sql`
   9. `20260615150000_phase4b_marketplace_rls_hardening.sql`
+  10. `20260615160000_phase5_subscription_core.sql` (Staged - Pending Self-Host Apply)
 
 ---
 
@@ -71,9 +72,10 @@ This document outlines the final consolidated roadmap, detailing the exact order
 
 ### Phase 5: SaaS Subscription Core
 - **Goal**: Create plans, subscription mappings, and event tracking tables.
+- **Status**: **STAGED / PENDING SELF-HOST APPLY**
 - **Files Likely Changed**: None (Database schema only).
-- **Migration Suggestion**: `supabase/migrations/20260615160000_phase5_subscription_core.sql`
-- **Rollback Risk**: Low. Creates new tables only.
+- **Migration Suggestion**: `supabase/migrations/20260615160000_phase5_subscription_core.sql` (Migration prepared but not yet applied to VPS self-host DB)
+- **Rollback Risk**: Low.
 
 ---
 
