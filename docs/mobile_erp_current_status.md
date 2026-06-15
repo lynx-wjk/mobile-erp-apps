@@ -87,7 +87,16 @@ This document provides a summary of the current verified state of the Mobile ERP
 
 ---
 
-## Phase 6 to Phase 10: Autojobs & Platform UI
+## Phase 6: Entitlement RPCs
+* **Status**: **STAGED / PENDING SELF-HOST APPLY**
+  - Migration prepared in `supabase/migrations/20260615170000_phase6_entitlement_rpcs.sql` but not yet applied to VPS self-host DB.
+  - Created unversioned platform owner helper `app_is_platform_owner` and entitlement RPCs: `tenant_has_feature`, `get_my_entitlements`, `platform_tenant_subscription_set`, and `platform_tenant_subscription_override_set`.
+  - Added safe fallbacks for unassigned tenants returning a default active status with core features (`stock_basic`, `production_basic`, `finance_basic`, `invite_management`).
+  - Read-only RPCs do not block any UI or login actions.
+
+---
+
+## Phase 7 to Phase 10: Autojobs & Platform UI
 * **Status**: **NOT IMPLEMENTED (ANALYSIS ONLY)**
   - Analysis and roadmap prepared. See corresponding markdown files in `docs/` for each phase.
   - No lifecycle crons scheduled, and no operational purges executed.

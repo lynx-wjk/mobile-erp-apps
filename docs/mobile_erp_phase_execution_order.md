@@ -17,7 +17,8 @@ This document outlines the final consolidated roadmap, detailing the exact order
   7. `20260615120000_phase3_canonical_wrappers.sql`
   8. `20260615120100_phase3_remaining_wrappers.sql`
   9. `20260615150000_phase4b_marketplace_rls_hardening.sql`
-  10. `20260615160000_phase5_subscription_core.sql`
+  10. `20260615160000_phase5_subscription_core.sql` (Staged - Pending Self-Host Apply)
+  11. `20260615170000_phase6_entitlement_rpcs.sql` (Staged - Pending Self-Host Apply)
 
 ---
 
@@ -81,11 +82,11 @@ This document outlines the final consolidated roadmap, detailing the exact order
 
 ### Phase 6: Entitlement RPCs
 - **Goal**: Write subscription set, bypass, and features checking functions.
-- **Files Likely Changed**:
-  - `lib/services/auth_service.dart` (fetching entitlements on login).
-- **Migration Suggestion**: `supabase/migrations/20260615170000_phase6_entitlements.sql`
-- **SQL Functions**: `tenant_has_feature`, `get_my_entitlements`, `platform_tenant_subscription_set`
-- **Rollback Risk**: Medium. Denies features if queries return incorrect values.
+- **Status**: **STAGED / PENDING SELF-HOST APPLY**
+- **Files Likely Changed**: None (Database schema/RPCs only).
+- **Migration Suggestion**: `supabase/migrations/20260615170000_phase6_entitlement_rpcs.sql` (Migration prepared but not yet applied to VPS self-host DB)
+- **SQL Functions**: `tenant_has_feature`, `get_my_entitlements`, `platform_tenant_subscription_set`, `platform_tenant_subscription_override_set`, `app_is_platform_owner`
+- **Rollback Risk**: Low. Read-only checks use safe fallbacks and do not gate UI or enforce blocks yet.
 
 ---
 
