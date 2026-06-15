@@ -113,7 +113,7 @@ async function claim(db:any, tenant:string, account:string, maxJobs:number) {
 }
 
 async function requeue(db:any, tenant:string, account:string) {
-  let q = db.from("marketplace_bootstrap_page_limit_audit_v1")
+  let q = db.from("marketplace_bootstrap_page_limit_audit")
     .select("order_pull_job_id")
     .eq("likely_page_limit_risk", true);
   if (tenant) q = q.eq("tenant_id", tenant);
