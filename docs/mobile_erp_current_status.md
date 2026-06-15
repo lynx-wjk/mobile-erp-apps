@@ -77,8 +77,8 @@ This document provides a summary of the current verified state of the Mobile ERP
 ---
 
 ## Phase 5: SaaS Subscription Core
-* **Status**: **STAGED / PENDING SELF-HOST APPLY**
-  - Migration prepared in `supabase/migrations/20260615160000_phase5_subscription_core.sql` but not yet applied to VPS self-host DB.
+* **Status**: **ACTIVE (COMPLETED)**
+  - Migration `supabase/migrations/20260615160000_phase5_subscription_core.sql` has been applied and validated on VPS self-host DB.
   - Setup scripts ready for tables `feature_catalog`, `subscription_plans`, `subscription_plan_features`, `tenant_subscriptions`, `tenant_subscription_overrides`, `tenant_subscription_events`, and `tenant_deletion_audit`.
   - Idempotent seeds ready for 21 core features and 5 plans (`trial`, `starter`, `growth`, `pro`, `enterprise`) with their feature mappings.
   - Setup scripts ready for row-level security (RLS) on all new tables restricting writes to platform owner role, and allowing scoped SELECT checks.
