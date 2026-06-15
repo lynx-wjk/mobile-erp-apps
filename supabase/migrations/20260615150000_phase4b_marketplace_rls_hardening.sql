@@ -43,6 +43,9 @@ AS
 
 ALTER VIEW public.marketplace_accounts_public OWNER TO postgres;
 
+REVOKE ALL ON TABLE public.marketplace_accounts_public FROM anon;
+REVOKE ALL ON TABLE public.marketplace_accounts_public FROM authenticated;
+REVOKE ALL ON TABLE public.marketplace_accounts_public FROM public;
 GRANT SELECT ON TABLE public.marketplace_accounts_public TO authenticated;
 GRANT ALL ON TABLE public.marketplace_accounts_public TO service_role;
 
@@ -109,6 +112,9 @@ AS
 
 ALTER VIEW public.marketplace_stock_sync_logs_public OWNER TO postgres;
 
+REVOKE ALL ON TABLE public.marketplace_stock_sync_logs_public FROM anon;
+REVOKE ALL ON TABLE public.marketplace_stock_sync_logs_public FROM authenticated;
+REVOKE ALL ON TABLE public.marketplace_stock_sync_logs_public FROM public;
 GRANT SELECT ON TABLE public.marketplace_stock_sync_logs_public TO authenticated;
 GRANT ALL ON TABLE public.marketplace_stock_sync_logs_public TO service_role;
 
