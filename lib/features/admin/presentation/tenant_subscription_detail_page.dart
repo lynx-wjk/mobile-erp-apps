@@ -258,6 +258,120 @@ class _TenantSubscriptionDetailPageState
     }
   }
 
+  bool _isOverrideActive(Map<String, dynamic> override) {
+    final endsAtRaw = override['ends_at']?.toString();
+    if (endsAtRaw == null || endsAtRaw.trim().isEmpty) return true;
+
+    final endsAt = DateTime.tryParse(endsAtRaw);
+    if (endsAt == null) return true;
+
+    return endsAt.toUtc().isAfter(DateTime.now().toUtc());
+  }
+
+  Future<void> _confirmRevokeOverride(Map<String, dynamic> override) async {
+    final featureKey = override['feature_key']?.toString() ?? '-';
+    final reasonController = TextEditingController(
+      text: 'Revoked from platform owner UI',
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text(
+            'NONAKTIFKAN OVERRIDE?',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Override fitur "$featureKey" akan diakhiri dengan ends_at = now(). Data tidak akan dihapus.',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Alasan revoke',
+                  hintText: 'Contoh: Trial fitur selesai',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('BATAL'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppUi.red,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('NONAKTIFKAN'),
+            ),
+          ],
+        );
+      },
+    );
+
+    final reason = reasonController.text.trim();
+    reasonController.dispose();
+
+    if (confirmed == true) {
+      await _revokeOverride(override, reason);
+    }
+  }
+
+  Future<void> _revokeOverride(
+    Map<String, dynamic> override,
+    String reason,
+  ) async {
+    final overrideId = override['override_id']?.toString();
+    final featureKey = override['feature_key']?.toString();
+
+    if (overrideId == null || overrideId.trim().isEmpty) {
+      AppUi.showSnack('OVERRIDE ID TIDAK VALID.');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final response = await _client.rpc(
+        'platform_tenant_subscription_override_revoke',
+        params: {
+          'p_tenant_id': widget.tenantId,
+          'p_override_id': overrideId,
+          'p_feature_key': featureKey,
+          'p_reason': reason.trim().isEmpty ? null : reason.trim(),
+        },
+      );
+
+      final ok = response != null &&
+          response is Map &&
+          (response['ok'] as bool? ?? false);
+
+      if (ok) {
+        AppUi.showSnack('Override fitur berhasil dinonaktifkan.');
+        await _loadAllData();
+      } else {
+        throw Exception(
+          response is Map
+              ? (response['message'] ?? response['error'] ?? response)
+              : 'Gagal menonaktifkan override.',
+        );
+      }
+    } catch (e) {
+      debugPrint('[REVOKE_OVERRIDE_ERROR] $e');
+      AppUi.showSnack('GAGAL MENONAKTIFKAN OVERRIDE: ${e.toString()}');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _pickDate({required bool isTrial}) async {
     final initialDate = (isTrial ? _trialEndsAt : _currentPeriodEnd) ??
         DateTime.now().add(const Duration(days: 30));
@@ -812,7 +926,7 @@ class _TenantSubscriptionDetailPageState
                     const SizedBox(height: 24),
 
                     // Overrides List
-                    const SectionTitle(title: 'DAFTAR OVERRIDE AKTIF'),
+                    const SectionTitle(title: 'DAFTAR OVERRIDE & RIWAYAT'),
                     const SizedBox(height: 8),
                     if (_overridesList.isEmpty)
                       const EmptyState(
@@ -826,6 +940,8 @@ class _TenantSubscriptionDetailPageState
                         final enabled = ovr['enabled'] as bool? ?? false;
                         final reason = ovr['reason']?.toString() ?? '';
                         final startsAt = ovr['starts_at']?.toString() ?? '';
+                        final endsAt = ovr['ends_at']?.toString() ?? '';
+                        final isActiveOverride = _isOverrideActive(ovr);
 
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
@@ -850,9 +966,13 @@ class _TenantSubscriptionDetailPageState
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 6, vertical: 2),
-                                    color: enabled ? AppUi.green : AppUi.red,
+                                    color: isActiveOverride
+                                        ? (enabled ? AppUi.green : AppUi.red)
+                                        : Colors.grey,
                                     child: Text(
-                                      enabled ? 'ENABLED' : 'DISABLED',
+                                      isActiveOverride
+                                          ? (enabled ? 'ENABLED' : 'DISABLED')
+                                          : 'REVOKED',
                                       style: const TextStyle(
                                           color: Colors.white,
                                           fontWeight: FontWeight.w900,
@@ -877,6 +997,42 @@ class _TenantSubscriptionDetailPageState
                                       fontSize: 9,
                                       fontWeight: FontWeight.w800,
                                       color: Colors.grey[500])),
+                              if (endsAt.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'BERAKHIR: ${AppUi.dateTime(endsAt)}'
+                                      .toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.grey[500],
+                                  ),
+                                ),
+                              ],
+                              if (isActiveOverride) ...[
+                                const SizedBox(height: 10),
+                                OutlinedButton.icon(
+                                  onPressed: () => _confirmRevokeOverride(ovr),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppUi.red,
+                                    side: const BorderSide(
+                                      color: AppUi.red,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.block_rounded,
+                                    size: 16,
+                                  ),
+                                  label: const Text(
+                                    'NONAKTIFKAN OVERRIDE',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         );
