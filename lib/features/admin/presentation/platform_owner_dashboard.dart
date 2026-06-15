@@ -7,6 +7,9 @@ import '../../../core/ui/app_ui.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../services/auth_service.dart';
 import '../../auth/presentation/login_page.dart';
+import 'subscription_plans_page.dart';
+import 'tenant_subscription_detail_page.dart';
+
 
 
 class PlatformOwnerDashboard extends StatefulWidget {
@@ -39,10 +42,10 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
         _readinessData = [];
       }
 
-      // Fetch distinct tenants list for invite generator & tenant creation checks
+      // Fetch distinct tenants list with subscription info
       final tenantsRes = await _client
           .from('app_tenants')
-          .select('tenant_id, tenant_name, status')
+          .select('tenant_id, tenant_code, tenant_name, owner_name, owner_email, status, tenant_subscriptions(status, current_period_end, created_at, subscription_plans(plan_name, plan_code))')
           .order('tenant_name');
       _tenantsList = (tenantsRes as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (e, st) {
@@ -52,6 +55,18 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
+  Map<String, dynamic>? _getActiveSubscription(List<dynamic>? subs) {
+    if (subs == null || subs.isEmpty) return null;
+    final list = subs.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    list.sort((a, b) {
+      final aTime = DateTime.tryParse(a['created_at']?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bTime = DateTime.tryParse(b['created_at']?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bTime.compareTo(aTime);
+    });
+    return list.first;
+  }
+
 
   Future<void> _logout() async {
     final authService = AuthService();
@@ -513,12 +528,12 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                               children: [
                                 Icon(Icons.add_business_rounded),
                                 SizedBox(width: 8),
-                                Text('TAMBAH TENANT', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                                Text('TAMBAH TENANT', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
                               ],
                             ),
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: NiceCard(
                             onTap: () => _showGenerateInviteDialog(),
@@ -528,7 +543,26 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                               children: [
                                 Icon(Icons.mail_outline_rounded),
                                 SizedBox(width: 8),
-                                Text('KIRIM UNDANGAN', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                                Text('KIRIM UNDANGAN', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: NiceCard(
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => const SubscriptionPlansPage()),
+                              );
+                            },
+                            borderColor: Colors.black,
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.card_membership_rounded),
+                                SizedBox(width: 8),
+                                Text('DAFTAR PAKET', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
                               ],
                             ),
                           ),
@@ -597,6 +631,27 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                         ),
                                         const SizedBox(width: 8),
                                         IconButton(
+                                          tooltip: 'Kelola Subscription',
+                                          icon: const Icon(Icons.card_membership_rounded, size: 18),
+                                          onPressed: () {
+                                            final tenantObj = _tenantsList.firstWhere(
+                                              (t) => t['tenant_id']?.toString() == tenantId,
+                                              orElse: () => <String, dynamic>{},
+                                            );
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) => TenantSubscriptionDetailPage(
+                                                  tenantId: tenantId,
+                                                  tenantName: tenantName,
+                                                  tenantCode: tenantObj['tenant_code']?.toString() ?? '-',
+                                                  ownerName: tenantObj['owner_name']?.toString(),
+                                                  ownerEmail: tenantObj['owner_email']?.toString(),
+                                                ),
+                                              ),
+                                            ).then((_) => _loadData());
+                                          },
+                                        ),
+                                        IconButton(
                                           tooltip: 'Undang user ke tenant ini',
                                           icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
                                           onPressed: () => _showGenerateInviteDialog(preselectedTenantId: tenantId),
@@ -604,6 +659,72 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                       ],
                                     ),
                                   ],
+                                ),
+                                Builder(
+                                  builder: (context) {
+                                    final tenantObj = _tenantsList.firstWhere(
+                                      (t) => t['tenant_id']?.toString() == tenantId,
+                                      orElse: () => <String, dynamic>{},
+                                    );
+                                    final subs = tenantObj['tenant_subscriptions'] as List?;
+                                    final activeSub = _getActiveSubscription(subs);
+                                    if (activeSub == null) {
+                                      return Container(
+                                        margin: const EdgeInsets.only(top: 8),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: AppUi.orange.withOpacity(0.12),
+                                          border: Border.all(color: AppUi.orange, width: 1.5),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.warning_amber_rounded, size: 12, color: AppUi.orange),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'UNASSIGNED (FALLBACK ACTIVE)'.toUpperCase(),
+                                              style: const TextStyle(color: AppUi.orange, fontWeight: FontWeight.w900, fontSize: 9),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }
+
+                                    final planName = activeSub['subscription_plans']?['plan_name']?.toString() ?? 'Unknown Plan';
+                                    final subStatus = activeSub['status']?.toString() ?? 'active';
+                                    final periodEnd = activeSub['current_period_end']?.toString();
+
+                                    return Container(
+                                      margin: const EdgeInsets.only(top: 8),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: AppUi.statusColor(subStatus).withOpacity(0.12),
+                                        border: Border.all(color: AppUi.statusColor(subStatus), width: 1.5),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.card_membership_rounded, size: 12),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'PAKET: $planName ($subStatus)'.toUpperCase(),
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 9,
+                                              color: AppUi.statusColor(subStatus),
+                                            ),
+                                          ),
+                                          if (periodEnd != null) ...[
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              '| EXP: ${AppUi.date(periodEnd)}'.toUpperCase(),
+                                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 9),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    );
+                                  }
                                 ),
                                 const SizedBox(height: 12),
                                 Divider(height: 1, thickness: 2, color: accent),
