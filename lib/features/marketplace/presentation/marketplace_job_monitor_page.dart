@@ -277,8 +277,7 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       String tenantId) async {
     final rows = await _client
         .from('finance_sync_jobs')
-        .select(
-            'status, attempts, order_count, item_count, transaction_count, last_message, job_type, marketplace, period_start, period_end, locked_at, last_run_at, created_at, updated_at')
+        .select('*')
         .eq('tenant_id', tenantId)
         .order('updated_at', ascending: false)
         .range(0, 49);
