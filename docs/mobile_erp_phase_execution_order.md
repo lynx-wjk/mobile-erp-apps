@@ -44,14 +44,14 @@ This document outlines the final consolidated roadmap, detailing the exact order
 ### Phase 3: Canonical RPC Wrappers
 - **Goal**: Reroute Flutter `.rpc` calls to unversioned canonical SQL functions.
 - **Status**: **ACTIVE (COMPLETED FOR LOW/MEDIUM RISK)**
-  - Created migration `supabase/migrations/20260615120000_phase3_canonical_wrappers.sql`.
+  - Created migrations `supabase/migrations/20260615120000_phase3_canonical_wrappers.sql` and `supabase/migrations/20260615120100_phase3_remaining_wrappers.sql`.
   - Rerouted `dashboard_page.dart` to try `finance_customer_dashboard_snapshot` first.
-  - Rerouted `finance_report_page.dart` calls for `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, and `finance_mark_no_payout_order` to try canonical wrappers first.
+  - Rerouted `finance_report_page.dart` calls for `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, `finance_mark_no_payout_order`, `finance_list_manual_operational_expenses`, and `finance_get_latest_runtime_progress` to try canonical wrappers first.
 - **Files Likely Changed**:
   - `lib/features/dashboard/presentation/dashboard_page.dart` (Completed)
   - `lib/features/finance/presentation/finance_report_page.dart` (Completed)
-- **Migration Suggestion**: `supabase/migrations/20260615120000_phase3_canonical_wrappers.sql`
-- **SQL Functions**: `finance_customer_dashboard_snapshot`, `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, `finance_mark_no_payout_order`
+- **Migration Suggestion**: `supabase/migrations/20260615120000_phase3_canonical_wrappers.sql`, `supabase/migrations/20260615120100_phase3_remaining_wrappers.sql`
+- **SQL Functions**: `finance_customer_dashboard_snapshot`, `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, `finance_mark_no_payout_order`, `finance_list_manual_operational_expenses`, `finance_get_latest_runtime_progress`
 - **Rollback Risk**: Medium. If signatures mismatch, screens will fail to load. Restore versioned names in Flutter if needed.
 
 

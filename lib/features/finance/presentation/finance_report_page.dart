@@ -290,7 +290,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     };
 
     final candidates = <String>[
-      'finance_dashboard_snapshot',
+      'finance_customer_dashboard_snapshot',
       'finance_customer_dashboard_snapshot_v24_6_82o',
     ];
 
@@ -796,10 +796,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     List<Map<String, dynamic>> results = [];
     try {
-      final res = await _client.rpc(
+      final candidates = <String>[
+        'finance_list_manual_operational_expenses',
         'finance_list_manual_operational_expenses_v24_6_80m',
-        params: params,
-      );
+      ];
+      final res = await _rpcWithFallback(candidates, params);
       final rows = _asList(_asMap(res)['rows'] ?? res);
       if (rows.isNotEmpty) {
         results = rows
@@ -1321,8 +1322,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<void> _loadPersistedFinanceProgressFromDb() async {
     if (_processing || !mounted) return;
     try {
-      final response =
-          await _client.rpc('finance_get_latest_runtime_progress_v24_6_3');
+      final candidates = <String>[
+        'finance_get_latest_runtime_progress',
+        'finance_get_latest_runtime_progress_v24_6_3',
+      ];
+      final response = await _rpcWithFallback(candidates, {});
       if (!mounted || response is! Map) return;
       final map = Map<String, dynamic>.from(response);
       final message = _text(map['message']);
