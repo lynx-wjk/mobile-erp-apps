@@ -527,19 +527,92 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           ?.copyWith(fontWeight: FontWeight.w900)),
                   const SizedBox(height: 6),
                   ...availableStages.map((stage) {
-                    return CheckboxListTile(
-                      title: Text(stage['label'] as String),
-                      value: stage['active'] as bool,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: saving
-                          ? null
-                          : (bool? value) {
-                              setSheetState(() {
-                                stage['active'] = value ?? false;
-                              });
+                    return _buildCreateStageTemplateTile(
+                      sheetContext: sheetContext,
+                      stage: stage,
+                      saving: saving,
+                      onChanged: (bool value) {
+                        setSheetState(() {
+                          stage['active'] = value;
+                        });
+                      },
+                      onEdit: () async {
+                        final edited = await _editStageLabelDialog(
+                          _editableStageLabel(stage),
+                        );
+                        if (edited == null || edited.trim().isEmpty) return;
+                        try {
+                          setSheetState(() => saving = true);
+                          await _client.rpc(
+                            'upsert_production_stage_template_for_app',
+                            params: <String, dynamic>{
+                              'p_stage_key': AppUi.text(stage['key']),
+                              'p_stage_label': edited.trim(),
+                              'p_default_selected': null,
                             },
+                          );
+                          if (!sheetContext.mounted) return;
+                          setSheetState(() {
+                            stage['label'] = edited.trim();
+                          });
+                          AppUi.showSnack('Template progress diperbarui.');
+                        } on PostgrestException catch (e) {
+                          AppUi.showSnack(e.message);
+                        } catch (e) {
+                          AppUi.showSnack(AppUi.userMessage(e.toString()));
+                        } finally {
+                          if (sheetContext.mounted) {
+                            setSheetState(() => saving = false);
+                          }
+                        }
+                      },
+                      onDelete: () async {
+                        final key = AppUi.text(stage['key']);
+                        if (key.isEmpty) return;
+                        final confirmed = await showDialog<bool>(
+                          context: sheetContext,
+                          builder: (dialogContext) => AlertDialog(
+                            title: const Text('Hapus template progress?'),
+                            content: Text(
+                              'Progress "${_editableStageLabel(stage)}" tidak akan muncul lagi saat tambah produksi baru. Progress lama tetap aman.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => AppUi.safePop(dialogContext, false),
+                                child: const Text('Batal'),
+                              ),
+                              FilledButton.icon(
+                                onPressed: () => AppUi.safePop(dialogContext, true),
+                                icon: const Icon(Icons.delete_outline),
+                                label: const Text('Hapus'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed != true) return;
+                        try {
+                          setSheetState(() => saving = true);
+                          await _client.rpc(
+                            'delete_production_stage_template_for_app',
+                            params: <String, dynamic>{'p_stage_key': key},
+                          );
+                          if (!sheetContext.mounted) return;
+                          setSheetState(() {
+                            availableStages.removeWhere(
+                              (row) => AppUi.text(row['key']) == key,
+                            );
+                          });
+                          AppUi.showSnack('Template progress dihapus.');
+                        } on PostgrestException catch (e) {
+                          AppUi.showSnack(e.message);
+                        } catch (e) {
+                          AppUi.showSnack(AppUi.userMessage(e.toString()));
+                        } finally {
+                          if (sheetContext.mounted) {
+                            setSheetState(() => saving = false);
+                          }
+                        }
+                      },
                     );
                   }),
                   Row(
@@ -561,28 +634,54 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         icon: const Icon(Icons.add_circle_outline),
                         onPressed: saving
                             ? null
-                            : () {
+                            : () async {
                                 final text = customStageController.text.trim();
                                 if (text.isEmpty) return;
                                 final key = _normalizeStageKey(text);
+                                if (key.isEmpty) return;
                                 final existing = availableStages.firstWhereOrNull(
                                   (stage) => AppUi.text(stage['key']) == key,
                                 );
-                                setSheetState(() {
-                                  if (existing != null) {
+                                if (existing != null) {
+                                  setSheetState(() {
                                     existing
                                       ..['label'] = text
                                       ..['active'] = true;
-                                    AppUi.showSnack('Progress "$text" diaktifkan.');
-                                  } else {
+                                    customStageController.clear();
+                                  });
+                                  AppUi.showSnack('Progress "$text" dipilih untuk produksi ini.');
+                                  return;
+                                }
+
+                                try {
+                                  setSheetState(() => saving = true);
+                                  await _client.rpc(
+                                    'upsert_production_stage_template_for_app',
+                                    params: <String, dynamic>{
+                                      'p_stage_key': key,
+                                      'p_stage_label': text,
+                                      'p_default_selected': true,
+                                    },
+                                  );
+                                  if (!sheetContext.mounted) return;
+                                  setSheetState(() {
                                     availableStages.add(<String, dynamic>{
                                       'key': key,
                                       'label': text,
                                       'active': true,
                                     });
+                                    customStageController.clear();
+                                  });
+                                  AppUi.showSnack('Template progress "$text" ditambahkan.');
+                                } on PostgrestException catch (e) {
+                                  AppUi.showSnack(e.message);
+                                } catch (e) {
+                                  AppUi.showSnack(AppUi.userMessage(e.toString()));
+                                } finally {
+                                  if (sheetContext.mounted) {
+                                    setSheetState(() => saving = false);
                                   }
-                                  customStageController.clear();
-                                });
+                                }
                               },
                       ),
                     ],
@@ -4620,6 +4719,72 @@ class _StockProgressPageState extends State<StockProgressPage> {
     );
   }
 
+  Widget _buildCreateStageTemplateTile({
+    required BuildContext sheetContext,
+    required Map<String, dynamic> stage,
+    required bool saving,
+    required ValueChanged<bool> onChanged,
+    required VoidCallback onEdit,
+    required VoidCallback onDelete,
+  }) {
+    final label = _editableStageLabel(stage);
+    final key = AppUi.text(stage['key']);
+    final active = stage['active'] == true;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: active
+            ? Theme.of(sheetContext).colorScheme.primary.withOpacity(0.08)
+            : Theme.of(sheetContext).colorScheme.surfaceVariant.withOpacity(0.22),
+        border: Border.all(
+          color: Theme.of(sheetContext).dividerColor.withOpacity(0.35),
+        ),
+      ),
+      child: Row(
+        children: [
+          Checkbox(
+            value: active,
+            onChanged: saving ? null : (value) => onChanged(value ?? false),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    decoration: active ? null : TextDecoration.lineThrough,
+                  ),
+                ),
+                if (key.isNotEmpty)
+                  Text(
+                    'key: $key',
+                    style: Theme.of(sheetContext).textTheme.bodySmall,
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Edit label template',
+            onPressed: saving ? null : onEdit,
+            icon: const Icon(Icons.edit_outlined),
+          ),
+          IconButton(
+            tooltip: 'Hapus template dari daftar tambah produksi',
+            onPressed: saving ? null : onDelete,
+            icon: Icon(
+              Icons.delete_outline,
+              color: Theme.of(sheetContext).colorScheme.error,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<Map<String, dynamic>> _defaultProductionStages() {
     return <Map<String, dynamic>>[
       <String, dynamic>{'key': 'potong_kain', 'label': 'Potong Kain'},
@@ -4641,52 +4806,35 @@ class _StockProgressPageState extends State<StockProgressPage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadStageTemplatesForCreate() async {
-    final rows = _defaultCreateStageTemplates()
+    final fallbackRows = _defaultCreateStageTemplates()
         .map((stage) => Map<String, dynamic>.from(stage))
         .toList();
-    if (_currentTenantId.isEmpty) return rows;
+    if (_currentTenantId.isEmpty) return fallbackRows;
 
     try {
-      final response = await _client
-          .from('production_progress_stages')
-          .select('stage_key, stage_label, is_active, sort_order, updated_at')
-          .eq('tenant_id', _currentTenantId)
-          .order('sort_order', ascending: true)
-          .order('updated_at', ascending: false);
-      final dbStages = _mapList(response);
-      final defaultKeys = _defaultProductionStages()
-          .map((stage) => AppUi.text(stage['key']))
-          .where((key) => key.isNotEmpty)
-          .toSet();
+      final response = await _client.rpc('list_production_stage_templates_for_app');
+      final templates = _mapList(response);
+      if (templates.isEmpty) return fallbackRows;
 
-      for (final dbStage in dbStages) {
-        final key = AppUi.text(dbStage['stage_key']).trim();
-        if (key.isEmpty) continue;
-        final rawLabel = AppUi.text(dbStage['stage_label']).trim();
-        final label = rawLabel.isEmpty ? _stageLabel(key) : rawLabel;
-        final isActive = dbStage['is_active'] == true;
-        final existing = rows.firstWhereOrNull(
-          (stage) => AppUi.text(stage['key']) == key,
-        );
-
-        if (existing != null) {
-          existing['label'] = label;
-          if (!defaultKeys.contains(key) && isActive) {
-            existing['active'] = true;
-          }
-        } else {
-          rows.add(<String, dynamic>{
-            'key': key,
-            'label': label,
-            'active': isActive,
-          });
-        }
-      }
+      return templates
+          .map((row) {
+            final key = AppUi.text(row['stage_key'] ?? row['key']).trim();
+            if (key.isEmpty) return <String, dynamic>{};
+            final rawLabel = AppUi.text(row['stage_label'] ?? row['label']).trim();
+            final label = rawLabel.isEmpty ? _stageLabel(key) : rawLabel;
+            return <String, dynamic>{
+              'key': key,
+              'label': label,
+              'active': row['default_selected'] == true || row['active'] == true,
+            };
+          })
+          .where((row) => AppUi.text(row['key']).isNotEmpty)
+          .toList();
     } catch (e) {
       debugPrint('Error loading production stage templates: $e');
     }
 
-    return rows;
+    return fallbackRows;
   }
 
   List<Map<String, dynamic>> _buildEditableStageRows(
