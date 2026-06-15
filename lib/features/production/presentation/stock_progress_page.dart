@@ -2136,37 +2136,16 @@ class _StockProgressPageState extends State<StockProgressPage> {
     bool saving = false;
 
     List<Map<String, dynamic>> dbStages = [];
-    final availableStages = <Map<String, dynamic>>[
-      {'key': 'potong_kain', 'label': 'Potong Kain', 'active': false},
-      {'key': 'jahit', 'label': 'Jahit', 'active': false},
-      {'key': 'lubang_kancing', 'label': 'Lubang Kancing', 'active': false},
-      {'key': 'finishing', 'label': 'Finishing', 'active': false},
-      {'key': 'packing', 'label': 'Packing', 'active': false},
-    ];
+    List<Map<String, dynamic>> availableStages =
+        _buildEditableStageRows(dbStages);
 
     try {
       final stagesRes = await _client
           .from('production_progress_stages')
-          .select('stage_key, stage_label, is_active')
+          .select('stage_key, stage_label, is_active, deleted_at')
           .eq('progress_id', item['progress_id']);
       dbStages = _mapList(stagesRes);
-
-      for (final dbStage in dbStages) {
-        final key = AppUi.text(dbStage['stage_key']);
-        final label = AppUi.text(dbStage['stage_label']);
-        final isActive = dbStage['is_active'] == true;
-
-        final existing = availableStages.firstWhereOrNull((s) => s['key'] == key);
-        if (existing != null) {
-          existing['active'] = isActive;
-        } else {
-          availableStages.add({
-            'key': key,
-            'label': label,
-            'active': isActive,
-          });
-        }
-      }
+      availableStages = _buildEditableStageRows(dbStages);
     } catch (e) {
       debugPrint('Error loading stages: $e');
     }
@@ -2237,24 +2216,30 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 setSheetState(() => saving = true);
 
                 for (final stage in availableStages) {
-                  final key = stage['key'] as String;
-                  final isActive = stage['active'] as bool;
-                  final existsInDb = dbStages.any((s) => AppUi.text(s['stage_key']) == key);
-                  final wasActive = existsInDb &&
-                      dbStages.any((s) => AppUi.text(s['stage_key']) == key && s['is_active'] == true);
+                  final key = AppUi.text(stage['key']).trim();
+                  if (key.isEmpty) continue;
+                  final label = _editableStageLabel(stage).trim();
+                  final isActive = stage['active'] == true;
+                  final persisted = stage['persisted'] == true;
+                  final originalActive = stage['originalActive'] == true;
+                  final originalLabel = AppUi.text(stage['originalLabel']).trim();
+                  final labelChanged = label != originalLabel;
 
-                  if (isActive && (!existsInDb || !wasActive)) {
-                    // New or restored stage — use lightweight RPC that doesn't need tailor
-                    await _client.rpc(
-                      'set_production_stage_active_for_app',
-                      params: <String, dynamic>{
-                        'p_progress_id': item['progress_id'],
-                        'p_stage_key': key,
-                        'p_stage_label': stage['label'],
-                      },
-                    );
-                  } else if (!isActive && wasActive) {
-                    // Deactivate / soft-delete stage
+                  if (isActive) {
+                    if (!persisted || !originalActive || labelChanged) {
+                      await _client.rpc(
+                        'set_production_stage_active_for_app',
+                        params: <String, dynamic>{
+                          'p_progress_id': item['progress_id'],
+                          'p_stage_key': key,
+                          'p_stage_label': label,
+                        },
+                      );
+                      stage['persisted'] = true;
+                      stage['originalActive'] = true;
+                      stage['originalLabel'] = label;
+                    }
+                  } else if (persisted && originalActive) {
                     await _client.rpc(
                       'delete_production_progress_stage_for_app',
                       params: <String, dynamic>{
@@ -2262,6 +2247,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         'p_stage_key': key,
                       },
                     );
+                    stage['originalActive'] = false;
                   }
                 }
                 
@@ -2514,19 +2500,102 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           ?.copyWith(fontWeight: FontWeight.w900)),
                   const SizedBox(height: 6),
                   ...availableStages.map((stage) {
-                    return CheckboxListTile(
-                      title: Text(stage['label'] as String),
-                      value: stage['active'] as bool,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: saving
-                          ? null
-                          : (bool? value) {
-                              setSheetState(() {
-                                stage['active'] = value ?? false;
-                              });
-                            },
+                    final key = AppUi.text(stage['key']);
+                    final label = _editableStageLabel(stage);
+                    final active = stage['active'] == true;
+                    final persisted = stage['persisted'] == true;
+                    final originalActive = stage['originalActive'] == true;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Theme.of(sheetContext)
+                              .dividerColor
+                              .withOpacity(0.35),
+                        ),
+                        color: active
+                            ? Theme.of(sheetContext)
+                                .colorScheme
+                                .primary
+                                .withOpacity(0.06)
+                            : Theme.of(sheetContext)
+                                .colorScheme
+                                .surfaceVariant
+                                .withOpacity(0.3),
+                      ),
+                      child: Row(
+                        children: [
+                          Checkbox(
+                            value: active,
+                            onChanged: saving
+                                ? null
+                                : (bool? value) {
+                                    setSheetState(() {
+                                      stage['active'] = value ?? false;
+                                    });
+                                  },
+                          ),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  label,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    decoration: active
+                                        ? null
+                                        : TextDecoration.lineThrough,
+                                  ),
+                                ),
+                                Text(
+                                  '${persisted ? 'Tersimpan' : 'Baru'} · ${originalActive ? 'aktif sebelumnya' : 'nonaktif sebelumnya'} · key: $key',
+                                  style: Theme.of(sheetContext)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(sheetContext)
+                                            .colorScheme
+                                            .onSurface
+                                            .withOpacity(0.62),
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Edit label',
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: saving
+                                ? null
+                                : () async {
+                                    final edited =
+                                        await _editStageLabelDialog(label);
+                                    if (edited == null ||
+                                        edited.trim().isEmpty ||
+                                        !sheetContext.mounted) {
+                                      return;
+                                    }
+                                    setSheetState(() {
+                                      stage['label'] = edited.trim();
+                                    });
+                                  },
+                          ),
+                          IconButton(
+                            tooltip: 'Hapus / nonaktifkan',
+                            icon: const Icon(Icons.delete_outline),
+                            color: Colors.red,
+                            onPressed: saving
+                                ? null
+                                : () {
+                                    setSheetState(() {
+                                      stage['active'] = false;
+                                    });
+                                  },
+                          ),
+                        ],
+                      ),
                     );
                   }),
                   Row(
@@ -2552,16 +2621,30 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                 final text = customStageController.text.trim();
                                 if (text.isEmpty) return;
                                 final key = _normalizeStageKey(text);
-                                if (availableStages.any((s) => s['key'] == key)) {
-                                  AppUi.showSnack('Progress "$text" sudah ada.');
+                                if (key.isEmpty) {
+                                  AppUi.showSnack('Nama progress tidak valid.');
                                   return;
                                 }
+                                final existing = availableStages.firstWhereOrNull(
+                                  (stage) => AppUi.text(stage['key']) == key,
+                                );
                                 setSheetState(() {
-                                  availableStages.add({
-                                    'key': key,
-                                    'label': text,
-                                    'active': true,
-                                  });
+                                  if (existing == null) {
+                                    availableStages.add(<String, dynamic>{
+                                      'key': key,
+                                      'label': text,
+                                      'active': true,
+                                      'persisted': false,
+                                      'originalLabel': '',
+                                      'originalActive': false,
+                                    });
+                                  } else if (existing['active'] == true) {
+                                    AppUi.showSnack('Progress "$text" sudah ada.');
+                                  } else {
+                                    existing
+                                      ..['label'] = text
+                                      ..['active'] = true;
+                                  }
                                   customStageController.clear();
                                 });
                               },
@@ -4534,6 +4617,109 @@ class _StockProgressPageState extends State<StockProgressPage> {
         ],
       ),
     );
+  }
+
+  List<Map<String, dynamic>> _defaultProductionStages() {
+    return <Map<String, dynamic>>[
+      <String, dynamic>{'key': 'potong_kain', 'label': 'Potong Kain'},
+      <String, dynamic>{'key': 'jahit', 'label': 'Jahit'},
+      <String, dynamic>{'key': 'lubang_kancing', 'label': 'Lubang Kancing'},
+      <String, dynamic>{'key': 'finishing', 'label': 'Finishing'},
+      <String, dynamic>{'key': 'packing', 'label': 'Packing'},
+    ];
+  }
+
+  List<Map<String, dynamic>> _buildEditableStageRows(
+    List<Map<String, dynamic>> dbStages,
+  ) {
+    final rows = _defaultProductionStages().map((stage) {
+      final key = AppUi.text(stage['key']);
+      final label = AppUi.text(stage['label'], _stageLabel(key));
+      return <String, dynamic>{
+        'key': key,
+        'label': label,
+        'active': false,
+        'persisted': false,
+        'originalLabel': label,
+        'originalActive': false,
+      };
+    }).toList();
+
+    for (final dbStage in dbStages) {
+      final key = AppUi.text(dbStage['stage_key']).trim();
+      if (key.isEmpty) continue;
+      final rawLabel = AppUi.text(dbStage['stage_label']).trim();
+      final label = rawLabel.isEmpty ? _stageLabel(key) : rawLabel;
+      final isActive = dbStage['is_active'] == true;
+      final existing = rows.firstWhereOrNull(
+        (stage) => AppUi.text(stage['key']) == key,
+      );
+      final row = <String, dynamic>{
+        'key': key,
+        'label': label,
+        'active': isActive,
+        'persisted': true,
+        'originalLabel': label,
+        'originalActive': isActive,
+      };
+      if (existing == null) {
+        rows.add(row);
+      } else {
+        existing
+          ..['label'] = label
+          ..['active'] = isActive
+          ..['persisted'] = true
+          ..['originalLabel'] = label
+          ..['originalActive'] = isActive;
+      }
+    }
+
+    return rows;
+  }
+
+  String _editableStageLabel(Map<String, dynamic> stage) {
+    final key = AppUi.text(stage['key']);
+    final label = AppUi.text(stage['label']).trim();
+    return label.isEmpty ? _stageLabel(key) : label;
+  }
+
+  Future<String?> _editStageLabelDialog(String currentLabel) async {
+    final controller = TextEditingController(text: currentLabel);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit label progress'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+            labelText: 'Label progress',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => AppUi.safePop(dialogContext),
+            child: const Text('Batal'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isEmpty) return;
+              AppUi.safePop(dialogContext, value);
+            },
+            icon: const Icon(Icons.save_outlined),
+            label: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+    Future<void>.delayed(
+      const Duration(milliseconds: 300),
+      controller.dispose,
+    );
+    return result;
   }
 
   String _stageLabel(String stageKey) {
