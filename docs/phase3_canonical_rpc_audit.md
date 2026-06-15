@@ -17,11 +17,11 @@ The table below lists the primary `.rpc` calls discovered in the codebase, detai
 | `register_page.dart` | `accept_invite` | `p_token`, `p_email`, `p_password` | `Map` (success/id) | Register Page | No (Canonical) | `accept_invite` | Low | Yes | Already canonical. |
 | `dashboard_page.dart` | `finance_customer_dashboard_snapshot_v24_6_82o` | `p_start_date`, `p_end_date` | `Map` (metrics/aggregates) | Main Dashboard / Customer Dashboard | **Yes** | `finance_customer_dashboard_snapshot` | Medium | **Yes** (Wrapper active) | Rerouted in Flutter (Dashboard Page). |
 | `dashboard_page.dart` | `finance_live_20260606_local_cache_fast_v20` | `p_filters` | `List<Map>` | Live Sync Monitoring | **Yes** | `finance_live_local_cache_fast` | High | **No** (Do not touch live sync) | Connected to marketplace sync dashboard. |
-| `finance_report_page.dart` | `finance_sku_summary_rows_v24_6_82e` | `p_filters` | `List<Map>` | SKU Summary Report | **Yes** | `finance_sku_summary_rows` | Medium | **No** | Target wrapper is deployed, but Flutter routing is pending validation. |
-| `finance_report_page.dart` | `finance_unpaid_sku_rows_v24_6_82e` | `p_filters` | `List<Map>` | Unpaid SKU Screen | **Yes** | `finance_unpaid_sku_rows` | Medium | **No** | Target wrapper is deployed, but Flutter routing is pending validation. |
+| `finance_report_page.dart` | `finance_sku_summary_rows_v24_6_82e` | `p_filters` | `List<Map>` | SKU Summary Report | **Yes** | `finance_sku_summary_rows` | Medium | **Yes** (Wrapper active) | Rerouted in Flutter (Finance Report Page). |
+| `finance_report_page.dart` | `finance_unpaid_sku_rows_v24_6_82e` | `p_filters` | `List<Map>` | Unpaid SKU Screen | **Yes** | `finance_unpaid_sku_rows` | Medium | **Yes** (Wrapper active) | Rerouted in Flutter (Finance Report Page). |
 | `finance_report_page.dart` | `finance_get_latest_runtime_progress_v24_6_3` | None | `Map` (progress details) | Run Finance Calculations | **Yes** | `finance_get_latest_runtime_progress` | Medium | **No** | High volatility. |
 | `finance_report_page.dart` | `finance_upsert_runtime_progress_v24_6_3` | `p_data` | `Void` / `Map` | Start Finance Run | **Yes** | `finance_upsert_runtime_progress` | High | **No** | Critical execution point. |
-| `finance_report_page.dart` | `finance_mark_no_payout_order_v24_6_28` | `p_order_id` | `Void` | Mark No Payout | **Yes** | `finance_mark_no_payout_order` | Low | **No** | Target wrapper is deployed, but Flutter routing is pending validation. |
+| `finance_report_page.dart` | `finance_mark_no_payout_order_v24_6_28` | `p_order_id` | `Void` | Mark No Payout | **Yes** | `finance_mark_no_payout_order` | Low | **Yes** (Wrapper active) | Rerouted in Flutter (Finance Report Page). |
 
 ---
 

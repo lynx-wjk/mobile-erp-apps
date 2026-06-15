@@ -54,11 +54,13 @@ This document provides a summary of the current verified state of the Mobile ERP
 ---
 
 ## Phase 3: Canonical RPC Wrappers
-* **Status**: **SAFE WRAPPER START (ACTIVE)**
+* **Status**: **SAFE WRAPPER START (ACTIVE - PARTIALLY COMPLETED)**
   - Audited and created SQL wrappers in `supabase/migrations/20260615120000_phase3_canonical_wrappers.sql` for low-risk functions: `finance_customer_dashboard_snapshot`, `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, and `finance_mark_no_payout_order`.
   - Rerouted `dashboard_page.dart` call from `finance_customer_dashboard_snapshot_v24_6_82o` to `finance_customer_dashboard_snapshot` with automatic fallback to versioned names.
+  - Rerouted `finance_report_page.dart` calls for `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, and `finance_mark_no_payout_order` to canonical wrappers with automatic fallback.
   - Old/versioned RPCs are retained for backward-compatibility.
   - High-risk sync and operational queue RPCs left untouched.
+
 
 ---
 

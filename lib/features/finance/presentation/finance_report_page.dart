@@ -1028,8 +1028,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'p_account_id': _accountUuidParam(),
     };
     try {
-      final response = await _client.rpc('finance_sku_summary_rows_v24_6_82e',
-          params: params);
+      final candidates = <String>[
+        'finance_sku_summary_rows',
+        'finance_sku_summary_rows_v24_6_82e',
+      ];
+      final response = await _rpcWithFallback(candidates, params);
       final map = _asMap(response);
       final rows = _asList(map['rows'] ?? map['sku'] ?? map['by_sku']);
       return rows.map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -1120,8 +1123,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'p_account_id': _accountUuidParam(),
     };
     try {
-      final res = await _client.rpc('finance_unpaid_sku_rows_v24_6_82e',
-          params: params);
+      final candidates = <String>[
+        'finance_unpaid_sku_rows',
+        'finance_unpaid_sku_rows_v24_6_82e',
+      ];
+      final res = await _rpcWithFallback(candidates, params);
       final rows = _asList(_asMap(res)['rows'] ?? res);
       return rows.map((e) => Map<String, dynamic>.from(e)).toList();
     } catch (_) {
@@ -4415,7 +4421,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (ok != true) return;
     setState(() => _processing = true);
     try {
-      await _client.rpc('finance_mark_no_payout_order_v24_6_28', params: {
+      final candidates = <String>[
+        'finance_mark_no_payout_order',
+        'finance_mark_no_payout_order_v24_6_28',
+      ];
+      await _rpcWithFallback(candidates, {
         'p_order_id': orderId,
         'p_account_id': accountId,
         'p_reason': 'manual_no_payout_expected',
