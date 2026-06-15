@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const FUNCTION_VERSION = "marketplace-auto-runner-status-finance-reconciliation-v52-2026-06-10";
+const FUNCTION_VERSION = "marketplace-auto-runner";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-marketplace-cron-secret, x-stock-sync-cron-secret",
@@ -16,20 +16,26 @@ Deno.serve(async (req)=>{
     }, 405);
     const supabaseUrl = requiredEnv("SUPABASE_URL");
     const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-    const cronSecret = String(Deno.env.get("MARKETPLACE_CRON_SECRET") || Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") || Deno.env.get("STOCK_SYNC_CRON_SECRET") || "").trim();
     const incomingSecret = String(req.headers.get("x-marketplace-cron-secret") || req.headers.get("x-stock-sync-cron-secret") || "").trim();
-    if (!cronSecret) {
+    const admin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      },
+      global: {
+        headers: {
+          "x-client-info": FUNCTION_VERSION
+        }
+      }
+    });
+    const cronAuth = await verifyMarketplaceCronSecret(admin, incomingSecret);
+    if (!cronAuth.ok) {
       return json({
         ok: false,
-        message: "MARKETPLACE_CRON_SECRET belum diset di Supabase Edge Function secrets."
-      }, 500);
+        message: cronAuth.message
+      }, cronAuth.status);
     }
-    if (incomingSecret !== cronSecret) {
-      return json({
-        ok: false,
-        message: "Invalid cron secret"
-      }, 401);
-    }
+    const cronSecret = incomingSecret;
     const body = await safeJson(req);
     const force = body.force === true;
     const tenantFilter = text(body.tenant_id);
@@ -57,17 +63,6 @@ Deno.serve(async (req)=>{
     const runOrderEnqueue = body.run_order_enqueue !== false && body.skip_order_enqueue !== true;
     const runFinanceStatement = body.run_finance_statement === true || body.run_finance === true || body.run_payout === true;
     const runFinancePayout = body.run_finance_payout_direct === true || body.run_direct_payout === true;
-    const admin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      },
-      global: {
-        headers: {
-          "x-client-info": FUNCTION_VERSION
-        }
-      }
-    });
     const stockResult = runStock ? await withRunnerLock(admin, "stock_sync", 280, ()=>runAutoStockSync({
         admin,
         supabaseUrl,
@@ -857,6 +852,39 @@ function clampInt(value, min, max, fallback) {
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
 }
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<{ ok: boolean; status: number; message: string }> {
+  if (!incomingSecret) {
+    return { ok: false, status: 401, message: "Invalid cron secret" };
+  }
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) {
+    return { ok: true, status: 200, message: "ok" };
+  }
+
+  const fallbackSecret = String(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
+    "",
+  ).trim();
+
+  if (fallbackSecret && incomingSecret === fallbackSecret) {
+    return { ok: true, status: 200, message: "ok" };
+  }
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return { ok: false, status: 401, message: "Invalid cron secret" };
+}
+
+
 async function safeJson(req) {
   try {
     const raw = await req.text();

@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const FUNCTION_VERSION = "marketplace-order-sync-jobs-bootstrap-pagination-v53-2026-06-10";
+const FUNCTION_VERSION = "marketplace-order-sync-jobs";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-marketplace-cron-secret, x-stock-sync-cron-secret",
@@ -35,11 +35,13 @@ Deno.serve(async (req)=>{
     });
     const body = await safeJson(req);
     const params = normalizeParams(body);
-    const cronSecret = String(Deno.env.get("MARKETPLACE_CRON_SECRET") || Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") || Deno.env.get("STOCK_SYNC_CRON_SECRET") || "").trim();
+    const configuredCronSecret = envCronSecret();
+    const incomingCronSecret = requestCronSecret(req, params, params);
+    const cronSecret = incomingCronSecret || configuredCronSecret;
     const ctx = await authenticate({
       req,
       admin,
-      cronSecret,
+      cronSecret: configuredCronSecret,
       params
     });
     if (normalizeRole(ctx.roleId) === "demo_super_admin") {
@@ -196,7 +198,7 @@ async function delegateOrderCronToAutoRunner(args) {
         force: args.params.force === true,
         max_accounts: args.params.max_accounts,
         account_id: args.params.account_id || args.params.marketplace_account_id,
-        source: "marketplace-order-sync-jobs-v24-6-44-delegated-cron"
+        source: "marketplace-order-sync-jobs-delegated-cron"
       })
     });
     const data = await response.json().catch(async ()=>({
@@ -229,8 +231,9 @@ function normalizeParams(body) {
   return body;
 }
 async function authenticate(args) {
-  const incomingSecret = String(args.req.headers.get("x-marketplace-cron-secret") || args.req.headers.get("x-stock-sync-cron-secret") || args.params.cron_secret || args.params.marketplace_cron_secret || args.params.x_marketplace_cron_secret || args.params.secret || "").trim();
-  const isCron = args.cronSecret.length > 0 && incomingSecret === args.cronSecret;
+  const incomingSecret = requestCronSecret(args.req, args.params, args.params);
+  const isCron = await verifyMarketplaceCronSecret(args.admin, incomingSecret)
+    || (args.cronSecret.length > 0 && incomingSecret === args.cronSecret);
   const originalBearer = (args.req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (isCron) {
     return {
@@ -1107,5 +1110,44 @@ function getSafeErrorResult(message, tokenAuditExists) {
   };
 }
 
+function envCronSecret(): string {
+  return String(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
+    "",
+  ).trim();
+}
 
+function requestCronSecret(req: Request, body?: any, params?: any): string {
+  return String(
+    req.headers.get("x-marketplace-cron-secret") ||
+    req.headers.get("x-stock-sync-cron-secret") ||
+    params?.cron_secret ||
+    params?.marketplace_cron_secret ||
+    params?.x_marketplace_cron_secret ||
+    params?.secret ||
+    body?.cron_secret ||
+    body?.marketplace_cron_secret ||
+    body?.x_marketplace_cron_secret ||
+    body?.secret ||
+    "",
+  ).trim();
+}
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<boolean> {
+  if (!incomingSecret) return false;
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) return true;
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return false;
+}
 

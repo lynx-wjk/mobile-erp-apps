@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-return-refund-pull-v5-cron-nonblocking-single-row-upsert-2026-05-19";
+const FUNCTION_VERSION = "marketplace-return-refund-pull";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -22,18 +22,10 @@ Deno.serve(async (req) => {
 
 
     const body = await safeJson(req);
-    const configuredCronSecret = String(
-      Deno.env.get("MARKETPLACE_CRON_SECRET") ||
-      Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
-      Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
-      ""
-    ).trim();
-    const incomingCronSecret = String(
-      req.headers.get("x-marketplace-cron-secret") ||
-      req.headers.get("x-stock-sync-cron-secret") ||
-      ""
-    ).trim();
-    const isCronRequest = configuredCronSecret.length > 0 && incomingCronSecret === configuredCronSecret;
+    const configuredCronSecret = envCronSecret();
+    const incomingCronSecret = requestCronSecret(req, body);
+    const isCronRequest = await verifyMarketplaceCronSecret(admin, incomingCronSecret)
+      || (configuredCronSecret.length > 0 && incomingCronSecret === configuredCronSecret);
 
     let profile: any = null;
 
@@ -1242,3 +1234,45 @@ function json(payload: unknown, status = 200) {
     headers: { ...corsHeaders, "content-type": "application/json" },
   });
 }
+
+function envCronSecret(): string {
+  return String(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
+    "",
+  ).trim();
+}
+
+function requestCronSecret(req: Request, body?: any, params?: any): string {
+  return String(
+    req.headers.get("x-marketplace-cron-secret") ||
+    req.headers.get("x-stock-sync-cron-secret") ||
+    params?.cron_secret ||
+    params?.marketplace_cron_secret ||
+    params?.x_marketplace_cron_secret ||
+    params?.secret ||
+    body?.cron_secret ||
+    body?.marketplace_cron_secret ||
+    body?.x_marketplace_cron_secret ||
+    body?.secret ||
+    "",
+  ).trim();
+}
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<boolean> {
+  if (!incomingSecret) return false;
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) return true;
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return false;
+}
+

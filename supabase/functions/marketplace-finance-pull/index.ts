@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-finance-pull-shopee-escrow-v1-2026-06-14";
+const FUNCTION_VERSION = "marketplace-finance-pull";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -14,20 +14,10 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== "POST") return json({ ok: false, message: "Method not allowed" }, 405);
 
-    const cronSecret = text(
-      Deno.env.get("MARKETPLACE_CRON_SECRET") ||
-      Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
-      Deno.env.get("STOCK_SYNC_CRON_SECRET"),
-    );
-
     const incomingSecret = text(
       req.headers.get("x-marketplace-cron-secret") ||
       req.headers.get("x-stock-sync-cron-secret"),
     );
-
-    if (!cronSecret || incomingSecret !== cronSecret) {
-      return json({ ok: false, version: FUNCTION_VERSION, message: "Invalid cron secret" }, 401);
-    }
 
     const body = await safeJson(req);
     const supabaseUrl = requiredEnv("SUPABASE_URL").replace(/\/+$/, "");
@@ -37,6 +27,11 @@ Deno.serve(async (req) => {
       auth: { persistSession: false, autoRefreshToken: false },
       global: { headers: { "x-client-info": FUNCTION_VERSION } },
     });
+
+    const cronAuth = await verifyMarketplaceCronSecret(admin, incomingSecret);
+    if (!cronAuth.ok) {
+      return json({ ok: false, version: FUNCTION_VERSION, message: cronAuth.message }, cronAuth.status);
+    }
 
     const tenantId = text(body.tenant_id);
     const accountId = text(body.account_id || body.marketplace_account_id);
@@ -626,6 +621,38 @@ function maskTokenObject(input: unknown) {
     return `${value.slice(0, 6)}...${value.slice(-6)}`;
   }));
 }
+
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<{ ok: boolean; status: number; message: string }> {
+  if (!incomingSecret) {
+    return { ok: false, status: 401, message: "Invalid cron secret" };
+  }
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) {
+    return { ok: true, status: 200, message: "ok" };
+  }
+
+  const fallbackSecret = text(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET"),
+  );
+
+  if (fallbackSecret && incomingSecret === fallbackSecret) {
+    return { ok: true, status: 200, message: "ok" };
+  }
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return { ok: false, status: 401, message: "Invalid cron secret" };
+}
+
 
 async function safeJson(req: Request) {
   try {
