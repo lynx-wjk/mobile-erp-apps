@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/theme/app_theme_mode.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../services/auth_service.dart';
 import '../../auth/presentation/login_page.dart';
@@ -617,6 +618,19 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
             tooltip: 'Reload data',
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
+          ),
+          ValueListenableBuilder<AppVisualMode>(
+            valueListenable: AppThemeModeController.mode,
+            builder: (context, visualMode, _) {
+              final isDark = visualMode == AppVisualMode.man;
+              return IconButton(
+                icon: Icon(
+                  isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                ),
+                tooltip: isDark ? 'Switch to Girl Light' : 'Switch to Man Dark',
+                onPressed: AppThemeModeController.toggle,
+              );
+            },
           ),
           IconButton(
             tooltip: 'Logout',
