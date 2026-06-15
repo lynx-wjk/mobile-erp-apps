@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../services/auth_service.dart';
 import '../../auth/presentation/login_page.dart';
+
 
 class PlatformOwnerDashboard extends StatefulWidget {
   const PlatformOwnerDashboard({super.key});
@@ -286,12 +289,16 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
   }
 
   void _showTokenSuccessDialog(String token, AppRole role) {
-    final baseUri = Uri.base;
+    final publicWebUrl = dotenv.env['PUBLIC_WEB_REGISTER_URL']?.trim() ?? '';
     final String registerUrl;
-    if (baseUri.host.isNotEmpty && baseUri.host != 'localhost' && !baseUri.host.startsWith('127.0.0.1')) {
-      registerUrl = '${baseUri.scheme}://${baseUri.host}${baseUri.port != 80 && baseUri.port != 443 ? ":${baseUri.port}" : ""}/#/register?invite=$token';
+    if (publicWebUrl.isNotEmpty) {
+      if (publicWebUrl.contains('?')) {
+        registerUrl = '$publicWebUrl&invite=$token';
+      } else {
+        registerUrl = '$publicWebUrl?invite=$token';
+      }
     } else {
-      registerUrl = 'http://localhost/register?invite=$token';
+      registerUrl = 'mobileerp://register?invite=$token';
     }
 
     showDialog(
@@ -314,7 +321,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                 style: const TextStyle(fontWeight: FontWeight.w900, fontFamily: 'monospace', fontSize: 13),
               ),
               const SizedBox(height: 16),
-              Text('LINK REGISTRASI WEB:', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.grey[600], fontSize: 11)),
+              Text('LINK REGISTRASI:', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.grey[600], fontSize: 11)),
               const SizedBox(height: 4),
               SelectableText(
                 registerUrl,
@@ -323,17 +330,61 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
             ],
           ),
           actions: [
-            FilledButton.icon(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: registerUrl));
-                AppUi.showSnack('LINK REGISTRASI DISALIN KE CLIPBOARD.');
-              },
-              icon: const Icon(Icons.copy),
-              label: const Text('COPY LINK'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('SELESAI', style: TextStyle(fontWeight: FontWeight.w900)),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: registerUrl));
+                    AppUi.showSnack('LINK REGISTRASI DISALIN KE CLIPBOARD.');
+                  },
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('COPY LINK', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: () async {
+                    final uri = Uri.parse(registerUrl);
+                    try {
+                      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      if (!launched) {
+                        Clipboard.setData(ClipboardData(text: registerUrl));
+                        AppUi.showSnack('GAGAL MEMBUKA LINK. LINK DISALIN KE CLIPBOARD.');
+                      }
+                    } catch (_) {
+                      Clipboard.setData(ClipboardData(text: registerUrl));
+                      AppUi.showSnack('GAGAL MEMBUKA LINK. LINK DISALIN KE CLIPBOARD.');
+                    }
+                  },
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('OPEN LINK', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: token));
+                    AppUi.showSnack('TOKEN RAW DISALIN KE CLIPBOARD.');
+                  },
+                  icon: const Icon(Icons.vpn_key, size: 16),
+                  label: const Text('COPY TOKEN', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('SELESAI', style: TextStyle(fontWeight: FontWeight.w900)),
+                ),
+              ],
             ),
           ],
         );

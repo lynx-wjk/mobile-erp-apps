@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:app_links/app_links.dart';
 
 import '../../../models/app_user.dart';
 import '../../../core/constants/app_roles.dart';
@@ -7,12 +9,69 @@ import '../../../repositories/user_repository.dart';
 import '../../../services/auth_service.dart';
 import '../../dashboard/presentation/dashboard_page.dart';
 import 'login_page.dart';
-
 import 'register_page.dart';
 import '../../admin/presentation/platform_owner_dashboard.dart';
+import '../../../core/ui/app_ui.dart';
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  final _appLinks = AppLinks();
+  StreamSubscription<Uri>? _linkSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _initDeepLinks();
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initDeepLinks() async {
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (initialUri != null) {
+        _handleDeepLink(initialUri);
+      }
+    } catch (e) {
+      debugPrint('Error getting initial link: $e');
+    }
+
+    _linkSubscription = _appLinks.uriLinkStream.listen(
+      (uri) {
+        _handleDeepLink(uri);
+      },
+      onError: (err) {
+        debugPrint('Error listening to deep links: $err');
+      },
+    );
+  }
+
+  void _handleDeepLink(Uri uri) {
+    debugPrint('Received deep link: $uri');
+    final isMobileScheme = uri.scheme == 'mobileerp' && uri.host == 'register';
+    final isWebPath = uri.path.contains('/register');
+
+    if (isMobileScheme || isWebPath) {
+      final token = uri.queryParameters['invite'];
+      if (token != null && token.isNotEmpty) {
+        rootNavigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (context) => RegisterPage(initialToken: token),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +82,7 @@ class AuthGate extends StatelessWidget {
       final token = uri.queryParameters['invite'];
       return RegisterPage(initialToken: token);
     }
+
 
     final authService = AuthService();
 
