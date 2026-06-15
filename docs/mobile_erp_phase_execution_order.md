@@ -82,9 +82,9 @@ This document outlines the final consolidated roadmap, detailing the exact order
 
 ### Phase 6: Entitlement RPCs
 - **Goal**: Write subscription set, bypass, and features checking functions.
-- **Status**: **STAGED / PENDING SELF-HOST APPLY**
+- **Status**: **ACTIVE (COMPLETED)**
 - **Files Likely Changed**: None (Database schema/RPCs only).
-- **Migration Suggestion**: `supabase/migrations/20260615170000_phase6_entitlement_rpcs.sql` (Migration prepared but not yet applied to VPS self-host DB)
+- **Migration Suggestion**: `supabase/migrations/20260615170000_phase6_entitlement_rpcs.sql` (Applied and validated on VPS self-host DB)
 - **SQL Functions**: `tenant_has_feature`, `get_my_entitlements`, `platform_tenant_subscription_set`, `platform_tenant_subscription_override_set`, `app_is_platform_owner`
 - **Rollback Risk**: Low. Read-only checks use safe fallbacks and do not gate UI or enforce blocks yet.
 
