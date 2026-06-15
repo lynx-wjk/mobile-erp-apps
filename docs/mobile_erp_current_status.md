@@ -1,4 +1,4 @@
-# Mobile ERP System Current Status (Post-Hotfix 3E)
+# Mobile ERP System Current Status (Post-Hotfix 3F)
 
 This document provides a summary of the current verified state of the Mobile ERP application, tracking the implementation, testing, and acceptance of different modules.
 
@@ -21,13 +21,14 @@ This document provides a summary of the current verified state of the Mobile ERP
 * **Request Access Flow**: **PASS**
   - External contact fallback links function correctly.
   - Re-routed to trigger `launchUrl(externalApplication)` for WhatsApp, Email, and Instagram. If the platform fails to open, it safely falls back to copying the contact info/link to clipboard and showing a user feedback notification.
-* **Hotfix 3E Clickable Invite Link**: **PASS** (Fixed in this patch)
-  - Removed generation of localhost links (`http://localhost/register?invite=<token>`).
-  - Added native Android intent-filter for `mobileerp://register` deep linking.
+* **Hotfix 3F Clickable Invite Link**: **PASS** (Updated in this patch)
+  - Removed generation of localhost links.
+  - Ensured the primary share/WhatsApp link is HTTPS.
   - The dialog now outputs:
-    1. Primary Link: `PUBLIC_WEB_REGISTER_URL?invite=<token>` (if configured in `.env`), or `mobileerp://register?invite=<token>` (if `.env` is unconfigured).
+    1. Primary Link: `<PUBLIC_WEB_REGISTER_URL>?invite=<token>` (if configured in `.env`), or fallback `https://mobile-erp-apps.vercel.app/register?invite=<token>` (if unconfigured).
     2. Token Raw: For manual copy-paste fallback.
-  - Configured buttons: **Copy Link**, **Open Link** (uses `url_launcher` externally, copies on failure), **Copy Token**, and **Done**.
+    3. Link Aplikasi (Deep Link): `mobileerp://register?invite=<token>` as a secondary app deep link.
+  - Configured buttons: **Copy Link** (HTTPS), **Open Link** (HTTPS), **Copy Token**, **Copy App Link** (deep link), and **Done**.
 
 ---
 
@@ -53,10 +54,11 @@ This document provides a summary of the current verified state of the Mobile ERP
 ---
 
 ## Phase 3: Canonical RPC Wrappers
-* **Status**: **NOT IMPLEMENTED (ANALYSIS ONLY)**
-  - Safe audit prepared in `docs/phase3_canonical_rpc_audit.md`.
-  - RPC SQL drafts prepared in `supabase/migrations_draft/phase3_canonical_rpc_wrappers_draft.sql`.
-  - No old/versioned RPCs have been deleted to avoid regression.
+* **Status**: **SAFE WRAPPER START (ACTIVE)**
+  - Audited and created SQL wrappers in `supabase/migrations/20260615120000_phase3_canonical_wrappers.sql` for low-risk functions: `finance_customer_dashboard_snapshot`, `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, and `finance_mark_no_payout_order`.
+  - Rerouted `dashboard_page.dart` call from `finance_customer_dashboard_snapshot_v24_6_82o` to `finance_customer_dashboard_snapshot` with automatic fallback to versioned names.
+  - Old/versioned RPCs are retained for backward-compatibility.
+  - High-risk sync and operational queue RPCs left untouched.
 
 ---
 
@@ -71,3 +73,4 @@ This document provides a summary of the current verified state of the Mobile ERP
 * **Status**: **NOT IMPLEMENTED (ANALYSIS ONLY)**
   - Analysis and roadmap prepared. See corresponding markdown files in `docs/` for each phase.
   - No subscription tables created, no lifecycle crons scheduled, and no operational purges executed.
+

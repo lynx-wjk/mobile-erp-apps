@@ -298,8 +298,10 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
         registerUrl = '$publicWebUrl?invite=$token';
       }
     } else {
-      registerUrl = 'mobileerp://register?invite=$token';
+      registerUrl = 'https://mobile-erp-apps.vercel.app/register?invite=$token';
     }
+
+    final appDeepLink = 'mobileerp://register?invite=$token';
 
     showDialog(
       context: context,
@@ -314,6 +316,13 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Text('LINK REGISTRASI UTAMA (HTTPS):', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.grey[600], fontSize: 11)),
+              const SizedBox(height: 4),
+              SelectableText(
+                registerUrl,
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, decoration: TextDecoration.underline),
+              ),
+              const SizedBox(height: 16),
               Text('KODE TOKEN RAW:', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.grey[600], fontSize: 11)),
               const SizedBox(height: 4),
               SelectableText(
@@ -321,11 +330,11 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                 style: const TextStyle(fontWeight: FontWeight.w900, fontFamily: 'monospace', fontSize: 13),
               ),
               const SizedBox(height: 16),
-              Text('LINK REGISTRASI:', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.grey[600], fontSize: 11)),
+              Text('LINK APLIKASI (DEEP LINK):', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.grey[600], fontSize: 11)),
               const SizedBox(height: 4),
               SelectableText(
-                registerUrl,
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, decoration: TextDecoration.underline),
+                appDeepLink,
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: Colors.grey),
               ),
             ],
           ),
@@ -375,6 +384,18 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                   },
                   icon: const Icon(Icons.vpn_key, size: 16),
                   label: const Text('COPY TOKEN', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: appDeepLink));
+                    AppUi.showSnack('LINK APLIKASI DISALIN KE CLIPBOARD.');
+                  },
+                  icon: const Icon(Icons.phone_android, size: 16),
+                  label: const Text('COPY APP LINK', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 40),
                     padding: const EdgeInsets.symmetric(horizontal: 12),

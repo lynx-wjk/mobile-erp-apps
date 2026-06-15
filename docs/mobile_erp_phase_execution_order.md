@@ -7,7 +7,7 @@ This document outlines the final consolidated roadmap, detailing the exact order
 ## 1. Baseline & Current State
 
 * **Current Branch**: `rescue/antigravity-unmerged-selfhost-20260614`
-* **Current Latest Commit**: `05d6193` (updated in this session with Hotfix 3E invite link changes)
+* **Current Latest Commit**: `27214ff` (updated with Hotfix 3F WhatsApp-clickable HTTPS invite link and Phase 3 safe wrapper start)
 * **Applied Migrations List**:
   1. `20260612080000_production_running_flow_revision.sql`
   2. `20260612141500_*` (production process stage)
@@ -43,12 +43,16 @@ This document outlines the final consolidated roadmap, detailing the exact order
 
 ### Phase 3: Canonical RPC Wrappers
 - **Goal**: Reroute Flutter `.rpc` calls to unversioned canonical SQL functions.
+- **Status**: **ACTIVE (PARTIALLY COMPLETED)**
+  - Created migration `supabase/migrations/20260615120000_phase3_canonical_wrappers.sql`.
+  - Rerouted `dashboard_page.dart` to try `finance_customer_dashboard_snapshot` first.
 - **Files Likely Changed**:
-  - `lib/features/dashboard/presentation/dashboard_page.dart`
-  - `lib/features/finance/presentation/finance_report_page.dart`
+  - `lib/features/dashboard/presentation/dashboard_page.dart` (Completed)
+  - `lib/features/finance/presentation/finance_report_page.dart` (Pending routing validation)
 - **Migration Suggestion**: `supabase/migrations/20260615120000_phase3_canonical_wrappers.sql`
-- **SQL Functions**: `finance_customer_dashboard_snapshot`, `finance_sku_summary_rows`, `finance_unpaid_sku_rows`
+- **SQL Functions**: `finance_customer_dashboard_snapshot`, `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, `finance_mark_no_payout_order`
 - **Rollback Risk**: Medium. If signatures mismatch, screens will fail to load. Restore versioned names in Flutter if needed.
+
 
 ---
 

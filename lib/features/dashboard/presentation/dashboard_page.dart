@@ -488,6 +488,7 @@ class _DashboardPageState extends State<DashboardPage> {
     String endDate,
   ) async {
     final rpcCandidates = <String>[
+      'finance_customer_dashboard_snapshot',
       'finance_customer_dashboard_snapshot_v24_6_82o',
       'finance_customer_dashboard_snapshot_v24_6_82f',
       'finance_customer_dashboard_snapshot_v24_6_82e',
