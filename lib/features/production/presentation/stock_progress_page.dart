@@ -2239,28 +2239,29 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 for (final stage in availableStages) {
                   final key = stage['key'] as String;
                   final isActive = stage['active'] as bool;
-                  final wasActive = dbStages.any((s) => AppUi.text(s['stage_key']) == key && s['is_active'] == true);
+                  final existsInDb = dbStages.any((s) => AppUi.text(s['stage_key']) == key);
+                  final wasActive = existsInDb &&
+                      dbStages.any((s) => AppUi.text(s['stage_key']) == key && s['is_active'] == true);
 
-                  if (isActive != wasActive) {
-                    if (isActive) {
-                      await _client.rpc(
-                        'upsert_production_process_stage_for_app',
-                        params: <String, dynamic>{
-                          'p_progress_id': item['progress_id'],
-                          'p_stage_key': key,
-                          'p_status': 'pending',
-                          'p_stage_label': stage['label'],
-                        },
-                      );
-                    } else {
-                      await _client.rpc(
-                        'delete_production_progress_stage_for_app',
-                        params: <String, dynamic>{
-                          'p_progress_id': item['progress_id'],
-                          'p_stage_key': key,
-                        },
-                      );
-                    }
+                  if (isActive && (!existsInDb || !wasActive)) {
+                    // New or restored stage — use lightweight RPC that doesn't need tailor
+                    await _client.rpc(
+                      'set_production_stage_active_for_app',
+                      params: <String, dynamic>{
+                        'p_progress_id': item['progress_id'],
+                        'p_stage_key': key,
+                        'p_stage_label': stage['label'],
+                      },
+                    );
+                  } else if (!isActive && wasActive) {
+                    // Deactivate / soft-delete stage
+                    await _client.rpc(
+                      'delete_production_progress_stage_for_app',
+                      params: <String, dynamic>{
+                        'p_progress_id': item['progress_id'],
+                        'p_stage_key': key,
+                      },
+                    );
                   }
                 }
                 

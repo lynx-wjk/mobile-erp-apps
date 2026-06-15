@@ -1,10 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/ui/app_ui.dart';
 import 'auth_gate.dart';
 
 class RequestAccessPage extends StatelessWidget {
   const RequestAccessPage({super.key});
+
+  /// Launch a URL externally. On failure, copy to clipboard as fallback.
+  Future<void> _launchOrCopy(String urlString, String copyFallbackMsg) async {
+    final uri = Uri.parse(urlString);
+    try {
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        Clipboard.setData(ClipboardData(text: urlString));
+        AppUi.showSnack(copyFallbackMsg);
+      }
+    } catch (_) {
+      Clipboard.setData(ClipboardData(text: urlString));
+      AppUi.showSnack(copyFallbackMsg);
+    }
+  }
 
   void _copyToClipboard(BuildContext context, String text, String snackMsg) {
     Clipboard.setData(ClipboardData(text: text));
@@ -166,10 +182,9 @@ class RequestAccessPage extends StatelessWidget {
                       subtitle: 'wa.me/6285155338246',
                       btnLabel: 'Hubungi via WhatsApp',
                       color: AppUi.green,
-                      onTap: () => _copyToClipboard(
-                        context,
+                      onTap: () => _launchOrCopy(
                         'https://wa.me/6285155338246?text=Halo%20Platform%20Owner%2C%20saya%20ingin%20request%20access%20Mobile%20ERP.',
-                        'Link WhatsApp disalin ke clipboard!',
+                        'Link WhatsApp disalin ke clipboard.',
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -180,10 +195,9 @@ class RequestAccessPage extends StatelessWidget {
                       subtitle: 'bdchydi@sre.co.id',
                       btnLabel: 'Kirim Email',
                       color: AppUi.blue,
-                      onTap: () => _copyToClipboard(
-                        context,
+                      onTap: () => _launchOrCopy(
                         'mailto:bdchydi@sre.co.id?subject=Request%20Access%20Mobile%20ERP&body=Halo%20Platform%20Owner%2C%20saya%20ingin%20request%20access%20Mobile%20ERP.',
-                        'Link Email (mailto) disalin!',
+                        'Link Email disalin ke clipboard.',
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -194,10 +208,9 @@ class RequestAccessPage extends StatelessWidget {
                       subtitle: '@bdchydi',
                       btnLabel: 'Buka Instagram',
                       color: AppUi.pink,
-                      onTap: () => _copyToClipboard(
-                        context,
+                      onTap: () => _launchOrCopy(
                         'https://instagram.com/bdchydi',
-                        'Link Instagram disalin!',
+                        'Link Instagram disalin ke clipboard.',
                       ),
                     ),
                     const SizedBox(height: 24),

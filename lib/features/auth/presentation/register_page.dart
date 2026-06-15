@@ -330,6 +330,10 @@ class _RegisterPageState extends State<RegisterPage> {
                               SizedBox(
                                 height: 50,
                                 child: FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size(0, 40),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
                                   onPressed: (_checkingToken || _submitting) ? null : _checkInvite,
                                   icon: _checkingToken
                                       ? const SizedBox(
