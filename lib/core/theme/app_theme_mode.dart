@@ -22,6 +22,7 @@ class AppThemeModeController {
   static const _storageKey = 'app_visual_mode_v1';
   static final ValueNotifier<AppVisualMode> mode =
       ValueNotifier<AppVisualMode>(AppVisualMode.girl);
+  static bool _isSwitching = false;
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -29,10 +30,19 @@ class AppThemeModeController {
   }
 
   static Future<void> setMode(AppVisualMode nextMode) async {
-    if (mode.value == nextMode) return;
-    mode.value = nextMode;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_storageKey, nextMode.storageValue);
+    if (_isSwitching || mode.value == nextMode) return;
+    _isSwitching = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_storageKey, nextMode.storageValue);
+
+      // Delay theme rebuild sedikit supaya overlay/dialog lama selesai deactivate.
+      // Flutter suka panik dengan GlobalKey kalau theme diganti saat overlay masih beres-beres.
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      mode.value = nextMode;
+    } finally {
+      _isSwitching = false;
+    }
   }
 
   static Future<void> toggle() async {

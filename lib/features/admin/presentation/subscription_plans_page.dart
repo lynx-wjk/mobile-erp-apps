@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/ui/app_ui.dart';
 
@@ -304,8 +305,16 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                 isEditing ? 'EDIT PAKET SUBSCRIPTION' : 'TAMBAH PAKET BARU',
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
-              content: SizedBox(
-                width: 720,
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+              contentPadding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+              actionsPadding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
+              actionsAlignment: MainAxisAlignment.end,
+              content: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 460,
+                  maxHeight: MediaQuery.of(context).size.height * 0.74,
+                ),
                 child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -317,26 +326,42 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                         enabled: !isEditing && !saving,
                         decoration: const InputDecoration(
                           hintText: 'contoh: starter',
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       _fieldLabel('NAMA PAKET'),
                       TextField(
                         controller: nameController,
                         enabled: !saving,
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                        ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       _fieldLabel('DESKRIPSI'),
                       TextField(
                         controller: descriptionController,
                         enabled: !saving,
                         minLines: 2,
-                        maxLines: 4,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      Row(
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
                         children: [
-                          Expanded(
+                          SizedBox(
+                            width: 220,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
@@ -345,13 +370,22 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                                   controller: priceController,
                                   enabled: !saving,
                                   keyboardType: TextInputType.number,
+                                  inputFormatters: const [
+                                    _SubscriptionThousandsInputFormatter(),
+                                  ],
+                                  decoration: const InputDecoration(
+                                    prefixText: 'Rp ',
+                                    helperText: 'Contoh: 150000',
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 10),
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(width: 12),
                           SizedBox(
-                            width: 110,
+                            width: 112,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
@@ -359,19 +393,29 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                                 TextField(
                                   controller: currencyController,
                                   enabled: !saving,
+                                  decoration: const InputDecoration(
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 10),
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(width: 12),
                           SizedBox(
-                            width: 150,
+                            width: 158,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 _fieldLabel('PERIODE'),
                                 DropdownButtonFormField<String>(
                                   value: billingPeriod,
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 10),
+                                  ),
                                   items: const [
                                     DropdownMenuItem(
                                       value: 'monthly',
@@ -398,12 +442,12 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 10),
                       _fieldLabel('BATASAN KUOTA'),
                       const SizedBox(height: 6),
                       Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
+                        spacing: 10,
+                        runSpacing: 8,
                         children: [
                           _smallNumberField('Max Users', maxUsersController),
                           _smallNumberField(
@@ -416,8 +460,10 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                           _smallNumberField('Sort Order', sortOrderController),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 10),
                       SwitchListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
                         contentPadding: EdgeInsets.zero,
                         value: isTrial,
                         title: const Text(
@@ -429,6 +475,8 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                             : (value) => setDialogState(() => isTrial = value),
                       ),
                       SwitchListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
                         contentPadding: EdgeInsets.zero,
                         value: isActive,
                         title: const Text(
@@ -465,7 +513,8 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                             description:
                                 _nullableText(descriptionController.text),
                             billingPeriod: billingPeriod,
-                            priceAmount: _numOrZero(priceController.text),
+                            priceAmount:
+                                _subscriptionMoneyValue(priceController.text),
                             currency: currencyController.text,
                             maxUsers: _nullableInt(maxUsersController.text),
                             maxMarketplaceAccounts:
@@ -506,19 +555,6 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
         );
       },
     );
-
-    codeController.dispose();
-    nameController.dispose();
-    descriptionController.dispose();
-    priceController.dispose();
-    currencyController.dispose();
-    maxUsersController.dispose();
-    maxMarketplaceController.dispose();
-    maxShopeeController.dispose();
-    maxTiktokController.dispose();
-    maxStorageController.dispose();
-    retentionController.dispose();
-    sortOrderController.dispose();
   }
 
   Future<void> _showFeatureEditor(Map<String, dynamic> plan) async {
@@ -647,6 +683,11 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                                             if (newLimit is _NoLimitCancel) {
                                               return;
                                             }
+
+                                            await Future<void>.delayed(
+                                              const Duration(milliseconds: 120),
+                                            );
+                                            if (!context.mounted) return;
 
                                             setDialogState(() {
                                               savingFeatureKey = featureKey;
@@ -787,8 +828,6 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
         );
       },
     );
-
-    controller.dispose();
     return result ?? _NoLimitCancel();
   }
 
@@ -1122,16 +1161,58 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
     );
   }
 
+  String _subscriptionMoneyInput(dynamic value) {
+    final raw = value?.toString().trim() ?? '';
+    if (raw.isEmpty) return '';
+
+    final normalized = raw.replaceAll(',', '.');
+    final parsed = num.tryParse(normalized);
+    if (parsed != null) {
+      return _formatSubscriptionMoney(parsed.round().toString());
+    }
+
+    return _formatSubscriptionMoney(raw);
+  }
+
+  num _subscriptionMoneyValue(String value) {
+    final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return 0;
+    return num.tryParse(digits) ?? 0;
+  }
+
+  String _formatSubscriptionMoney(String value) {
+    final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return '';
+
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      final reverseIndex = digits.length - i;
+      buffer.write(digits[i]);
+      if (reverseIndex > 1 && reverseIndex % 3 == 1) {
+        buffer.write('.');
+      }
+    }
+    return buffer.toString();
+  }
+
   Widget _fieldLabel(String label) {
-    return Text(
-      label.toUpperCase(),
-      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          fontWeight: FontWeight.w800,
+          fontSize: 10,
+          letterSpacing: 0.2,
+          color: Colors.grey[800],
+        ),
+      ),
     );
   }
 
   Widget _smallNumberField(String label, TextEditingController controller) {
     return SizedBox(
-      width: 150,
+      width: 132,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1139,6 +1220,14 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
           TextField(
             controller: controller,
             keyboardType: TextInputType.number,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+            decoration: const InputDecoration(
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            ),
           ),
         ],
       ),
@@ -1217,4 +1306,37 @@ class _FeatureLimitResult {
 
 class _NoLimitCancel extends _FeatureLimitResult {
   _NoLimitCancel() : super(null);
+}
+
+class _SubscriptionThousandsInputFormatter extends TextInputFormatter {
+  const _SubscriptionThousandsInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) {
+      return const TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+    }
+
+    final buffer = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      final reverseIndex = digits.length - i;
+      buffer.write(digits[i]);
+      if (reverseIndex > 1 && reverseIndex % 3 == 1) {
+        buffer.write('.');
+      }
+    }
+
+    final formatted = buffer.toString();
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
 }

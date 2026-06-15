@@ -22,6 +22,8 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
   final SupabaseClient _client = Supabase.instance.client;
   bool _isLoading = true;
   String _tenantFilter = 'all';
+  bool _themeSwitching = false;
+  bool _isLoggingOut = false;
   List<Map<String, dynamic>> _readinessData = [];
   List<Map<String, dynamic>> _tenantsList = [];
 
@@ -136,13 +138,42 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
   }
 
   Future<void> _logout() async {
-    final authService = AuthService();
-    await authService.signOut();
+    if (_isLoggingOut) return;
+
+    FocusManager.instance.primaryFocus?.unfocus();
     if (mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
+      setState(() => _isLoggingOut = true);
+    }
+
+    final navigator = rootNavigatorKey.currentState;
+    if (navigator != null) {
+      navigator.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginPage()),
         (route) => false,
       );
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 320));
+
+    try {
+      await AuthService().signOut();
+    } catch (e) {
+      debugPrint('[PLATFORM_OWNER_LOGOUT_ERROR] $e');
+    }
+  }
+
+  Future<void> _switchThemeSafely() async {
+    if (_themeSwitching) return;
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (mounted) setState(() => _themeSwitching = true);
+
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 220));
+      await AppThemeModeController.toggle();
+      await Future<void>.delayed(const Duration(milliseconds: 220));
+    } finally {
+      if (mounted) setState(() => _themeSwitching = false);
     }
   }
 
@@ -628,14 +659,14 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                   isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
                 ),
                 tooltip: isDark ? 'Switch to Girl Light' : 'Switch to Man Dark',
-                onPressed: AppThemeModeController.toggle,
+                onPressed: _themeSwitching ? null : _switchThemeSafely,
               );
             },
           ),
           IconButton(
             tooltip: 'Logout',
             icon: const Icon(Icons.logout),
-            onPressed: _logout,
+            onPressed: _isLoggingOut ? null : _logout,
           ),
         ],
       ),

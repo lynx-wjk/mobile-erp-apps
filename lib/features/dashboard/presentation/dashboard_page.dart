@@ -79,6 +79,7 @@ class _DashboardPageState extends State<DashboardPage> {
   int _lateAttendance = 0;
   int _absentAttendance = 0;
   String _myAttendanceLabel = 'Belum';
+  _TenantSubscriptionInfo? _tenantSubscriptionInfo;
 
   String get _role =>
       (_appUser?.role.roleId ?? _user?.role ?? '').trim().toLowerCase();
@@ -242,6 +243,8 @@ class _DashboardPageState extends State<DashboardPage> {
       final isManagementRole =
           AppRolePermissions.canManageOperationalWork(roleId) ||
               roleId == 'finance';
+      final tenantSubscriptionInfo = await _safeTenantSubscriptionInfo(
+          appUser?.tenantId ?? profile?['tenant_id']);
       final financeSummary = AppRolePermissions.canAccessFinance(roleId)
           ? await _safeFinanceSummary(now)
           : <String, dynamic>{};
@@ -339,6 +342,7 @@ class _DashboardPageState extends State<DashboardPage> {
         _lateAttendance = lateAttendance;
         _absentAttendance = absentAttendance;
         _myAttendanceLabel = myAttendanceLabel;
+        _tenantSubscriptionInfo = tenantSubscriptionInfo;
         _loading = false;
       });
     } catch (e) {
@@ -792,6 +796,34 @@ class _DashboardPageState extends State<DashboardPage> {
     return const <dynamic>[];
   }
 
+  Future<_TenantSubscriptionInfo?> _safeTenantSubscriptionInfo(
+      dynamic tenantIdValue) async {
+    final tenantId = tenantIdValue?.toString().trim() ?? '';
+    if (tenantId.isEmpty) return null;
+
+    try {
+      final response = await _client
+          .from('tenant_subscriptions')
+          .select(
+            'status, trial_ends_at, current_period_end, created_at, '
+            'subscription_plans(plan_name, plan_code, billing_period, price_amount, currency)',
+          )
+          .eq('tenant_id', tenantId)
+          .order('created_at', ascending: false)
+          .limit(1);
+
+      final rows = response is List ? response : const <dynamic>[];
+      if (rows.isEmpty || rows.first is! Map) return null;
+
+      return _TenantSubscriptionInfo.fromMap(
+        Map<String, dynamic>.from(rows.first as Map),
+      );
+    } catch (e) {
+      debugPrint('Dashboard tenant subscription lookup failed: $e');
+      return null;
+    }
+  }
+
   Future<void> _logout() async {
     await _client.auth.signOut();
     if (!mounted) return;
@@ -850,6 +882,10 @@ class _DashboardPageState extends State<DashboardPage> {
                           _topBar(),
                           const SizedBox(height: 16),
                           _profileCard(_user),
+                          if (_isAdmin || _isOperationalAdmin) ...[
+                            const SizedBox(height: 12),
+                            _subscriptionOverviewCard(),
+                          ],
                           if (_isDemoSuperAdmin) ...[
                             const SizedBox(height: 12),
                             _demoReadOnlyBanner(),
@@ -1719,6 +1755,112 @@ class _DashboardPageState extends State<DashboardPage> {
         ],
       ),
     );
+  }
+
+  Widget _subscriptionOverviewCard() {
+    final info = _tenantSubscriptionInfo;
+    final status = info?.status ?? 'unassigned';
+    final planName = info?.planName ?? 'Belum ada paket';
+    final billing = info?.billingPeriod ?? '-';
+    final price = info == null ? '-' : info.priceLabel;
+    final periodLabel = info?.periodLabel ?? 'Belum diset';
+    final statusColor = _subscriptionStatusColor(status);
+
+    return NiceCard(
+      borderColor: statusColor,
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.18),
+              border: Border.all(color: statusColor, width: 2),
+              borderRadius: BorderRadius.zero,
+            ),
+            child: Icon(Icons.workspace_premium_rounded,
+                color: statusColor, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'PAKET SUBSCRIPTION',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.outline,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  planName.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _subscriptionPill('BILLING $billing', statusColor),
+                    _subscriptionPill(price, statusColor),
+                    _subscriptionPill(periodLabel, statusColor),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _subscriptionPill(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        border: Border.all(color: color.withOpacity(0.55), width: 1.4),
+        borderRadius: BorderRadius.zero,
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
+
+  Color _subscriptionStatusColor(String status) {
+    final clean = status.toLowerCase();
+    if (clean == 'active' || clean == 'trialing') {
+      return Theme.of(context).colorScheme.primary;
+    }
+    if (clean == 'unassigned') {
+      return Theme.of(context).colorScheme.secondary;
+    }
+    if (clean == 'expired' ||
+        clean == 'suspended' ||
+        clean == 'canceled' ||
+        clean == 'past_due') {
+      return Theme.of(context).colorScheme.error;
+    }
+    return Theme.of(context).colorScheme.outline;
   }
 
   Widget _roleBadge(String label) {
@@ -3820,6 +3962,71 @@ class _DashboardPageState extends State<DashboardPage> {
 }
 
 // ── Data classes ─────────────────────────────────────────────────────────────
+
+class _TenantSubscriptionInfo {
+  final String status;
+  final String planName;
+  final String planCode;
+  final String billingPeriod;
+  final num priceAmount;
+  final String currency;
+  final DateTime? trialEndsAt;
+  final DateTime? currentPeriodEnd;
+  final DateTime? createdAt;
+
+  const _TenantSubscriptionInfo({
+    required this.status,
+    required this.planName,
+    required this.planCode,
+    required this.billingPeriod,
+    required this.priceAmount,
+    required this.currency,
+    this.trialEndsAt,
+    this.currentPeriodEnd,
+    this.createdAt,
+  });
+
+  factory _TenantSubscriptionInfo.fromMap(Map<String, dynamic> map) {
+    DateTime? parseDate(dynamic value) {
+      final raw = value?.toString().trim() ?? '';
+      if (raw.isEmpty) return null;
+      return DateTime.tryParse(raw)?.toLocal();
+    }
+
+    final plan = map['subscription_plans'] is Map
+        ? Map<String, dynamic>.from(map['subscription_plans'] as Map)
+        : <String, dynamic>{};
+
+    return _TenantSubscriptionInfo(
+      status: AppUi.text(map['status'], 'unassigned'),
+      planName: AppUi.text(plan['plan_name'], 'Belum ada paket'),
+      planCode: AppUi.text(plan['plan_code'], '-'),
+      billingPeriod: AppUi.text(plan['billing_period'], '-'),
+      priceAmount: AppUi.toNum(plan['price_amount']),
+      currency: AppUi.text(plan['currency'], 'IDR'),
+      trialEndsAt: parseDate(map['trial_ends_at']),
+      currentPeriodEnd: parseDate(map['current_period_end']),
+      createdAt: parseDate(map['created_at']),
+    );
+  }
+
+  String get priceLabel {
+    if (priceAmount <= 0)
+      return currency.toUpperCase() == 'IDR'
+          ? 'Rp 0'
+          : '0 ${currency.toUpperCase()}';
+    if (currency.toUpperCase() == 'IDR') return AppUi.rupiah(priceAmount);
+    return '${AppUi.money(priceAmount)} ${currency.toUpperCase()}';
+  }
+
+  String get periodLabel {
+    final cleanStatus = status.toLowerCase();
+    final target = cleanStatus == 'trialing' ? trialEndsAt : currentPeriodEnd;
+    if (target == null) return 'PERIODE -';
+    if (cleanStatus == 'trialing') return 'TRIAL S/D ${AppUi.date(target)}';
+    return 'AKTIF S/D ${AppUi.date(target)}';
+  }
+}
 
 class _OpsMetric {
   final String label;
