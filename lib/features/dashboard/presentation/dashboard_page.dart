@@ -489,16 +489,7 @@ class _DashboardPageState extends State<DashboardPage> {
   ) async {
     final rpcCandidates = <String>[
       'finance_customer_dashboard_snapshot',
-      'finance_customer_dashboard_snapshot_v24_6_82o',
-      'finance_customer_dashboard_snapshot_v24_6_82f',
-      'finance_customer_dashboard_snapshot_v24_6_82e',
-      'finance_customer_dashboard_snapshot_v24_6_82d',
-      'finance_customer_dashboard_snapshot_v24_6_82',
-      'finance_customer_dashboard_snapshot_v24_6_80m',
-      'finance_customer_dashboard_snapshot_v24_6_80l',
-      'finance_customer_dashboard_snapshot_v24_6_80j',
-      'finance_customer_dashboard_snapshot_v24_6_79',
-      'finance_customer_dashboard_snapshot_v24_6_71',
+      'finance_customer_dashboard_snapshot',
     ];
 
     Object? lastError;

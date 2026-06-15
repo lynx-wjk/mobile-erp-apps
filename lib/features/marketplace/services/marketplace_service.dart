@@ -549,7 +549,7 @@ class MarketplaceService {
 
   Future<MarketplaceBootstrapUiStatus?> fetchBootstrapUiStatus() async {
     try {
-      final response = await _client.rpc('marketplace_bootstrap_ui_status_v1');
+      final response = await _client.rpc('marketplace_bootstrap_ui_status');
       if (response is Map) {
         return MarketplaceBootstrapUiStatus.fromMap(
           Map<String, dynamic>.from(response),
@@ -2470,21 +2470,21 @@ class MarketplaceService {
       'p_page_size': pageSize,
     };
     try {
-      final res = await _client.rpc('marketplace_variant_hpp_list_v24_6_49',
+      final res = await _client.rpc('marketplace_variant_hpp_list',
           params: params);
       return _rpcMap(res);
     } catch (_) {
       try {
-        final res = await _client.rpc('marketplace_variant_hpp_list_v24_6_47',
+        final res = await _client.rpc('marketplace_variant_hpp_list',
             params: params);
         return _rpcMap(res);
       } catch (_) {
         try {
-          final res = await _client.rpc('marketplace_variant_hpp_list_v24_6_44',
+          final res = await _client.rpc('marketplace_variant_hpp_list',
               params: params);
           return _rpcMap(res);
         } catch (_) {
-          final res = await _client.rpc('marketplace_variant_hpp_list_v24_6_28',
+          final res = await _client.rpc('marketplace_variant_hpp_list',
               params: params);
           return _rpcMap(res);
         }
@@ -2540,20 +2540,20 @@ class MarketplaceService {
 
     try {
       final res = await _client.rpc(
-        'marketplace_variant_hpp_upsert_bulk_v24_6_49',
+        'marketplace_variant_hpp_upsert_bulk',
         params: {'p_rows': normalizedRows},
       );
       return _rpcMap(res);
     } catch (_) {
       try {
         final res = await _client.rpc(
-          'marketplace_variant_hpp_upsert_bulk_v24_6_47',
+          'marketplace_variant_hpp_upsert_bulk',
           params: {'p_rows': normalizedRows},
         );
         return _rpcMap(res);
       } catch (_) {
         final res = await _client.rpc(
-          'marketplace_variant_hpp_upsert_bulk_v24_6_28',
+          'marketplace_variant_hpp_upsert_bulk',
           params: {'p_rows': normalizedRows},
         );
         return _rpcMap(res);

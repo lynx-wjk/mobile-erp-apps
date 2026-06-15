@@ -666,7 +666,7 @@ async function withRunnerLock(admin, lockKey, ttlSeconds, run) {
   let locked = false;
   let lockWarning = "";
   try {
-    const { data, error } = await admin.rpc("marketplace_auto_runner_try_lock_v24_6_81b", {
+    const { data, error } = await admin.rpc("marketplace_auto_runner_try_lock", {
       p_lock_key: lockKey,
       p_ttl_seconds: ttlSeconds,
       p_owner: owner
@@ -697,7 +697,7 @@ async function withRunnerLock(admin, lockKey, ttlSeconds, run) {
   } finally{
     if (locked) {
       try {
-        await admin.rpc("marketplace_auto_runner_release_lock_v24_6_81b", {
+        await admin.rpc("marketplace_auto_runner_release_lock", {
           p_lock_key: lockKey,
           p_owner: owner
         });
@@ -709,7 +709,7 @@ async function withRunnerLock(admin, lockKey, ttlSeconds, run) {
 }
 async function resetStaleJobs(admin) {
   try {
-    const { data, error } = await admin.rpc("marketplace_reset_stale_auto_jobs_v24_6_81b", {
+    const { data, error } = await admin.rpc("marketplace_reset_stale_auto_jobs", {
       p_order_stale_minutes: 6,
       p_finance_stale_minutes: 15,
       p_revive_failed: false
@@ -1052,7 +1052,7 @@ function sumNumbers(values) {
 }
 async function refreshFinanceCacheSafe(args) {
   try {
-    const { data, error } = await args.admin.rpc("finance_refresh_recent_caches_v24_6_81b", {
+    const { data, error } = await args.admin.rpc("finance_refresh_recent_caches", {
       p_marketplace: args.marketplace || "all",
       p_account_id: args.accountId || null,
       p_reason: args.reason

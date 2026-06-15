@@ -354,7 +354,7 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
     setState(() { _loadingSched = true; _error = null; });
     try {
       final res = await _client.rpc(
-        'user_work_schedule_list_v24_6_28',
+        'user_work_schedule_list',
         params: {'p_user_id': userId},
       );
       if (!mounted) return;
@@ -405,7 +405,7 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
       }).toList();
 
       await _client.rpc(
-        'user_work_schedule_upsert_bulk_v24_6_28',
+        'user_work_schedule_upsert_bulk',
         params: {'p_rows': rows},
       );
 

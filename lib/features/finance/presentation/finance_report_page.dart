@@ -187,7 +187,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<void> _loadMarketplaceBootstrapUiStatus(
       {bool showError = false}) async {
     try {
-      final response = await _client.rpc('marketplace_bootstrap_ui_status_v1');
+      final response = await _client.rpc('marketplace_bootstrap_ui_status');
       if (!mounted) return;
       setState(() {
         _marketplaceBootstrapUiStatus = response is Map
@@ -291,7 +291,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     final candidates = <String>[
       'finance_customer_dashboard_snapshot',
-      'finance_customer_dashboard_snapshot_v24_6_82o',
+      'finance_customer_dashboard_snapshot',
     ];
 
     Object? lastError;
@@ -389,7 +389,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     // dipakai sebagai tampilan cepat.
     try {
       await _client
-          .rpc('finance_fix_exact_cache_settled_hpp_v24_6_82q', params: {
+          .rpc('finance_fix_exact_cache_settled_hpp', params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
         'p_marketplace': _marketplaceParam() ?? 'all',
@@ -798,7 +798,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       final candidates = <String>[
         'finance_list_manual_operational_expenses',
-        'finance_list_manual_operational_expenses_v24_6_80m',
+        'finance_list_manual_operational_expenses',
       ];
       final res = await _rpcWithFallback(candidates, params);
       final rows = _asList(_asMap(res)['rows'] ?? res);
@@ -1031,7 +1031,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       final candidates = <String>[
         'finance_sku_summary_rows',
-        'finance_sku_summary_rows_v24_6_82e',
+        'finance_sku_summary_rows',
       ];
       final response = await _rpcWithFallback(candidates, params);
       final map = _asMap(response);
@@ -1071,7 +1071,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       try {
         final response = await _client.rpc(
-          'finance_sku_order_detail_lines_v24_6_82e',
+          'finance_sku_order_detail_lines',
           params: {
             'p_start': _toDateParam(_start),
             'p_end': _toDateParam(_end),
@@ -1126,7 +1126,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       final candidates = <String>[
         'finance_unpaid_sku_rows',
-        'finance_unpaid_sku_rows_v24_6_82e',
+        'finance_unpaid_sku_rows',
       ];
       final res = await _rpcWithFallback(candidates, params);
       final rows = _asList(_asMap(res)['rows'] ?? res);
@@ -1297,7 +1297,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }) async {
     try {
       await _client.rpc(
-        'finance_upsert_runtime_progress_v24_6_3',
+        'finance_upsert_runtime_progress',
         params: {
           'p_sync_type': 'manual_period_progress',
           'p_status': status,
@@ -1324,7 +1324,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       final candidates = <String>[
         'finance_get_latest_runtime_progress',
-        'finance_get_latest_runtime_progress_v24_6_3',
+        'finance_get_latest_runtime_progress',
       ];
       final response = await _rpcWithFallback(candidates, {});
       if (!mounted || response is! Map) return;
@@ -4313,7 +4313,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (ok != true) return;
     setState(() => _processing = true);
     try {
-      await _client.rpc('finance_unmark_no_payout_order_v24_6_28', params: {
+      await _client.rpc('finance_unmark_no_payout_order', params: {
         'p_order_id': orderId,
         'p_account_id': accountId,
       });
@@ -4358,7 +4358,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     setState(() => _processing = true);
     try {
       final res = await _client
-          .rpc('finance_auto_mark_cancel_no_payout_v24_6_28', params: {
+          .rpc('finance_auto_mark_cancel_no_payout', params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
         'p_account_id': _accountUuidParam(),
@@ -4427,7 +4427,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       final candidates = <String>[
         'finance_mark_no_payout_order',
-        'finance_mark_no_payout_order_v24_6_28',
+        'finance_mark_no_payout_order',
       ];
       await _rpcWithFallback(candidates, {
         'p_order_id': orderId,
@@ -5444,7 +5444,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       await _rpcWithFallback(
         const [
-          'finance_insert_manual_operational_expense_v24_6_79',
+          'finance_insert_manual_operational_expense',
         ],
         {
           'p_category': selected,
@@ -5608,7 +5608,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       await _rpcWithFallback(
         const [
-          'finance_update_manual_operational_expense_v24_6_79',
+          'finance_update_manual_operational_expense',
         ],
         {
           'p_expense_id': expenseId,
@@ -5670,7 +5670,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       await _rpcWithFallback(
         const [
-          'finance_delete_manual_operational_expense_v24_6_79',
+          'finance_delete_manual_operational_expense',
         ],
         {'p_expense_id': expenseId},
       );

@@ -103,7 +103,7 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       Map<String, dynamic> health = const {};
       try {
         final healthResponse = await _client
-            .rpc('marketplace_failed_finance_jobs_90d_health_v1')
+            .rpc('marketplace_failed_finance_jobs_90d_health')
             .timeout(const Duration(seconds: 4));
         health = healthResponse is Map
             ? Map<String, dynamic>.from(healthResponse)

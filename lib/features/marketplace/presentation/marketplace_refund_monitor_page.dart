@@ -187,7 +187,7 @@ class _MarketplaceRefundMonitorPageState
       }
 
       final payload =
-          await _callReviewRpc('marketplace_refund_cancel_review_v24_6_42');
+          await _callReviewRpc('marketplace_refund_cancel_review');
 
       final safePayload = payload;
       final rawRows = safePayload['rows'];
