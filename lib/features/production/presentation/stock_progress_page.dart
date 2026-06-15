@@ -283,13 +283,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
     final customStageController = TextEditingController();
     final lines = <_ProductionLineInput>[_ProductionLineInput()];
 
-    final availableStages = <Map<String, dynamic>>[
-      {'key': 'potong_kain', 'label': 'Potong Kain', 'active': true},
-      {'key': 'jahit', 'label': 'Jahit', 'active': true},
-      {'key': 'lubang_kancing', 'label': 'Lubang Kancing', 'active': false},
-      {'key': 'finishing', 'label': 'Finishing', 'active': true},
-      {'key': 'packing', 'label': 'Packing', 'active': true},
-    ];
+    final availableStages = await _loadStageTemplatesForCreate();
 
     final uniquePatternCodes = _items
         .map((item) => AppUi.text(item['pattern_code']))
@@ -333,9 +327,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
               final activeStagesPayload = availableStages
                   .where((stage) => stage['active'] == true)
                   .map((stage) => <String, dynamic>{
-                        'key': stage['key'] as String,
-                        'label': stage['label'] as String,
+                        'key': AppUi.text(stage['key']),
+                        'label': _editableStageLabel(stage),
                       })
+                  .where((stage) => AppUi.text(stage['key']).isNotEmpty)
                   .toList();
               if (activeStagesPayload.isEmpty) {
                 AppUi.showSnack('Pilih minimal satu progress proses.');
@@ -570,16 +565,22 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                 final text = customStageController.text.trim();
                                 if (text.isEmpty) return;
                                 final key = _normalizeStageKey(text);
-                                if (availableStages.any((s) => s['key'] == key)) {
-                                  AppUi.showSnack('Progress "$text" sudah ada.');
-                                  return;
-                                }
+                                final existing = availableStages.firstWhereOrNull(
+                                  (stage) => AppUi.text(stage['key']) == key,
+                                );
                                 setSheetState(() {
-                                  availableStages.add({
-                                    'key': key,
-                                    'label': text,
-                                    'active': true,
-                                  });
+                                  if (existing != null) {
+                                    existing
+                                      ..['label'] = text
+                                      ..['active'] = true;
+                                    AppUi.showSnack('Progress "$text" diaktifkan.');
+                                  } else {
+                                    availableStages.add(<String, dynamic>{
+                                      'key': key,
+                                      'label': text,
+                                      'active': true,
+                                    });
+                                  }
                                   customStageController.clear();
                                 });
                               },
@@ -4627,6 +4628,65 @@ class _StockProgressPageState extends State<StockProgressPage> {
       <String, dynamic>{'key': 'finishing', 'label': 'Finishing'},
       <String, dynamic>{'key': 'packing', 'label': 'Packing'},
     ];
+  }
+
+  List<Map<String, dynamic>> _defaultCreateStageTemplates() {
+    return <Map<String, dynamic>>[
+      <String, dynamic>{'key': 'potong_kain', 'label': 'Potong Kain', 'active': true},
+      <String, dynamic>{'key': 'jahit', 'label': 'Jahit', 'active': true},
+      <String, dynamic>{'key': 'lubang_kancing', 'label': 'Lubang Kancing', 'active': false},
+      <String, dynamic>{'key': 'finishing', 'label': 'Finishing', 'active': true},
+      <String, dynamic>{'key': 'packing', 'label': 'Packing', 'active': true},
+    ];
+  }
+
+  Future<List<Map<String, dynamic>>> _loadStageTemplatesForCreate() async {
+    final rows = _defaultCreateStageTemplates()
+        .map((stage) => Map<String, dynamic>.from(stage))
+        .toList();
+    if (_currentTenantId.isEmpty) return rows;
+
+    try {
+      final response = await _client
+          .from('production_progress_stages')
+          .select('stage_key, stage_label, is_active, sort_order, updated_at')
+          .eq('tenant_id', _currentTenantId)
+          .order('sort_order', ascending: true)
+          .order('updated_at', ascending: false);
+      final dbStages = _mapList(response);
+      final defaultKeys = _defaultProductionStages()
+          .map((stage) => AppUi.text(stage['key']))
+          .where((key) => key.isNotEmpty)
+          .toSet();
+
+      for (final dbStage in dbStages) {
+        final key = AppUi.text(dbStage['stage_key']).trim();
+        if (key.isEmpty) continue;
+        final rawLabel = AppUi.text(dbStage['stage_label']).trim();
+        final label = rawLabel.isEmpty ? _stageLabel(key) : rawLabel;
+        final isActive = dbStage['is_active'] == true;
+        final existing = rows.firstWhereOrNull(
+          (stage) => AppUi.text(stage['key']) == key,
+        );
+
+        if (existing != null) {
+          existing['label'] = label;
+          if (!defaultKeys.contains(key) && isActive) {
+            existing['active'] = true;
+          }
+        } else {
+          rows.add(<String, dynamic>{
+            'key': key,
+            'label': label,
+            'active': isActive,
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading production stage templates: $e');
+    }
+
+    return rows;
   }
 
   List<Map<String, dynamic>> _buildEditableStageRows(
