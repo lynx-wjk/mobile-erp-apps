@@ -13,8 +13,13 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-    try {
-      if (req.method !== "POST") {
+  let tenantId = "unknown";
+  let marketplaceAccountId = "unknown";
+  let account: any = null;
+  let body: any = {};
+
+  try {
+    if (req.method !== "POST") {
       return json({ ok: false, message: "Method not allowed" }, 405);
     }
 
@@ -24,31 +29,48 @@ Deno.serve(async (req) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
-    if (!bearer) return json({ ok: false, message: "Missing authorization header" }, 401);
+    body = await safeJson(req);
+    const configuredCronSecret = envCronSecret();
+    const incomingCronSecret = requestCronSecret(req, body);
+    const isCronRequest = await verifyMarketplaceCronSecret(admin, incomingCronSecret)
+      || (configuredCronSecret.length > 0 && incomingCronSecret === configuredCronSecret);
 
-    const { data: userData, error: userError } = await admin.auth.getUser(bearer);
-    if (userError || !userData?.user) {
-      return json({ ok: false, message: "Invalid user session" }, 401);
+    let profile: any = null;
+
+    if (isCronRequest) {
+      profile = {
+        user_id: "00000000-0000-0000-0000-000000000000",
+        tenant_id: text(body.tenant_id),
+        role_id: "super_admin",
+        status: "active",
+      };
+    } else {
+      const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+      if (!bearer) return json({ ok: false, message: "Missing authorization header" }, 401);
+
+      const { data: userData, error: userError } = await admin.auth.getUser(bearer);
+      if (userError || !userData?.user) {
+        return json({ ok: false, message: "Invalid user session" }, 401);
+      }
+
+      const { data: loadedProfile, error: profileError } = await admin
+        .from("users")
+        .select("user_id, tenant_id, role_id, status")
+        .eq("user_id", userData.user.id)
+        .maybeSingle();
+
+      if (profileError || !loadedProfile) {
+        return json({ ok: false, message: profileError?.message || "User profile not found" }, 403);
+      }
+
+      if (loadedProfile.status !== "active") {
+        return json({ ok: false, message: "User is not active" }, 403);
+      }
+      profile = loadedProfile;
     }
 
-    const { data: profile, error: profileError } = await admin
-      .from("users")
-      .select("user_id, tenant_id, role_id, status")
-      .eq("user_id", userData.user.id)
-      .maybeSingle();
-
-    if (profileError || !profile) {
-      return json({ ok: false, message: profileError?.message || "User profile not found" }, 403);
-    }
-
-    if (profile.status !== "active") {
-      return json({ ok: false, message: "User is not active" }, 403);
-    }
-
-    const body = await safeJson(req);
-    const tenantId = String(body.tenant_id || profile.tenant_id || "").trim();
-    const marketplaceAccountId = String(body.marketplace_account_id || "").trim();
+    tenantId = String(body.tenant_id || profile.tenant_id || "").trim();
+    marketplaceAccountId = String(body.marketplace_account_id || "").trim();
     const limit = clampInt(body.limit, 1, 100, 30);
 
     if (!tenantId) return json({ ok: false, message: "tenant_id is required" }, 400);
@@ -66,15 +88,16 @@ Deno.serve(async (req) => {
       return json({ ok: false, message: "Demo account tidak boleh pull API marketplace production." }, 403);
     }
 
-    const { data: account, error: accountError } = await admin
+    const { data: loadedAccount, error: accountError } = await admin
       .from("marketplace_accounts")
       .select("marketplace_account_id, tenant_id, marketplace, app_key, shop_id, shop_cipher, shop_region, shop_name, store_alias, status, environment, default_warehouse_id, access_token_encrypted, refresh_token_encrypted, access_token_expired_at, refresh_token_expired_at, raw_shop_response")
       .eq("marketplace_account_id", marketplaceAccountId)
       .maybeSingle();
 
-    if (accountError || !account) {
+    if (accountError || !loadedAccount) {
       return json({ ok: false, message: accountError?.message || "Marketplace account not found" }, 404);
     }
+    account = loadedAccount;
 
     if (account.tenant_id !== tenantId) {
       return json({ ok: false, message: "Marketplace account tenant mismatch" }, 403);
@@ -96,9 +119,36 @@ Deno.serve(async (req) => {
 
     return json({ ok: false, message: `Marketplace ${account.marketplace} belum didukung.` }, 400);
   } catch (err) {
-    const message = String(err);
-    const status = message.includes("TikTok API") || message.includes("PageSize") || message.includes("shop_cipher") ? 400 : 500;
-    return json({ ok: false, message }, status);
+    const message = String(err.message || err);
+    console.error("Product pull error caught:", message);
+
+    let errorCode = "UNKNOWN_ERROR";
+    let httpStatus = 500;
+
+    if (message.includes("is not configured") || message.includes("Missing env") || message.includes("kosong")) {
+      errorCode = "MISSING_CONFIGURATION";
+      httpStatus = 400;
+    } else if (message.includes("belum didukung") || message.includes("not supported")) {
+      errorCode = "UNSUPPORTED_MARKETPLACE";
+      httpStatus = 400;
+    } else if (message.includes("decrypt") || message.includes("terenkripsi") || message.includes("decryption")) {
+      errorCode = "DECRYPTION_ERROR";
+      httpStatus = 400;
+    } else if (message.includes("expired") || message.includes("token") || message.includes("re-authorize") || message.includes("reauth")) {
+      errorCode = "AUTH_ERROR";
+      httpStatus = 400;
+    }
+
+    return json({
+      ok: false,
+      error_code: errorCode,
+      message: message,
+      marketplace: account?.marketplace || body?.marketplace || "unknown",
+      marketplace_account_id: marketplaceAccountId || null,
+      tenant_id: tenantId || null,
+      api_status: null,
+      api_code: null
+    }, httpStatus);
   }
 });
 
@@ -1848,4 +1898,41 @@ function json(data: unknown, status = 200): Response {
       "cache-control": "no-store",
     },
   });
+}
+
+function envCronSecret(): string {
+  return String(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
+    "",
+  ).trim();
+}
+
+function requestCronSecret(req: Request, body?: any): string {
+  return String(
+    req.headers.get("x-marketplace-cron-secret") ||
+    req.headers.get("x-stock-sync-cron-secret") ||
+    body?.cron_secret ||
+    body?.marketplace_cron_secret ||
+    body?.x_marketplace_cron_secret ||
+    body?.secret ||
+    "",
+  ).trim();
+}
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<boolean> {
+  if (!incomingSecret) return false;
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) return true;
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return false;
 }

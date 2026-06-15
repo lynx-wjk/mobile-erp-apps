@@ -1893,7 +1893,16 @@ async function actionEnqueueFinanceSyncJobs(ctx, params) {
     }
   }
   if (rows.length > 0) {
-    const { error: upsertError } = await serviceClient.from('finance_sync_jobs').upsert(rows, {
+    const uniqueRows = [];
+    const seen = new Set();
+    for (const r of rows) {
+      const key = `${r.marketplace_account_id}::${r.job_type}::${r.period_start}::${r.period_end}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueRows.push(r);
+      }
+    }
+    const { error: upsertError } = await serviceClient.from('finance_sync_jobs').upsert(uniqueRows, {
       onConflict: 'marketplace_account_id,job_type,period_start,period_end',
       ignoreDuplicates: params.force_requeue !== true
     });

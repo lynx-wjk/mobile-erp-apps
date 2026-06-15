@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     let accountQuery = admin
       .from("marketplace_accounts")
       .select("marketplace_account_id, tenant_id, marketplace, environment, shop_id, shop_region, shop_name, store_alias, status, access_token_encrypted, refresh_token_encrypted, access_token_expired_at, refresh_token_expired_at")
-      .eq("marketplace", "shopee")
+      .in("marketplace", ["shopee", "tiktok_shop"])
       .eq("status", "active")
       .order("updated_at", { ascending: false, nullsFirst: false })
       .limit(maxAccounts);
@@ -51,14 +51,14 @@ Deno.serve(async (req) => {
     if (accountId) accountQuery = accountQuery.eq("marketplace_account_id", accountId);
 
     const { data: accounts, error: accountError } = await accountQuery;
-    if (accountError) throw new Error(`Load Shopee account gagal: ${accountError.message}`);
+    if (accountError) throw new Error(`Load accounts gagal: ${accountError.message}`);
 
     if (!accounts || accounts.length === 0) {
       return json({
         ok: true,
         version: FUNCTION_VERSION,
         skipped: true,
-        message: "Tidak ada akun Shopee active untuk finance pull.",
+        message: "Tidak ada akun active untuk finance pull.",
       });
     }
 
@@ -68,22 +68,48 @@ Deno.serve(async (req) => {
     let totalFailed = 0;
 
     for (const account of accounts) {
-      const result = await pullShopeeFinanceForAccount(admin, account, { daysBack, maxOrders });
-      details.push(result);
-      totalChecked += result.checked;
-      totalSynced += result.synced;
-      totalFailed += result.failed;
+      try {
+        if (account.marketplace === "tiktok_shop") {
+          details.push({
+            account_id: account.marketplace_account_id,
+            store_alias: account.store_alias,
+            checked: 0,
+            synced: 0,
+            failed: 0,
+            ok: false,
+            error_code: "finance_unavailable_for_tiktok",
+            message: "Finance pull tidak didukung untuk TikTok Shop di edge function ini.",
+          });
+          continue;
+        }
+
+        const result = await pullShopeeFinanceForAccount(admin, account, { daysBack, maxOrders });
+        details.push(result);
+        totalChecked += result.checked;
+        totalSynced += result.synced;
+        totalFailed += result.failed;
+      } catch (accountErr) {
+        totalFailed += 1;
+        details.push({
+          account_id: account.marketplace_account_id,
+          store_alias: account.store_alias,
+          checked: 0,
+          synced: 0,
+          failed: 1,
+          message: `Account finance sync failed: ${String(accountErr)}`,
+        });
+      }
     }
 
     return json({
       ok: totalFailed === 0,
       version: FUNCTION_VERSION,
-      marketplace: "shopee",
+      marketplace: "mixed",
       accounts: accounts.length,
       checked: totalChecked,
       synced: totalSynced,
       failed: totalFailed,
-      message: `Shopee finance pull selesai: cek ${totalChecked}, synced ${totalSynced}, gagal ${totalFailed}.`,
+      message: `Marketplace finance pull selesai: cek ${totalChecked}, synced ${totalSynced}, gagal ${totalFailed}.`,
       details,
     });
   } catch (err) {
