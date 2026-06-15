@@ -7,7 +7,6 @@ This document outlines the final consolidated roadmap, detailing the exact order
 ## 1. Baseline & Current State
 
 * **Current Branch**: `rescue/antigravity-unmerged-selfhost-20260614`
-* **Current Latest Commit**: `27214ff` (updated with Hotfix 3F WhatsApp-clickable HTTPS invite link and Phase 3 safe wrapper start)
 * **Applied Migrations List**:
   1. `20260612080000_production_running_flow_revision.sql`
   2. `20260612141500_*` (production process stage)
@@ -15,6 +14,9 @@ This document outlines the final consolidated roadmap, detailing the exact order
   4. `20260614170600_production_hotfix3_login_access.sql`
   5. `20260614170700_platform_owner_invite_tenant_fix.sql`
   6. `20260614170800_invite_register_stage_ui_fix.sql`
+  7. `20260615120000_phase3_canonical_wrappers.sql`
+  8. `20260615120100_phase3_remaining_wrappers.sql`
+  9. `20260615150000_phase4b_marketplace_rls_hardening.sql`
 
 ---
 
@@ -22,7 +24,7 @@ This document outlines the final consolidated roadmap, detailing the exact order
 
 - **Safe to Patch Next**: Phase 2 dynamic stage persistence fixes.
 - **Must Wait**: Active table migrations for subscription management (Phase 5) must wait until Phase 2 and Phase 3 (canonical RPCs) are fully stable and accepted.
-- **Known Blockers**: Marketplace RLS (Phase 4) cannot be activated until sync runner nodes use `service_role` credentials to execute background synchronization functions.
+- **RLS Enforcement**: Marketplace RLS (Phase 4) is now staged with tenant-aware policies. The sync runner nodes use `service_role` credentials to execute background functions, ensuring background processes continue smoothly.
 
 ---
 
@@ -43,7 +45,7 @@ This document outlines the final consolidated roadmap, detailing the exact order
 
 ### Phase 3: Canonical RPC Wrappers
 - **Goal**: Reroute Flutter `.rpc` calls to unversioned canonical SQL functions.
-- **Status**: **ACTIVE (COMPLETED FOR LOW/MEDIUM RISK)**
+- **Status**: **ACTIVE (COMPLETED FOR SAFE WRAPPERS)**
   - Created migrations `supabase/migrations/20260615120000_phase3_canonical_wrappers.sql` and `supabase/migrations/20260615120100_phase3_remaining_wrappers.sql`.
   - Rerouted `dashboard_page.dart` to try `finance_customer_dashboard_snapshot` first.
   - Rerouted `finance_report_page.dart` calls for `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, `finance_mark_no_payout_order`, `finance_list_manual_operational_expenses`, and `finance_get_latest_runtime_progress` to try canonical wrappers first.
@@ -54,23 +56,23 @@ This document outlines the final consolidated roadmap, detailing the exact order
 - **SQL Functions**: `finance_customer_dashboard_snapshot`, `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, `finance_mark_no_payout_order`, `finance_list_manual_operational_expenses`, `finance_get_latest_runtime_progress`
 - **Rollback Risk**: Medium. If signatures mismatch, screens will fail to load. Restore versioned names in Flutter if needed.
 
-
-
 ---
 
 ### Phase 4: Marketplace RLS Hardening
 - **Goal**: Enable RLS on all marketplace log and credential tables.
+- **Status**: **ACTIVE (COMPLETED)**
+  - Created database policies and secured the public views.
 - **Files Likely Changed**: None (Database schema only).
-- **Migration Suggestion**: `supabase/migrations/20260615130000_phase4_marketplace_rls.sql`
+- **Migration Suggestion**: `supabase/migrations/20260615150000_phase4b_marketplace_rls_hardening.sql`
 - **SQL Functions**: None (RLS Policies).
-- **Rollback Risk**: High. Disables synchronization if workers fail to bypass RLS. Wrote rollback scripts in RLS audit plan.
+- **Rollback Risk**: High. Disables synchronization if workers fail to bypass RLS. Staged rollback scripts at `docs/phase4b_marketplace_rls_rollback.sql`.
 
 ---
 
 ### Phase 5: SaaS Subscription Core
 - **Goal**: Create plans, subscription mappings, and event tracking tables.
 - **Files Likely Changed**: None (Database schema only).
-- **Migration Suggestion**: `supabase/migrations/20260615140000_phase5_subscription_core.sql`
+- **Migration Suggestion**: `supabase/migrations/20260615160000_phase5_subscription_core.sql`
 - **Rollback Risk**: Low. Creates new tables only.
 
 ---
@@ -79,7 +81,7 @@ This document outlines the final consolidated roadmap, detailing the exact order
 - **Goal**: Write subscription set, bypass, and features checking functions.
 - **Files Likely Changed**:
   - `lib/services/auth_service.dart` (fetching entitlements on login).
-- **Migration Suggestion**: `supabase/migrations/20260615150000_phase6_entitlements.sql`
+- **Migration Suggestion**: `supabase/migrations/20260615170000_phase6_entitlements.sql`
 - **SQL Functions**: `tenant_has_feature`, `get_my_entitlements`, `platform_tenant_subscription_set`
 - **Rollback Risk**: Medium. Denies features if queries return incorrect values.
 
@@ -88,7 +90,7 @@ This document outlines the final consolidated roadmap, detailing the exact order
 ### Phase 7: Lifecycle Maintenance
 - **Goal**: Manual trial/billing expiration routine.
 - **Files Likely Changed**: None (Database schema only).
-- **Migration Suggestion**: `supabase/migrations/20260615160000_phase7_lifecycle.sql`
+- **Migration Suggestion**: `supabase/migrations/20260615180000_phase7_lifecycle.sql`
 - **SQL Functions**: `run_subscription_lifecycle_maintenance`
 - **Rollback Risk**: Medium. Dry-run capability mitigates data issues.
 
@@ -97,7 +99,7 @@ This document outlines the final consolidated roadmap, detailing the exact order
 ### Phase 8: Token Wipe & Purge
 - **Goal**: Implement token revoking and hard-deleting tenant data.
 - **Files Likely Changed**: None (Database schema only).
-- **Migration Suggestion**: `supabase/migrations/20260615170000_phase8_data_purge.sql`
+- **Migration Suggestion**: `supabase/migrations/20260615190000_phase8_data_purge.sql`
 - **SQL Functions**: `purge_tenant_operational_data`, `marketplace_disconnect_account`
 - **Rollback Risk**: High (Irreversible deletion). Wrote explicit safeguards requiring verification input.
 
@@ -106,7 +108,7 @@ This document outlines the final consolidated roadmap, detailing the exact order
 ### Phase 9: Scalable Autojob Queue
 - **Goal**: Configure concurrent priority queue with FOR UPDATE SKIP LOCKED.
 - **Files Likely Changed**: Background sync worker daemon.
-- **Migration Suggestion**: `supabase/migrations/20260615180000_phase9_job_queue.sql`
+- **Migration Suggestion**: `supabase/migrations/20260615200000_phase9_job_queue.sql`
 - **SQL Functions**: `dequeue_next_sync_job`
 - **Rollback Risk**: High. Lock timeouts could stall order processing.
 

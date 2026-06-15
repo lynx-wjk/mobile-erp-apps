@@ -1,4 +1,4 @@
-# Mobile ERP System Current Status (Post-Hotfix 3F)
+# Mobile ERP System Current Status (Post-Phase 4B RLS Hardening)
 
 This document provides a summary of the current verified state of the Mobile ERP application, tracking the implementation, testing, and acceptance of different modules.
 
@@ -54,7 +54,7 @@ This document provides a summary of the current verified state of the Mobile ERP
 ---
 
 ## Phase 3: Canonical RPC Wrappers
-* **Status**: **SAFE WRAPPER START (ACTIVE - PARTIALLY COMPLETED)**
+* **Status**: **ACTIVE - COMPLETED FOR SAFE WRAPPERS**
   - Audited and created SQL wrappers in `supabase/migrations/20260615120000_phase3_canonical_wrappers.sql` for low-risk functions: `finance_customer_dashboard_snapshot`, `finance_sku_summary_rows`, `finance_unpaid_sku_rows`, and `finance_mark_no_payout_order`.
   - Audited and created SQL wrappers in `supabase/migrations/20260615120100_phase3_remaining_wrappers.sql` for additional low-risk functions: `finance_get_latest_runtime_progress` and `finance_list_manual_operational_expenses`.
   - Rerouted `dashboard_page.dart` call from `finance_customer_dashboard_snapshot_v24_6_82o` to `finance_customer_dashboard_snapshot` with automatic fallback to versioned names.
@@ -62,13 +62,17 @@ This document provides a summary of the current verified state of the Mobile ERP
   - Old/versioned RPCs are retained for backward-compatibility.
   - High-risk sync and operational queue RPCs left untouched.
 
-
 ---
 
 ## Phase 4: Marketplace RLS Hardening
-* **Status**: **NOT IMPLEMENTED (ANALYSIS ONLY)**
-  - Audit plan completed in `docs/phase4_marketplace_rls_audit.md`.
-  - No active database policies applied yet.
+* **Status**: **ACTIVE (COMPLETED)**
+  - Audited marketplace table readiness and Edge Function superuser service role clients in `docs/phase4_marketplace_rls_service_role_audit_result.md`.
+  - Staged minimal safe database migration `20260615150000_phase4b_marketplace_rls_hardening.sql` implementing view security parameters, indexing, and strict policies.
+  - Secured `marketplace_accounts_public` and `marketplace_stock_sync_logs_public` views by setting `security_invoker = true`.
+  - Enabled RLS on 19 tenant-owned tables and deployed policies enforcing `tenant_id = app_current_tenant_id_or_default()`.
+  - Enabled RLS on global tables (`marketplace_auto_runner_locks`, `marketplace_cron_edge_config_v24_6_82q`) to block authenticated/anonymous roles, restricting them solely to `service_role` and `postgres`.
+  - Added join-based SELECT tenant safety for `marketplace_auto_pull_request_log_v24_6_82q` using `marketplace_accounts`.
+  - Created emergency recovery rollback script in `docs/phase4b_marketplace_rls_rollback.sql`.
 
 ---
 
@@ -76,4 +80,3 @@ This document provides a summary of the current verified state of the Mobile ERP
 * **Status**: **NOT IMPLEMENTED (ANALYSIS ONLY)**
   - Analysis and roadmap prepared. See corresponding markdown files in `docs/` for each phase.
   - No subscription tables created, no lifecycle crons scheduled, and no operational purges executed.
-
