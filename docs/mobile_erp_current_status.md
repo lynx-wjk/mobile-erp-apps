@@ -99,7 +99,7 @@ This document provides a summary of the current verified state of the Mobile ERP
 
 ## Phase 7: Lifecycle Maintenance Routine
 * **Status**: **STAGED / PENDING SELF-HOST APPLY**
-  - Migration `supabase/migrations/20260615180000_phase7_subscription_lifecycle.sql` is staged locally.
+  - Migration `supabase/migrations/20260615180000_phase7_subscription_lifecycle.sql` has been applied and validated on VPS self-host DB.
   - Created unversioned routine `run_subscription_lifecycle_maintenance(p_dry_run, p_now)` with dry-run capabilities and transition logic: `trialing -> expired`, `active -> past_due`, `past_due -> suspended`, and `canceled -> expired`.
   - Deployed unversioned preview helper `preview_subscription_lifecycle_maintenance(p_now)`.
   - Gated write operations strictly to platform owner with no automated cron runs or app suspension enabled.

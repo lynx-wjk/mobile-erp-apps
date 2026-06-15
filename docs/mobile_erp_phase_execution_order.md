@@ -19,7 +19,7 @@ This document outlines the final consolidated roadmap, detailing the exact order
   9. `20260615150000_phase4b_marketplace_rls_hardening.sql`
   10. `20260615160000_phase5_subscription_core.sql` (ACTIVE - COMPLETED)
   11. `20260615170000_phase6_entitlement_rpcs.sql` (ACTIVE - COMPLETED)
-  12. `20260615180000_phase7_subscription_lifecycle.sql` (Staged - Pending Self-Host Apply)
+  12. `20260615180000_phase7_subscription_lifecycle.sql` (ACTIVE - COMPLETED)
 
 
 ---
@@ -92,8 +92,8 @@ This document outlines the final consolidated roadmap, detailing the exact order
 
 ---
 
-### Phase 7: Lifecycle Maintenance (Staged - Pending Self-Host Apply)
-- **Goal**: Manual trial/billing expiration routine.
+### Phase 7: Lifecycle Maintenance
+- **Goal**: Manual trial/billing expiration routine. Applied and validated on VPS self-host DB.
 - **Files Likely Changed**: None (Database schema only).
 - **Migration Suggestion**: `supabase/migrations/20260615180000_phase7_subscription_lifecycle.sql`
 - **SQL Functions**: `run_subscription_lifecycle_maintenance`, `preview_subscription_lifecycle_maintenance`
