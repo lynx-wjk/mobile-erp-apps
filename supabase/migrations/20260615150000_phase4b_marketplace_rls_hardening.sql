@@ -43,7 +43,7 @@ AS
 
 ALTER VIEW public.marketplace_accounts_public OWNER TO postgres;
 
-GRANT ALL ON TABLE public.marketplace_accounts_public TO authenticated;
+GRANT SELECT ON TABLE public.marketplace_accounts_public TO authenticated;
 GRANT ALL ON TABLE public.marketplace_accounts_public TO service_role;
 
 -- Recreate public.marketplace_stock_sync_logs_public with security_invoker = true
@@ -109,7 +109,7 @@ AS
 
 ALTER VIEW public.marketplace_stock_sync_logs_public OWNER TO postgres;
 
-GRANT ALL ON TABLE public.marketplace_stock_sync_logs_public TO authenticated;
+GRANT SELECT ON TABLE public.marketplace_stock_sync_logs_public TO authenticated;
 GRANT ALL ON TABLE public.marketplace_stock_sync_logs_public TO service_role;
 
 
