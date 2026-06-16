@@ -8,6 +8,7 @@ import '../models/marketplace_stock_sync_item.dart';
 import '../services/marketplace_service.dart';
 import 'marketplace_sync_monitor_page.dart';
 import 'marketplace_stock_difference_page.dart';
+import '../../subscription/presentation/feature_gate_page.dart';
 
 class MarketplaceStockSyncPage extends StatefulWidget {
   final AppUser currentUser;
@@ -440,8 +441,13 @@ class _MarketplaceStockSyncPageState extends State<MarketplaceStockSyncPage> {
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => MarketplaceSyncMonitorPage(
-                            currentUser: widget.currentUser),
+                        builder: (_) => FeatureGatePage(
+                          featureKey: 'marketplace_stock_sync',
+                          featureLabel: 'Riwayat sync stock',
+                          child: MarketplaceSyncMonitorPage(
+                            currentUser: widget.currentUser,
+                          ),
+                        ),
                       ),
                     );
                   },
@@ -455,8 +461,13 @@ class _MarketplaceStockSyncPageState extends State<MarketplaceStockSyncPage> {
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => MarketplaceStockDifferencePage(
-                            currentUser: widget.currentUser),
+                        builder: (_) => FeatureGatePage(
+                          featureKey: 'marketplace_stock_sync',
+                          featureLabel: 'Selisih stok marketplace',
+                          child: MarketplaceStockDifferencePage(
+                            currentUser: widget.currentUser,
+                          ),
+                        ),
                       ),
                     );
                   },
@@ -636,9 +647,10 @@ class _MarketplaceStockSyncPageState extends State<MarketplaceStockSyncPage> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.zero,
                 color: item.marketplace == 'shopee'
-                      ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
-                      : Theme.of(context).colorScheme.secondary.withOpacity(0.2),
-                border: const Border(bottom: BorderSide(color: Colors.black, width: 2)),
+                    ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
+                    : Theme.of(context).colorScheme.secondary.withOpacity(0.2),
+                border: const Border(
+                    bottom: BorderSide(color: Colors.black, width: 2)),
               ),
               child: Row(
                 children: [
@@ -646,7 +658,10 @@ class _MarketplaceStockSyncPageState extends State<MarketplaceStockSyncPage> {
                     width: 46,
                     height: 46,
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.14),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.14),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Icon(
@@ -677,7 +692,10 @@ class _MarketplaceStockSyncPageState extends State<MarketplaceStockSyncPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.78),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.78),
                             fontWeight: FontWeight.w700,
                           ),
                         ),

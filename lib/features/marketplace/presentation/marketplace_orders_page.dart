@@ -9,6 +9,7 @@ import '../../../core/constants/marketplace_providers.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../models/app_user.dart';
 import '../../stock/presentation/stock_out_page.dart';
+import '../../subscription/presentation/feature_gate_page.dart';
 import '../models/marketplace_account_public.dart';
 import '../models/marketplace_order_item.dart';
 import '../models/marketplace_order_summary.dart';
@@ -1030,7 +1031,13 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   Future<void> _openStockOut() async {
     await Navigator.push<void>(
       context,
-      MaterialPageRoute(builder: (_) => const StockOutPage()),
+      MaterialPageRoute(
+        builder: (_) => FeatureGatePage(
+          featureKey: 'stock_basic',
+          featureLabel: 'Stock Out',
+          child: StockOutPage(),
+        ),
+      ),
     );
     await _loadOrders(showLoader: false);
   }
@@ -1039,10 +1046,14 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => MarketplaceRefundMonitorPage(
-          currentUser: widget.currentUser,
-          accounts: _accounts,
-          initialAccountId: _filterAccountId,
+        builder: (_) => FeatureGatePage(
+          featureKey: 'marketplace_return_refund',
+          featureLabel: 'Refund / retur marketplace',
+          child: MarketplaceRefundMonitorPage(
+            currentUser: widget.currentUser,
+            accounts: _accounts,
+            initialAccountId: _filterAccountId,
+          ),
         ),
       ),
     );

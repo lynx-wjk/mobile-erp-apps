@@ -8,6 +8,7 @@ import '../../../core/ui/app_ui.dart';
 import '../../../core/theme/app_theme_mode.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../subscription/services/tenant_entitlement_service.dart';
+import '../../subscription/presentation/feature_gate_page.dart';
 import '../../../models/app_user.dart';
 
 import '../../attendance/presentation/attendance_page.dart';
@@ -907,6 +908,7 @@ class _DashboardPageState extends State<DashboardPage> {
       return 'marketplace_product_sync';
     }
     if (type.contains('MarketplaceStockSyncPage') ||
+        type.contains('MarketplaceSyncMonitorPage') ||
         type.contains('MarketplaceStockDifferencePage')) {
       return 'marketplace_stock_sync';
     }
@@ -926,7 +928,8 @@ class _DashboardPageState extends State<DashboardPage> {
       return 'stock_basic';
     }
 
-    if (type.contains('AbsensiPage') ||
+    if (type.contains('AttendancePage') ||
+        type.contains('AbsensiPage') ||
         type.contains('HrPerformancePage') ||
         type.contains('WorkLocationPage')) {
       return 'attendance_basic';
@@ -1017,8 +1020,16 @@ class _DashboardPageState extends State<DashboardPage> {
       return;
     }
 
+    final guardedPage = feature == null
+        ? page
+        : FeatureGatePage(
+            featureKey: feature,
+            featureLabel: feature.replaceAll('_', ' '),
+            child: page,
+          );
+
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => page))
+        .push(MaterialPageRoute(builder: (_) => guardedPage))
         .then((_) {
       if (!mounted) return;
       _loadDashboard();
@@ -3758,9 +3769,162 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  List<_DashboardMenu> _superAdminAllRoleMenus() {
+    return [
+      _DashboardMenu(
+          Icons.account_balance_wallet_rounded,
+          'Keuangan',
+          'Pantau omzet, HPP, biaya, margin, dan laba rugi.',
+          () => _open(const FinanceReportPage())),
+      _DashboardMenu(
+          Icons.verified_rounded,
+          'Verifikasi Pembelian',
+          'Review nota pembelian yang masuk.',
+          () => _open(const PurchaseVerificationPage())),
+      _DashboardMenu(
+          Icons.warning_amber_rounded,
+          'Abnormal Marketplace',
+          'Temukan pesanan dengan payout atau margin di luar batas.',
+          () => _open(const FinanceReportPage(initialTabIndex: 6))),
+      _DashboardMenu(
+          Icons.receipt_long_rounded,
+          'Arus Kas',
+          'Pantau mutasi dana masuk dan keluar.',
+          () => _open(const FinanceReportPage(initialTabIndex: 3))),
+      _DashboardMenu(
+          Icons.file_download_rounded,
+          'Export / Import Data',
+          'Backup data tenant, export finance, dan import data operasional.',
+          () => _open(const DataExportImportPage())),
+      _DashboardMenu(
+          Icons.inventory_2_rounded,
+          'Master SKU',
+          'Kelola barang, barcode, stok minimum, dan HPP.',
+          () => _open(ProductListPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.qr_code_scanner_rounded,
+          'Stok Keluar',
+          'Scan barcode pesanan untuk update stok keluar.',
+          () => _open(const StockOutPage())),
+      _DashboardMenu(
+          Icons.add_box_rounded,
+          'Stock In',
+          'Tambah stok masuk dari produksi, retur, atau adjustment.',
+          () => _open(const StockInPage())),
+      _DashboardMenu(
+          Icons.history_rounded,
+          'Riwayat Stock Out',
+          'Cek pengeluaran barang dan validasi resi.',
+          () => _open(const StockHistoryPage())),
+      _DashboardMenu(
+          Icons.warning_amber_rounded,
+          'Stok Rendah',
+          'Pantau produk yang sudah di bawah batas minimum.',
+          () => _open(const LowStockPage())),
+      _DashboardMenu(
+          Icons.storefront_rounded,
+          'Akun Marketplace',
+          'Kelola akun Shopee/TikTok dan sinkronisasi.',
+          () => _open(MarketplaceAccountsPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.receipt_long_rounded,
+          'Order Marketplace',
+          'Tarik dan cek order aktif untuk packing.',
+          () => _open(MarketplaceOrdersPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.link_rounded,
+          'Mapping SKU',
+          'Cocokkan SKU lokal dengan varian marketplace.',
+          () =>
+              _open(MarketplaceSkuMappingPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.sync_rounded,
+          'Sync Stock',
+          'Simulasi dan kirim stok real ke marketplace.',
+          () => _open(MarketplaceStockSyncPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.compare_arrows_rounded,
+          'Selisih Stock',
+          'Bandingkan stok lokal dengan stok marketplace.',
+          () => _open(
+              MarketplaceStockDifferencePage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.rule_rounded,
+          'Review Stock Out',
+          'Review stock out tanpa mode match marketplace.',
+          () => _open(
+              MarketplaceStockOutReviewPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.assignment_return_rounded,
+          'Refund & Retur',
+          'Pantau retur/cancel dan keputusan stok masuk.',
+          () => _open(MarketplaceRefundMonitorPage(
+              currentUser: _requiredAppUser, accounts: const []))),
+      _DashboardMenu(
+          Icons.sync_problem_rounded,
+          'Monitor Job',
+          'Pantau update order, payout, dan antrean.',
+          () => _open(const MarketplaceJobMonitorPage())),
+      _DashboardMenu(
+          Icons.shopping_cart_checkout_rounded,
+          'Pembelian Barang / Bahan',
+          'Buat dan pantau pembelian barang atau bahan.',
+          () => _open(const PurchaseRequestPage())),
+      _DashboardMenu(
+          Icons.precision_manufacturing_rounded,
+          'Produksi Berjalan',
+          'Pantau stok dalam proses produksi.',
+          () => _open(const StockProgressPage())),
+      _DashboardMenu(Icons.store_rounded, 'Supplier',
+          'Kelola data supplier pembelian.', () => _open(const SupplierPage())),
+      _attendanceMenu(),
+      _DashboardMenu(
+          Icons.analytics_rounded,
+          'Performance Monitor',
+          'Pantau telat, absen, dan aktivitas karyawan.',
+          () => _open(const HrPerformancePage())),
+      _DashboardMenu(
+          Icons.location_on_rounded,
+          'Set Lokasi',
+          'Atur titik lokasi kerja untuk absensi.',
+          () => _open(const WorkLocationPage())),
+      _DashboardMenu(
+          Icons.manage_accounts_rounded,
+          'User Management',
+          'Kelola akun, role, dan status user.',
+          () => _open(const UserManagementPage())),
+      _DashboardMenu(
+          Icons.manage_search_rounded,
+          'Audit Log',
+          'Lihat dan hapus riwayat aktivitas sistem.',
+          () => _open(const AuditLogPage())),
+      _DashboardMenu(
+          Icons.task_alt_rounded,
+          'Monitoring Tugas',
+          'Buat, cek, dan verifikasi task seluruh role.',
+          () => _open(const TaskPage())),
+      _DashboardMenu(
+          Icons.video_collection_rounded,
+          'Verifikasi Konten',
+          'Review konten creator: approve, revisi, atau reject.',
+          () => _open(const ContentMonitoringPage())),
+      _DashboardMenu(Icons.live_tv_rounded, 'Verifikasi Live',
+          'Review bukti kerja host live.', () => _open(const HostLivePage())),
+      _DashboardMenu(
+          Icons.live_tv_rounded,
+          'Host Live',
+          'Upload bukti sesi live sesuai jadwal.',
+          () => _open(const HostLivePage())),
+    ];
+  }
+
   // ── Role menus ───────────────────────────────────────────────────────────────
   List<_DashboardMenu> _roleMenus() {
     final role = _role;
+
+    if (_isAdmin || _isPlatformOwner) {
+      return _superAdminAllRoleMenus();
+    }
 
     if (role == 'warehouse') {
       return [
@@ -4090,6 +4254,22 @@ class _DashboardPageState extends State<DashboardPage> {
 
   List<_DashboardMenu> _bottomMenus() {
     final role = _role;
+    if (_isAdmin || _isPlatformOwner) {
+      return [
+        _DashboardMenu(Icons.account_balance_wallet_rounded, 'Keuangan', '',
+            () => _open(const FinanceReportPage()),
+            shortTitle: 'Finance'),
+        _DashboardMenu(Icons.receipt_long_rounded, 'Order', '',
+            () => _open(MarketplaceOrdersPage(currentUser: _requiredAppUser)),
+            shortTitle: 'Order'),
+        _DashboardMenu(Icons.inventory_2_rounded, 'Master SKU', '',
+            () => _open(ProductListPage(currentUser: _requiredAppUser)),
+            shortTitle: 'SKU'),
+        _DashboardMenu(Icons.analytics_rounded, 'Performance', '',
+            () => _open(const HrPerformancePage()),
+            shortTitle: 'People'),
+      ];
+    }
     if (role == 'finance') {
       return [
         _DashboardMenu(Icons.account_balance_wallet_rounded, 'Laporan', '',
