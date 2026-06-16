@@ -712,7 +712,6 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
               );
             },
           ),
-
           IconButton(
             tooltip: 'Refresh data/job',
             onPressed: _loading ? null : () => _load(),

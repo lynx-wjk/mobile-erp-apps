@@ -221,8 +221,8 @@ class _SummaryCard extends StatelessWidget {
             ),
             _MetricTile(
               label: 'Missing order state',
-              value:
-                  _intValue(coverage['accounts_missing_order_state']).toString(),
+              value: _intValue(coverage['accounts_missing_order_state'])
+                  .toString(),
               ok: _intValue(coverage['accounts_missing_order_state']) == 0,
             ),
             _MetricTile(
@@ -350,8 +350,8 @@ class _StateTile extends StatelessWidget {
             _InfoRow('Recent', _formatDateTime(state['recent_cursor_at'])),
             _InfoRow('Last success', _formatDateTime(state['last_success_at'])),
             _InfoRow('Orders 90d', _intValue(state['orders_90d']).toString()),
-            _InfoRow('Last order',
-                _formatDateTime(state['last_order_created_at'])),
+            _InfoRow(
+                'Last order', _formatDateTime(state['last_order_created_at'])),
             _InfoRow('Next run', _formatDateTime(state['next_run_at'])),
           ]
         : [
