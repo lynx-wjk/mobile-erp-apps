@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/ui/app_ui.dart';
 import '../models/marketplace_account_public.dart';
 import '../services/marketplace_service.dart';
+import 'marketplace_dispatcher_monitor_page.dart';
 
 class MarketplaceJobMonitorPage extends StatefulWidget {
   const MarketplaceJobMonitorPage({super.key});
@@ -700,6 +701,18 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
         foregroundColor: theme.textTheme.titleLarge?.color,
         title: const Text('Monitor Pembaruan Marketplace'),
         actions: [
+          IconButton(
+            tooltip: 'Monitor Dispatcher',
+            icon: const Icon(Icons.route_outlined),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const MarketplaceDispatcherMonitorPage(),
+                ),
+              );
+            },
+          ),
+
           IconButton(
             tooltip: 'Refresh data/job',
             onPressed: _loading ? null : () => _load(),
