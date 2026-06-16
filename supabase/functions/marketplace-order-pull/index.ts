@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-order-pull-safe-fetch-v1";
+const FUNCTION_VERSION = "marketplace-order-pull";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -175,6 +175,19 @@ Deno.serve(async (req) => {
     const isAutoRunnerSource = text(body.source) === "marketplace-auto-runner" || body.auto_today_only === true || body.auto_status_only === true;
     const daysBack = isAutoRunnerSource ? 1 : clampInt(body.days_back, 1, 60, 1);
     let range = pullDateRangeFromBody(body, daysBack);
+    const explicitStartSeconds = Number(body.start_seconds ?? body.window_start_seconds);
+    const explicitEndSeconds = Number(body.end_seconds ?? body.window_end_seconds);
+    if (
+      Number.isFinite(explicitStartSeconds) &&
+      Number.isFinite(explicitEndSeconds) &&
+      explicitStartSeconds > 0 &&
+      explicitEndSeconds > explicitStartSeconds
+    ) {
+      range = {
+        startSeconds: Math.floor(explicitStartSeconds),
+        endSeconds: Math.floor(explicitEndSeconds),
+      };
+    }
     if (isAutoRunnerSource) {
       range = todayWibSecondsRange();
     }
@@ -186,7 +199,7 @@ Deno.serve(async (req) => {
       return json({ ok: false, message: "Maksimal periode pull order marketplace adalah 60 hari." }, 400);
     }
 
-    const pageSize = clampInt(body.limit, 1, 50, 50);
+    const pageSize = clampInt(body.page_size ?? body.limit, 1, 100, 50);
     const maxPages = isAutoRunnerSource ? clampInt(body.max_pages, 1, 10, 8) : clampInt(body.max_pages, 1, 100, 20);
     const includeStatuslessSearch = body.include_statusless_search !== false;
     const includeUpdateTimeSearch = body.include_update_time_search === true;
@@ -1331,7 +1344,8 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
     throw new Error("shop_cipher TikTok belum valid. Re-authorize toko lalu ulangi Pull Orders.");
   }
 
-  const nowSeconds = Math.max(args.endSeconds, args.startSeconds + 24 * 60 * 60);
+  // Dispatcher supplies exact bounded windows. Do not silently widen TikTok to 24h.
+  const nowSeconds = Math.max(args.endSeconds, args.startSeconds + 1);
   const todayStartWib = startOfTodayWibSeconds();
   const normalSinceSeconds = args.startSeconds;
   const previousUnpackedSinceSeconds = Math.floor(Date.now() / 1000) - args.previousUnpackedDays * 24 * 60 * 60;
