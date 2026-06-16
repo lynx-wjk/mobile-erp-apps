@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/theme/app_theme_mode.dart';
 import '../../../core/constants/app_roles.dart';
+import '../../subscription/services/tenant_entitlement_service.dart';
 import '../../../models/app_user.dart';
 
 import '../../attendance/presentation/attendance_page.dart';
@@ -80,6 +81,7 @@ class _DashboardPageState extends State<DashboardPage> {
   int _absentAttendance = 0;
   String _myAttendanceLabel = 'Belum';
   _TenantSubscriptionInfo? _tenantSubscriptionInfo;
+  TenantEntitlementSnapshot? _entitlement;
 
   String get _role =>
       (_appUser?.role.roleId ?? _user?.role ?? '').trim().toLowerCase();
@@ -90,7 +92,17 @@ class _DashboardPageState extends State<DashboardPage> {
       _isAdmin || _isOperationalAdmin || _role == 'hr';
   bool get _canOpenSuperSettings =>
       AppRolePermissions.canOpenSuperSettings(_role);
-  bool get _canAccessFinance => AppRolePermissions.canAccessFinance(_role);
+  bool get _isPlatformOwner =>
+      AppRolePermissions.isPlatformOwnerId(_role) ||
+      (_entitlement?.isPlatformOwner ?? false);
+  bool _planHasFeature(String featureKey) {
+    if (_isPlatformOwner) return true;
+    return _entitlement?.isFeatureEnabled(featureKey) == true;
+  }
+
+  bool get _canAccessFinance =>
+      AppRolePermissions.canAccessFinance(_role) &&
+      _planHasFeature('finance_basic');
   bool get _isDemoSuperAdmin => AppRolePermissions.isDemoSuperAdminId(_role);
   bool get _isFinance => _role == 'finance';
   bool get _isWarehouse => _role == 'warehouse';
@@ -148,6 +160,8 @@ class _DashboardPageState extends State<DashboardPage> {
           appUser = AppUser.fromMap(profile);
         }
       }
+
+      final entitlement = await TenantEntitlementService(_client).load();
 
       final now = DateTime.now();
       final start = DateTime(now.year, now.month, now.day).toIso8601String();
@@ -245,7 +259,11 @@ class _DashboardPageState extends State<DashboardPage> {
               roleId == 'finance';
       final tenantSubscriptionInfo = await _safeTenantSubscriptionInfo(
           appUser?.tenantId ?? profile?['tenant_id']);
-      final financeSummary = AppRolePermissions.canAccessFinance(roleId)
+      final canLoadFinanceSummary =
+          AppRolePermissions.isPlatformOwnerId(roleId) ||
+              (AppRolePermissions.canAccessFinance(roleId) &&
+                  entitlement.isFeatureEnabled('finance_basic'));
+      final financeSummary = canLoadFinanceSummary
           ? await _safeFinanceSummary(now)
           : <String, dynamic>{};
       final notifications = _withLowStockNotificationFallback(
@@ -343,6 +361,7 @@ class _DashboardPageState extends State<DashboardPage> {
         _absentAttendance = absentAttendance;
         _myAttendanceLabel = myAttendanceLabel;
         _tenantSubscriptionInfo = tenantSubscriptionInfo;
+        _entitlement = entitlement;
         _loading = false;
       });
     } catch (e) {
@@ -833,7 +852,135 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  String? _featureForPage(Widget page) {
+    final type = page.runtimeType.toString();
+
+    if (type.contains('FinanceReportPage') ||
+        type.contains('PurchaseVerificationPage') ||
+        type.contains('DataExportImportPage')) {
+      return 'finance_basic';
+    }
+
+    if (type.contains('StockProgressPage')) return 'production_basic';
+    if (type.contains('PurchaseRequestPage')) return 'purchase_requests';
+    if (type.contains('SupplierPage')) return 'production_basic';
+
+    if (type.contains('MarketplaceAccountsPage')) return 'marketplace_accounts';
+    if (type.contains('MarketplaceOrdersPage')) return 'marketplace_order_sync';
+    if (type.contains('MarketplaceSkuMappingPage')) {
+      return 'marketplace_product_sync';
+    }
+    if (type.contains('MarketplaceStockSyncPage') ||
+        type.contains('MarketplaceStockDifferencePage')) {
+      return 'marketplace_stock_sync';
+    }
+    if (type.contains('MarketplaceRefundMonitorPage') ||
+        type.contains('MarketplaceStockOutReviewPage')) {
+      return 'marketplace_return_refund';
+    }
+    if (type.contains('MarketplaceJobMonitorPage')) {
+      return 'marketplace_job_monitor';
+    }
+
+    if (type.contains('ProductListPage') ||
+        type.contains('StockOutPage') ||
+        type.contains('StockInPage') ||
+        type.contains('StockHistoryPage') ||
+        type.contains('LowStockPage')) {
+      return 'stock_basic';
+    }
+
+    if (type.contains('AbsensiPage') ||
+        type.contains('HrPerformancePage') ||
+        type.contains('WorkLocationPage')) {
+      return 'attendance_basic';
+    }
+
+    if (type.contains('HostLivePage')) return 'live_schedule_basic';
+    if (type.contains('ContentMonitoringPage')) return 'content_task_basic';
+    if (type.contains('TaskPage')) return 'task_basic';
+
+    if (type.contains('UserManagementPage')) return 'invite_management';
+    if (type.contains('AuditLogPage')) return 'tenant_management';
+
+    return null;
+  }
+
+  String? _featureForMenu(_DashboardMenu menu) {
+    final title = menu.title.toLowerCase();
+
+    if (title.contains('keuangan') ||
+        title.contains('laporan') ||
+        title.contains('verifikasi pembelian') ||
+        title.contains('abnormal') ||
+        title.contains('arus kas') ||
+        title.contains('export')) {
+      return 'finance_basic';
+    }
+
+    if (title.contains('produksi berjalan') || title == 'produksi') {
+      return 'production_basic';
+    }
+    if (title.contains('pembelian barang') || title == 'pembelian') {
+      return 'purchase_requests';
+    }
+    if (title.contains('supplier')) return 'production_basic';
+
+    if (title.contains('akun marketplace')) return 'marketplace_accounts';
+    if (title.contains('order marketplace')) return 'marketplace_order_sync';
+    if (title.contains('mapping sku')) return 'marketplace_product_sync';
+    if (title.contains('sync stock') || title.contains('selisih')) {
+      return 'marketplace_stock_sync';
+    }
+    if (title.contains('refund') ||
+        title.contains('retur') ||
+        title.contains('review stock out')) {
+      return 'marketplace_return_refund';
+    }
+    if (title.contains('monitor job')) return 'marketplace_job_monitor';
+
+    if (title.contains('stok') ||
+        title.contains('stock') ||
+        title.contains('master sku') ||
+        title.contains('riwayat')) {
+      return 'stock_basic';
+    }
+
+    if (title.contains('absensi') ||
+        title.contains('performance') ||
+        title.contains('people')) {
+      return 'attendance_basic';
+    }
+
+    if (title.contains('live')) return 'live_schedule_basic';
+    if (title.contains('konten')) return 'content_task_basic';
+    if (title.contains('tugas')) return 'task_basic';
+    if (title.contains('user')) return 'invite_management';
+
+    return null;
+  }
+
+  List<_DashboardMenu> _filterMenusByPlan(List<_DashboardMenu> menus) {
+    if (_isPlatformOwner) return menus;
+
+    return menus.where((menu) {
+      final feature = _featureForMenu(menu);
+      if (feature == null) return true;
+      return _planHasFeature(feature);
+    }).toList(growable: false);
+  }
+
   void _open(Widget page) {
+    final feature = _featureForPage(page);
+    if (feature != null && !_planHasFeature(feature)) {
+      final planName = _entitlement?.planName ?? 'paket aktif';
+      AppUi.safeSnack(
+        context,
+        'Fitur ini tidak aktif di $planName.',
+      );
+      return;
+    }
+
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => page))
         .then((_) {
@@ -921,7 +1068,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // ── Top bar ─────────────────────────────────────────────────────────────────
   Widget _sidebarNavigation() {
-    final menus = _roleMenus();
+    final menus = _filterMenusByPlan(_roleMenus());
     return SafeArea(
       right: false,
       child: Container(
@@ -2430,7 +2577,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // ── Menu content ─────────────────────────────────────────────────────────────
   List<Widget> _menuContent() {
-    final menus = _roleMenus();
+    final menus = _filterMenusByPlan(_roleMenus());
     if (menus.isEmpty) return [];
     return [
       _sectionHeader('Menu Utama'),
@@ -3375,7 +3522,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _showMoreMenu() {
-    final menus = _roleMenus();
+    final menus = _filterMenusByPlan(_roleMenus());
     showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
