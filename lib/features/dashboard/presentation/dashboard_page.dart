@@ -486,23 +486,157 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
+  static const int _dashboardOrderAnalyticsDays = 90;
+
+  Map<String, dynamic> _dashboardOrderAnalyticsFromRpc(
+    DateTime now,
+    Map<String, dynamic> data,
+  ) {
+    if (data.isEmpty || data['ok'] == false) return <String, dynamic>{};
+
+    final summary = _asMap(data['summary']);
+    final rawDaily = data['daily'] is List ? data['daily'] as List : const [];
+    final points = <_TrendPoint>[];
+
+    for (final item in rawDaily) {
+      final row = _asMap(item);
+      final dateText = AppUi.text(
+        row['date'] ?? row['report_date'] ?? row['order_date'],
+        '',
+      );
+      if (dateText.isEmpty) continue;
+
+      final date = DateTime.tryParse(
+        dateText.length >= 10 ? dateText.substring(0, 10) : dateText,
+      );
+      if (date == null) continue;
+
+      points.add(
+        _TrendPoint(
+          date: date,
+          omzet: AppUi.toNum(
+            row['omzet_total'] ??
+                row['gross_sales'] ??
+                row['gross_total'] ??
+                row['amount'],
+          ),
+          orders: AppUi.toNum(
+            row['orders_count'] ?? row['order_count'] ?? row['orders'],
+          ).toInt(),
+        ),
+      );
+    }
+
+    points.sort((a, b) => a.date.compareTo(b.date));
+
+    final omzet = AppUi.toNum(
+      summary['omzet_total'] ??
+          summary['gross_sales'] ??
+          summary['gross_total'] ??
+          data['omzet_total'],
+    );
+    final orders = AppUi.toNum(
+      summary['orders_count'] ?? summary['order_count'] ?? data['orders_count'],
+    ).toInt();
+
+    if (omzet <= 0 && orders <= 0 && points.every((p) => p.orders <= 0)) {
+      return <String, dynamic>{};
+    }
+
+    return <String, dynamic>{
+      'abnormal_count': 0,
+      'anomaly_count': 0,
+      'net_profit': 0,
+      'omzet_total': omzet,
+      'orders_count': orders,
+      'trend': points,
+      'source_rpc': 'dashboard_marketplace_order_analytics_90d',
+    };
+  }
+
+  Future<Map<String, dynamic>> _safeDashboardOrderAnalytics90d(
+    DateTime now, {
+    String? marketplaceFilter,
+  }) async {
+    try {
+      final response = await _client.rpc(
+        'dashboard_marketplace_order_analytics_90d',
+        params: {
+          'p_marketplace': marketplaceFilter,
+          'p_days': _dashboardOrderAnalyticsDays,
+        },
+      );
+      final parsed = _dashboardOrderAnalyticsFromRpc(now, _asMap(response));
+      if (_dashboardFinanceSummaryUsable(parsed)) return parsed;
+    } catch (error) {
+      debugPrint('Dashboard marketplace order analytics RPC failed: $error');
+    }
+
+    return <String, dynamic>{};
+  }
+
+  Map<String, dynamic> _mergeDashboardOrderAnalytics(
+    Map<String, dynamic> base,
+    Map<String, dynamic> orderAnalytics,
+  ) {
+    if (!_dashboardFinanceSummaryUsable(orderAnalytics)) {
+      return base;
+    }
+
+    final out = Map<String, dynamic>.from(base);
+    out['abnormal_count'] = out['abnormal_count'] ?? 0;
+    out['anomaly_count'] = out['anomaly_count'] ?? out['abnormal_count'] ?? 0;
+    out['net_profit'] = out['net_profit'] ?? 0;
+    out['omzet_total'] = orderAnalytics['omzet_total'];
+    out['orders_count'] = orderAnalytics['orders_count'];
+    out['trend'] = orderAnalytics['trend'];
+    out['source_rpc'] =
+        '${AppUi.text(out['source_rpc'], 'finance_snapshot')}+marketplace_orders_90d';
+    return out;
+  }
+
   Future<Map<String, dynamic>> _safeFinanceSummary(DateTime now) async {
     final startDate = _ymd(DateTime(now.year, now.month, 1));
     final endDate = _ymd(now);
     final marketplaceFilter = _dashboardFinanceMarketplaceParam();
 
+    final orderAnalytics = await _safeDashboardOrderAnalytics90d(
+      now,
+      marketplaceFilter: marketplaceFilter,
+    );
+
     final live = await _safeFinanceSummaryFromSnapshot(
-        now, startDate, endDate, marketplaceFilter);
-    if (live['_tenant_empty_finance'] == true) return live;
-    if (_dashboardFinanceSummaryUsable(live)) return live;
+      now,
+      startDate,
+      endDate,
+      marketplaceFilter,
+    );
+    if (live['_tenant_empty_finance'] == true) {
+      return _mergeDashboardOrderAnalytics(live, orderAnalytics);
+    }
+    if (_dashboardFinanceSummaryUsable(live)) {
+      return _mergeDashboardOrderAnalytics(live, orderAnalytics);
+    }
 
     final cached = await _safeFinanceSummaryFromLocalCache(
-        now, startDate, endDate, marketplaceFilter);
-    if (_dashboardFinanceSummaryUsable(cached)) return cached;
+      now,
+      startDate,
+      endDate,
+      marketplaceFilter,
+    );
+    if (_dashboardFinanceSummaryUsable(cached)) {
+      return _mergeDashboardOrderAnalytics(cached, orderAnalytics);
+    }
 
     final rawSummary =
         await _safeRawFinanceSummary(now, marketplaceFilter: marketplaceFilter);
-    if (_dashboardFinanceSummaryUsable(rawSummary)) return rawSummary;
+    if (_dashboardFinanceSummaryUsable(rawSummary)) {
+      return _mergeDashboardOrderAnalytics(rawSummary, orderAnalytics);
+    }
+
+    if (_dashboardFinanceSummaryUsable(orderAnalytics)) {
+      return orderAnalytics;
+    }
 
     return <String, dynamic>{
       'abnormal_count': 0,
@@ -2205,12 +2339,22 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  int _defaultFinanceTrendIndex(List<_TrendPoint> points) {
+    if (points.isEmpty) return 0;
+    for (var i = points.length - 1; i >= 0; i--) {
+      final point = points[i];
+      if (point.orders > 0 || point.omzet.abs() > 0) return i;
+    }
+    return points.length - 1;
+  }
+
   // ── Summary 2×2 grid ────────────────────────────────────────────────────────
   Widget _adminAnalyticsCard() {
     final points = _financeTrendForChart();
+    final defaultSelectedIndex = _defaultFinanceTrendIndex(points);
     final selected = points.isEmpty
         ? null
-        : points[(_selectedTrendIndex ?? points.length - 1)
+        : points[(_selectedTrendIndex ?? defaultSelectedIndex)
             .clamp(0, points.length - 1)
             .toInt()];
     final totalOrders = points.fold<int>(0, (sum, point) => sum + point.orders);

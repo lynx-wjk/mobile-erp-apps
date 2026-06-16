@@ -90,6 +90,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _approvedPurchases = [];
   List<Map<String, dynamic>> _byMarketplace = [];
   List<Map<String, dynamic>> _bySku = [];
+  int _skuPage = 1;
+  static const int _skuPageSize = 50;
   List<Map<String, dynamic>> _cashFlow = [];
   List<Map<String, dynamic>> _cashOpeningBalances = [];
   List<Map<String, dynamic>> _cashAdjustments = [];
@@ -1478,6 +1480,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _approvedPurchases = approvedPurchases;
       _byMarketplace = normalizedMarketplace;
       _bySku = normalizedSku;
+      _skuPage = 1;
       _cashFlow = normalizedCashFlow;
       _cashOpeningBalances =
           cashWalletData['opening'] ?? <Map<String, dynamic>>[];
@@ -7531,6 +7534,76 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
+  int get _skuTotalPages {
+    if (_bySku.isEmpty) return 1;
+    return ((_bySku.length - 1) ~/ _skuPageSize) + 1;
+  }
+
+  int get _skuSafePage {
+    final totalPages = _skuTotalPages;
+    if (_skuPage < 1) return 1;
+    if (_skuPage > totalPages) return totalPages;
+    return _skuPage;
+  }
+
+  List<Map<String, dynamic>> get _skuVisibleRows {
+    if (_bySku.isEmpty) return const <Map<String, dynamic>>[];
+    final page = _skuSafePage;
+    final start = (page - 1) * _skuPageSize;
+    final end = (start + _skuPageSize) > _bySku.length
+        ? _bySku.length
+        : start + _skuPageSize;
+    return _bySku.sublist(start, end);
+  }
+
+  Widget _skuPaginationControls() {
+    if (_bySku.isEmpty) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final page = _skuSafePage;
+    final totalPages = _skuTotalPages;
+    final start = ((page - 1) * _skuPageSize) + 1;
+    final end = (page * _skuPageSize) > _bySku.length
+        ? _bySku.length
+        : page * _skuPageSize;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        border: Border.all(color: theme.dividerColor, width: 1.4),
+        borderRadius: BorderRadius.zero,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'SKU $start–$end dari ${_bySku.length} · Page $page/$totalPages',
+              style: TextStyle(
+                color: theme.colorScheme.onSurface,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Page sebelumnya',
+            onPressed:
+                page > 1 ? () => setState(() => _skuPage = page - 1) : null,
+            icon: const Icon(Icons.chevron_left_rounded),
+          ),
+          IconButton(
+            tooltip: 'Page berikutnya',
+            onPressed: page < totalPages
+                ? () => setState(() => _skuPage = page + 1)
+                : null,
+            icon: const Icon(Icons.chevron_right_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _skuTab() {
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
@@ -7542,11 +7615,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           _sectionHeader('Kinerja SKU'),
           SizedBox(height: 8),
+          if (_bySku.isNotEmpty) ...[
+            _skuPaginationControls(),
+            const SizedBox(height: 10),
+          ],
           if (_bySku.isEmpty)
             _emptyCard(
                 'Belum ada data SKU finance.\nAuto finance sedang mengejar data periode ini di background. Pastikan mapping SKU lokal sudah benar agar HPP ikut terbaca.')
           else
-            ..._bySku.map((row) {
+            ..._skuVisibleRows.map((row) {
               final sku = _text(row['local_sku'] ?? row['sku']);
               final marketplaceSku = _text(
                   row['marketplace_sku'] ??
