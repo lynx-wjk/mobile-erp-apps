@@ -38,6 +38,9 @@ Deno.serve(async (req) => {
     const daysBack = clampInt(body.days_back ?? body.finance_backlog_days ?? body.unpaid_backlog_days, 1, 90, 3);
     const maxOrders = clampInt(body.max_orders ?? body.limit, 1, 200, 40);
     const maxAccounts = clampInt(body.max_accounts, 1, 20, 5);
+    const startDate = dateText(body.start_date ?? body.period_start ?? body.from_date);
+    const endDate = dateText(body.end_date ?? body.period_end ?? body.to_date);
+    const financeDispatcherDateBoundPatch = "finance_dispatcher_date_bound_patch";
 
     let accountQuery = admin
       .from("marketplace_accounts")
@@ -83,7 +86,7 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const result = await pullShopeeFinanceForAccount(admin, account, { daysBack, maxOrders });
+        const result = await pullShopeeFinanceForAccount(admin, account, { daysBack, maxOrders, startDate, endDate });
         details.push(result);
         totalChecked += result.checked;
         totalSynced += result.synced;
@@ -117,12 +120,14 @@ Deno.serve(async (req) => {
   }
 });
 
-async function pullShopeeFinanceForAccount(admin: any, account: any, args: { daysBack: number; maxOrders: number }) {
+async function pullShopeeFinanceForAccount(admin: any, account: any, args: { daysBack: number; maxOrders: number; startDate?: string; endDate?: string }) {
   const tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, account);
   const activeAccount = tokenBundle.account;
   const accessToken = tokenBundle.accessToken;
 
-  const cutoff = new Date(Date.now() - args.daysBack * 24 * 60 * 60 * 1000).toISOString();
+  const fallbackStartIso = new Date(Date.now() - args.daysBack * 24 * 60 * 60 * 1000).toISOString();
+  const startIso = args.startDate ? `${args.startDate}T00:00:00.000Z` : fallbackStartIso;
+  const endIso = args.endDate ? `${addDaysIsoDate(args.endDate, 1)}T00:00:00.000Z` : new Date().toISOString();
 
   const { data: orders, error: orderError } = await admin
     .from("marketplace_orders")
@@ -130,7 +135,8 @@ async function pullShopeeFinanceForAccount(admin: any, account: any, args: { day
     .eq("marketplace", "shopee")
     .eq("marketplace_account_id", activeAccount.marketplace_account_id)
     .not("order_sn", "is", null)
-    .gte("order_created_at", cutoff)
+    .gte("order_created_at", startIso)
+    .lt("order_created_at", endIso)
     .not("order_status", "in", "(CANCELLED,CANCELED,UNPAID)")
     .order("order_created_at", { ascending: false, nullsFirst: false })
     .limit(args.maxOrders);
@@ -264,7 +270,7 @@ async function pullShopeeFinanceForAccount(admin: any, account: any, args: { day
     action: "finance_pull_shopee_escrow",
     status: failed === 0 ? "success" : "partial_failed",
     message: `Shopee finance: checked ${checked}, synced ${synced}, failed ${failed}.`,
-    request_payload: { days_back: args.daysBack, max_orders: args.maxOrders },
+    request_payload: { days_back: args.daysBack, max_orders: args.maxOrders, start_date: args.startDate || null, end_date: args.endDate || null },
     response_payload: { warnings: warnings.slice(0, 10) },
   });
 
@@ -721,4 +727,21 @@ function json(body: unknown, status = 200) {
       "content-type": "application/json; charset=utf-8",
     },
   });
+}
+
+
+function dateText(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!match) return "";
+  const parsed = new Date(`${match[1]}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) ? match[1] : "";
+}
+
+function addDaysIsoDate(value: string, days: number) {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed.getTime())) return value;
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed.toISOString().slice(0, 10);
 }
