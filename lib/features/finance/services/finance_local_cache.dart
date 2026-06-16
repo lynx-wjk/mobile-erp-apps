@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class FinanceLocalCache {
-  static const String _prefix = 'finance_cache_live_20260528';
+  static const String _prefix = 'finance_cache_live_20260616_tenant_guard';
   static const int defaultTtlDays = 90;
 
   static String _dateOnly(DateTime value) {

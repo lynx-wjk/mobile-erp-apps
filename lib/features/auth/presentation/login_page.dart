@@ -7,6 +7,7 @@ import '../../../core/constants/app_roles.dart';
 import '../../../repositories/user_repository.dart';
 import '../../admin/presentation/platform_owner_dashboard.dart';
 import '../../dashboard/presentation/dashboard_page.dart';
+import '../../finance/services/finance_local_cache.dart';
 import 'register_page.dart';
 import 'request_access_page.dart';
 
@@ -90,6 +91,8 @@ class _LoginPageState extends State<LoginPage>
         await _client.auth.signOut();
         return;
       }
+
+      await FinanceLocalCache.clearAllFinanceCaches();
 
       final target = appUser.role == AppRole.platformOwner
           ? const PlatformOwnerDashboard()

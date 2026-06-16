@@ -74,6 +74,7 @@ class _DashboardPageState extends State<DashboardPage> {
   int _financeOrderCount = 0;
   List<_TrendPoint> _financeTrend = const <_TrendPoint>[];
   int? _selectedTrendIndex;
+  String _dashboardFinanceMarketplaceFilter = 'all';
   List<_AppNotification> _notifications = const <_AppNotification>[];
   int _contentTotal = 0;
   int _contentDueSoon = 0;
@@ -381,16 +382,26 @@ class _DashboardPageState extends State<DashboardPage> {
     return <String, dynamic>{};
   }
 
-  Future<Map<String, dynamic>> _safeRawFinanceSummary(DateTime now) async {
+  Future<Map<String, dynamic>> _safeRawFinanceSummary(DateTime now,
+      {String? marketplaceFilter}) async {
     final startDate = _ymd(DateTime(now.year, now.month, 1));
     final endDate = _ymd(now);
+    final marketplaceFilter = _dashboardFinanceMarketplaceParam();
     try {
       dynamic query = _client
           .from('marketplace_finance_reports')
           .select(
-              'finance_report_id, order_id, marketplace_order_id, period_start, gross_amount, gross_sales, payout_amount, received_amount, net_settlement, total_hpp')
+              'finance_report_id, order_id, marketplace_order_id, marketplace, period_start, gross_amount, gross_sales, payout_amount, received_amount, net_settlement, total_hpp')
           .gte('period_start', startDate)
           .lte('period_start', endDate);
+
+      final cleanMarketplace = marketplaceFilter?.trim().toLowerCase();
+      if (cleanMarketplace == 'shopee') {
+        query = query.eq('marketplace', 'shopee');
+      } else if (cleanMarketplace == 'tiktok') {
+        query = query.inFilter('marketplace', ['tiktok', 'tiktok_shop']);
+      }
+
       final response = await query.limit(10000);
       final rows = response is List
           ? response
@@ -477,15 +488,19 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<Map<String, dynamic>> _safeFinanceSummary(DateTime now) async {
     final startDate = _ymd(DateTime(now.year, now.month, 1));
     final endDate = _ymd(now);
+    final marketplaceFilter = _dashboardFinanceMarketplaceParam();
 
-    final live = await _safeFinanceSummaryFromSnapshot(now, startDate, endDate);
+    final live = await _safeFinanceSummaryFromSnapshot(
+        now, startDate, endDate, marketplaceFilter);
+    if (live['_tenant_empty_finance'] == true) return live;
     if (_dashboardFinanceSummaryUsable(live)) return live;
 
-    final cached =
-        await _safeFinanceSummaryFromLocalCache(now, startDate, endDate);
+    final cached = await _safeFinanceSummaryFromLocalCache(
+        now, startDate, endDate, marketplaceFilter);
     if (_dashboardFinanceSummaryUsable(cached)) return cached;
 
-    final rawSummary = await _safeRawFinanceSummary(now);
+    final rawSummary =
+        await _safeRawFinanceSummary(now, marketplaceFilter: marketplaceFilter);
     if (_dashboardFinanceSummaryUsable(rawSummary)) return rawSummary;
 
     return <String, dynamic>{
@@ -509,6 +524,7 @@ class _DashboardPageState extends State<DashboardPage> {
     DateTime now,
     String startDate,
     String endDate,
+    String? marketplaceFilter,
   ) async {
     final rpcCandidates = <String>[
       'finance_customer_dashboard_snapshot',
@@ -518,7 +534,7 @@ class _DashboardPageState extends State<DashboardPage> {
     Object? lastError;
     for (final rpcName in rpcCandidates) {
       for (final rpcParams in _dashboardFinanceSnapshotParamVariants(
-          rpcName, startDate, endDate)) {
+          rpcName, startDate, endDate, marketplaceFilter)) {
         try {
           final response = await _client.rpc(rpcName, params: rpcParams);
           final parsed =
@@ -528,7 +544,7 @@ class _DashboardPageState extends State<DashboardPage> {
               final keyBase = FinanceLocalCache.snapshotKey(
                 start: DateTime(now.year, now.month, 1),
                 end: DateTime(now.year, now.month, now.day),
-                marketplace: 'all',
+                marketplace: marketplaceFilter ?? 'all',
                 accountId: 'all',
               );
               final cacheKey =
@@ -555,19 +571,20 @@ class _DashboardPageState extends State<DashboardPage> {
     String rpcName,
     String startDate,
     String endDate,
+    String? marketplaceFilter,
   ) {
     if (rpcName.endsWith('82o')) {
       return [
         {
           'p_start': startDate,
           'p_end': endDate,
-          'p_marketplace': null,
+          'p_marketplace': marketplaceFilter,
           'p_account_id': null,
         },
         {
           'p_start_date': startDate,
           'p_end_date': endDate,
-          'p_marketplace_filter': null,
+          'p_marketplace_filter': marketplaceFilter,
           'p_account_id_filter': null,
         },
       ];
@@ -576,7 +593,7 @@ class _DashboardPageState extends State<DashboardPage> {
       {
         'p_start': startDate,
         'p_end': endDate,
-        'p_marketplace': null,
+        'p_marketplace': marketplaceFilter,
         'p_account_id': null,
       }
     ];
@@ -596,6 +613,7 @@ class _DashboardPageState extends State<DashboardPage> {
     DateTime now,
     String startDate,
     String endDate,
+    String? marketplaceFilter,
   ) async {
     final versions = <String>[
       'finance_live_20260606_local_cache_fast_v20',
@@ -608,7 +626,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final keyBase = FinanceLocalCache.snapshotKey(
       start: DateTime(now.year, now.month, 1),
       end: DateTime(now.year, now.month, now.day),
-      marketplace: 'all',
+      marketplace: marketplaceFilter ?? 'all',
       accountId: 'all',
     );
 
@@ -633,6 +651,24 @@ class _DashboardPageState extends State<DashboardPage> {
 
     final summary = _asMap(data['summary']);
     if (summary.isEmpty) return <String, dynamic>{};
+
+    final snapshotSource = AppUi.text(data['source'], '').toLowerCase();
+    final snapshotReason = AppUi.text(data['reason'], '').toLowerCase();
+    final snapshotVersion = AppUi.text(data['version'], '').toLowerCase();
+    if (snapshotSource == 'tenant_runtime_guard' ||
+        snapshotReason == 'tenant_has_no_finance_data' ||
+        snapshotVersion.contains('tenant_empty_finance_snapshot')) {
+      return <String, dynamic>{
+        '_tenant_empty_finance': true,
+        'abnormal_count': 0,
+        'anomaly_count': 0,
+        'net_profit': 0,
+        'omzet_total': 0,
+        'orders_count': 0,
+        'trend': _monthToDateTrend(now, const <_TrendPoint>[]),
+        'source_rpc': source,
+      };
+    }
     final abnormals = data['abnormals'] ?? data['anomalies'];
     final rawTrend = _trendFromFinanceSnapshot(data);
     final abnormalCount = summary['abnormal_count'] ??
@@ -2067,6 +2103,97 @@ class _DashboardPageState extends State<DashboardPage> {
     ];
   }
 
+  String? _dashboardFinanceMarketplaceParam() {
+    final clean = _dashboardFinanceMarketplaceFilter.trim().toLowerCase();
+    if (clean == 'shopee') return 'shopee';
+    if (clean == 'tiktok') return 'tiktok';
+    return null;
+  }
+
+  String _dashboardFinanceMarketplaceLabel() {
+    switch (_dashboardFinanceMarketplaceFilter.trim().toLowerCase()) {
+      case 'shopee':
+        return 'Shopee';
+      case 'tiktok':
+        return 'TikTok';
+      default:
+        return 'Semua';
+    }
+  }
+
+  void _setDashboardFinanceMarketplaceFilter(String value) {
+    final clean = value.trim().toLowerCase();
+    final next = clean == 'shopee' || clean == 'tiktok' ? clean : 'all';
+    if (_dashboardFinanceMarketplaceFilter == next) return;
+
+    setState(() {
+      _dashboardFinanceMarketplaceFilter = next;
+      _selectedTrendIndex = null;
+    });
+
+    unawaited(_loadDashboard());
+  }
+
+  Widget _dashboardFinanceMarketplaceFilterCards() {
+    final items = <({String value, String label})>[
+      (value: 'all', label: 'Semua'),
+      (value: 'shopee', label: 'Shopee'),
+      (value: 'tiktok', label: 'TikTok'),
+    ];
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: items.map((item) {
+        final selected = _dashboardFinanceMarketplaceFilter == item.value ||
+            (item.value == 'all' &&
+                _dashboardFinanceMarketplaceFilter.trim().isEmpty);
+        final accent = selected
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).colorScheme.outline.withOpacity(0.55);
+
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _setDashboardFinanceMarketplaceFilter(item.value),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+              decoration: BoxDecoration(
+                color: selected
+                    ? Theme.of(context).colorScheme.primary.withOpacity(0.18)
+                    : Colors.white.withOpacity(0.045),
+                borderRadius: BorderRadius.zero,
+                border: Border.all(
+                  color: accent,
+                  width: selected ? 2 : 1.2,
+                ),
+                boxShadow: selected
+                    ? const [
+                        BoxShadow(
+                          color: Colors.black,
+                          offset: Offset(2, 2),
+                        )
+                      ]
+                    : null,
+              ),
+              child: Text(
+                item.label,
+                style: TextStyle(
+                  color: selected
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.onSurface,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(growable: false),
+    );
+  }
+
   // ── Summary 2×2 grid ────────────────────────────────────────────────────────
   Widget _adminAnalyticsCard() {
     final points = _financeTrendForChart();
@@ -2119,6 +2246,13 @@ class _DashboardPageState extends State<DashboardPage> {
               const SizedBox(width: 8),
               _miniBadge('$totalOrders order'),
             ],
+          ),
+          const SizedBox(height: 10),
+          _dashboardFinanceMarketplaceFilterCards(),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _miniBadge('Filter ${_dashboardFinanceMarketplaceLabel()}'),
           ),
           const SizedBox(height: 10),
           if (selected != null)
