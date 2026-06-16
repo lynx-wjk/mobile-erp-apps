@@ -56,6 +56,7 @@ Deno.serve(async (req)=>{
       const delegated = await delegateOrderCronToAutoRunner({
         supabaseUrl,
         serviceRoleKey,
+        edgeAuthKey,
         cronSecret,
         params
       });
@@ -195,8 +196,18 @@ async function delegateOrderCronToAutoRunner(args) {
         run_stock: false,
         run_order: true,
         run_finance: false,
+        run_order_enqueue: args.params.run_order_enqueue,
+        run_pending_drain: args.params.run_pending_drain,
+        run_order_status_refresh: args.params.run_order_status_refresh,
         force: args.params.force === true,
         max_accounts: args.params.max_accounts,
+        max_order_accounts: args.params.max_order_accounts,
+        max_order_jobs: args.params.max_order_jobs,
+        max_pages_per_account: args.params.max_pages_per_account ?? args.params.max_pages,
+        max_orders_per_account: args.params.max_orders_per_account ?? args.params.page_size ?? args.params.limit,
+        max_details_per_account: args.params.max_details_per_account ?? args.params.max_details,
+        max_status_refresh_per_account: args.params.max_status_refresh_per_account ?? args.params.max_existing_orders,
+        child_timeout_ms: args.params.child_timeout_ms,
         account_id: args.params.account_id || args.params.marketplace_account_id,
         source: "marketplace-order-sync-jobs-delegated-cron"
       })

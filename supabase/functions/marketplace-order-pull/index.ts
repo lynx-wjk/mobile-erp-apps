@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-order-pull";
+const FUNCTION_VERSION = "marketplace-order-pull-safe-fetch-v1";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -125,8 +125,11 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = requiredEnv("SUPABASE_URL");
     const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const requestStartedAt = Date.now();
+
     const admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: boundedFetch },
     });
 
 
@@ -232,7 +235,7 @@ Deno.serve(async (req) => {
       const result = account.marketplace === "shopee"
         ? await refreshExistingShopeeOrderStatuses(admin, account, { statusRangeDays, maxExistingOrders, skipCompletedStatusRefresh })
         : await refreshExistingTikTokOrderStatuses(admin, account, { statusRangeDays, maxExistingOrders, skipCompletedStatusRefresh });
-      return json(result);
+      return json({ version: FUNCTION_VERSION, ...result, elapsed_ms: Date.now() - requestStartedAt });
     }
 
     const pullArgs = {
@@ -254,7 +257,7 @@ Deno.serve(async (req) => {
       ? await pullShopeeOrders(admin, account, pullArgs)
       : await pullTikTokOrders(admin, account, pullArgs);
 
-    return json(result);
+    return json({ version: FUNCTION_VERSION, ...result, elapsed_ms: Date.now() - requestStartedAt });
   } catch (err) {
     const message = String(err);
     const status = message.includes("TikTok API") || message.includes("tenant") || message.includes("marketplace") ? 400 : 500;
@@ -1177,7 +1180,7 @@ async function shopeeRequest(args: {
     url.searchParams.set(key, String(value));
   }
 
-  const res = await fetch(url.toString(), {
+  const { res, payload } = await fetchJsonWithTimeout("Shopee API", url.toString(), {
     method: args.method,
     headers: {
       accept: "application/json",
@@ -1185,8 +1188,6 @@ async function shopeeRequest(args: {
     },
     body: args.method === "POST" ? JSON.stringify(args.body || {}) : undefined,
   });
-
-  const payload = await res.json().catch(() => null);
   if (!res.ok || !payload) throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(payload)}`);
   if (payload.error) throw new Error(`Shopee API error: ${JSON.stringify(maskTokenObject(payload))}`);
   return payload;
@@ -2498,7 +2499,7 @@ async function tiktokRequest(args: {
   const url = new URL(`https://open-api.tiktokglobalshop.com${args.path}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
 
-  const res = await fetch(url.toString(), {
+  const { res, payload: jsonRes } = await fetchJsonWithTimeout("TikTok API", url.toString(), {
     method: args.method,
     headers: {
       accept: "application/json",
@@ -2507,8 +2508,6 @@ async function tiktokRequest(args: {
     },
     body: args.method === "POST" ? bodyString : undefined,
   });
-
-  const jsonRes = await res.json().catch(() => null);
   if (!res.ok || !jsonRes) throw new Error(`TikTok API HTTP ${res.status}: ${JSON.stringify(jsonRes)}`);
 
   const code = jsonRes.code;
@@ -2541,8 +2540,10 @@ async function refreshTikTokAccessTokenIfNeeded(admin: any, account: any, force 
   refreshUrl.searchParams.set("refresh_token", refreshToken);
   refreshUrl.searchParams.set("grant_type", "refresh_token");
 
-  const res = await fetch(refreshUrl.toString(), { method: "GET", headers: { accept: "application/json" } });
-  const payload = await res.json().catch(() => null);
+  const { res, payload } = await fetchJsonWithTimeout("TikTok token refresh", refreshUrl.toString(), {
+    method: "GET",
+    headers: { accept: "application/json" },
+  });
   if (!res.ok || !payload || (payload.code !== undefined && String(payload.code) !== "0" && String(payload.code).toLowerCase() !== "success")) {
     await markMarketplaceAuthExpired(admin, account, `Refresh token TikTok gagal: ${JSON.stringify(maskTokenObject(payload))}`);
     throw new Error(`Refresh token TikTok gagal. Reconnect TikTok Shop diperlukan. Detail: ${JSON.stringify(maskTokenObject(payload))}`);
@@ -2753,8 +2754,44 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "content-type": "application/json; charset=utf-8" },
+    headers: {
+      ...corsHeaders,
+      "content-type": "application/json; charset=utf-8",
+      "connection": "close",
+    },
   });
+}
+
+function marketplaceFetchTimeoutMs(): number {
+  return clampInt(Deno.env.get("MARKETPLACE_ORDER_PULL_FETCH_TIMEOUT_MS"), 1000, 8000, 4500);
+}
+
+function boundedFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...(init || {}), keepalive: false });
+}
+
+async function fetchJsonWithTimeout(label: string, url: string, init: RequestInit): Promise<{ res: Response; payload: any }> {
+  const timeoutMs = marketplaceFetchTimeoutMs();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      keepalive: false,
+    });
+    const payload = await res.json().catch(() => null);
+    return { res, payload };
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    if (err.name === "AbortError") {
+      throw new Error(`${label} timeout ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function mask(value: string): string {

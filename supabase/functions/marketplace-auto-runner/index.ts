@@ -46,11 +46,11 @@ Deno.serve(async (req)=>{
     // v7: order cron 2 menit harus bounded. Default sengaja kecil supaya parent request tidak 546/timeout.
     const maxOrderJobs = clampInt(body.max_order_jobs ?? Deno.env.get("ORDER_PULL_MAX_JOBS"), 1, 12, 1);
     const maxPagesPerAccount = clampInt(body.max_pages_per_account ?? Deno.env.get("ORDER_PULL_MAX_PAGES_PER_ACCOUNT"), 1, 3, 1);
-    const maxOrdersPerAccount = clampInt(body.max_orders_per_account ?? Deno.env.get("ORDER_PULL_MAX_ORDERS_PER_ACCOUNT"), 10, 100, 50);
+    const maxOrdersPerAccount = clampInt(body.max_orders_per_account ?? Deno.env.get("ORDER_PULL_MAX_ORDERS_PER_ACCOUNT"), 1, 100, 10);
     const maxDetailsPerAccount = clampInt(body.max_details_per_account ?? Deno.env.get("ORDER_PULL_MAX_DETAILS_PER_ACCOUNT"), 0, 120, 30);
-    const childTimeoutMs = clampInt(body.child_timeout_ms ?? Deno.env.get("MARKETPLACE_RUNNER_CHILD_TIMEOUT_MS"), 15000, 90000, 35000);
+    const childTimeoutMs = clampInt(body.child_timeout_ms ?? Deno.env.get("MARKETPLACE_RUNNER_CHILD_TIMEOUT_MS"), 3000, 45000, 12000);
     const statusRefreshRangeDays = clampInt(body.order_status_range_days ?? body.status_range_days ?? Deno.env.get("ORDER_STATUS_REFRESH_RANGE_DAYS"), 1, 90, 90);
-    const maxStatusRefreshPerAccount = clampInt(body.max_status_refresh_per_account ?? body.max_existing_orders ?? Deno.env.get("ORDER_STATUS_REFRESH_MAX_EXISTING"), 10, 200, 200);
+    const maxStatusRefreshPerAccount = clampInt(body.max_status_refresh_per_account ?? body.max_existing_orders ?? Deno.env.get("ORDER_STATUS_REFRESH_MAX_EXISTING"), 0, 200, 10);
     const runPendingDrain = body.run_pending_drain !== false;
     const runStatusRefresh = body.run_order_status_refresh !== false;
     const runReturnRefund = body.run_return_refund_pull === true;
