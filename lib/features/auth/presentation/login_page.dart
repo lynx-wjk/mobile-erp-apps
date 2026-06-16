@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/constants/app_roles.dart';
+import '../../../repositories/user_repository.dart';
+import '../../admin/presentation/platform_owner_dashboard.dart';
+import '../../dashboard/presentation/dashboard_page.dart';
 import 'register_page.dart';
 import 'request_access_page.dart';
 
@@ -63,7 +67,38 @@ class _LoginPageState extends State<LoginPage>
     }
     setState(() => _isLoading = true);
     try {
-      await _client.auth.signInWithPassword(email: email, password: password);
+      final authResponse = await _client.auth
+          .signInWithPassword(email: email, password: password);
+
+      if (authResponse.session == null || authResponse.user == null) {
+        AppUi.showSnack('Login berhasil tapi sesi belum aktif. Coba lagi.');
+        return;
+      }
+
+      final appUser = await UserRepository().getCurrentUserProfile();
+      if (!mounted) return;
+
+      if (appUser == null) {
+        AppUi.showSnack(
+          'Login berhasil, tapi profil aplikasi belum tersedia.',
+        );
+        return;
+      }
+
+      if (!appUser.isActive) {
+        AppUi.showSnack('Akun tidak aktif. Hubungi admin.');
+        await _client.auth.signOut();
+        return;
+      }
+
+      final target = appUser.role == AppRole.platformOwner
+          ? const PlatformOwnerDashboard()
+          : DashboardPage(currentUser: appUser);
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => target),
+        (_) => false,
+      );
     } catch (error) {
       AppUi.showSnack(_friendlyAuthError(error));
     } finally {
