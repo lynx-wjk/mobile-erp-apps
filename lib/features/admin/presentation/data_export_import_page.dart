@@ -24,6 +24,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
   bool _busy = false;
   String _log = 'Siap. Export data XLSX atau import update SKU/stock.';
   String _roleId = '';
+  String? _tenantId;
 
   static const List<String> _tablesToExport = [
     'roles',
@@ -48,7 +49,6 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     'content_proofs',
     'content_task',
     'work_locations',
-    'locations_geofence',
     'module_records',
     'photo_evidences',
     'audit_logs',
@@ -68,7 +68,6 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     'marketplace_accounts',
     'marketplace_finance_reports',
     'marketplace_finance_items',
-    'marketplace_finance_abnormals',
     'marketplace_finance_reconciliations',
     'marketplace_orders',
     'marketplace_order_items',
@@ -79,6 +78,72 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     'marketplace_closing_books',
     'marketplace_closing_book_files',
   ];
+
+  static const Set<String> _globalStaticExportTables = {
+    'roles',
+  };
+
+  static const Set<String> _tenantScopedExportTables = {
+    'users',
+    'products',
+    'stock_transactions',
+    'suppliers',
+    'purchases',
+    'purchase_items',
+    'purchase_receipts',
+    'finance_verifications',
+    'production_progress',
+    'attendance',
+    'attendance_logs',
+    'tasks',
+    'task_comments',
+    'live_schedules',
+    'live_proofs',
+    'live_verifications',
+    'host_live_sessions',
+    'content_tasks',
+    'content_proofs',
+    'content_task',
+    'work_locations',
+    'module_records',
+    'photo_evidences',
+    'audit_logs',
+    'finance_operational_expenses',
+    'finance_sku_margin_settings',
+    'marketplace_accounts',
+    'marketplace_finance_reports',
+    'marketplace_finance_items',
+    'marketplace_finance_reconciliations',
+    'marketplace_orders',
+    'marketplace_order_items',
+    'marketplace_sku_maps',
+    'marketplace_return_refund_cases',
+    'marketplace_return_reviews',
+    'marketplace_return_item_reviews',
+    'marketplace_closing_books',
+    'marketplace_closing_book_files',
+  };
+
+  static const Set<String> _redactedExportColumns = {
+    'access_token',
+    'refresh_token',
+    'access_token_encrypted',
+    'refresh_token_encrypted',
+    'token_encrypted',
+    'app_secret',
+    'client_secret',
+    'partner_key',
+    'secret_key',
+    'service_role_key',
+    'anon_key',
+    'api_key',
+    'authorization',
+    'password',
+    'encrypted_password',
+    'raw_shop_response',
+    'request_headers',
+    'response_headers',
+  };
 
   @override
   void initState() {
@@ -102,14 +167,22 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
 
       final user = await _client
           .from('users')
-          .select('role_id')
+          .select('role_id, tenant_id')
           .eq('user_id', authUser.id)
           .maybeSingle();
 
       if (!mounted) return;
-      setState(() => _roleId = user?['role_id']?.toString() ?? '');
+      setState(() {
+        _roleId = user?['role_id']?.toString() ?? '';
+        _tenantId = user?['tenant_id']?.toString();
+      });
     } catch (_) {
-      if (mounted) setState(() => _roleId = '');
+      if (mounted) {
+        setState(() {
+          _roleId = '';
+          _tenantId = null;
+        });
+      }
     }
   }
 
@@ -214,6 +287,48 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     }
   }
 
+  bool get _isPlatformOwner => AppRolePermissions.isPlatformOwnerId(_roleId);
+
+  bool _isKnownExportTable(String table) {
+    return _globalStaticExportTables.contains(table) ||
+        _tenantScopedExportTables.contains(table);
+  }
+
+  bool _needsTenantFilter(String table) {
+    if (_isPlatformOwner) return false;
+    return _tenantScopedExportTables.contains(table);
+  }
+
+  void _assertExportAllowed(String table) {
+    if (!_isKnownExportTable(table)) {
+      throw Exception(
+          'Table "$table" belum dikonfigurasi sebagai export aman.');
+    }
+
+    if (_needsTenantFilter(table) &&
+        (_tenantId == null || _tenantId!.isEmpty)) {
+      throw Exception(
+          'Tenant aktif tidak terbaca. Export "$table" dibatalkan.');
+    }
+  }
+
+  Map<String, dynamic> _redactExportRow(Map<String, dynamic> row) {
+    final out = <String, dynamic>{};
+    for (final entry in row.entries) {
+      final key = entry.key;
+      final lowerKey = key.toLowerCase().trim();
+      final shouldRedact = _redactedExportColumns.contains(lowerKey) ||
+          lowerKey.contains('access_token') ||
+          lowerKey.contains('refresh_token') ||
+          lowerKey.contains('secret') ||
+          lowerKey.contains('password') ||
+          lowerKey.contains('encrypted');
+
+      out[key] = shouldRedact ? '[REDACTED]' : entry.value;
+    }
+    return out;
+  }
+
   Future<void> _exportTables({
     required List<String> tables,
     required String filePrefix,
@@ -224,9 +339,16 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
 
     for (final table in tables) {
       try {
-        final response = await _client.from(table).select('*').limit(50000);
+        _assertExportAllowed(table);
+
+        dynamic query = _client.from(table).select('*');
+        if (_needsTenantFilter(table)) {
+          query = query.eq('tenant_id', _tenantId!);
+        }
+
+        final response = await query.limit(50000);
         final rows = (response as List)
-            .map((e) => Map<String, dynamic>.from(e))
+            .map((e) => _redactExportRow(Map<String, dynamic>.from(e)))
             .toList();
         _appendMapSheet(workbook, table, rows);
       } catch (error) {
@@ -277,8 +399,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
   Future<void> _exportFinanceData() async {
     setState(() {
       _busy = true;
-      _log =
-          'Export data finance dan seluruh marketplace laporan keuangan berjalan...';
+      _log = 'Export data finance dan marketplace tenant berjalan...';
     });
 
     try {
