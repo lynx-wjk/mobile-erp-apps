@@ -277,6 +277,25 @@ class _MarketplaceHistoricalImportPageState
     return 'Rp ${buffer.toString()}';
   }
 
+
+  Future<void> _finalizeBootstrap() async {
+    final account = _selectedAccount;
+    if (account == null) return;
+
+    await _run(() async {
+      final result = await _service.finalizeBootstrap(
+        marketplaceAccountId: account.marketplaceAccountId,
+        minValidOrders: 1,
+      );
+
+      setState(() {
+        _message = 'Finalize result: ${jsonEncode(result)}';
+      });
+
+      await _validate();
+    });
+  }
+
   Widget _fileCard({
     required String title,
     required String subtitle,
@@ -583,9 +602,9 @@ class _MarketplaceHistoricalImportPageState
                 label: const Text('Validasi Import'),
               ),
               OutlinedButton.icon(
-                onPressed: null,
+                onPressed: _busy || account == null ? null : _finalizeBootstrap,
                 icon: const Icon(Icons.verified_outlined),
-                label: const Text('Finalize belum aktif'),
+                label: const Text('Finalize Bootstrap'),
               ),
             ],
           ),
