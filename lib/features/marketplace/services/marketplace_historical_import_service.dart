@@ -211,6 +211,22 @@ class MarketplaceHistoricalImportService {
     return _map(result);
   }
 
+
+  Future<List<Map<String, dynamic>>> fetchFinalizeStatus() async {
+    final result = await _rpcWithRetry(
+      'marketplace_historical_import_status_snapshot',
+    );
+
+    if (result is Map && result['accounts'] is List) {
+      return (result['accounts'] as List)
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+    }
+
+    return const <Map<String, dynamic>>[];
+  }
+
   Future<dynamic> _rpcWithRetry(
     String functionName, {
     Map<String, dynamic>? params,
@@ -407,7 +423,7 @@ class _HistoricalImportParser {
     }
 
     throw Exception(
-      'Format file "$fileName" belum didukung. Pakai XLSX, CSV, atau ZIP.',
+      'Format file "$fileName" belum dig. Pakai XLSX, CSV, atau ZIP.',
     );
   }
 

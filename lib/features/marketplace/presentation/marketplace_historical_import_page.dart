@@ -35,6 +35,7 @@ class _MarketplaceHistoricalImportPageState
   String? _incomeBatchId;
   Map<String, dynamic>? _validation;
   Map<String, dynamic>? _payoutReadiness;
+  List<Map<String, dynamic>> _finalizeStatus = const [];
 
   bool _busy = false;
   String? _message;
@@ -63,6 +64,12 @@ class _MarketplaceHistoricalImportPageState
     if (_activeAccounts.isNotEmpty) {
       _selectedAccountId = _activeAccounts.first.marketplaceAccountId;
     }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && kIsWeb) {
+        _refreshFinalizeStatusSilently();
+      }
+    });
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -101,6 +108,17 @@ class _MarketplaceHistoricalImportPageState
       _uploadTotalRows = 0;
     });
   }
+
+  Future<void> _refreshFinalizeStatusSilently() async {
+    try {
+      final status = await _service.fetchFinalizeStatus();
+      if (!mounted) return;
+      setState(() => _finalizeStatus = status);
+    } catch (_) {
+      // Status finalisasi hanya informasi peng. Error tidak perlu memblokir halaman import.
+    }
+  }
+
 
   Future<void> _pickOrder() async {
     final account = _selectedAccount;
@@ -255,11 +273,14 @@ class _MarketplaceHistoricalImportPageState
       final payout = await _service.fetchPayoutReadiness(
         marketplaceAccountId: account.marketplaceAccountId,
       );
+      final status = await _service.fetchFinalizeStatus();
 
+      if (!mounted) return;
       setState(() {
         _validation = validation;
         _payoutReadiness = payout;
-        _message = 'Validasi import diperbarui.';
+        _finalizeStatus = status;
+        _message = _buildFinalizeStatusSummary(status);
       });
     });
   }
@@ -288,12 +309,162 @@ class _MarketplaceHistoricalImportPageState
         minValidOrders: 1,
       );
 
-      setState(() {
-        _message = 'Finalize result: ${jsonEncode(result)}';
-      });
+      final validation = await _service.fetchValidationSnapshot(
+        marketplaceAccountId: account.marketplaceAccountId,
+      );
+      final payout = await _service.fetchPayoutReadiness(
+        marketplaceAccountId: account.marketplaceAccountId,
+      );
+      final status = await _service.fetchFinalizeStatus();
 
-      await _validate();
+      if (!mounted) return;
+      setState(() {
+        _validation = validation;
+        _payoutReadiness = payout;
+        _finalizeStatus = status;
+        _message = _buildFinalizeMessage(result, account);
+      });
     });
+  }
+
+  int _intValue(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'finalized':
+        return 'Sudah finalisasi live';
+      case 'ready_to_finalize':
+        return 'Siap finalize';
+      case 'waiting_order_and_income':
+        return 'Menunggu order dan income';
+      case 'waiting_order':
+        return 'Menunggu order';
+      case 'waiting_income':
+        return 'Menunggu income/payout';
+      case 'needs_repair':
+        return 'Perlu perbaikan data';
+      default:
+        return 'Status belum diketahui';
+    }
+  }
+
+  String _accountTitle(Map<String, dynamic> row) {
+    final marketplace = (row['marketplace'] ?? '-').toString();
+    final shopName = (row['shop_name'] ?? '-').toString();
+    final label = marketplace == 'tiktok_shop'
+        ? 'TikTok Shop'
+        : marketplace == 'shopee'
+            ? 'Shopee'
+            : marketplace;
+    return '$label · $shopName';
+  }
+
+  String _buildFinalizeStatusSummary(List<Map<String, dynamic>> status) {
+    if (status.isEmpty) {
+      return 'Status finalisasi belum tersedia. Klik Validasi Import untuk memperbarui.';
+    }
+
+    final pending = status
+        .where((row) => row['finalize_status'] != 'finalized')
+        .map(_accountTitle)
+        .toList(growable: false);
+
+    if (pending.isEmpty) {
+      return 'Semua akun marketplace sudah selesai finalisasi live.';
+    }
+
+    return 'Belum finalisasi live: ${pending.join(', ')}.';
+  }
+
+  String _buildFinalizeMessage(
+    Map<String, dynamic> result,
+    MarketplaceAccountPublic account,
+  ) {
+    final ok = result['ok'] == true;
+    final message = (result['message'] ?? '').toString();
+
+    if (!ok) {
+      return 'Finalisasi ${account.marketplaceLabel} · ${account.safeStoreName} belum berhasil. $message';
+    }
+
+    final orders = _intValue(result['orders_upserted']);
+    final items = _intValue(result['items_upserted']);
+    final finance = _intValue(result['finance_reports_upserted']);
+
+    if (orders > 0 || items > 0 || finance > 0) {
+      return 'Finalisasi ${account.marketplaceLabel} · ${account.safeStoreName} selesai. Order live: $orders, item: $items, laporan payout: $finance.';
+    }
+
+    return 'Finalisasi ${account.marketplaceLabel} · ${account.safeStoreName} berhasil divalidasi. Data staging siap diproses ke live.';
+  }
+
+  Widget _finalizeStatusCard() {
+    if (_finalizeStatus.isEmpty) return const SizedBox.shrink();
+
+    final pending = _finalizeStatus
+        .where((row) => row['finalize_status'] != 'finalized')
+        .map(_accountTitle)
+        .toList(growable: false);
+
+    return NiceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionTitle(title: 'Status Finalisasi Akun'),
+          const SizedBox(height: 8),
+          Text(
+            pending.isEmpty
+                ? 'Semua akun marketplace sudah selesai finalisasi live.'
+                : 'Belum finalisasi live: ${pending.join(', ')}.',
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 12),
+          ..._finalizeStatus.map((row) {
+            final status = (row['finalize_status'] ?? '').toString();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppUi.border),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _accountTitle(row),
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 6),
+                      _MetricLine(label: 'Status', value: _statusLabel(status)),
+                      _MetricLine(
+                        label: 'Order staging',
+                        value:
+                            '${_intValue(row['order_rows'])} row / ${_intValue(row['valid_orders'])} order valid',
+                      ),
+                      _MetricLine(
+                        label: 'Income staging',
+                        value: '${_intValue(row['finance_rows'])} row',
+                      ),
+                      _MetricLine(
+                        label: 'Live',
+                        value:
+                            '${_intValue(row['live_orders'])} order / ${_intValue(row['live_finance_reports'])} payout report',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
   }
 
   Widget _fileCard({
@@ -464,7 +635,7 @@ class _MarketplaceHistoricalImportPageState
             icon: Icons.upload_file_outlined,
             title: 'Import Historical Data',
             subtitle:
-                'Upload export order dan income ke staging dulu. File Shopee/TikTok diguard agar tidak salah akun. Finalize tetap nonaktif sampai mapper final live beres.',
+                'Upload export order dan income ke staging, lalu validasi dan finalize per akun marketplace.',
             stats: [
               StatPill(
                 label: 'Account',
@@ -556,6 +727,10 @@ class _MarketplaceHistoricalImportPageState
             ),
           ),
           const SizedBox(height: 14),
+          if (_finalizeStatus.isNotEmpty) ...[
+            _finalizeStatusCard(),
+            const SizedBox(height: 14),
+          ],
           _fileCard(
             title: '1. Order Export 90 Hari',
             subtitle:
