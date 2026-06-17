@@ -126,7 +126,7 @@ class _MarketplaceHistoricalImportPageState
       setState(() {
         _orderBatchId = result.batchId;
         _message =
-            'Order export masuk staging: ${result.uploadedRows}/${result.totalRows} row.';
+            'Order export masuk staging bertahap: ${result.uploadedRows}/${result.totalRows} row.';
       });
     });
   }
@@ -145,7 +145,7 @@ class _MarketplaceHistoricalImportPageState
       setState(() {
         _incomeBatchId = result.batchId;
         _message =
-            'Income/payout export masuk staging: ${result.uploadedRows}/${result.totalRows} row.';
+            'Income/payout export masuk staging bertahap: ${result.uploadedRows}/${result.totalRows} row.';
       });
     });
   }
@@ -287,7 +287,7 @@ class _MarketplaceHistoricalImportPageState
               FilledButton.icon(
                 onPressed: _busy ? null : onUpload,
                 icon: const Icon(Icons.cloud_upload_outlined),
-                label: const Text('Upload ke Staging'),
+                label: const Text('Upload Bertahap'),
               ),
             ],
           ),

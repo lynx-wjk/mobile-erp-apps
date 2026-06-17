@@ -97,7 +97,7 @@ class MarketplaceHistoricalImportService {
 
     final id = batchId.toString();
     var uploaded = 0;
-    for (final chunk in _chunks(parsed.uploadRows, 200)) {
+    for (final chunk in _chunks(parsed.uploadRows, 25)) {
       await _client.rpc(
         'marketplace_append_order_export_import_rows',
         params: {
@@ -106,7 +106,7 @@ class MarketplaceHistoricalImportService {
         },
       );
       uploaded += chunk.length;
-      await Future<void>.delayed(const Duration(milliseconds: 1));
+      await Future<void>.delayed(const Duration(milliseconds: 35));
     }
 
     return HistoricalImportUploadResult(
@@ -137,7 +137,7 @@ class MarketplaceHistoricalImportService {
 
     final id = batchId.toString();
     var uploaded = 0;
-    for (final chunk in _chunks(parsed.uploadRows, 200)) {
+    for (final chunk in _chunks(parsed.uploadRows, 25)) {
       await _client.rpc(
         'marketplace_append_finance_income_import_rows',
         params: {
@@ -146,7 +146,7 @@ class MarketplaceHistoricalImportService {
         },
       );
       uploaded += chunk.length;
-      await Future<void>.delayed(const Duration(milliseconds: 1));
+      await Future<void>.delayed(const Duration(milliseconds: 35));
     }
 
     return HistoricalImportUploadResult(
