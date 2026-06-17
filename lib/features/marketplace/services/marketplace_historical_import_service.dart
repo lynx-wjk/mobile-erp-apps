@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -10,7 +11,7 @@ class HistoricalImportParseResult {
   final String fileName;
   final String sourceLabel;
   final List<String> headers;
-  final List<Map<String, String>> rawRows;
+  final int totalRows;
   final List<Map<String, dynamic>> uploadRows;
   final int validRows;
   final int cancelledRows;
@@ -21,7 +22,7 @@ class HistoricalImportParseResult {
     required this.fileName,
     required this.sourceLabel,
     required this.headers,
-    required this.rawRows,
+    required this.totalRows,
     required this.uploadRows,
     required this.validRows,
     required this.cancelledRows,
@@ -29,8 +30,37 @@ class HistoricalImportParseResult {
     required this.validGrossTotal,
   });
 
-  int get totalRows => rawRows.length;
-  bool get isEmpty => rawRows.isEmpty;
+  bool get isEmpty => totalRows <= 0;
+
+  factory HistoricalImportParseResult.fromMap(Map<String, dynamic> map) {
+    return HistoricalImportParseResult(
+      fileName: map['file_name']?.toString() ?? '-',
+      sourceLabel: map['source_label']?.toString() ?? '-',
+      headers: ((map['headers'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toList(growable: false),
+      totalRows: _asInt(map['total_rows']),
+      uploadRows: ((map['upload_rows'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(growable: false),
+      validRows: _asInt(map['valid_rows']),
+      cancelledRows: _asInt(map['cancelled_rows']),
+      grossTotal: _asDouble(map['gross_total']),
+      validGrossTotal: _asDouble(map['valid_gross_total']),
+    );
+  }
+
+  static int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static double _asDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
 }
 
 class HistoricalImportUploadResult {
@@ -56,10 +86,10 @@ class MarketplaceHistoricalImportService {
   }) async {
     final picked = await _pickFiles();
     if (picked.isEmpty) return null;
-    return _parsePickedFiles(
+    return _parsePickedFilesInBackground(
       pickedFiles: picked,
+      marketplace: marketplace,
       sourceLabel: 'order_export',
-      normalizer: (row) => _normalizeOrderRow(row, marketplace),
     );
   }
 
@@ -68,11 +98,36 @@ class MarketplaceHistoricalImportService {
   }) async {
     final picked = await _pickFiles();
     if (picked.isEmpty) return null;
-    return _parsePickedFiles(
+    return _parsePickedFilesInBackground(
       pickedFiles: picked,
+      marketplace: marketplace,
       sourceLabel: 'finance_income_export',
-      normalizer: (row) => _normalizeIncomeRow(row, marketplace),
     );
+  }
+
+  Future<HistoricalImportParseResult> _parsePickedFilesInBackground({
+    required List<_PickedFile> pickedFiles,
+    required String marketplace,
+    required String sourceLabel,
+  }) async {
+    final payload = <String, dynamic>{
+      'marketplace': marketplace,
+      'source_label': sourceLabel,
+      'files': pickedFiles
+          .map(
+            (file) => <String, dynamic>{
+              'name': file.name,
+              'bytes': file.bytes,
+            },
+          )
+          .toList(growable: false),
+    };
+
+    final parsed = await Isolate.run<Map<String, dynamic>>(
+      () => _HistoricalImportParser.parsePayload(payload),
+    );
+
+    return HistoricalImportParseResult.fromMap(parsed);
   }
 
   Future<HistoricalImportUploadResult> uploadOrderExport({
@@ -219,28 +274,81 @@ class MarketplaceHistoricalImportService {
     return files;
   }
 
-  HistoricalImportParseResult _parsePickedFiles({
-    required List<_PickedFile> pickedFiles,
-    required String sourceLabel,
-    required Map<String, dynamic> Function(Map<String, String>) normalizer,
-  }) {
+  List<List<Map<String, dynamic>>> _chunks(
+    List<Map<String, dynamic>> rows,
+    int size,
+  ) {
+    final out = <List<Map<String, dynamic>>>[];
+    for (var i = 0; i < rows.length; i += size) {
+      out.add(rows.sublist(i, i + size > rows.length ? rows.length : i + size));
+    }
+    return out;
+  }
+
+  Map<String, dynamic> _map(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return value.map((k, v) => MapEntry(k.toString(), v));
+    return <String, dynamic>{'value': value};
+  }
+}
+
+class _HistoricalImportParser {
+  static Map<String, dynamic> parsePayload(Map<String, dynamic> payload) {
+    final marketplace = payload['marketplace']?.toString() ?? '';
+    final expectedMarketplace = _normalizeMarketplace(marketplace);
+    final sourceLabel = payload['source_label']?.toString() ?? '';
+    final filesPayload = (payload['files'] as List?) ?? const [];
+
     final allRows = <Map<String, String>>[];
     final headers = <String>{};
     final fileNames = <String>[];
 
-    for (final picked in pickedFiles) {
-      fileNames.add(picked.name);
-      final parsed = _parseBytes(
-        bytes: picked.bytes,
-        fileName: picked.name,
+    for (final item in filesPayload) {
+      final map = Map<String, dynamic>.from(item as Map);
+      final name = map['name']?.toString() ?? 'file';
+      final rawBytes = map['bytes'];
+
+      final bytes = rawBytes is Uint8List
+          ? rawBytes
+          : Uint8List.fromList(List<int>.from(rawBytes as List));
+
+      fileNames.add(name);
+      final parsed = _parseBytes(bytes: bytes, fileName: name);
+      final detectedMarketplace = _detectMarketplace(
+        fileName: name,
+        headers: parsed.headers,
+        rows: parsed.rows,
       );
+
+      if (detectedMarketplace != 'unknown' &&
+          expectedMarketplace != 'unknown' &&
+          detectedMarketplace != expectedMarketplace) {
+        throw Exception(
+          'File "$name" terdeteksi sebagai ${_marketplaceHuman(detectedMarketplace)}, '
+          'tapi akun yang dipilih adalah ${_marketplaceHuman(expectedMarketplace)}. '
+          'File Shopee tidak boleh diupload ke akun TikTok, dan file TikTok tidak boleh diupload ke akun Shopee.',
+        );
+      }
+
+      final detectedKind = _detectExportKind(parsed.headers, parsed.rows);
+      if (sourceLabel == 'order_export' && detectedKind == 'finance_income_export') {
+        throw Exception(
+          'File "$name" terlihat seperti file Income/Payout, bukan Order Export. Pilih di bagian Income/Payout, jangan di Order.',
+        );
+      }
+      if (sourceLabel == 'finance_income_export' && detectedKind == 'order_export') {
+        throw Exception(
+          'File "$name" terlihat seperti file Order Export, bukan Income/Payout. Pilih di bagian Order, jangan di Income/Payout.',
+        );
+      }
+
       allRows.addAll(parsed.rows);
       headers.addAll(parsed.headers);
     }
 
     if (allRows.isEmpty) {
       throw Exception(
-        'Tidak ada row yang terbaca dari file. Export marketplace kadang kosong atau formatnya bukan XLSX/CSV valid, karena tentu saja file spreadsheet harus ikut bercanda.',
+        'Tidak ada row yang terbaca dari file. Export marketplace kosong atau formatnya bukan XLSX/CSV valid.',
       );
     }
 
@@ -252,7 +360,10 @@ class MarketplaceHistoricalImportService {
 
     for (var i = 0; i < allRows.length; i++) {
       final raw = allRows[i];
-      final normalized = normalizer(raw);
+      final normalized = sourceLabel == 'finance_income_export'
+          ? _normalizeIncomeRow(raw, marketplace)
+          : _normalizeOrderRow(raw, marketplace);
+
       final status = (normalized['status'] ?? normalized['payout_status'] ?? '')
           .toString()
           .toLowerCase();
@@ -276,36 +387,33 @@ class MarketplaceHistoricalImportService {
         'raw': {
           '_row_index': i + 1,
           '_source': sourceLabel,
+          '_selected_marketplace': expectedMarketplace,
         },
         'normalized': normalized,
       });
     }
 
-    return HistoricalImportParseResult(
-      fileName: fileNames.join(' + '),
-      sourceLabel: sourceLabel,
-      headers: headers.toList(growable: false),
-      rawRows: allRows,
-      uploadRows: uploadRows,
-      validRows: validRows,
-      cancelledRows: cancelledRows,
-      grossTotal: grossTotal,
-      validGrossTotal: validGrossTotal,
-    );
+    return <String, dynamic>{
+      'file_name': fileNames.join(' + '),
+      'source_label': sourceLabel,
+      'headers': headers.toList(growable: false),
+      'total_rows': allRows.length,
+      'upload_rows': uploadRows,
+      'valid_rows': validRows,
+      'cancelled_rows': cancelledRows,
+      'gross_total': grossTotal,
+      'valid_gross_total': validGrossTotal,
+    };
   }
 
-  _ParsedRows _parseBytes({
+  static _ParsedRows _parseBytes({
     required Uint8List bytes,
     required String fileName,
   }) {
     final lower = fileName.toLowerCase().trim();
 
-    if (lower.endsWith('.zip')) {
-      return _parseOuterZip(bytes, fileName);
-    }
-    if (lower.endsWith('.xlsx')) {
-      return _parseXlsx(bytes);
-    }
+    if (lower.endsWith('.zip')) return _parseOuterZip(bytes);
+    if (lower.endsWith('.xlsx')) return _parseXlsx(bytes);
     if (lower.endsWith('.csv')) {
       return _parseCsv(utf8.decode(bytes, allowMalformed: true));
     }
@@ -313,7 +421,7 @@ class MarketplaceHistoricalImportService {
     throw Exception('Format file "$fileName" belum didukung. Pakai XLSX, CSV, atau ZIP.');
   }
 
-  _ParsedRows _parseOuterZip(Uint8List bytes, String fileName) {
+  static _ParsedRows _parseOuterZip(Uint8List bytes) {
     final archive = ZipDecoder().decodeBytes(bytes);
     final rows = <Map<String, String>>[];
     final headers = <String>{};
@@ -337,15 +445,14 @@ class MarketplaceHistoricalImportService {
     return _ParsedRows(headers: headers.toList(growable: false), rows: rows);
   }
 
-  Uint8List _archiveFileBytes(ArchiveFile entry) {
+  static Uint8List _archiveFileBytes(ArchiveFile entry) {
     final content = entry.content;
     if (content is Uint8List) return content;
     if (content is List<int>) return Uint8List.fromList(content);
     return Uint8List.fromList(List<int>.from(content as Iterable));
   }
 
-
-  _ParsedRows _parseXlsx(Uint8List bytes) {
+  static _ParsedRows _parseXlsx(Uint8List bytes) {
     final archive = ZipDecoder().decodeBytes(bytes);
     final files = <String, ArchiveFile>{};
     for (final entry in archive.files) {
@@ -373,16 +480,16 @@ class MarketplaceHistoricalImportService {
       final headerIndex = _findHeaderIndex(matrix);
       if (headerIndex < 0) continue;
 
-      final headers =
+      final headerRow =
           matrix[headerIndex].map(_cleanHeader).toList(growable: false);
-      allHeaders.addAll(headers.where((h) => h.isNotEmpty));
+      allHeaders.addAll(headerRow.where((h) => h.isNotEmpty));
 
       for (var r = headerIndex + 1; r < matrix.length; r++) {
         final row = matrix[r];
         final map = <String, String>{};
 
-        for (var c = 0; c < headers.length && c < row.length; c++) {
-          final key = headers[c];
+        for (var c = 0; c < headerRow.length && c < row.length; c++) {
+          final key = headerRow[c];
           if (key.isEmpty) continue;
           map[key] = row[c].trim();
         }
@@ -399,7 +506,7 @@ class MarketplaceHistoricalImportService {
     );
   }
 
-  List<String> _readSharedStrings(Map<String, ArchiveFile> files) {
+  static List<String> _readSharedStrings(Map<String, ArchiveFile> files) {
     final xml = _decodeXmlFile(files['xl/sharedStrings.xml']);
     if (xml.trim().isEmpty) return const <String>[];
 
@@ -419,8 +526,10 @@ class MarketplaceHistoricalImportService {
     return strings;
   }
 
-
-  List<List<String>> _readSheetRows(String xml, List<String> sharedStrings) {
+  static List<List<String>> _readSheetRows(
+    String xml,
+    List<String> sharedStrings,
+  ) {
     final byRow = <int, List<String>>{};
     final rowRegex = RegExp(r'<row\b([^>]*)>(.*?)</row>', dotAll: true);
     final cellRegex = RegExp(r'<c\b([^>]*)>(.*?)</c>', dotAll: true);
@@ -485,22 +594,7 @@ class MarketplaceHistoricalImportService {
         .toList(growable: false);
   }
 
-  int _cellRefToIndex(String ref) {
-    final letters = RegExp(r'^[A-Z]+', caseSensitive: false).firstMatch(ref)?.group(0) ?? 'A';
-    var result = 0;
-    for (final code in letters.toUpperCase().codeUnits) {
-      result = result * 26 + (code - 64);
-    }
-    return result <= 0 ? 0 : result - 1;
-  }
-
-  String _decodeXmlFile(ArchiveFile? file) {
-    if (file == null) return '';
-    return utf8.decode(_archiveFileBytes(file), allowMalformed: true);
-  }
-
-
-  _ParsedRows _parseCsv(String text) {
+  static _ParsedRows _parseCsv(String text) {
     final lines = const LineSplitter()
         .convert(text.replaceAll('\r\n', '\n').replaceAll('\r', '\n'));
     final parsedLines = lines
@@ -529,7 +623,7 @@ class MarketplaceHistoricalImportService {
     return _ParsedRows(headers: headers, rows: rows);
   }
 
-  List<String> _parseCsvLine(String line) {
+  static List<String> _parseCsvLine(String line) {
     final out = <String>[];
     final buffer = StringBuffer();
     var inQuotes = false;
@@ -554,7 +648,191 @@ class MarketplaceHistoricalImportService {
     return out;
   }
 
-  Map<String, dynamic> _normalizeOrderRow(Map<String, String> row, String marketplace) {
+  static int _findHeaderIndex(List<List<String>> matrix) {
+    var bestIndex = -1;
+    var bestScore = -1;
+
+    final maxScan = matrix.length > 80 ? 80 : matrix.length;
+    for (var i = 0; i < maxScan; i++) {
+      final row = matrix[i];
+      final nonEmpty = row.where((x) => x.trim().isNotEmpty).length;
+      if (nonEmpty < 2) continue;
+
+      final score = _headerScore(row);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    }
+
+    if (bestIndex >= 0 && bestScore > 0) return bestIndex;
+
+    for (var i = 0; i < matrix.length; i++) {
+      if (matrix[i].where((x) => x.trim().isNotEmpty).length >= 2) return i;
+    }
+
+    return -1;
+  }
+
+  static int _headerScore(List<String> row) {
+    final joined = row.map(_normKey).join('|');
+    var score = 0;
+
+    const needles = [
+      'orderid',
+      'ordersn',
+      'nomorpesanan',
+      'nopesanan',
+      'idpesanan',
+      'statuspesanan',
+      'orderstatus',
+      'sellersku',
+      'skupenjual',
+      'sku',
+      'quantity',
+      'qty',
+      'jumlah',
+      'createdtime',
+      'waktupemesanan',
+      'waktupesanan',
+      'waktupembayaran',
+      'totalpembayaran',
+      'jumlahdibayar',
+      'orderamount',
+      'totalamount',
+      'totalpendapatan',
+      'pendapatan',
+      'jumlahpenyelesaianpembayaran',
+      'danadilepaskan',
+      'tanggaldanadilepaskan',
+      'biayaprosespesanan',
+      'biayalayanan',
+      'settlement',
+      'payout',
+      'dilepas',
+    ];
+
+    for (final needle in needles) {
+      final clean = _normKey(needle);
+      if (clean.isNotEmpty && joined.contains(clean)) score++;
+    }
+
+    return score;
+  }
+
+  static String _detectMarketplace({
+    required String fileName,
+    required List<String> headers,
+    required List<Map<String, String>> rows,
+  }) {
+    final headerText = [
+      fileName,
+      ...headers,
+      ...rows.take(2).expand((row) => row.keys),
+    ].map(_normKey).join('|');
+
+    var tiktok = 0;
+    var shopee = 0;
+
+    const tiktokNeedles = [
+      'tiktok',
+      'tiktokshop',
+      'orderid',
+      'orderstatus',
+      'ordersubstatus',
+      'skuid',
+      'sellersku',
+      'idpesananpenyesuaian',
+      'jenistransaksi',
+      'jumlahpenyelesaianpembayaran',
+      'totalpendapatan',
+    ];
+
+    const shopeeNeedles = [
+      'shopee',
+      'nopesanan',
+      'statuspesanan',
+      'nopengajuan',
+      'usernamepembeli',
+      'metodepembayaranpembeli',
+      'tanggaldanadilepaskan',
+      'hargaasliproduk',
+      'totaldiskonproduk',
+      'opsipengiriman',
+    ];
+
+    for (final needle in tiktokNeedles) {
+      if (headerText.contains(_normKey(needle))) tiktok++;
+    }
+    for (final needle in shopeeNeedles) {
+      if (headerText.contains(_normKey(needle))) shopee++;
+    }
+
+    if (tiktok >= shopee + 2 && tiktok >= 2) return 'tiktok_shop';
+    if (shopee >= tiktok + 2 && shopee >= 2) return 'shopee';
+    if (headerText.contains('tiktok')) return 'tiktok_shop';
+    if (headerText.contains('shopee')) return 'shopee';
+    return 'unknown';
+  }
+
+  static String _detectExportKind(
+    List<String> headers,
+    List<Map<String, String>> rows,
+  ) {
+    final headerText = [
+      ...headers,
+      ...rows.take(2).expand((row) => row.keys),
+    ].map(_normKey).join('|');
+
+    var orderScore = 0;
+    var incomeScore = 0;
+
+    const orderNeedles = [
+      'orderstatus',
+      'statuspesanan',
+      'cancellationreturntype',
+      'statuspembatalanpengembalian',
+      'noresi',
+      'sellersku',
+      'skupenjual',
+      'quantity',
+      'variation',
+      'opsipengiriman',
+    ];
+
+    const incomeNeedles = [
+      'idpesananpenyesuaian',
+      'jenistransaksi',
+      'jumlahpenyelesaianpembayaran',
+      'totalpendapatan',
+      'danadilepaskan',
+      'tanggaldanadilepaskan',
+      'biayaprosespesanan',
+      'nopengajuan',
+      'settlement',
+      'payout',
+    ];
+
+    for (final needle in orderNeedles) {
+      if (headerText.contains(_normKey(needle))) orderScore++;
+    }
+    for (final needle in incomeNeedles) {
+      if (headerText.contains(_normKey(needle))) incomeScore++;
+    }
+
+    if (incomeScore >= 3 && incomeScore > orderScore + 1) {
+      return 'finance_income_export';
+    }
+    if (orderScore >= 3 && orderScore > incomeScore + 1) {
+      return 'order_export';
+    }
+    return 'unknown';
+  }
+
+  static Map<String, dynamic> _normalizeOrderRow(
+    Map<String, String> row,
+    String marketplace,
+  ) {
     String? pick(List<String> aliases) => _pick(row, aliases);
 
     final status = pick([
@@ -608,21 +886,49 @@ class MarketplaceHistoricalImportService {
         'jumlah produk dipesan',
         'kuantitas',
       ]),
-      'total_amount': pick([
-        'total amount',
-        'total pembayaran',
-        'jumlah dibayar pembeli',
-        'total dibayar pembeli',
-        'order amount',
-        'subtotal',
-        'harga total',
-        'total harga produk',
-        'gross amount',
-      ]),
+      'total_amount': _pickOrderAmount(row, marketplace),
     }..removeWhere((_, value) => value == null || value.toString().trim().isEmpty);
   }
 
-  Map<String, dynamic> _normalizeIncomeRow(Map<String, String> row, String marketplace) {
+  static String? _pickOrderAmount(Map<String, String> row, String marketplace) {
+    final market = _normalizeMarketplace(marketplace);
+
+    if (market == 'shopee') {
+      return _pick(row, [
+        'total pembayaran',
+        'jumlah dibayar pembeli',
+        'total dibayar pembeli',
+        'total harga produk',
+        'harga total',
+      ]);
+    }
+
+    if (market == 'tiktok_shop') {
+      return _pick(row, [
+        'order amount',
+        'total amount',
+        'jumlah dibayar pembeli',
+        'total pembayaran',
+        'sku subtotal after discount',
+        'subtotal after discount',
+      ]);
+    }
+
+    return _pick(row, [
+      'total amount',
+      'total pembayaran',
+      'jumlah dibayar pembeli',
+      'order amount',
+      'subtotal',
+      'harga total',
+      'gross amount',
+    ]);
+  }
+
+  static Map<String, dynamic> _normalizeIncomeRow(
+    Map<String, String> row,
+    String marketplace,
+  ) {
     String? pick(List<String> aliases) => _pick(row, aliases);
 
     return {
@@ -637,6 +943,7 @@ class MarketplaceHistoricalImportService {
         'no pesanan',
         'id pesanan',
         'id order',
+        'id pesanan/penyesuaian',
       ]),
       'statement_id': pick([
         'statement id',
@@ -646,6 +953,8 @@ class MarketplaceHistoricalImportService {
         'income id',
         'transaction id',
         'id transaksi',
+        'no. pengajuan',
+        'no pengajuan',
       ]),
       'payout_status': pick([
         'status',
@@ -654,25 +963,7 @@ class MarketplaceHistoricalImportService {
         'status dana',
         'settlement status',
       ]),
-      'payout_amount': pick([
-        'payout',
-        'payout amount',
-        'released amount',
-        'jumlah dilepas',
-        'dana dilepas',
-        'income',
-        'pendapatan',
-        'jumlah pendapatan',
-        'total pendapatan',
-        'total income',
-        'net amount',
-        'net income',
-        'jumlah bersih',
-        'jumlah penyelesaian pembayaran',
-        'settlement amount',
-        'total settlement',
-        'amount settled',
-      ]),
+      'payout_amount': _pickIncomePayout(row, marketplace),
       'fee_amount': pick([
         'fee',
         'admin fee',
@@ -681,6 +972,7 @@ class MarketplaceHistoricalImportService {
         'komisi',
         'platform fee',
         'biaya layanan',
+        'biaya proses pesanan',
       ]),
       'adjustment_amount': pick([
         'adjustment',
@@ -696,85 +988,59 @@ class MarketplaceHistoricalImportService {
         'released time',
         'tanggal dilepas',
         'waktu dilepas',
+        'tanggal dana dilepaskan',
         'tanggal settlement',
         'waktu settlement',
       ]),
     }..removeWhere((_, value) => value == null || value.toString().trim().isEmpty);
   }
 
+  static String? _pickIncomePayout(Map<String, String> row, String marketplace) {
+    final market = _normalizeMarketplace(marketplace);
 
-  int _findHeaderIndex(List<List<String>> matrix) {
-    var bestIndex = -1;
-    var bestScore = -1;
-
-    final maxScan = matrix.length > 80 ? 80 : matrix.length;
-    for (var i = 0; i < maxScan; i++) {
-      final row = matrix[i];
-      final nonEmpty = row.where((x) => x.trim().isNotEmpty).length;
-      if (nonEmpty < 2) continue;
-
-      final score = _headerScore(row);
-      if (score > bestScore) {
-        bestScore = score;
-        bestIndex = i;
-      }
+    if (market == 'shopee') {
+      return _pick(row, [
+        'dana dilepaskan',
+        'jumlah dana dilepaskan',
+        'jumlah dana yang dilepaskan',
+        'total dana dilepaskan',
+        'nominal dana dilepaskan',
+        'pendapatan bersih',
+        'penghasilan bersih',
+        'total penghasilan',
+        'total pendapatan',
+        'jumlah penghasilan',
+        'total pembayaran',
+        'jumlah dibayar pembeli',
+      ]);
     }
 
-    if (bestIndex >= 0 && bestScore > 0) return bestIndex;
-
-    for (var i = 0; i < matrix.length; i++) {
-      if (matrix[i].where((x) => x.trim().isNotEmpty).length >= 2) return i;
+    if (market == 'tiktok_shop') {
+      return _pick(row, [
+        'jumlah penyelesaian pembayaran',
+        'total pendapatan',
+        'pendapatan',
+        'payout',
+        'payout amount',
+        'settlement amount',
+        'net amount',
+        'net income',
+        'jumlah bersih',
+      ]);
     }
 
-    return -1;
-  }
-
-  int _headerScore(List<String> row) {
-    final joined = row.map(_normKey).join('|');
-    var score = 0;
-
-    const needles = [
-      'orderid',
-      'ordersn',
-      'nomorpesanan',
-      'nopesanan',
-      'idpesanan',
-      'statuspesanan',
-      'orderstatus',
-      'seller sku',
-      'sellersku',
-      'skupenjual',
-      'sku',
-      'quantity',
-      'qty',
-      'jumlah',
-      'createdtime',
-      'waktupemesanan',
-      'waktupesanan',
-      'waktupembayaran',
-      'totalpembayaran',
-      'jumlahdibayar',
-      'orderamount',
-      'totalamount',
-      'totalpendapatan',
-      'pendapatan',
-      'jumlahpenyelesaianpembayaran',
-      'biayaprosespesanan',
-      'biayalayanan',
-      'settlement',
+    return _pick(row, [
+      'jumlah penyelesaian pembayaran',
+      'dana dilepaskan',
+      'jumlah dana dilepaskan',
+      'total pendapatan',
+      'pendapatan bersih',
       'payout',
-      'dilepas',
-    ];
-
-    for (final needle in needles) {
-      final clean = _normKey(needle);
-      if (clean.isNotEmpty && joined.contains(clean)) score++;
-    }
-
-    return score;
+      'net amount',
+    ]);
   }
 
-  String? _pick(Map<String, String> row, List<String> aliases) {
+  static String? _pick(Map<String, String> row, List<String> aliases) {
     if (row.isEmpty) return null;
     final normalized = <String, String>{};
     for (final entry in row.entries) {
@@ -789,7 +1055,7 @@ class MarketplaceHistoricalImportService {
     for (final entry in normalized.entries) {
       for (final alias in aliases) {
         final needle = _normKey(alias);
-        if (needle.isNotEmpty &&
+        if (needle.length >= 7 &&
             entry.key.contains(needle) &&
             entry.value.trim().isNotEmpty) {
           return entry.value.trim();
@@ -800,24 +1066,53 @@ class MarketplaceHistoricalImportService {
     return null;
   }
 
-  String _normKey(String value) {
+  static int _cellRefToIndex(String ref) {
+    final letters =
+        RegExp(r'^[A-Z]+', caseSensitive: false).firstMatch(ref)?.group(0) ??
+            'A';
+    var result = 0;
+    for (final code in letters.toUpperCase().codeUnits) {
+      result = result * 26 + (code - 64);
+    }
+    return result <= 0 ? 0 : result - 1;
+  }
+
+  static String _decodeXmlFile(ArchiveFile? file) {
+    if (file == null) return '';
+    return utf8.decode(_archiveFileBytes(file), allowMalformed: true);
+  }
+
+  static String _cleanHeader(String value) {
+    return _xmlUnescape(_stripXmlTags(value))
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  static String _normalizeMarketplace(String value) {
+    final clean = _normKey(value);
+    if (clean.contains('shopee') || clean.contains('shoppe')) return 'shopee';
+    if (clean.contains('tiktok')) return 'tiktok_shop';
+    return 'unknown';
+  }
+
+  static String _marketplaceHuman(String value) {
+    if (value == 'shopee') return 'Shopee';
+    if (value == 'tiktok_shop') return 'TikTok Shop';
+    return value;
+  }
+
+  static String _normKey(String value) {
     return value
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9]+'), '')
         .trim();
   }
 
-  String _cleanHeader(String value) {
-    return _xmlUnescape(_stripXmlTags(value))
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
-
-  String _stripXmlTags(String value) {
+  static String _stripXmlTags(String value) {
     return value.replaceAll(RegExp(r'<[^>]+>'), '');
   }
 
-  String _xmlUnescape(String value) {
+  static String _xmlUnescape(String value) {
     return value
         .replaceAll('&quot;', '"')
         .replaceAll('&apos;', "'")
@@ -826,7 +1121,7 @@ class MarketplaceHistoricalImportService {
         .replaceAll('&amp;', '&');
   }
 
-  double _toDouble(dynamic value) {
+  static double _toDouble(dynamic value) {
     if (value == null) return 0;
     var text = value.toString().trim();
     if (text.isEmpty) return 0;
@@ -841,20 +1136,6 @@ class MarketplaceHistoricalImportService {
       text = text.replaceAll(',', '');
     }
     return double.tryParse(text) ?? 0;
-  }
-
-  List<List<Map<String, dynamic>>> _chunks(List<Map<String, dynamic>> rows, int size) {
-    final out = <List<Map<String, dynamic>>>[];
-    for (var i = 0; i < rows.length; i += size) {
-      out.add(rows.sublist(i, i + size > rows.length ? rows.length : i + size));
-    }
-    return out;
-  }
-
-  Map<String, dynamic> _map(dynamic value) {
-    if (value is Map<String, dynamic>) return value;
-    if (value is Map) return value.map((k, v) => MapEntry(k.toString(), v));
-    return <String, dynamic>{'value': value};
   }
 }
 

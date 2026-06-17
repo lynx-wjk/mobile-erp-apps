@@ -336,7 +336,7 @@ class _MarketplaceHistoricalImportPageState
             icon: Icons.upload_file_outlined,
             title: 'Import Historical Data',
             subtitle:
-                'Upload export order dan income ke staging dulu. Finalize dinonaktifkan sampai mapper final ke tabel order/finance live beres.',
+                'Upload export order dan income ke staging dulu. File Shopee/TikTok diguard agar tidak salah akun. Finalize tetap nonaktif sampai mapper final live beres.',
             stats: [
               StatPill(label: 'Account', value: _activeAccounts.length.toString()),
               StatPill(label: 'Order', value: _orderParsed?.totalRows.toString() ?? '-'),
