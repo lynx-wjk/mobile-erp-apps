@@ -2483,6 +2483,37 @@ class MarketplaceService {
     };
   }
 
+  Future<Map<String, dynamic>> refreshFinanceAfterHppMapping({
+    required String tenantId,
+    String? marketplaceAccountId,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    String? dateParam(DateTime? value) {
+      if (value == null) return null;
+      final y = value.year.toString().padLeft(4, '0');
+      final m = value.month.toString().padLeft(2, '0');
+      final d = value.day.toString().padLeft(2, '0');
+      return '$y-$m-$d';
+    }
+
+    final response = await _client.rpc(
+      'marketplace_finance_recalc_after_hpp_mapping',
+      params: {
+        'p_tenant_id': tenantId,
+        'p_marketplace_account_id':
+            marketplaceAccountId == null || marketplaceAccountId == 'all'
+                ? null
+                : marketplaceAccountId,
+        'p_start': dateParam(startDate),
+        'p_end': dateParam(endDate),
+      },
+    );
+
+    return _rpcMap(response);
+  }
+
+
   // ── HPP / Margin Mapping ─────────────────────────────────────────────────
   // v24.6.44: sumber HPP dari variant snapshot + order item, bukan cuma order item.
 
