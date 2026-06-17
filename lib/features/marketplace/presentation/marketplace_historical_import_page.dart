@@ -35,9 +35,11 @@ class _MarketplaceHistoricalImportPageState
   String? _incomeBatchId;
   Map<String, dynamic>? _validation;
   Map<String, dynamic>? _payoutReadiness;
+
   bool _busy = false;
   String? _message;
   String? _error;
+
   String? _uploadPhase;
   int _uploadDoneRows = 0;
   int _uploadTotalRows = 0;
@@ -65,11 +67,13 @@ class _MarketplaceHistoricalImportPageState
 
   Future<void> _run(Future<void> Function() action) async {
     if (_busy) return;
+
     setState(() {
       _busy = true;
       _error = null;
       _message = null;
     });
+
     try {
       await action();
     } catch (error) {
@@ -79,7 +83,6 @@ class _MarketplaceHistoricalImportPageState
       if (mounted) setState(() => _busy = false);
     }
   }
-
 
   void _setUploadProgress(String phase, int done, int total) {
     if (!mounted) return;
@@ -102,11 +105,13 @@ class _MarketplaceHistoricalImportPageState
   Future<void> _pickOrder() async {
     final account = _selectedAccount;
     if (account == null) return;
+
     await _run(() async {
       final parsed = await _service.pickAndParseOrderExport(
         marketplace: account.marketplace,
       );
       if (parsed == null) return;
+
       setState(() {
         _orderParsed = parsed;
         _orderBatchId = null;
@@ -120,11 +125,13 @@ class _MarketplaceHistoricalImportPageState
   Future<void> _pickIncome() async {
     final account = _selectedAccount;
     if (account == null) return;
+
     await _run(() async {
       final parsed = await _service.pickAndParseIncomeExport(
         marketplace: account.marketplace,
       );
       if (parsed == null) return;
+
       setState(() {
         _incomeParsed = parsed;
         _incomeBatchId = null;
@@ -134,7 +141,6 @@ class _MarketplaceHistoricalImportPageState
       });
     });
   }
-
 
   Future<void> _uploadOrder() async {
     final account = _selectedAccount;
@@ -149,15 +155,16 @@ class _MarketplaceHistoricalImportPageState
         onProgress: (done, total) =>
             _setUploadProgress('Upload order export', done, total),
       );
+
       setState(() {
         _orderBatchId = result.batchId;
         _message =
             'Order export masuk staging: ${result.uploadedRows}/${result.totalRows} row.';
       });
+
       _clearUploadProgress();
     });
   }
-
 
   Future<void> _uploadIncome() async {
     final account = _selectedAccount;
@@ -172,15 +179,16 @@ class _MarketplaceHistoricalImportPageState
         onProgress: (done, total) =>
             _setUploadProgress('Upload income/payout export', done, total),
       );
+
       setState(() {
         _incomeBatchId = result.batchId;
         _message =
             'Income/payout export masuk staging: ${result.uploadedRows}/${result.totalRows} row.';
       });
+
       _clearUploadProgress();
     });
   }
-
 
   Future<void> _uploadAll() async {
     final account = _selectedAccount;
@@ -209,6 +217,7 @@ class _MarketplaceHistoricalImportPageState
           onProgress: (done, total) =>
               _setUploadProgress('Upload order export', done, total),
         );
+
         setState(() => _orderBatchId = result.batchId);
         uploadedParts.add('order ${result.uploadedRows}/${result.totalRows}');
       }
@@ -222,6 +231,7 @@ class _MarketplaceHistoricalImportPageState
           onProgress: (done, total) =>
               _setUploadProgress('Upload income/payout export', done, total),
         );
+
         setState(() => _incomeBatchId = result.batchId);
         uploadedParts.add('income ${result.uploadedRows}/${result.totalRows}');
       }
@@ -229,6 +239,7 @@ class _MarketplaceHistoricalImportPageState
       setState(() {
         _message = 'Upload staging selesai: ${uploadedParts.join(' + ')} row.';
       });
+
       _clearUploadProgress();
     });
   }
@@ -244,6 +255,7 @@ class _MarketplaceHistoricalImportPageState
       final payout = await _service.fetchPayoutReadiness(
         marketplaceAccountId: account.marketplaceAccountId,
       );
+
       setState(() {
         _validation = validation;
         _payoutReadiness = payout;
@@ -252,71 +264,17 @@ class _MarketplaceHistoricalImportPageState
     });
   }
 
-  Future<void> _finalize() async {
-    final account = _selectedAccount;
-    if (account == null) return;
-
-    final validation = _validation;
-    final summary = validation?['summary'];
-    final validOrders = _asInt(
-      summary is Map ? summary['valid_orders'] : null,
-    );
-
-    if (validOrders <= 0) {
-      setState(() => _error =
-          'Belum ada valid order di validasi. Jangan finalize, nanti data bolong. Luar biasa konsepnya.');
-      return;
-    }
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Finalize bootstrap marketplace?'),
-        content: Text(
-          'Akun ${account.safeStoreName} akan dianggap selesai bootstrap. '
-          'Cursor sync dipindah ke sekarang. Pastikan order export dan income export sudah masuk staging dan angka validasi cocok.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Finalize'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    await _run(() async {
-      final result = await _service.finalizeBootstrap(
-        marketplaceAccountId: account.marketplaceAccountId,
-        minValidOrders: validOrders,
-      );
-      setState(() {
-        _message = 'Finalize result: ${jsonEncode(result)}';
-      });
-    });
-  }
-
   String _money(num value) {
     final text = value.round().toString();
     final buffer = StringBuffer();
+
     for (var i = 0; i < text.length; i++) {
       final pos = text.length - i;
       buffer.write(text[i]);
       if (pos > 1 && pos % 3 == 1) buffer.write('.');
     }
-    return 'Rp ${buffer.toString()}';
-  }
 
-  int _asInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '') ?? 0;
+    return 'Rp ${buffer.toString()}';
   }
 
   Widget _fileCard({
@@ -345,9 +303,15 @@ class _MarketplaceHistoricalImportPageState
             _MetricLine(label: 'File', value: parsed.fileName),
             _MetricLine(label: 'Rows', value: parsed.totalRows.toString()),
             _MetricLine(label: 'Valid-ish', value: parsed.validRows.toString()),
-            _MetricLine(label: 'Cancelled', value: parsed.cancelledRows.toString()),
+            _MetricLine(
+              label: 'Cancelled',
+              value: parsed.cancelledRows.toString(),
+            ),
             _MetricLine(label: 'Gross', value: _money(parsed.grossTotal)),
-            _MetricLine(label: 'Valid Gross', value: _money(parsed.validGrossTotal)),
+            _MetricLine(
+              label: 'Valid Gross',
+              value: _money(parsed.validGrossTotal),
+            ),
             if (batchId != null) _MetricLine(label: 'Batch ID', value: batchId),
             const SizedBox(height: 10),
             Text(
@@ -370,7 +334,7 @@ class _MarketplaceHistoricalImportPageState
               FilledButton.icon(
                 onPressed: _busy ? null : onUpload,
                 icon: const Icon(Icons.cloud_upload_outlined),
-                label: const Text('Upload Bertahap'),
+                label: const Text('Upload File Ini'),
               ),
             ],
           ),
@@ -378,7 +342,6 @@ class _MarketplaceHistoricalImportPageState
       ),
     );
   }
-
 
   Widget _uploadProgressCard() {
     final phase = _uploadPhase;
@@ -392,17 +355,14 @@ class _MarketplaceHistoricalImportPageState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionTitle(title: 'Progress Upload'),
+          const SectionTitle(title: 'Progress Upload'),
           const SizedBox(height: 8),
           Text(
             phase,
             style: const TextStyle(fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 10),
-          LinearProgressIndicator(
-            value: value,
-            minHeight: 10,
-          ),
+          LinearProgressIndicator(value: value, minHeight: 10),
           const SizedBox(height: 10),
           _MetricLine(
             label: 'Progress',
@@ -410,7 +370,7 @@ class _MarketplaceHistoricalImportPageState
           ),
           const SizedBox(height: 6),
           const Text(
-            'Jangan tutup tab browser sampai selesai. Menu ini web-only karena Android bisa memutus koneksi saat app diminimize.',
+            'Jangan tutup tab browser sampai selesai. Menu ini web-only karena Android bisa memutus koneksi saat aplikasi diminimize.',
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
           ),
         ],
@@ -420,6 +380,7 @@ class _MarketplaceHistoricalImportPageState
 
   Widget _jsonBox(String title, Map<String, dynamic>? value) {
     if (value == null) return const SizedBox.shrink();
+
     const encoder = JsonEncoder.withIndent('  ');
     return NiceCard(
       child: Column(
@@ -447,11 +408,11 @@ class _MarketplaceHistoricalImportPageState
         ),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
-          children: const [
+          children: [
             NiceCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                children: const [
                   SectionTitle(title: 'Import Historical Data hanya di Web'),
                   SizedBox(height: 8),
                   Text(
@@ -486,14 +447,26 @@ class _MarketplaceHistoricalImportPageState
             subtitle:
                 'Upload export order dan income ke staging dulu. File Shopee/TikTok diguard agar tidak salah akun. Finalize tetap nonaktif sampai mapper final live beres.',
             stats: [
-              StatPill(label: 'Account', value: _activeAccounts.length.toString()),
-              StatPill(label: 'Order', value: _orderParsed?.totalRows.toString() ?? '-'),
-              StatPill(label: 'Income', value: _incomeParsed?.totalRows.toString() ?? '-'),
+              StatPill(
+                label: 'Account',
+                value: _activeAccounts.length.toString(),
+              ),
+              StatPill(
+                label: 'Order',
+                value: _orderParsed?.totalRows.toString() ?? '-',
+              ),
+              StatPill(
+                label: 'Income',
+                value: _incomeParsed?.totalRows.toString() ?? '-',
+              ),
             ],
           ),
           const SizedBox(height: 14),
           if (_error != null) ...[
-            ErrorState(message: _error!, onRetry: () => setState(() => _error = null)),
+            ErrorState(
+              message: _error!,
+              onRetry: () => setState(() => _error = null),
+            ),
             const SizedBox(height: 14),
           ],
           if (_message != null) ...[
@@ -503,7 +476,10 @@ class _MarketplaceHistoricalImportPageState
                 color: AppUi.green.withOpacity(.12),
                 border: Border.all(color: AppUi.green.withOpacity(.4)),
               ),
-              child: Text(_message!, style: const TextStyle(fontWeight: FontWeight.w800)),
+              child: Text(
+                _message!,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
             ),
             const SizedBox(height: 14),
           ],
@@ -527,7 +503,9 @@ class _MarketplaceHistoricalImportPageState
                       .map(
                         (item) => DropdownMenuItem<String>(
                           value: item.marketplaceAccountId,
-                          child: Text('${item.marketplaceLabel} · ${item.safeStoreName}'),
+                          child: Text(
+                            '${item.marketplaceLabel} · ${item.safeStoreName}',
+                          ),
                         ),
                       )
                       .toList(growable: false),
@@ -542,13 +520,16 @@ class _MarketplaceHistoricalImportPageState
                             _incomeBatchId = null;
                             _validation = null;
                             _payoutReadiness = null;
+                            _message = null;
+                            _error = null;
+                            _clearUploadProgress();
                           });
                         },
                 ),
                 if (_activeAccounts.isEmpty) ...[
                   const SizedBox(height: 10),
                   const Text(
-                    'Belum ada akun active. Auth marketplace dulu, baru import export.',
+                    'Belum ada akun active. Auth marketplace dulu.',
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ],
@@ -559,7 +540,7 @@ class _MarketplaceHistoricalImportPageState
           _fileCard(
             title: '1. Order Export 90 Hari',
             subtitle:
-                'Pakai file order dari TikTok/Shopee. Bisa pilih lebih dari 1 file sekaligus, termasuk Shopee export yang terpisah.',
+                'Pakai file order dari TikTok/Shopee. Bisa pilih lebih dari 1 file sekaligus, termasuk ZIP order.',
             parsed: _orderParsed,
             onPick: _pickOrder,
             onUpload: _orderParsed == null ? null : _uploadOrder,
@@ -583,9 +564,10 @@ class _MarketplaceHistoricalImportPageState
             runSpacing: 8,
             children: [
               FilledButton.icon(
-                onPressed: _busy || account == null || (_orderParsed == null && _incomeParsed == null)
-                    ? null
-                    : _uploadAll,
+                onPressed:
+                    _busy || account == null || (_orderParsed == null && _incomeParsed == null)
+                        ? null
+                        : _uploadAll,
                 icon: _busy
                     ? const SizedBox(
                         width: 16,
@@ -621,7 +603,10 @@ class _MetricLine extends StatelessWidget {
   final String label;
   final String value;
 
-  const _MetricLine({required this.label, required this.value});
+  const _MetricLine({
+    required this.label,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {

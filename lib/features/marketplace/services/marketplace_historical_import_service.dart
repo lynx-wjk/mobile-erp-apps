@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-typedef HistoricalImportUploadProgress = void Function(int uploadedRows, int totalRows);
+typedef HistoricalImportUploadProgress = void Function(
+  int uploadedRows,
+  int totalRows,
+);
 
 class HistoricalImportParseResult {
   final String fileName;
@@ -33,36 +35,6 @@ class HistoricalImportParseResult {
   });
 
   bool get isEmpty => totalRows <= 0;
-
-  factory HistoricalImportParseResult.fromMap(Map<String, dynamic> map) {
-    return HistoricalImportParseResult(
-      fileName: map['file_name']?.toString() ?? '-',
-      sourceLabel: map['source_label']?.toString() ?? '-',
-      headers: ((map['headers'] as List?) ?? const [])
-          .map((e) => e.toString())
-          .toList(growable: false),
-      totalRows: _asInt(map['total_rows']),
-      uploadRows: ((map['upload_rows'] as List?) ?? const [])
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList(growable: false),
-      validRows: _asInt(map['valid_rows']),
-      cancelledRows: _asInt(map['cancelled_rows']),
-      grossTotal: _asDouble(map['gross_total']),
-      validGrossTotal: _asDouble(map['valid_gross_total']),
-    );
-  }
-
-  static int _asInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '') ?? 0;
-  }
-
-  static double _asDouble(dynamic value) {
-    if (value is double) return value;
-    if (value is num) return value.toDouble();
-    return double.tryParse(value?.toString() ?? '') ?? 0;
-  }
 }
 
 class HistoricalImportUploadResult {
@@ -88,10 +60,11 @@ class MarketplaceHistoricalImportService {
   }) async {
     final picked = await _pickFiles();
     if (picked.isEmpty) return null;
-    return _parsePickedFilesInBackground(
-      pickedFiles: picked,
+
+    return _HistoricalImportParser.parsePayload(
       marketplace: marketplace,
       sourceLabel: 'order_export',
+      pickedFiles: picked,
     );
   }
 
@@ -100,38 +73,13 @@ class MarketplaceHistoricalImportService {
   }) async {
     final picked = await _pickFiles();
     if (picked.isEmpty) return null;
-    return _parsePickedFilesInBackground(
-      pickedFiles: picked,
+
+    return _HistoricalImportParser.parsePayload(
       marketplace: marketplace,
       sourceLabel: 'finance_income_export',
+      pickedFiles: picked,
     );
   }
-
-  Future<HistoricalImportParseResult> _parsePickedFilesInBackground({
-    required List<_PickedFile> pickedFiles,
-    required String marketplace,
-    required String sourceLabel,
-  }) async {
-    final payload = <String, dynamic>{
-      'marketplace': marketplace,
-      'source_label': sourceLabel,
-      'files': pickedFiles
-          .map(
-            (file) => <String, dynamic>{
-              'name': file.name,
-              'bytes': file.bytes,
-            },
-          )
-          .toList(growable: false),
-    };
-
-    final parsed = await Isolate.run<Map<String, dynamic>>(
-      () => _HistoricalImportParser.parsePayload(payload),
-    );
-
-    return HistoricalImportParseResult.fromMap(parsed);
-  }
-
 
   Future<HistoricalImportUploadResult> uploadOrderExport({
     required String marketplaceAccountId,
@@ -176,43 +124,7 @@ class MarketplaceHistoricalImportService {
       totalRows: parsed.totalRows,
       uploadedRows: uploaded,
     );
-  }) async {
-    final batchId = await _client.rpc(
-      'marketplace_create_order_export_import_batch',
-      params: {
-        'p_marketplace_account_id': marketplaceAccountId,
-        'p_marketplace': marketplace,
-        'p_source_type': 'order_export',
-        'p_original_filename': parsed.fileName,
-        'p_total_rows': parsed.totalRows,
-        'p_valid_rows': parsed.validRows,
-        'p_cancelled_rows': parsed.cancelledRows,
-        'p_gross_total': parsed.grossTotal,
-        'p_valid_gross_total': parsed.validGrossTotal,
-      },
-    );
-
-    final id = batchId.toString();
-    var uploaded = 0;
-    for (final chunk in _chunks(parsed.uploadRows, 25)) {
-      await _client.rpc(
-        'marketplace_append_order_export_import_rows',
-        params: {
-          'p_batch_id': id,
-          'p_rows': chunk,
-        },
-      );
-      uploaded += chunk.length;
-      await Future<void>.delayed(const Duration(milliseconds: 35));
-    }
-
-    return HistoricalImportUploadResult(
-      batchId: id,
-      totalRows: parsed.totalRows,
-      uploadedRows: uploaded,
-    );
   }
-
 
   Future<HistoricalImportUploadResult> uploadIncomeExport({
     required String marketplaceAccountId,
@@ -256,46 +168,12 @@ class MarketplaceHistoricalImportService {
       totalRows: parsed.totalRows,
       uploadedRows: uploaded,
     );
-  }) async {
-    final batchId = await _client.rpc(
-      'marketplace_create_finance_income_import_batch',
-      params: {
-        'p_marketplace_account_id': marketplaceAccountId,
-        'p_marketplace': marketplace,
-        'p_source_type': 'finance_income_export',
-        'p_original_filename': parsed.fileName,
-        'p_total_rows': parsed.totalRows,
-        'p_payout_total': parsed.validGrossTotal,
-        'p_fee_total': 0,
-        'p_adjustment_total': 0,
-      },
-    );
-
-    final id = batchId.toString();
-    var uploaded = 0;
-    for (final chunk in _chunks(parsed.uploadRows, 25)) {
-      await _client.rpc(
-        'marketplace_append_finance_income_import_rows',
-        params: {
-          'p_batch_id': id,
-          'p_rows': chunk,
-        },
-      );
-      uploaded += chunk.length;
-      await Future<void>.delayed(const Duration(milliseconds: 35));
-    }
-
-    return HistoricalImportUploadResult(
-      batchId: id,
-      totalRows: parsed.totalRows,
-      uploadedRows: uploaded,
-    );
   }
 
   Future<Map<String, dynamic>> fetchValidationSnapshot({
     required String marketplaceAccountId,
   }) async {
-    final result = await _client.rpc(
+    final result = await _rpcWithRetry(
       'marketplace_import_validation_snapshot',
       params: {
         'p_account_id': marketplaceAccountId,
@@ -308,7 +186,7 @@ class MarketplaceHistoricalImportService {
   Future<Map<String, dynamic>> fetchPayoutReadiness({
     required String marketplaceAccountId,
   }) async {
-    final result = await _client.rpc(
+    final result = await _rpcWithRetry(
       'marketplace_payout_readiness_snapshot',
       params: {
         'p_account_id': marketplaceAccountId,
@@ -322,7 +200,7 @@ class MarketplaceHistoricalImportService {
     required String marketplaceAccountId,
     required int minValidOrders,
   }) async {
-    final result = await _client.rpc(
+    final result = await _rpcWithRetry(
       'marketplace_finalize_export_bootstrap',
       params: {
         'p_account_id': marketplaceAccountId,
@@ -333,6 +211,35 @@ class MarketplaceHistoricalImportService {
     return _map(result);
   }
 
+  Future<dynamic> _rpcWithRetry(
+    String functionName, {
+    Map<String, dynamic>? params,
+  }) async {
+    Object? lastError;
+
+    for (var attempt = 1; attempt <= 5; attempt++) {
+      try {
+        return await _client
+            .rpc(functionName, params: params)
+            .timeout(const Duration(seconds: 90));
+      } catch (error) {
+        lastError = error;
+
+        if (attempt >= 5) {
+          throw Exception(
+            'RPC $functionName gagal setelah $attempt percobaan: $error',
+          );
+        }
+
+        await Future<void>.delayed(
+          Duration(milliseconds: 700 * attempt * attempt),
+        );
+      }
+    }
+
+    throw Exception('RPC $functionName gagal: $lastError');
+  }
+
   Future<List<_PickedFile>> _pickFiles() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
@@ -340,7 +247,10 @@ class MarketplaceHistoricalImportService {
       withData: true,
       allowMultiple: true,
     );
-    if (result == null || result.files.isEmpty) return const <_PickedFile>[];
+
+    if (result == null || result.files.isEmpty) {
+      return const <_PickedFile>[];
+    }
 
     final files = <_PickedFile>[];
     for (final file in result.files) {
@@ -374,29 +284,22 @@ class MarketplaceHistoricalImportService {
 }
 
 class _HistoricalImportParser {
-  static Map<String, dynamic> parsePayload(Map<String, dynamic> payload) {
-    final marketplace = payload['marketplace']?.toString() ?? '';
+  static HistoricalImportParseResult parsePayload({
+    required String marketplace,
+    required String sourceLabel,
+    required List<_PickedFile> pickedFiles,
+  }) {
     final expectedMarketplace = _normalizeMarketplace(marketplace);
-    final sourceLabel = payload['source_label']?.toString() ?? '';
-    final filesPayload = (payload['files'] as List?) ?? const [];
-
     final allRows = <Map<String, String>>[];
     final headers = <String>{};
     final fileNames = <String>[];
 
-    for (final item in filesPayload) {
-      final map = Map<String, dynamic>.from(item as Map);
-      final name = map['name']?.toString() ?? 'file';
-      final rawBytes = map['bytes'];
+    for (final picked in pickedFiles) {
+      fileNames.add(picked.name);
+      final parsed = _parseBytes(bytes: picked.bytes, fileName: picked.name);
 
-      final bytes = rawBytes is Uint8List
-          ? rawBytes
-          : Uint8List.fromList(List<int>.from(rawBytes as List));
-
-      fileNames.add(name);
-      final parsed = _parseBytes(bytes: bytes, fileName: name);
       final detectedMarketplace = _detectMarketplace(
-        fileName: name,
+        fileName: picked.name,
         headers: parsed.headers,
         rows: parsed.rows,
       );
@@ -405,21 +308,23 @@ class _HistoricalImportParser {
           expectedMarketplace != 'unknown' &&
           detectedMarketplace != expectedMarketplace) {
         throw Exception(
-          'File "$name" terdeteksi sebagai ${_marketplaceHuman(detectedMarketplace)}, '
+          'File "${picked.name}" terdeteksi sebagai ${_marketplaceHuman(detectedMarketplace)}, '
           'tapi akun yang dipilih adalah ${_marketplaceHuman(expectedMarketplace)}. '
           'File Shopee tidak boleh diupload ke akun TikTok, dan file TikTok tidak boleh diupload ke akun Shopee.',
         );
       }
 
       final detectedKind = _detectExportKind(parsed.headers, parsed.rows);
-      if (sourceLabel == 'order_export' && detectedKind == 'finance_income_export') {
+      if (sourceLabel == 'order_export' &&
+          detectedKind == 'finance_income_export') {
         throw Exception(
-          'File "$name" terlihat seperti file Income/Payout, bukan Order Export. Pilih di bagian Income/Payout, jangan di Order.',
+          'File "${picked.name}" terlihat seperti file Income/Payout, bukan Order Export.',
         );
       }
-      if (sourceLabel == 'finance_income_export' && detectedKind == 'order_export') {
+      if (sourceLabel == 'finance_income_export' &&
+          detectedKind == 'order_export') {
         throw Exception(
-          'File "$name" terlihat seperti file Order Export, bukan Income/Payout. Pilih di bagian Order, jangan di Income/Payout.',
+          'File "${picked.name}" terlihat seperti file Order Export, bukan Income/Payout.',
         );
       }
 
@@ -448,9 +353,11 @@ class _HistoricalImportParser {
       final status = (normalized['status'] ?? normalized['payout_status'] ?? '')
           .toString()
           .toLowerCase();
+
       final total = _toDouble(
         normalized['total_amount'] ?? normalized['payout_amount'],
       );
+
       final isCancelled = status.contains('cancel') ||
           status.contains('batal') ||
           status.contains('dibatalkan');
@@ -474,17 +381,17 @@ class _HistoricalImportParser {
       });
     }
 
-    return <String, dynamic>{
-      'file_name': fileNames.join(' + '),
-      'source_label': sourceLabel,
-      'headers': headers.toList(growable: false),
-      'total_rows': allRows.length,
-      'upload_rows': uploadRows,
-      'valid_rows': validRows,
-      'cancelled_rows': cancelledRows,
-      'gross_total': grossTotal,
-      'valid_gross_total': validGrossTotal,
-    };
+    return HistoricalImportParseResult(
+      fileName: fileNames.join(' + '),
+      sourceLabel: sourceLabel,
+      headers: headers.toList(growable: false),
+      totalRows: allRows.length,
+      uploadRows: uploadRows,
+      validRows: validRows,
+      cancelledRows: cancelledRows,
+      grossTotal: grossTotal,
+      validGrossTotal: validGrossTotal,
+    );
   }
 
   static _ParsedRows _parseBytes({
@@ -499,7 +406,9 @@ class _HistoricalImportParser {
       return _parseCsv(utf8.decode(bytes, allowMalformed: true));
     }
 
-    throw Exception('Format file "$fileName" belum didukung. Pakai XLSX, CSV, atau ZIP.');
+    throw Exception(
+      'Format file "$fileName" belum didukung. Pakai XLSX, CSV, atau ZIP.',
+    );
   }
 
   static _ParsedRows _parseOuterZip(Uint8List bytes) {
@@ -689,8 +598,8 @@ class _HistoricalImportParser {
     final safeHeaderIndex = headerIndex < 0 ? 0 : headerIndex;
     final headers =
         parsedLines[safeHeaderIndex].map(_cleanHeader).toList(growable: false);
-    final rows = <Map<String, String>>[];
 
+    final rows = <Map<String, String>>[];
     for (final row in parsedLines.skip(safeHeaderIndex + 1)) {
       final map = <String, String>{};
       for (var i = 0; i < headers.length && i < row.length; i++) {
@@ -725,6 +634,7 @@ class _HistoricalImportParser {
         buffer.write(ch);
       }
     }
+
     out.add(buffer.toString());
     return out;
   }
@@ -1123,6 +1033,7 @@ class _HistoricalImportParser {
 
   static String? _pick(Map<String, String> row, List<String> aliases) {
     if (row.isEmpty) return null;
+
     final normalized = <String, String>{};
     for (final entry in row.entries) {
       normalized[_normKey(entry.key)] = entry.value;
@@ -1204,18 +1115,23 @@ class _HistoricalImportParser {
 
   static double _toDouble(dynamic value) {
     if (value == null) return 0;
+
     var text = value.toString().trim();
     if (text.isEmpty) return 0;
+
     text = text.replaceAll(RegExp(r'[^0-9,\.\-]'), '');
+
     if (RegExp(r'^-?[0-9]{1,3}(\.[0-9]{3})+(,[0-9]+)?$').hasMatch(text)) {
       text = text.replaceAll('.', '').replaceAll(',', '.');
-    } else if (RegExp(r'^-?[0-9]{1,3}(,[0-9]{3})+(\.[0-9]+)?$').hasMatch(text)) {
+    } else if (RegExp(r'^-?[0-9]{1,3}(,[0-9]{3})+(\.[0-9]+)?$')
+        .hasMatch(text)) {
       text = text.replaceAll(',', '');
     } else if (RegExp(r'^-?[0-9]+,[0-9]+$').hasMatch(text)) {
       text = text.replaceAll(',', '.');
     } else {
       text = text.replaceAll(',', '');
     }
+
     return double.tryParse(text) ?? 0;
   }
 }
@@ -1224,12 +1140,18 @@ class _PickedFile {
   final String name;
   final Uint8List bytes;
 
-  const _PickedFile({required this.name, required this.bytes});
+  const _PickedFile({
+    required this.name,
+    required this.bytes,
+  });
 }
 
 class _ParsedRows {
   final List<String> headers;
   final List<Map<String, String>> rows;
 
-  const _ParsedRows({required this.headers, required this.rows});
+  const _ParsedRows({
+    required this.headers,
+    required this.rows,
+  });
 }
