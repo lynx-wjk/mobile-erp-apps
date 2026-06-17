@@ -429,7 +429,7 @@ class _MarketplaceHistoricalImportPageState
               padding: const EdgeInsets.only(bottom: 10),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  border: Border.all(color: AppUi.border),
+                  border: Border.all(color: Colors.black),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(10),
