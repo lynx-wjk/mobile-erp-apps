@@ -9,6 +9,7 @@ import '../../../core/constants/marketplace_providers.dart';
 import '../../../models/app_user.dart';
 import '../models/marketplace_account_public.dart';
 import '../services/marketplace_service.dart';
+import 'marketplace_historical_import_page.dart';
 
 class MarketplaceAccountsPage extends StatefulWidget {
   final AppUser currentUser;
@@ -265,6 +266,25 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
         SnackBar(content: Text(error.toString())),
       );
     }
+  }
+
+
+  Future<void> _openHistoricalImport() async {
+    if (_isDemoSuperAdmin) {
+      _showDemoBlocked();
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MarketplaceHistoricalImportPage(
+          currentUser: widget.currentUser,
+          accounts: _accounts,
+        ),
+      ),
+    );
+
+    if (mounted) await _loadAccounts();
   }
 
   void _showSnack(String message) {
@@ -1478,6 +1498,11 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
       appBar: AppBar(
         title: Text('Akun Marketplace'),
         actions: [
+          IconButton(
+            onPressed: _openHistoricalImport,
+            icon: Icon(Icons.upload_file_outlined),
+            tooltip: 'Import Historical Data',
+          ),
           IconButton(onPressed: _loadAccounts, icon: Icon(Icons.refresh)),
         ],
       ),
