@@ -407,7 +407,7 @@ class _MarketplaceHistoricalImportPageState
           _fileCard(
             title: '1. Order Export 90 Hari',
             subtitle:
-                'Pakai file order dari TikTok/Shopee. Data ini untuk order, status, SKU, qty, dan omzet.',
+                'Pakai file order dari TikTok/Shopee. Bisa pilih lebih dari 1 file sekaligus, termasuk Shopee export yang terpisah.',
             parsed: _orderParsed,
             onPick: _pickOrder,
             onUpload: _orderParsed == null ? null : _uploadOrder,
@@ -418,7 +418,7 @@ class _MarketplaceHistoricalImportPageState
           _fileCard(
             title: '2. Income / Payout Export 90 Hari',
             subtitle:
-                'Pakai file income/settlement/payout. Data ini untuk payout, fee, adjustment, dan finance final.',
+                'Pakai file income/settlement/payout. Bisa pilih lebih dari 1 file sekaligus jika marketplace memecah export.',
             parsed: _incomeParsed,
             onPick: _pickIncome,
             onUpload: _incomeParsed == null ? null : _uploadIncome,
