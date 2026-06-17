@@ -1038,7 +1038,7 @@ class MarketplaceService {
     int totalVariants = 0;
     int batchCount = 0;
     String? lastMessage;
-    const maxBatches = 80;
+    const maxBatches = 6;
 
     while (true) {
       batchCount += 1;
@@ -1049,9 +1049,9 @@ class MarketplaceService {
           body: {
             'tenant_id': tenantId,
             'marketplace_account_id': marketplaceAccountId,
-            'page_size': limit.clamp(1, 100),
+            'page_size': limit.clamp(1, 30),
             'max_pages': 1,
-            'max_products_per_run': 4,
+            'max_products_per_run': 2,
             'clear_cache': batchCount == 1,
             if (cursor != null) 'cursor': cursor,
           },
@@ -1120,7 +1120,7 @@ class MarketplaceService {
       }
 
       cursor = result.nextCursor;
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await Future<void>.delayed(const Duration(milliseconds: 500));
     }
   }
 
@@ -2181,6 +2181,39 @@ class MarketplaceService {
           'Data akun belum lengkap. Login ulang atau hubungi admin.');
     }
 
+    try {
+      final res = await _client.rpc(
+        'marketplace_orders_fast_list',
+        params: {
+          'p_tenant_id': tenantId,
+          'p_marketplace': marketplace,
+          'p_marketplace_account_id': marketplaceAccountId == null ||
+                  marketplaceAccountId.trim().isEmpty ||
+                  marketplaceAccountId == 'all'
+              ? null
+              : marketplaceAccountId,
+          'p_status': status,
+          'p_search': search?.trim().isEmpty == true ? null : search?.trim(),
+          'p_start': startDate,
+          'p_end': endDate,
+          'p_limit': limit,
+          'p_offset': offset,
+        },
+      );
+      final map = _rpcMap(res);
+      final rawRows = map['rows'];
+      if (map['ok'] == true && rawRows is List) {
+        final rows = rawRows
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+        await _attachPendingReturnReviewFlags(tenantId: tenantId, rows: rows);
+        return rows.map(MarketplaceOrderSummary.fromMap).toList();
+      }
+    } catch (_) {
+      // Fallback to legacy public view if the fast RPC is not installed yet.
+    }
+
     dynamic query = _client
         .from('marketplace_orders_public')
         .select()
@@ -2560,4 +2593,81 @@ class MarketplaceService {
       }
     }
   }
+
+
+  Future<Map<String, dynamic>> skuMappingExportSnapshot({
+    required String tenantId,
+    String? marketplaceAccountId,
+  }) async {
+    final res = await _client.rpc(
+      'marketplace_sku_mapping_export_snapshot',
+      params: {
+        'p_tenant_id': tenantId,
+        'p_marketplace_account_id': marketplaceAccountId == null ||
+                marketplaceAccountId.trim().isEmpty ||
+                marketplaceAccountId == 'all'
+            ? null
+            : marketplaceAccountId,
+      },
+    );
+    return _rpcMap(res);
+  }
+
+  Future<Map<String, dynamic>> importSkuMappingBulk(
+    List<Map<String, dynamic>> rows, {
+    bool syncEnabled = true,
+  }) async {
+    if (rows.isEmpty) return {'ok': true, 'upserted': 0};
+    final res = await _client.rpc(
+      'marketplace_sku_mapping_import_bulk',
+      params: {
+        'p_rows': rows,
+        'p_sync_enabled': syncEnabled,
+      },
+    );
+    return _rpcMap(res);
+  }
+
+  Future<Map<String, dynamic>> syncHppFromSkuMaps({
+    required String tenantId,
+    String? marketplaceAccountId,
+    bool overwrite = false,
+  }) async {
+    final res = await _client.rpc(
+      'marketplace_sync_hpp_from_sku_maps',
+      params: {
+        'p_tenant_id': tenantId,
+        'p_marketplace_account_id': marketplaceAccountId == null ||
+                marketplaceAccountId.trim().isEmpty ||
+                marketplaceAccountId == 'all'
+            ? null
+            : marketplaceAccountId,
+        'p_overwrite': overwrite,
+      },
+    );
+    return _rpcMap(res);
+  }
+
+  Future<Map<String, dynamic>> recalculateFinanceAfterHppMapping({
+    required String tenantId,
+    String? marketplaceAccountId,
+    String? startDate,
+    String? endDate,
+  }) async {
+    final res = await _client.rpc(
+      'marketplace_finance_recalc_after_hpp_mapping',
+      params: {
+        'p_tenant_id': tenantId,
+        'p_marketplace_account_id': marketplaceAccountId == null ||
+                marketplaceAccountId.trim().isEmpty ||
+                marketplaceAccountId == 'all'
+            ? null
+            : marketplaceAccountId,
+        'p_start': startDate,
+        'p_end': endDate,
+      },
+    );
+    return _rpcMap(res);
+  }
+
 }

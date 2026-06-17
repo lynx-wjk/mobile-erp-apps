@@ -43,6 +43,11 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
   bool _isSearchingProduct = false;
   bool _isHppLoading = false;
   bool _isHppSaving = false;
+  bool _isSyncingHppFromSkuMap = false;
+  bool _isRefreshingFinanceAfterHpp = false;
+  bool _isSkuExcelBusy = false;
+  bool _isSyncingHpp = false;
+  bool _isRecalculatingFinance = false;
   bool _hppMissingOnly = false;
   bool _unmappedOnly = false;
   bool _formSyncEnabled = true;
@@ -790,6 +795,269 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
     return null;
   }
 
+  Future<void> _exportSkuMappingExcel() async {
+    final accountId = _selectedAccountId;
+    if (accountId == null || accountId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pilih marketplace account dulu.')),
+      );
+      return;
+    }
+    if (_isSkuExcelBusy) return;
+    setState(() => _isSkuExcelBusy = true);
+    try {
+      final payload = await _service.skuMappingExportSnapshot(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: accountId,
+      );
+      final variants = (payload['variants'] is List)
+          ? List<Map<String, dynamic>>.from((payload['variants'] as List)
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e)))
+          : <Map<String, dynamic>>[];
+      final localProducts = (payload['local_products'] is List)
+          ? List<Map<String, dynamic>>.from((payload['local_products'] as List)
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e)))
+          : <Map<String, dynamic>>[];
+
+      final excel = Excel.createExcel();
+      const mapSheetName = 'sku_mapping';
+      const localSheetName = 'local_products';
+      final mapSheet = excel[mapSheetName];
+      final localSheet = excel[localSheetName];
+      if (excel.tables.containsKey('Sheet1')) excel.delete('Sheet1');
+      excel.setDefaultSheet(mapSheetName);
+
+      mapSheet.appendRow([
+        'tenant_id',
+        'marketplace_account_id',
+        'marketplace',
+        'marketplace_variant_snapshot_id',
+        'marketplace_product_id',
+        'marketplace_sku_id',
+        'marketplace_sku_code',
+        'marketplace_seller_sku',
+        'marketplace_product_name',
+        'marketplace_variant_name',
+        'local_product_id',
+        'local_sku',
+        'local_product_name',
+        'sync_enabled',
+      ].map(TextCellValue.new).toList());
+
+      for (final row in variants) {
+        mapSheet.appendRow([
+          row['tenant_id'],
+          row['marketplace_account_id'],
+          row['marketplace'],
+          row['marketplace_variant_snapshot_id'],
+          row['marketplace_product_id'],
+          row['marketplace_sku_id'],
+          row['marketplace_sku_code'],
+          row['marketplace_seller_sku'],
+          row['marketplace_product_name'],
+          row['marketplace_variant_name'],
+          row['local_product_id'],
+          row['local_sku'],
+          row['local_product_name'],
+          row['sync_enabled'] == true ? 'TRUE' : 'TRUE',
+        ].map((value) => TextCellValue(value?.toString() ?? '')).toList());
+      }
+
+      localSheet.appendRow([
+        'local_product_id',
+        'local_sku',
+        'barcode',
+        'local_product_name',
+        'kategori',
+        'hpp_default',
+        'stock_saat_ini',
+      ].map(TextCellValue.new).toList());
+      for (final row in localProducts) {
+        localSheet.appendRow([
+          row['product_id'],
+          row['kode_sku'],
+          row['kode_barcode'],
+          row['nama_barang'],
+          row['kategori'],
+          row['harga_hpp_default'],
+          row['stock_saat_ini'],
+        ].map((value) => TextCellValue(value?.toString() ?? '')).toList());
+      }
+
+      final bytes = excel.encode();
+      if (bytes == null) return;
+      final dir = await getTemporaryDirectory();
+      final file = File(
+          '${dir.path}/sku_mapping_${DateTime.now().millisecondsSinceEpoch}.xlsx');
+      await file.writeAsBytes(bytes, flush: true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Export SKU mapping ${variants.length} varian dan ${localProducts.length} SKU lokal.')));
+      }
+      await Share.shareXFiles([XFile(file.path)],
+          text: 'Template mapping SKU marketplace');
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _isSkuExcelBusy = false);
+    }
+  }
+
+  Future<void> _importSkuMappingExcel() async {
+    final selectedAccountId = _selectedAccountId?.trim();
+    final picked = await fs.openFile(
+      acceptedTypeGroups: const <fs.XTypeGroup>[
+        fs.XTypeGroup(label: 'Excel', extensions: <String>['xlsx']),
+      ],
+    );
+    final path = picked?.path;
+    if (path == null) return;
+
+    setState(() => _isSkuExcelBusy = true);
+    try {
+      final excel = Excel.decodeBytes(await File(path).readAsBytes());
+      final sheet = excel.tables['sku_mapping'] ?? excel.tables['SKU_MAPPING'];
+      if (sheet == null || sheet.rows.length < 2) {
+        throw Exception(
+            'Sheet sku_mapping tidak ditemukan atau file Excel kosong. Export template dari aplikasi dulu.');
+      }
+      final header = sheet.rows.first
+          .map((cell) => cell?.value.toString().trim() ?? '')
+          .toList();
+      int col(String name) =>
+          header.indexWhere((h) => h.toLowerCase() == name.toLowerCase());
+      String cellFrom(List<dynamic> r, List<String> names) {
+        for (final name in names) {
+          final idx = col(name);
+          if (idx >= 0 && idx < r.length) {
+            final value = r[idx]?.value.toString().trim() ?? '';
+            if (value.isNotEmpty && value.toLowerCase() != 'null') return value;
+          }
+        }
+        return '';
+      }
+
+      final rows = <Map<String, dynamic>>[];
+      for (final r in sheet.rows.skip(1)) {
+        final marketplaceSkuId = cellFrom(r, const ['marketplace_sku_id']);
+        final sellerSku = cellFrom(r, const ['marketplace_seller_sku', 'seller_sku']);
+        final snapshotId = cellFrom(r, const ['marketplace_variant_snapshot_id']);
+        final localProductId = cellFrom(r, const ['local_product_id', 'product_id']);
+        final localSku = cellFrom(r, const ['local_sku']);
+        if (marketplaceSkuId.isEmpty && sellerSku.isEmpty && snapshotId.isEmpty) {
+          continue;
+        }
+        if (localProductId.isEmpty && localSku.isEmpty) continue;
+        final rowAccountId = cellFrom(r, const ['marketplace_account_id', 'account_id']);
+        final effectiveAccountId =
+            rowAccountId.isNotEmpty ? rowAccountId : (selectedAccountId ?? '');
+        if (effectiveAccountId.isEmpty) continue;
+        rows.add({
+          'tenant_id': cellFrom(r, const ['tenant_id']).isEmpty
+              ? widget.currentUser.tenantId
+              : cellFrom(r, const ['tenant_id']),
+          'marketplace_account_id': effectiveAccountId,
+          'marketplace': cellFrom(r, const ['marketplace']).isEmpty
+              ? (_selectedAccount?.marketplace ?? 'tiktok_shop')
+              : cellFrom(r, const ['marketplace']),
+          'marketplace_variant_snapshot_id': snapshotId,
+          'marketplace_product_id': cellFrom(r, const ['marketplace_product_id']),
+          'marketplace_sku_id': marketplaceSkuId,
+          'marketplace_sku': cellFrom(r, const ['marketplace_sku', 'marketplace_sku_code']),
+          'marketplace_seller_sku': sellerSku,
+          'marketplace_product_name':
+              cellFrom(r, const ['marketplace_product_name', 'product_name']),
+          'marketplace_variant_name':
+              cellFrom(r, const ['marketplace_variant_name', 'variant_name']),
+          'local_product_id': localProductId,
+          'local_sku': localSku,
+          'local_product_name': cellFrom(r, const ['local_product_name']),
+        });
+      }
+      if (rows.isEmpty) {
+        throw Exception(
+            'Tidak ada baris SKU mapping valid. Isi local_product_id atau local_sku pada sheet sku_mapping.');
+      }
+      final result = await _service.importSkuMappingBulk(
+        rows,
+        syncEnabled: _formSyncEnabled,
+      );
+      if (result['ok'] != true) {
+        throw Exception(result['message']?.toString() ?? 'Import SKU mapping gagal.');
+      }
+      await _refreshAll();
+      if (mounted) {
+        final upserted = _resultInt(result, 'upserted');
+        final skipped = _resultInt(result, 'skipped_invalid');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Import SKU mapping selesai. Tersimpan: $upserted · Dilewati: $skipped')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _isSkuExcelBusy = false);
+    }
+  }
+
+  Future<void> _syncHppFromSkuMaps({bool overwrite = false}) async {
+    if (_isSyncingHpp) return;
+    setState(() => _isSyncingHpp = true);
+    try {
+      final result = await _service.syncHppFromSkuMaps(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: _selectedAccountId,
+        overwrite: overwrite,
+      );
+      await _loadHpp(resetPage: true);
+      if (mounted) {
+        final upserted = _resultInt(result, 'upserted');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Sync HPP dari SKU mapping selesai. Tersimpan: $upserted')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncingHpp = false);
+    }
+  }
+
+  Future<void> _recalculateFinanceAfterHpp() async {
+    if (_isRecalculatingFinance) return;
+    setState(() => _isRecalculatingFinance = true);
+    try {
+      final result = await _service.recalculateFinanceAfterHppMapping(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: _selectedAccountId,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(result['ok'] == true
+                ? 'Finance refresh dikirim. Buka ulang halaman Finance untuk melihat hasil terbaru.'
+                : (result['message']?.toString() ?? 'Finance refresh selesai.'))));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _isRecalculatingFinance = false);
+    }
+  }
+
   Future<void> _pullMarketplaceProducts() async {
     final accountId = _selectedAccountId;
     if (accountId == null || accountId.isEmpty) {
@@ -823,6 +1091,74 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       );
     } finally {
       if (mounted) setState(() => _isPulling = false);
+    }
+  }
+
+
+  Future<void> _syncHppFromSkuMappings({bool overwrite = false}) async {
+    final accountId = _selectedAccountId;
+    if (accountId == null || accountId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pilih marketplace account dulu.')),
+      );
+      return;
+    }
+
+    setState(() => _isSyncingHppFromSkuMap = true);
+    try {
+      final result = await _service.syncHppFromSkuMaps(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: accountId,
+        overwrite: overwrite,
+      );
+      await _refreshAll();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']?.toString() ??
+              '${_resultInt(result, 'upserted')} HPP mapping disinkronkan.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _isSyncingHppFromSkuMap = false);
+    }
+  }
+
+  Future<void> _refreshFinanceAfterHppMapping() async {
+    final accountId = _selectedAccountId;
+    if (accountId == null || accountId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pilih marketplace account dulu.')),
+      );
+      return;
+    }
+
+    setState(() => _isRefreshingFinanceAfterHpp = true);
+    try {
+      final now = DateTime.now();
+      final result = await _service.refreshFinanceAfterHppMapping(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: accountId,
+        startDate: DateTime(now.year, now.month, 1),
+        endDate: DateTime(now.year, now.month, now.day),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']?.toString() ??
+              'Finance siap dibaca ulang setelah sinkron HPP.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _isRefreshingFinanceAfterHpp = false);
     }
   }
 
@@ -1330,6 +1666,38 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                 onPressed: _refreshAll,
                 icon: Icon(Icons.refresh),
                 label: Text('Refresh'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isSkuExcelBusy ? null : _exportSkuMappingExcel,
+                icon: _isSkuExcelBusy
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(Icons.file_download_outlined),
+                label: Text('Export SKU Mapping'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isSkuExcelBusy ? null : _importSkuMappingExcel,
+                icon: Icon(Icons.file_upload_outlined),
+                label: Text('Import SKU Mapping'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isSyncingHpp ? null : () => _syncHppFromSkuMaps(),
+                icon: _isSyncingHpp
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(Icons.price_check_outlined),
+                label: Text('Sync HPP dari Mapping'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isRecalculatingFinance
+                    ? null
+                    : _recalculateFinanceAfterHpp,
+                icon: Icon(Icons.calculate_outlined),
+                label: Text('Refresh Finance'),
               ),
             ],
           ),
