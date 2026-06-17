@@ -234,7 +234,7 @@ class MarketplaceHistoricalImportService {
           'marketplace_historical_finalize_process_step',
           params: {
             'p_job_id': jobId,
-            'p_limit': 100,
+            'p_limit': 25,
           },
         ),
       );
