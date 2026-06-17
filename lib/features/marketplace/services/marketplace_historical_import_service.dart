@@ -198,7 +198,7 @@ class MarketplaceHistoricalImportService {
   }
 
   Future<_PickedFile?> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['xlsx', 'csv', 'zip'],
       withData: true,
@@ -208,7 +208,8 @@ class MarketplaceHistoricalImportService {
     final file = result.files.single;
     final bytes = file.bytes;
     if (bytes == null || bytes.isEmpty) {
-      throw Exception('File belum bisa dibaca. Pilih file lokal XLSX/CSV/ZIP, bukan cloud placeholder.');
+      throw Exception(
+          'File belum bisa dibaca. Pilih file lokal XLSX/CSV/ZIP, bukan cloud placeholder.');
     }
     return _PickedFile(name: file.name, bytes: bytes);
   }
@@ -248,7 +249,8 @@ class MarketplaceHistoricalImportService {
       allRows.addAll(parsed.rows);
       headers.addAll(parsed.headers);
     } else {
-      throw Exception('Format file belum didukung. Pakai XLSX, CSV, atau ZIP berisi XLSX/CSV.');
+      throw Exception(
+          'Format file belum didukung. Pakai XLSX, CSV, atau ZIP berisi XLSX/CSV.');
     }
 
     final uploadRows = <Map<String, dynamic>>[];
@@ -260,8 +262,11 @@ class MarketplaceHistoricalImportService {
     for (var i = 0; i < allRows.length; i++) {
       final raw = allRows[i];
       final normalized = normalizer(raw);
-      final status = (normalized['status'] ?? normalized['payout_status'] ?? '').toString().toLowerCase();
-      final total = _toDouble(normalized['total_amount'] ?? normalized['payout_amount']);
+      final status = (normalized['status'] ?? normalized['payout_status'] ?? '')
+          .toString()
+          .toLowerCase();
+      final total =
+          _toDouble(normalized['total_amount'] ?? normalized['payout_amount']);
       final isCancelled = status.contains('cancel') ||
           status.contains('batal') ||
           status.contains('dibatalkan');
@@ -301,7 +306,9 @@ class MarketplaceHistoricalImportService {
 
     for (final table in excel.tables.values) {
       final sheetRows = table.rows
-          .map((row) => row.map((cell) => _cleanCell(cell?.value?.toString() ?? '')).toList())
+          .map((row) => row
+              .map((cell) => _cleanCell(cell?.value?.toString() ?? ''))
+              .toList())
           .where((row) => row.any((cell) => cell.trim().isNotEmpty))
           .toList();
 
@@ -339,7 +346,8 @@ class MarketplaceHistoricalImportService {
   }
 
   _ParsedRows _parseCsv(String text) {
-    final lines = const LineSplitter().convert(text.replaceAll('\r\n', '\n').replaceAll('\r', '\n'));
+    final lines = const LineSplitter()
+        .convert(text.replaceAll('\r\n', '\n').replaceAll('\r', '\n'));
     final parsedLines = lines
         .map(_parseCsvLine)
         .where((row) => row.any((cell) => cell.trim().isNotEmpty))
@@ -388,7 +396,8 @@ class MarketplaceHistoricalImportService {
     return out;
   }
 
-  Map<String, dynamic> _normalizeOrderRow(Map<String, String> row, String marketplace) {
+  Map<String, dynamic> _normalizeOrderRow(
+      Map<String, String> row, String marketplace) {
     String? pick(List<String> aliases) => _pick(row, aliases);
 
     final status = pick([
@@ -453,10 +462,12 @@ class MarketplaceHistoricalImportService {
         'total harga produk',
         'gross amount',
       ]),
-    }..removeWhere((_, value) => value == null || value.toString().trim().isEmpty);
+    }..removeWhere(
+        (_, value) => value == null || value.toString().trim().isEmpty);
   }
 
-  Map<String, dynamic> _normalizeIncomeRow(Map<String, String> row, String marketplace) {
+  Map<String, dynamic> _normalizeIncomeRow(
+      Map<String, String> row, String marketplace) {
     String? pick(List<String> aliases) => _pick(row, aliases);
 
     return {
@@ -528,7 +539,8 @@ class MarketplaceHistoricalImportService {
         'tanggal settlement',
         'waktu settlement',
       ]),
-    }..removeWhere((_, value) => value == null || value.toString().trim().isEmpty);
+    }..removeWhere(
+        (_, value) => value == null || value.toString().trim().isEmpty);
   }
 
   String? _pick(Map<String, String> row, List<String> aliases) {
@@ -545,7 +557,9 @@ class MarketplaceHistoricalImportService {
     for (final entry in normalized.entries) {
       for (final alias in aliases) {
         final needle = _normKey(alias);
-        if (needle.isNotEmpty && entry.key.contains(needle) && entry.value.trim().isNotEmpty) {
+        if (needle.isNotEmpty &&
+            entry.key.contains(needle) &&
+            entry.value.trim().isNotEmpty) {
           return entry.value.trim();
         }
       }
@@ -555,21 +569,19 @@ class MarketplaceHistoricalImportService {
   }
 
   String _normKey(String value) {
-    return value
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), '')
-        .trim();
+    return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '').trim();
   }
 
   String _cleanHeader(String value) {
-    return _cleanCell(value)
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
+    return _cleanCell(value).replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   String _cleanCell(String value) {
     var v = value.trim();
-    v = v.replaceAll(RegExp(r'^(TextCellValue|IntCellValue|DoubleCellValue|DateCellValue)\('), '');
+    v = v.replaceAll(
+        RegExp(
+            r'^(TextCellValue|IntCellValue|DoubleCellValue|DateCellValue)\('),
+        '');
     v = v.replaceAll(RegExp(r'\)$'), '');
     if (v.startsWith('"') && v.endsWith('"') && v.length >= 2) {
       v = v.substring(1, v.length - 1);
@@ -584,7 +596,8 @@ class MarketplaceHistoricalImportService {
     text = text.replaceAll(RegExp(r'[^0-9,\.\-]'), '');
     if (RegExp(r'^-?[0-9]{1,3}(\.[0-9]{3})+(,[0-9]+)?$').hasMatch(text)) {
       text = text.replaceAll('.', '').replaceAll(',', '.');
-    } else if (RegExp(r'^-?[0-9]{1,3}(,[0-9]{3})+(\.[0-9]+)?$').hasMatch(text)) {
+    } else if (RegExp(r'^-?[0-9]{1,3}(,[0-9]{3})+(\.[0-9]+)?$')
+        .hasMatch(text)) {
       text = text.replaceAll(',', '');
     } else if (RegExp(r'^-?[0-9]+,[0-9]+$').hasMatch(text)) {
       text = text.replaceAll(',', '.');
@@ -594,7 +607,8 @@ class MarketplaceHistoricalImportService {
     return double.tryParse(text) ?? 0;
   }
 
-  List<List<Map<String, dynamic>>> _chunks(List<Map<String, dynamic>> rows, int size) {
+  List<List<Map<String, dynamic>>> _chunks(
+      List<Map<String, dynamic>> rows, int size) {
     final out = <List<Map<String, dynamic>>>[];
     for (var i = 0; i < rows.length; i += size) {
       out.add(rows.sublist(i, i + size > rows.length ? rows.length : i + size));
