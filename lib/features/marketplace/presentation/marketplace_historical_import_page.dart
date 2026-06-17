@@ -299,32 +299,50 @@ class _MarketplaceHistoricalImportPageState
   }
 
 
+  void _setFinalizeProgress(Map<String, dynamic> status) {
+    if (!mounted) return;
+    setState(() {
+      _finalizeJobStatus = status;
+      _message = _buildFinalizeProgressMessage(status);
+    });
+  }
+
   Future<void> _finalizeBootstrap() async {
     final account = _selectedAccount;
-    if (account == null) return;
+    if (account == null || _busy || _finalizeTapLocked) return;
 
-    await _run(() async {
-      final result = await _service.finalizeBootstrap(
-        marketplaceAccountId: account.marketplaceAccountId,
-        minValidOrders: 1,
-      );
+    setState(() => _finalizeTapLocked = true);
 
-      final validation = await _service.fetchValidationSnapshot(
-        marketplaceAccountId: account.marketplaceAccountId,
-      );
-      final payout = await _service.fetchPayoutReadiness(
-        marketplaceAccountId: account.marketplaceAccountId,
-      );
-      final status = await _service.fetchFinalizeStatus();
+    try {
+      await _run(() async {
+        final result = await _service.finalizeBootstrap(
+          marketplaceAccountId: account.marketplaceAccountId,
+          minValidOrders: 1,
+          onProgress: _setFinalizeProgress,
+        );
 
-      if (!mounted) return;
-      setState(() {
-        _validation = validation;
-        _payoutReadiness = payout;
-        _finalizeStatus = status;
-        _message = _buildFinalizeMessage(result, account);
+        final validation = await _service.fetchValidationSnapshot(
+          marketplaceAccountId: account.marketplaceAccountId,
+        );
+        final payout = await _service.fetchPayoutReadiness(
+          marketplaceAccountId: account.marketplaceAccountId,
+        );
+        final status = await _service.fetchFinalizeStatus();
+
+        if (!mounted) return;
+        setState(() {
+          _validation = validation;
+          _payoutReadiness = payout;
+          _finalizeStatus = status;
+          _message = _buildFinalizeMessage(result, account);
+        });
       });
-    });
+    } finally {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (mounted) {
+        setState(() => _finalizeTapLocked = false);
+      }
+    }
   }
 
   int _intValue(dynamic value) {
@@ -380,6 +398,47 @@ class _MarketplaceHistoricalImportPageState
     return 'Belum finalisasi live: ${pending.join(', ')}.';
   }
 
+  double _finalizePercent(Map<String, dynamic> status) {
+    final value = status['progress_percent'];
+    if (value is num) return (value / 100).clamp(0.0, 1.0).toDouble();
+    final parsed = double.tryParse(value?.toString() ?? '') ?? 0;
+    return (parsed / 100).clamp(0.0, 1.0).toDouble();
+  }
+
+  String _phaseLabel(String phase) {
+    switch (phase) {
+      case 'orders':
+        return 'Memproses order';
+      case 'items':
+        return 'Memproses item order';
+      case 'finance':
+        return 'Memproses income/payout';
+      case 'finalizing':
+        return 'Menyelesaikan finalisasi';
+      case 'done':
+        return 'Selesai';
+      default:
+        return 'Menyiapkan finalisasi';
+    }
+  }
+
+  String _buildFinalizeProgressMessage(Map<String, dynamic> status) {
+    final state = status['status']?.toString() ?? '-';
+    final phase = status['phase']?.toString() ?? '-';
+    final percent = ((_finalizePercent(status) * 100).clamp(0.0, 100.0))
+        .toStringAsFixed(1);
+
+    if (state == 'done') {
+      return 'Finalisasi historical import selesai.';
+    }
+
+    if (state == 'error') {
+      return 'Finalisasi gagal. ${status['last_error'] ?? status['message'] ?? ''}';
+    }
+
+    return '${_phaseLabel(phase)}: $percent%. Halaman ini dapat dibiarkan terbuka sampai proses selesai.';
+  }
+
   String _buildFinalizeMessage(
     Map<String, dynamic> result,
     MarketplaceAccountPublic account,
@@ -400,6 +459,57 @@ class _MarketplaceHistoricalImportPageState
     }
 
     return 'Finalisasi ${account.marketplaceLabel} · ${account.safeStoreName} berhasil divalidasi. Data staging siap diproses ke live.';
+  }
+
+  Widget _finalizeProgressCard() {
+    final status = _finalizeJobStatus;
+    if (status == null) return const SizedBox.shrink();
+
+    final value = _finalizePercent(status);
+    final percent = (value * 100).toStringAsFixed(1);
+    final phase = status['phase']?.toString() ?? '-';
+    final state = status['status']?.toString() ?? '-';
+
+    return NiceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionTitle(title: 'Progress Finalisasi'),
+          const SizedBox(height: 8),
+          Text(
+            _phaseLabel(phase),
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 10),
+          LinearProgressIndicator(value: value, minHeight: 10),
+          const SizedBox(height: 10),
+          _MetricLine(label: 'Progress', value: '$percent%'),
+          _MetricLine(label: 'Status job', value: state),
+          _MetricLine(
+            label: 'Order',
+            value:
+                '${_intValue(status['orders_upserted'])} / ${_intValue(status['total_orders'])}',
+          ),
+          _MetricLine(
+            label: 'Item',
+            value:
+                '${_intValue(status['items_upserted'])} / ${_intValue(status['total_items'])}',
+          ),
+          _MetricLine(
+            label: 'Payout',
+            value:
+                '${_intValue(status['finance_reports_upserted'])} / ${_intValue(status['total_finance_orders'])}',
+          ),
+          if (state == 'error' && status['last_error'] != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              status['last_error'].toString(),
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _finalizeStatusCard() {
@@ -677,6 +787,10 @@ class _MarketplaceHistoricalImportPageState
             _uploadProgressCard(),
             const SizedBox(height: 14),
           ],
+          if (_finalizeJobStatus != null) ...[
+            _finalizeProgressCard(),
+            const SizedBox(height: 14),
+          ],
           NiceCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -777,7 +891,7 @@ class _MarketplaceHistoricalImportPageState
                 label: const Text('Validasi Import'),
               ),
               OutlinedButton.icon(
-                onPressed: _busy || account == null ? null : _finalizeBootstrap,
+                onPressed: _busy || _finalizeTapLocked || account == null ? null : _finalizeBootstrap,
                 icon: const Icon(Icons.verified_outlined),
                 label: const Text('Finalize Bootstrap'),
               ),

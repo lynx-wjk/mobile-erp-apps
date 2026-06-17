@@ -11,6 +11,10 @@ typedef HistoricalImportUploadProgress = void Function(
   int totalRows,
 );
 
+typedef HistoricalFinalizeProgress = void Function(
+  Map<String, dynamic> status,
+);
+
 class HistoricalImportParseResult {
   final String fileName;
   final String sourceLabel;
@@ -199,16 +203,51 @@ class MarketplaceHistoricalImportService {
   Future<Map<String, dynamic>> finalizeBootstrap({
     required String marketplaceAccountId,
     required int minValidOrders,
+    HistoricalFinalizeProgress? onProgress,
   }) async {
-    final result = await _rpcWithRetry(
-      'marketplace_finalize_export_bootstrap',
-      params: {
-        'p_account_id': marketplaceAccountId,
-        'p_min_valid_orders': minValidOrders,
-        'p_force': false,
-      },
+    var status = _map(
+      await _rpcWithRetry(
+        'marketplace_historical_finalize_start',
+        params: {
+          'p_account_id': marketplaceAccountId,
+          'p_min_valid_orders': minValidOrders,
+          'p_force': false,
+        },
+      ),
     );
-    return _map(result);
+
+    onProgress?.call(status);
+
+    final jobId = status['job_id']?.toString();
+    if (jobId == null || jobId.isEmpty) {
+      return status;
+    }
+
+    for (var step = 0; step < 360; step++) {
+      final state = status['status']?.toString();
+      if (state == 'done' || state == 'error') return status;
+
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      status = _map(
+        await _rpcWithRetry(
+          'marketplace_historical_finalize_process_step',
+          params: {
+            'p_job_id': jobId,
+            'p_limit': 500,
+          },
+        ),
+      );
+
+      onProgress?.call(status);
+    }
+
+    return {
+      ...status,
+      'ok': false,
+      'message':
+          'Finalisasi belum selesai dalam batas waktu pemantauan aplikasi. Klik Finalize Bootstrap lagi untuk melanjutkan job yang sama.',
+    };
   }
 
 
