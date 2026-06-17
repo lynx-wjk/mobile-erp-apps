@@ -1,4 +1,5 @@
 // ignore_for_file: unused_element
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1498,11 +1499,12 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
       appBar: AppBar(
         title: Text('Akun Marketplace'),
         actions: [
-          IconButton(
-            onPressed: _openHistoricalImport,
-            icon: Icon(Icons.upload_file_outlined),
-            tooltip: 'Import Historical Data',
-          ),
+          if (kIsWeb)
+            IconButton(
+              onPressed: _openHistoricalImport,
+              icon: Icon(Icons.upload_file_outlined),
+              tooltip: 'Import Historical Data',
+            ),
           IconButton(onPressed: _loadAccounts, icon: Icon(Icons.refresh)),
         ],
       ),

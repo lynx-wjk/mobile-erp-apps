@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/ui/app_ui.dart';
@@ -37,6 +38,9 @@ class _MarketplaceHistoricalImportPageState
   bool _busy = false;
   String? _message;
   String? _error;
+  String? _uploadPhase;
+  int _uploadDoneRows = 0;
+  int _uploadTotalRows = 0;
 
   List<MarketplaceAccountPublic> get _activeAccounts => widget.accounts
       .where((account) => account.status.toLowerCase() == 'active')
@@ -76,6 +80,25 @@ class _MarketplaceHistoricalImportPageState
     }
   }
 
+
+  void _setUploadProgress(String phase, int done, int total) {
+    if (!mounted) return;
+    setState(() {
+      _uploadPhase = phase;
+      _uploadDoneRows = done;
+      _uploadTotalRows = total;
+    });
+  }
+
+  void _clearUploadProgress() {
+    if (!mounted) return;
+    setState(() {
+      _uploadPhase = null;
+      _uploadDoneRows = 0;
+      _uploadTotalRows = 0;
+    });
+  }
+
   Future<void> _pickOrder() async {
     final account = _selectedAccount;
     if (account == null) return;
@@ -112,6 +135,7 @@ class _MarketplaceHistoricalImportPageState
     });
   }
 
+
   Future<void> _uploadOrder() async {
     final account = _selectedAccount;
     final parsed = _orderParsed;
@@ -122,14 +146,18 @@ class _MarketplaceHistoricalImportPageState
         marketplaceAccountId: account.marketplaceAccountId,
         marketplace: account.marketplace,
         parsed: parsed,
+        onProgress: (done, total) =>
+            _setUploadProgress('Upload order export', done, total),
       );
       setState(() {
         _orderBatchId = result.batchId;
         _message =
-            'Order export masuk staging bertahap: ${result.uploadedRows}/${result.totalRows} row.';
+            'Order export masuk staging: ${result.uploadedRows}/${result.totalRows} row.';
       });
+      _clearUploadProgress();
     });
   }
+
 
   Future<void> _uploadIncome() async {
     final account = _selectedAccount;
@@ -141,12 +169,67 @@ class _MarketplaceHistoricalImportPageState
         marketplaceAccountId: account.marketplaceAccountId,
         marketplace: account.marketplace,
         parsed: parsed,
+        onProgress: (done, total) =>
+            _setUploadProgress('Upload income/payout export', done, total),
       );
       setState(() {
         _incomeBatchId = result.batchId;
         _message =
-            'Income/payout export masuk staging bertahap: ${result.uploadedRows}/${result.totalRows} row.';
+            'Income/payout export masuk staging: ${result.uploadedRows}/${result.totalRows} row.';
       });
+      _clearUploadProgress();
+    });
+  }
+
+
+  Future<void> _uploadAll() async {
+    final account = _selectedAccount;
+    if (account == null) return;
+
+    final hasOrderToUpload = _orderParsed != null && _orderBatchId == null;
+    final hasIncomeToUpload = _incomeParsed != null && _incomeBatchId == null;
+
+    if (!hasOrderToUpload && !hasIncomeToUpload) {
+      setState(() {
+        _error =
+            'Belum ada file baru untuk diupload. Pilih Order dan/atau Income dulu.';
+      });
+      return;
+    }
+
+    await _run(() async {
+      final uploadedParts = <String>[];
+
+      if (hasOrderToUpload) {
+        final parsed = _orderParsed!;
+        final result = await _service.uploadOrderExport(
+          marketplaceAccountId: account.marketplaceAccountId,
+          marketplace: account.marketplace,
+          parsed: parsed,
+          onProgress: (done, total) =>
+              _setUploadProgress('Upload order export', done, total),
+        );
+        setState(() => _orderBatchId = result.batchId);
+        uploadedParts.add('order ${result.uploadedRows}/${result.totalRows}');
+      }
+
+      if (hasIncomeToUpload) {
+        final parsed = _incomeParsed!;
+        final result = await _service.uploadIncomeExport(
+          marketplaceAccountId: account.marketplaceAccountId,
+          marketplace: account.marketplace,
+          parsed: parsed,
+          onProgress: (done, total) =>
+              _setUploadProgress('Upload income/payout export', done, total),
+        );
+        setState(() => _incomeBatchId = result.batchId);
+        uploadedParts.add('income ${result.uploadedRows}/${result.totalRows}');
+      }
+
+      setState(() {
+        _message = 'Upload staging selesai: ${uploadedParts.join(' + ')} row.';
+      });
+      _clearUploadProgress();
     });
   }
 
@@ -296,6 +379,45 @@ class _MarketplaceHistoricalImportPageState
     );
   }
 
+
+  Widget _uploadProgressCard() {
+    final phase = _uploadPhase;
+    if (phase == null) return const SizedBox.shrink();
+
+    final total = _uploadTotalRows <= 0 ? 1 : _uploadTotalRows;
+    final value = (_uploadDoneRows / total).clamp(0.0, 1.0).toDouble();
+    final percent = (value * 100).toStringAsFixed(1);
+
+    return NiceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionTitle(title: 'Progress Upload'),
+          const SizedBox(height: 8),
+          Text(
+            phase,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 10),
+          LinearProgressIndicator(
+            value: value,
+            minHeight: 10,
+          ),
+          const SizedBox(height: 10),
+          _MetricLine(
+            label: 'Progress',
+            value: '$_uploadDoneRows / $_uploadTotalRows row ($percent%)',
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Jangan tutup tab browser sampai selesai. Menu ini web-only karena Android bisa memutus koneksi saat app diminimize.',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _jsonBox(String title, Map<String, dynamic>? value) {
     if (value == null) return const SizedBox.shrink();
     const encoder = JsonEncoder.withIndent('  ');
@@ -317,6 +439,32 @@ class _MarketplaceHistoricalImportPageState
   @override
   Widget build(BuildContext context) {
     final account = _selectedAccount;
+
+    if (!kIsWeb) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Import Historical Marketplace'),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
+          children: const [
+            NiceCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SectionTitle(title: 'Import Historical Data hanya di Web'),
+                  SizedBox(height: 8),
+                  Text(
+                    'Upload file export besar tidak tersedia di Android app. Gunakan Flutter Web dari browser desktop agar koneksi upload tidak diputus saat aplikasi diminimize.',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -357,6 +505,10 @@ class _MarketplaceHistoricalImportPageState
               ),
               child: Text(_message!, style: const TextStyle(fontWeight: FontWeight.w800)),
             ),
+            const SizedBox(height: 14),
+          ],
+          if (_uploadPhase != null) ...[
+            _uploadProgressCard(),
             const SizedBox(height: 14),
           ],
           NiceCard(
@@ -431,15 +583,22 @@ class _MarketplaceHistoricalImportPageState
             runSpacing: 8,
             children: [
               FilledButton.icon(
-                onPressed: _busy || account == null ? null : _validate,
+                onPressed: _busy || account == null || (_orderParsed == null && _incomeParsed == null)
+                    ? null
+                    : _uploadAll,
                 icon: _busy
                     ? const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.fact_check_outlined),
-                label: Text(_busy ? 'Memproses...' : 'Validasi Import'),
+                    : const Icon(Icons.cloud_upload_outlined),
+                label: Text(_busy ? 'Upload berjalan...' : 'Upload Order + Income'),
+              ),
+              FilledButton.icon(
+                onPressed: _busy || account == null ? null : _validate,
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('Validasi Import'),
               ),
               OutlinedButton.icon(
                 onPressed: null,

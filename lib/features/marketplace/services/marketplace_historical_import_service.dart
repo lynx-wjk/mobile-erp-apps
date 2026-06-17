@@ -7,6 +7,8 @@ import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+typedef HistoricalImportUploadProgress = void Function(int uploadedRows, int totalRows);
+
 class HistoricalImportParseResult {
   final String fileName;
   final String sourceLabel;
@@ -130,10 +132,50 @@ class MarketplaceHistoricalImportService {
     return HistoricalImportParseResult.fromMap(parsed);
   }
 
+
   Future<HistoricalImportUploadResult> uploadOrderExport({
     required String marketplaceAccountId,
     required String marketplace,
     required HistoricalImportParseResult parsed,
+    HistoricalImportUploadProgress? onProgress,
+  }) async {
+    final batchId = await _rpcWithRetry(
+      'marketplace_create_order_export_import_batch',
+      params: {
+        'p_marketplace_account_id': marketplaceAccountId,
+        'p_marketplace': marketplace,
+        'p_source_type': 'order_export',
+        'p_original_filename': parsed.fileName,
+        'p_total_rows': parsed.totalRows,
+        'p_valid_rows': parsed.validRows,
+        'p_cancelled_rows': parsed.cancelledRows,
+        'p_gross_total': parsed.grossTotal,
+        'p_valid_gross_total': parsed.validGrossTotal,
+      },
+    );
+
+    final id = batchId.toString();
+    var uploaded = 0;
+    onProgress?.call(uploaded, parsed.totalRows);
+
+    for (final chunk in _chunks(parsed.uploadRows, 100)) {
+      await _rpcWithRetry(
+        'marketplace_append_order_export_import_rows',
+        params: {
+          'p_batch_id': id,
+          'p_rows': chunk,
+        },
+      );
+      uploaded += chunk.length;
+      onProgress?.call(uploaded, parsed.totalRows);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
+
+    return HistoricalImportUploadResult(
+      batchId: id,
+      totalRows: parsed.totalRows,
+      uploadedRows: uploaded,
+    );
   }) async {
     final batchId = await _client.rpc(
       'marketplace_create_order_export_import_batch',
@@ -171,10 +213,49 @@ class MarketplaceHistoricalImportService {
     );
   }
 
+
   Future<HistoricalImportUploadResult> uploadIncomeExport({
     required String marketplaceAccountId,
     required String marketplace,
     required HistoricalImportParseResult parsed,
+    HistoricalImportUploadProgress? onProgress,
+  }) async {
+    final batchId = await _rpcWithRetry(
+      'marketplace_create_finance_income_import_batch',
+      params: {
+        'p_marketplace_account_id': marketplaceAccountId,
+        'p_marketplace': marketplace,
+        'p_source_type': 'finance_income_export',
+        'p_original_filename': parsed.fileName,
+        'p_total_rows': parsed.totalRows,
+        'p_payout_total': parsed.validGrossTotal,
+        'p_fee_total': 0,
+        'p_adjustment_total': 0,
+      },
+    );
+
+    final id = batchId.toString();
+    var uploaded = 0;
+    onProgress?.call(uploaded, parsed.totalRows);
+
+    for (final chunk in _chunks(parsed.uploadRows, 100)) {
+      await _rpcWithRetry(
+        'marketplace_append_finance_income_import_rows',
+        params: {
+          'p_batch_id': id,
+          'p_rows': chunk,
+        },
+      );
+      uploaded += chunk.length;
+      onProgress?.call(uploaded, parsed.totalRows);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
+
+    return HistoricalImportUploadResult(
+      batchId: id,
+      totalRows: parsed.totalRows,
+      uploadedRows: uploaded,
+    );
   }) async {
     final batchId = await _client.rpc(
       'marketplace_create_finance_income_import_batch',
