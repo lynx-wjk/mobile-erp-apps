@@ -36,6 +36,8 @@ class _MarketplaceHistoricalImportPageState
   Map<String, dynamic>? _validation;
   Map<String, dynamic>? _payoutReadiness;
   List<Map<String, dynamic>> _finalizeStatus = const [];
+  Map<String, dynamic>? _finalizeJobStatus;
+  bool _finalizeTapLocked = false;
 
   bool _busy = false;
   String? _message;
