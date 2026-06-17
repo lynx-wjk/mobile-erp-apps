@@ -223,11 +223,11 @@ class MarketplaceHistoricalImportService {
       return status;
     }
 
-    for (var step = 0; step < 360; step++) {
+    for (var step = 0; step < 5000; step++) {
       final state = status['status']?.toString();
       if (state == 'done' || state == 'error') return status;
 
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
 
       status = _map(
         await _rpcWithRetry(
@@ -246,7 +246,7 @@ class MarketplaceHistoricalImportService {
       ...status,
       'ok': false,
       'message':
-          'Finalisasi belum selesai dalam batas waktu pemantauan aplikasi. Klik Finalize Bootstrap lagi untuk melanjutkan job yang sama.',
+          'Finalisasi masih berjalan. Halaman ini akan terus memproses selama tetap terbuka. Jika halaman tertutup, klik Finalize Bootstrap lagi untuk melanjutkan job yang sama.',
     };
   }
 
