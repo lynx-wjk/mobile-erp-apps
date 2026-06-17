@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -96,7 +97,7 @@ class MarketplaceHistoricalImportService {
 
     final id = batchId.toString();
     var uploaded = 0;
-    for (final chunk in _chunks(parsed.uploadRows, 500)) {
+    for (final chunk in _chunks(parsed.uploadRows, 200)) {
       await _client.rpc(
         'marketplace_append_order_export_import_rows',
         params: {
@@ -105,6 +106,7 @@ class MarketplaceHistoricalImportService {
         },
       );
       uploaded += chunk.length;
+      await Future<void>.delayed(const Duration(milliseconds: 1));
     }
 
     return HistoricalImportUploadResult(
@@ -135,7 +137,7 @@ class MarketplaceHistoricalImportService {
 
     final id = batchId.toString();
     var uploaded = 0;
-    for (final chunk in _chunks(parsed.uploadRows, 500)) {
+    for (final chunk in _chunks(parsed.uploadRows, 200)) {
       await _client.rpc(
         'marketplace_append_finance_income_import_rows',
         params: {
@@ -144,6 +146,7 @@ class MarketplaceHistoricalImportService {
         },
       );
       uploaded += chunk.length;
+      await Future<void>.delayed(const Duration(milliseconds: 1));
     }
 
     return HistoricalImportUploadResult(
@@ -270,7 +273,10 @@ class MarketplaceHistoricalImportService {
 
       uploadRows.add({
         'row_index': i + 1,
-        'raw': raw,
+        'raw': {
+          '_row_index': i + 1,
+          '_source': sourceLabel,
+        },
         'normalized': normalized,
       });
     }
@@ -338,6 +344,7 @@ class MarketplaceHistoricalImportService {
     return Uint8List.fromList(List<int>.from(content as Iterable));
   }
 
+
   _ParsedRows _parseXlsx(Uint8List bytes) {
     final archive = ZipDecoder().decodeBytes(bytes);
     final files = <String, ArchiveFile>{};
@@ -363,17 +370,11 @@ class MarketplaceHistoricalImportService {
       final matrix = _readSheetRows(sheetXml, sharedStrings);
       if (matrix.isEmpty) continue;
 
-      var headerIndex = -1;
-      for (var i = 0; i < matrix.length; i++) {
-        final nonEmpty = matrix[i].where((x) => x.trim().isNotEmpty).length;
-        if (nonEmpty >= 2) {
-          headerIndex = i;
-          break;
-        }
-      }
+      final headerIndex = _findHeaderIndex(matrix);
       if (headerIndex < 0) continue;
 
-      final headers = matrix[headerIndex].map(_cleanHeader).toList(growable: false);
+      final headers =
+          matrix[headerIndex].map(_cleanHeader).toList(growable: false);
       allHeaders.addAll(headers.where((h) => h.isNotEmpty));
 
       for (var r = headerIndex + 1; r < matrix.length; r++) {
@@ -418,17 +419,25 @@ class MarketplaceHistoricalImportService {
     return strings;
   }
 
+
   List<List<String>> _readSheetRows(String xml, List<String> sharedStrings) {
-    final rows = <List<String>>[];
-    final rowRegex = RegExp(r'<row\b[^>]*>(.*?)</row>', dotAll: true);
+    final byRow = <int, List<String>>{};
+    final rowRegex = RegExp(r'<row\b([^>]*)>(.*?)</row>', dotAll: true);
     final cellRegex = RegExp(r'<c\b([^>]*)>(.*?)</c>', dotAll: true);
     final attrRegex = RegExp(r'(\w+)="([^"]*)"');
     final vRegex = RegExp(r'<v\b[^>]*>(.*?)</v>', dotAll: true);
     final tRegex = RegExp(r'<t\b[^>]*>(.*?)</t>', dotAll: true);
+    var fallbackRow = 0;
 
     for (final rowMatch in rowRegex.allMatches(xml)) {
-      final rowBody = rowMatch.group(1) ?? '';
-      final values = <String>[];
+      final rowAttrs = <String, String>{};
+      for (final attr in attrRegex.allMatches(rowMatch.group(1) ?? '')) {
+        rowAttrs[attr.group(1) ?? ''] = attr.group(2) ?? '';
+      }
+
+      final rowNumber = int.tryParse(rowAttrs['r'] ?? '') ?? ++fallbackRow;
+      final values = byRow.putIfAbsent(rowNumber, () => <String>[]);
+      final rowBody = rowMatch.group(2) ?? '';
 
       for (final cellMatch in cellRegex.allMatches(rowBody)) {
         final attrs = <String, String>{};
@@ -467,13 +476,13 @@ class MarketplaceHistoricalImportService {
 
         values[index] = value.trim();
       }
-
-      if (values.any((x) => x.trim().isNotEmpty)) {
-        rows.add(values);
-      }
     }
 
-    return rows;
+    final keys = byRow.keys.toList()..sort();
+    return keys
+        .map((key) => byRow[key] ?? <String>[])
+        .where((row) => row.any((x) => x.trim().isNotEmpty))
+        .toList(growable: false);
   }
 
   int _cellRefToIndex(String ref) {
@@ -490,6 +499,7 @@ class MarketplaceHistoricalImportService {
     return utf8.decode(_archiveFileBytes(file), allowMalformed: true);
   }
 
+
   _ParsedRows _parseCsv(String text) {
     final lines = const LineSplitter()
         .convert(text.replaceAll('\r\n', '\n').replaceAll('\r', '\n'));
@@ -500,18 +510,13 @@ class MarketplaceHistoricalImportService {
 
     if (parsedLines.isEmpty) return const _ParsedRows(headers: [], rows: []);
 
-    var headerIndex = 0;
-    for (var i = 0; i < parsedLines.length; i++) {
-      if (parsedLines[i].where((x) => x.trim().isNotEmpty).length >= 2) {
-        headerIndex = i;
-        break;
-      }
-    }
-
-    final headers = parsedLines[headerIndex].map(_cleanHeader).toList(growable: false);
+    final headerIndex = _findHeaderIndex(parsedLines);
+    final safeHeaderIndex = headerIndex < 0 ? 0 : headerIndex;
+    final headers =
+        parsedLines[safeHeaderIndex].map(_cleanHeader).toList(growable: false);
     final rows = <Map<String, String>>[];
 
-    for (final row in parsedLines.skip(headerIndex + 1)) {
+    for (final row in parsedLines.skip(safeHeaderIndex + 1)) {
       final map = <String, String>{};
       for (var i = 0; i < headers.length && i < row.length; i++) {
         final key = headers[i];
@@ -658,10 +663,15 @@ class MarketplaceHistoricalImportService {
         'income',
         'pendapatan',
         'jumlah pendapatan',
+        'total pendapatan',
         'total income',
         'net amount',
         'net income',
         'jumlah bersih',
+        'jumlah penyelesaian pembayaran',
+        'settlement amount',
+        'total settlement',
+        'amount settled',
       ]),
       'fee_amount': pick([
         'fee',
@@ -690,6 +700,78 @@ class MarketplaceHistoricalImportService {
         'waktu settlement',
       ]),
     }..removeWhere((_, value) => value == null || value.toString().trim().isEmpty);
+  }
+
+
+  int _findHeaderIndex(List<List<String>> matrix) {
+    var bestIndex = -1;
+    var bestScore = -1;
+
+    final maxScan = matrix.length > 80 ? 80 : matrix.length;
+    for (var i = 0; i < maxScan; i++) {
+      final row = matrix[i];
+      final nonEmpty = row.where((x) => x.trim().isNotEmpty).length;
+      if (nonEmpty < 2) continue;
+
+      final score = _headerScore(row);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    }
+
+    if (bestIndex >= 0 && bestScore > 0) return bestIndex;
+
+    for (var i = 0; i < matrix.length; i++) {
+      if (matrix[i].where((x) => x.trim().isNotEmpty).length >= 2) return i;
+    }
+
+    return -1;
+  }
+
+  int _headerScore(List<String> row) {
+    final joined = row.map(_normKey).join('|');
+    var score = 0;
+
+    const needles = [
+      'orderid',
+      'ordersn',
+      'nomorpesanan',
+      'nopesanan',
+      'idpesanan',
+      'statuspesanan',
+      'orderstatus',
+      'seller sku',
+      'sellersku',
+      'skupenjual',
+      'sku',
+      'quantity',
+      'qty',
+      'jumlah',
+      'createdtime',
+      'waktupemesanan',
+      'waktupesanan',
+      'waktupembayaran',
+      'totalpembayaran',
+      'jumlahdibayar',
+      'orderamount',
+      'totalamount',
+      'totalpendapatan',
+      'pendapatan',
+      'jumlahpenyelesaianpembayaran',
+      'biayaprosespesanan',
+      'biayalayanan',
+      'settlement',
+      'payout',
+      'dilepas',
+    ];
+
+    for (final needle in needles) {
+      final clean = _normKey(needle);
+      if (clean.isNotEmpty && joined.contains(clean)) score++;
+    }
+
+    return score;
   }
 
   String? _pick(Map<String, String> row, List<String> aliases) {

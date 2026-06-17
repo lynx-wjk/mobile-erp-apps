@@ -336,7 +336,7 @@ class _MarketplaceHistoricalImportPageState
             icon: Icons.upload_file_outlined,
             title: 'Import Historical Data',
             subtitle:
-                'Client upload order export dan income/payout export dari aplikasi. Bukan SSH ke VPS, karena kita masih punya harga diri produk.',
+                'Upload export order dan income ke staging dulu. Finalize dinonaktifkan sampai mapper final ke tabel order/finance live beres.',
             stats: [
               StatPill(label: 'Account', value: _activeAccounts.length.toString()),
               StatPill(label: 'Order', value: _orderParsed?.totalRows.toString() ?? '-'),
@@ -442,9 +442,9 @@ class _MarketplaceHistoricalImportPageState
                 label: Text(_busy ? 'Memproses...' : 'Validasi Import'),
               ),
               OutlinedButton.icon(
-                onPressed: _busy || account == null ? null : _finalize,
+                onPressed: null,
                 icon: const Icon(Icons.verified_outlined),
-                label: const Text('Finalize Bootstrap'),
+                label: const Text('Finalize belum aktif'),
               ),
             ],
           ),
