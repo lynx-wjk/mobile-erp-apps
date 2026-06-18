@@ -579,19 +579,28 @@ class _DashboardPageState extends State<DashboardPage> {
     Map<String, dynamic> base,
     Map<String, dynamic> orderAnalytics,
   ) {
-    if (!_dashboardFinanceSummaryUsable(orderAnalytics)) {
-      return base;
+    if (!_dashboardFinanceSummaryUsable(base)) {
+      return _dashboardFinanceSummaryUsable(orderAnalytics)
+          ? orderAnalytics
+          : base;
     }
 
     final out = Map<String, dynamic>.from(base);
     out['abnormal_count'] = out['abnormal_count'] ?? 0;
     out['anomaly_count'] = out['anomaly_count'] ?? out['abnormal_count'] ?? 0;
     out['net_profit'] = out['net_profit'] ?? 0;
-    out['omzet_total'] = orderAnalytics['omzet_total'];
-    out['orders_count'] = orderAnalytics['orders_count'];
-    out['trend'] = orderAnalytics['trend'];
-    out['source_rpc'] =
-        '${AppUi.text(out['source_rpc'], 'finance_snapshot')}+marketplace_orders_90d';
+
+    final baseTrend = out['trend'];
+    if ((baseTrend is! List || baseTrend.isEmpty) &&
+        _dashboardFinanceSummaryUsable(orderAnalytics)) {
+      final orderTrend = orderAnalytics['trend'];
+      if (orderTrend is List && orderTrend.isNotEmpty) {
+        out['trend'] = orderTrend;
+        out['source_rpc'] =
+            '${AppUi.text(out['source_rpc'], 'finance_snapshot')}+marketplace_orders_90d_fallback';
+      }
+    }
+
     return out;
   }
 
@@ -683,7 +692,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 accountId: 'all',
               );
               final cacheKey =
-                  '$keyBase::finance_live_20260619_recover_existing_rpc_v23';
+                  '$keyBase::finance_live_20260619_recover_existing_rpc_v24';
               await FinanceLocalCache.writeJson(cacheKey, _asMap(response));
             } catch (_) {}
             return parsed;
@@ -751,6 +760,7 @@ class _DashboardPageState extends State<DashboardPage> {
     String? marketplaceFilter,
   ) async {
     final versions = <String>[
+      'finance_live_20260619_recover_existing_rpc_v24',
       'finance_live_20260619_recover_existing_rpc_v23',
       'finance_live_20260606_local_cache_fast_v20',
       'finance_live_20260606_local_cache_fast_v19',

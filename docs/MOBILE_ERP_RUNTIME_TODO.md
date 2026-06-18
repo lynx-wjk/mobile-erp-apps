@@ -63,3 +63,8 @@ P1 still active:
 - Cleanup sarcastic/satire wording in UI/docs/source.
 - Regression: upload evidence, demo read-only, stock in/out, purchases/expenses, refund/return.
 - Detail SKU sample rows after SKU/HPP base is correct.
+
+## 2026-06-19 dashboard cache v24 merge fix
+- Dashboard Finance must not overwrite Finance snapshot daily trend with 90D marketplace order analytics.
+- Dashboard marketplace order analytics is fallback only when Finance snapshot/cache is unusable.
+- Finance cache version bumped to v24 so stale v23 SKU/chart cache does not keep showing old HPP/settled values.
