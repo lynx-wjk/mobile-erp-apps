@@ -8180,6 +8180,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
 
 
+
+  bool _isGenericSettlementProfitLossRow(Map<String, dynamic> row) {
+    final key = _text(row['category'] ?? row['name'] ?? row['label'])
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+
+    return key.contains('voucher') ||
+        key.contains('discount') ||
+        key.contains('marketplace_fee') ||
+        key == 'marketplace' ||
+        key.contains('refund') ||
+        key.contains('retur') ||
+        key.contains('tax') ||
+        key.contains('pajak') ||
+        key.contains('adjustment') ||
+        key.contains('sample_zero_payment') ||
+        key.contains('sample') ||
+        key.contains('unclassified') ||
+        key.contains('belum_terklasifikasi') ||
+        key.contains('settlement_belum_final');
+  }
+
   Widget _profitLossByMarketplaceCard() {
     if (_profitLossByMarketplace.isEmpty) return const SizedBox.shrink();
 
