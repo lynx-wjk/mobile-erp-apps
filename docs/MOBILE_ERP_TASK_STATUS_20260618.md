@@ -53,3 +53,8 @@
 - Ringkasan Finance has a Sample / Gratis card with order count, sample HPP, sample negative payout, and estimated impact.
 - Reconciliation returns by_marketplace rows so Shopee and TikTok appear separately in the Marketplace tab.
 - Reconciliation function is volatile because it uses temporary tables for scoped period calculations.
+
+## 2026-06-19 Finance Sample Card + Marketplace Breakdown
+- Ringkasan Finance has a Sample / Gratis card with order count, sample HPP, sample negative payout, and estimated impact.
+- Reconciliation returns by_marketplace rows so Shopee and TikTok appear separately in the Marketplace tab.
+- Reconciliation function is volatile because it uses temporary tables for scoped period calculations.
