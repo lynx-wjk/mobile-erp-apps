@@ -1178,7 +1178,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return copy;
   }
 
-
   Future<List<Map<String, dynamic>>> _fetchSkuRowsByPayoutFilterAll(
       String payoutFilter) async {
     final allRows = <Map<String, dynamic>>[];
