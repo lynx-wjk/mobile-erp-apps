@@ -3933,7 +3933,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }).toList();
   }
 
-
   List<Map<String, dynamic>> _sortSkuRowsForDisplay(
       List<Map<String, dynamic>> rows) {
     final out = rows.map((row) => Map<String, dynamic>.from(row)).toList();
@@ -4029,8 +4028,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             _num(row['pending_payout_qty']);
         existing['paid_gross_total'] =
             _num(existing['paid_gross_total']) + _num(row['paid_gross_total']);
-        existing['settled_gross_total'] = _num(existing['settled_gross_total']) +
-            _num(row['settled_gross_total']);
+        existing['settled_gross_total'] =
+            _num(existing['settled_gross_total']) +
+                _num(row['settled_gross_total']);
         existing['unpaid_gross_total'] = _num(existing['unpaid_gross_total']) +
             _num(row['unpaid_gross_total']);
         existing['payout_total'] =
@@ -4039,14 +4039,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             _num(existing['payout_amount']) + _num(row['payout_amount']);
         existing['received_amount'] =
             _num(existing['received_amount']) + _num(row['received_amount']);
-        existing['positive_payout_total'] = _num(existing['positive_payout_total']) +
-            _num(row['positive_payout_total']);
-        existing['negative_payout_total'] = _num(existing['negative_payout_total']) +
-            _num(row['negative_payout_total']);
+        existing['positive_payout_total'] =
+            _num(existing['positive_payout_total']) +
+                _num(row['positive_payout_total']);
+        existing['negative_payout_total'] =
+            _num(existing['negative_payout_total']) +
+                _num(row['negative_payout_total']);
         existing['paid_hpp_total'] =
             _num(existing['paid_hpp_total']) + _num(row['paid_hpp_total']);
-        existing['settled_hpp_total'] =
-            _num(existing['settled_hpp_total']) + _num(row['settled_hpp_total']);
+        existing['settled_hpp_total'] = _num(existing['settled_hpp_total']) +
+            _num(row['settled_hpp_total']);
         existing['unpaid_hpp_total'] =
             _num(existing['unpaid_hpp_total']) + _num(row['unpaid_hpp_total']);
         existing['hpp_total'] =
@@ -8498,8 +8500,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           _num(row['order_count'] ?? row['finance_order_count']).toInt();
       final gross =
           _num(row['gross_sales'] ?? row['omzet_total'] ?? row['gross_total']);
-      final payout = _num(
-          row['payout_total'] ?? row['received_amount'] ?? row['net_settlement']);
+      final payout = _num(row['payout_total'] ??
+          row['received_amount'] ??
+          row['net_settlement']);
       final hpp = _num(row['hpp_total'] ?? row['total_hpp']);
       final profit = _num(row['net_profit'] ?? row['profit'] ?? (payout - hpp));
       final margin = payout > 0
@@ -8553,10 +8556,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 _profitLossMiniMetric('HPP', _money(hpp), warning: hpp > 0),
                 _profitLossMiniMetric('Laba', _money(profit),
                     positive: profit >= 0, warning: profit < 0),
-                _profitLossMiniMetric('Margin', '${margin.toStringAsFixed(2)}%'),
+                _profitLossMiniMetric(
+                    'Margin', '${margin.toStringAsFixed(2)}%'),
                 if (discount.abs() > 0.49)
-                  _profitLossMiniMetric('Voucher / diskon',
-                      _money(discount.abs()), warning: true),
+                  _profitLossMiniMetric(
+                      'Voucher / diskon', _money(discount.abs()),
+                      warning: true),
                 if (refund.abs() > 0.49)
                   _profitLossMiniMetric('Refund / retur', _money(refund.abs()),
                       warning: true),
@@ -8564,8 +8569,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   _profitLossMiniMetric('Adjustment', _money(adjustment),
                       warning: adjustment < 0),
                 if (payoutMinus.abs() > 0.49)
-                  _profitLossMiniMetric('Payout minus',
-                      _money(payoutMinus.abs()), warning: true),
+                  _profitLossMiniMetric(
+                      'Payout minus', _money(payoutMinus.abs()),
+                      warning: true),
               ],
             ),
           ],
@@ -8576,7 +8582,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final totalGross = _profitLossByMarketplace.fold<num>(
         0, (sum, row) => sum + _num(row['gross_sales'] ?? row['omzet_total']));
     final totalPayout = _profitLossByMarketplace.fold<num>(
-        0, (sum, row) => sum + _num(row['payout_total'] ?? row['received_amount']));
+        0,
+        (sum, row) =>
+            sum + _num(row['payout_total'] ?? row['received_amount']));
     final totalHpp = _profitLossByMarketplace.fold<num>(
         0, (sum, row) => sum + _num(row['hpp_total'] ?? row['total_hpp']));
     final totalProfit = _profitLossByMarketplace.fold<num>(
