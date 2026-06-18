@@ -361,20 +361,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
       out['summary'] = summary;
 
+      // Jangan overwrite by_marketplace dari canonical snapshot.
+      // Snapshot sudah membawa HPP split per marketplace; reconciliation raw tidak selalu punya HPP.
+      final existingMarketplaceRows = _asList(out['by_marketplace'] ?? out['marketplaces']);
       final byMarketplace = _asList(reconciliation['by_marketplace']);
-      if (byMarketplace.isNotEmpty) {
+      if (existingMarketplaceRows.isEmpty && byMarketplace.isNotEmpty) {
         out['by_marketplace'] = byMarketplace;
         out['marketplaces'] = byMarketplace;
       }
 
+      // Jangan append breakdown dari reconciliation ke snapshot karena bisa double
+      // setelah refresh. Pakai breakdown snapshot jika ada; fallback ke reconciliation.
       final existingBreakdown = _asList(out['profit_loss_breakdown']);
       final reconciliationBreakdown =
           _asList(reconciliation['profit_loss_breakdown']);
-      if (reconciliationBreakdown.isNotEmpty) {
-        out['profit_loss_breakdown'] = [
-          ...existingBreakdown,
-          ...reconciliationBreakdown,
-        ];
+      if (existingBreakdown.isEmpty && reconciliationBreakdown.isNotEmpty) {
+        out['profit_loss_breakdown'] = reconciliationBreakdown;
       }
       return out;
     } catch (error) {
@@ -1526,7 +1528,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 displaySummary,
                 mergedAccounts,
               );
-    final normalizedCashFlow = _cashFlowRowsFromSummary(displaySummary);
+    final backendCashFlow = _asList(data['cash_flow'] ?? data['cashflow'])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final normalizedCashFlow = backendCashFlow.isNotEmpty
+        ? _dedupeCashFlowRows(backendCashFlow)
+        : _cashFlowRowsFromSummary(displaySummary);
     final normalizedProfitLoss = _profitLossRowsFromSummary(displaySummary);
     setState(() {
       _accounts = mergedAccounts;
@@ -1549,7 +1557,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           cashWalletData['allocations'] ?? <Map<String, dynamic>>[];
       _expenses = normalizedExpenses;
       _profitLoss = normalizedProfitLoss;
-      _profitLossByMarketplace = _asList(data['profit_loss_by_marketplace'])
+      final rawProfitLossMarketplace = _asList(
+        data['profit_loss_by_marketplace'] ?? data['by_marketplace'] ?? data['marketplaces'],
+      );
+      _profitLossByMarketplace = rawProfitLossMarketplace
           .whereType<Map>()
           .map((row) => Map<String, dynamic>.from(row))
           .toList();

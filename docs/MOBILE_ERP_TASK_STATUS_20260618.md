@@ -130,3 +130,9 @@
 - Dashboard finance analytics card no longer requires admin-only visibility when finance access is available.
 - SKU detail payout filters normalize settled/released/payout to paid and pending/no_payout/belum_payout to unpaid.
 - Marketplace order UI separates Tracking/AWB from Stock Out reference.
+
+## 2026-06-19 Finance UI no-overwrite and stockout wording
+- Finance page no longer overwrites canonical snapshot by_marketplace HPP split with raw reconciliation by_marketplace.
+- Finance page uses backend cash_flow when present and dedupes it to avoid refresh double rows.
+- Laba Rugi marketplace detail falls back to by_marketplace when profit_loss_by_marketplace is absent.
+- Marketplace order page wording no longer claims fallback reference as stock-out scan barcode/AWB source.

@@ -1122,7 +1122,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                         ),
                         if (order.resiText != '-')
                           OutlinedButton.icon(
-                            onPressed: () => _copyValue('Reference Stock Out',
+                            onPressed: () => _copyValue('Referensi Marketplace',
                                 order.stockOutReferenceText),
                             icon: Icon(Icons.copy_rounded, size: 18),
                             label: Text('Copy Resi'),
@@ -1136,10 +1136,10 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                         order.hasPendingReturnReview
                             ? order.reviewBadgeLabel
                             : order.stockActionLabel),
-                    _detailRow('Tracking / AWB', order.trackingDisplayText),
+                    _detailRow('Tracking Marketplace', order.trackingDisplayText),
                     _detailRow(
-                        'Reference Stock Out', order.stockOutReferenceText),
-                    _detailRow('Sumber reference', order.resiSourceText),
+                        'Referensi Marketplace', order.stockOutReferenceText),
+                    _detailRow('Sumber referensi', order.resiSourceText),
                     _detailRow('Order time', order.orderTimeText),
                     _detailRow('Diambil', order.pulledTimeText),
                     if (order.hasCancelRequest) ...[
