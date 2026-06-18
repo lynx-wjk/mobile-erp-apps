@@ -124,3 +124,9 @@
 - Restored Resi/Reference fallback for stock-out operational matching.
 - Removed heavy rejected order-date reconciliation UI helper from Finance page.
 - Generated audit reports for app RPC usage versus existing public DB functions.
+
+## 2026-06-19 Finance runtime UI HPP expense tracking v2
+- Canonical finance snapshot now returns expense/cash_flow rows and direct HPP split by marketplace.
+- Dashboard finance analytics card no longer requires admin-only visibility when finance access is available.
+- SKU detail payout filters normalize settled/released/payout to paid and pending/no_payout/belum_payout to unpaid.
+- Marketplace order UI separates Tracking/AWB from Stock Out reference.

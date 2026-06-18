@@ -1,8 +1,9 @@
--- Fix canonical finance wrappers without adding public RPC versions.
--- Canonical snapshot is rebuilt from existing live RPCs:
---   finance_marketplace_reconciliation_breakdown
---   finance_sku_order_details
--- It avoids the old v24 snapshot payout/import-date mismatch and keeps app-facing names stable.
+-- Canonical finance wrapper repair.
+-- No new public RPC name/version is added.
+-- Fixes:
+-- - finance_customer_dashboard_snapshot returns daily/chart data, expense/cash rows, and HPP split per marketplace.
+-- - finance_dashboard_snapshot aliases canonical snapshot.
+-- - finance_sku_order_details/detail_lines remain canonical wrappers to existing stable implementation.
 
 create or replace function public.finance_sku_order_details(
   p_start date default null,
@@ -21,7 +22,15 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_filter text := lower(coalesce(p_payout_filter, 'all'));
 begin
+  if v_filter in ('settled', 'released', 'release', 'payout', 'paid_payout', 'sudah_payout', 'sudah payout') then
+    v_filter := 'paid';
+  elsif v_filter in ('pending', 'belum_payout', 'belum payout', 'no_payout', 'no payout', 'missing_payout') then
+    v_filter := 'unpaid';
+  end if;
+
   return public.finance_sku_order_details_v24_6_82o(
     p_start,
     p_end,
@@ -30,7 +39,7 @@ begin
     p_marketplace_sku,
     p_local_sku,
     p_search,
-    p_payout_filter,
+    v_filter,
     p_page,
     p_page_size
   );
@@ -92,6 +101,9 @@ declare
   v_sku_rows jsonb := '[]'::jsonb;
   v_by_marketplace jsonb := '[]'::jsonb;
   v_daily jsonb := '[]'::jsonb;
+  v_expenses jsonb := '[]'::jsonb;
+  v_cash_flow jsonb := '[]'::jsonb;
+  v_approved_purchases jsonb := '[]'::jsonb;
   v_profit_loss jsonb := '[]'::jsonb;
 
   v_gross numeric := 0;
@@ -99,6 +111,7 @@ declare
   v_hpp numeric := 0;
   v_unpaid_hpp numeric := 0;
   v_expense numeric := 0;
+  v_purchase_cashout numeric := 0;
   v_profit numeric := 0;
   v_order_count numeric := 0;
   v_finance_order_count numeric := 0;
@@ -123,8 +136,6 @@ begin
 
   v_recon_summary := coalesce(v_recon->'summary', '{}'::jsonb);
 
-  -- page_size intentionally high so dashboard by_sku/HPP marketplace split has enough rows.
-  -- aggregates still come from the canonical SKU detail RPC.
   v_sku := coalesce(public.finance_sku_order_details(
     v_start,
     v_end,
@@ -141,18 +152,165 @@ begin
   v_sku_aggr := coalesce(v_sku->'aggregates', '{}'::jsonb);
   v_sku_rows := coalesce(v_sku->'rows', '[]'::jsonb);
 
+  -- Expenses and approved purchases.
+  with expense_rows as (
+    select
+      'operational_expense'::text as source,
+      coalesce(expense_date, paid_at)::date as row_date,
+      coalesce(category, description, 'Biaya operasional')::text as category,
+      coalesce(description, note, category, 'Biaya operasional')::text as note,
+      abs(coalesce(amount, 0))::numeric as amount
+    from public.finance_operational_expenses
+    where coalesce(expense_date, paid_at)::date >= v_start
+      and coalesce(expense_date, paid_at)::date <= v_end
+      and (v_tenant_id is null or tenant_id = v_tenant_id)
+      and lower(coalesce(status, 'approved')) not in ('rejected','reject','cancelled','canceled','void','deleted')
+      and abs(coalesce(amount, 0)) > 0
+
+    union all
+
+    select
+      'manual_expense'::text as source,
+      expense_date::date as row_date,
+      coalesce(category, 'Biaya manual')::text as category,
+      coalesce(note, category, 'Biaya manual')::text as note,
+      abs(coalesce(amount, 0))::numeric as amount
+    from public.finance_manual_expenses
+    where expense_date >= v_start
+      and expense_date <= v_end
+      and (v_tenant_id is null or tenant_id = v_tenant_id)
+      and abs(coalesce(amount, 0)) > 0
+  ),
+  expense_json as (
+    select
+      coalesce(sum(amount), 0) as total,
+      coalesce(jsonb_agg(jsonb_build_object(
+        'source', source,
+        'category', category,
+        'description', note,
+        'note', note,
+        'date', row_date,
+        'amount', amount,
+        'cash_type', 'out',
+        'type', 'out'
+      ) order by row_date desc, source), '[]'::jsonb) as rows
+    from expense_rows
+  ),
+  purchase_rows as (
+    select
+      'approved_purchase'::text as source,
+      tanggal_beli::date as row_date,
+      coalesce(nomor_nota, supplier_name, 'Pembelian disetujui')::text as category,
+      coalesce(finance_note, catatan, supplier_name, nomor_nota, 'Pembelian disetujui')::text as note,
+      abs(coalesce(total_amount, 0))::numeric as amount,
+      request_id
+    from public.purchase_requests
+    where tanggal_beli >= v_start
+      and tanggal_beli <= v_end
+      and (v_tenant_id is null or tenant_id = v_tenant_id)
+      and abs(coalesce(total_amount, 0)) > 0
+      and (
+        verified_at is not null
+        or lower(coalesce(status,'')) in ('approved','verified','finance_approved','done','completed','paid')
+      )
+  ),
+  purchase_json as (
+    select
+      coalesce(sum(amount), 0) as total,
+      coalesce(jsonb_agg(jsonb_build_object(
+        'source', source,
+        'category', category,
+        'description', note,
+        'note', note,
+        'date', row_date,
+        'amount', amount,
+        'cash_type', 'out',
+        'type', 'out',
+        'purchase_id', request_id
+      ) order by row_date desc), '[]'::jsonb) as rows
+    from purchase_rows
+  )
+  select
+    ej.total,
+    pj.total,
+    ej.rows,
+    pj.rows
+  into v_expense, v_purchase_cashout, v_expenses, v_approved_purchases
+  from expense_json ej cross join purchase_json pj;
+
+  -- Direct HPP split from order items + HPP mappings.
+  with item_rows as (
+    select
+      o.marketplace,
+      o.marketplace_account_id,
+      coalesce(oi.marketplace_sku_id, oi.remote_sku_id, oi.marketplace_sku) as marketplace_sku_id,
+      coalesce(oi.marketplace_seller_sku, oi.seller_sku, oi.local_sku, oi.mapped_local_sku) as seller_sku,
+      coalesce(oi.local_sku, oi.mapped_local_sku) as local_sku,
+      coalesce(oi.qty, oi.quantity, 1)::numeric as qty
+    from public.marketplace_order_items oi
+    join public.marketplace_orders o
+      on o.marketplace_order_id = oi.marketplace_order_id
+    where o.order_created_at >= v_start_ts
+      and o.order_created_at < v_end_ts
+      and o.marketplace in ('shopee','tiktok_shop')
+      and lower(coalesce(o.order_status, o.status, '')) !~ '(cancel|batal|dibatalkan|unpaid|belum bayar|belum dibayar)'
+      and (v_tenant_id is null or o.tenant_id = v_tenant_id)
+      and (v_marketplace is null or v_marketplace = '' or v_marketplace = 'all' or o.marketplace = v_marketplace)
+      and (p_account_id is null or o.marketplace_account_id = p_account_id)
+  ),
+  matched_hpp as (
+    select
+      i.marketplace,
+      i.marketplace_account_id,
+      i.qty,
+      coalesce(mv.hpp_value, 0) as hpp_value
+    from item_rows i
+    left join lateral (
+      select coalesce(m.hpp, m.hpp_amount, m.hpp_per_item, 0)::numeric as hpp_value
+      from public.marketplace_variant_hpp_mappings m
+      where m.marketplace = i.marketplace
+        and (m.marketplace_account_id is null or m.marketplace_account_id = i.marketplace_account_id)
+        and m.is_active is true
+        and coalesce(m.hpp, m.hpp_amount, m.hpp_per_item, 0) > 0
+        and (
+          nullif(m.marketplace_sku_id,'') = nullif(i.marketplace_sku_id,'')
+          or lower(nullif(m.marketplace_seller_sku,'')) = lower(nullif(i.seller_sku,''))
+          or lower(nullif(m.local_sku,'')) = lower(nullif(i.local_sku,''))
+        )
+      order by
+        case
+          when nullif(m.marketplace_sku_id,'') = nullif(i.marketplace_sku_id,'') then 1
+          when lower(nullif(m.marketplace_seller_sku,'')) = lower(nullif(i.seller_sku,'')) then 2
+          when lower(nullif(m.local_sku,'')) = lower(nullif(i.local_sku,'')) then 3
+          else 9
+        end,
+        m.updated_at desc nulls last
+      limit 1
+    ) mv on true
+  ),
+  hpp_by_marketplace as (
+    select
+      marketplace,
+      marketplace_account_id,
+      sum(qty * hpp_value) as hpp_total
+    from matched_hpp
+    group by 1,2
+  )
+  select coalesce(sum(hpp_total), 0)
+  into v_hpp
+  from hpp_by_marketplace;
+
   v_gross := coalesce(nullif(v_recon_summary->>'gross_sales', '')::numeric, 0);
   v_payout := coalesce(nullif(v_recon_summary->>'payout_total', '')::numeric, 0);
-  v_hpp := abs(coalesce(nullif(v_sku_aggr->>'total_hpp', '')::numeric, 0));
   v_unpaid_hpp := abs(coalesce(nullif(v_sku_aggr->>'unpaid_hpp_total', '')::numeric, 0));
-  v_expense := coalesce(nullif(v_recon_summary->>'expense_total', '')::numeric, 0);
-  v_profit := v_payout - v_hpp - v_expense;
   v_order_count := coalesce(nullif(v_recon_summary->>'order_count', '')::numeric, 0);
   v_finance_order_count := coalesce(nullif(v_recon_summary->>'finance_order_count', '')::numeric, 0);
   v_abnormal_count := coalesce(nullif(v_recon_summary->>'sample_order_count', '')::numeric, 0)
     + coalesce(nullif(v_recon_summary->>'negative_payout_count', '')::numeric, 0);
+  v_profit := v_payout - v_hpp - v_expense - v_purchase_cashout;
   v_margin := case when v_payout > 0 then (v_profit / v_payout) * 100 else 0 end;
 
+  -- Daily trend for dashboard analytics.
   with finance_by_order as (
     select
       fr.tenant_id,
@@ -195,6 +353,7 @@ begin
     'gross_sales', gross_sales,
     'gross_total', gross_sales,
     'omzet', gross_sales,
+    'omzet_total', gross_sales,
     'payout_total', payout_total,
     'received_amount', payout_total,
     'order_count', order_count,
@@ -204,26 +363,72 @@ begin
   into v_daily
   from daily_rows;
 
-  with sku_hpp_by_marketplace as (
+  -- Marketplace breakdown with correct direct HPP split.
+  with item_rows as (
     select
-      elem->>'marketplace' as marketplace,
-      elem->>'marketplace_account_id' as marketplace_account_id,
-      sum(abs(coalesce(nullif(elem->>'hpp_total', '')::numeric, 0))) as hpp_total
-    from jsonb_array_elements(v_sku_rows) elem
-    group by 1, 2
+      o.marketplace,
+      o.marketplace_account_id,
+      coalesce(oi.marketplace_sku_id, oi.remote_sku_id, oi.marketplace_sku) as marketplace_sku_id,
+      coalesce(oi.marketplace_seller_sku, oi.seller_sku, oi.local_sku, oi.mapped_local_sku) as seller_sku,
+      coalesce(oi.local_sku, oi.mapped_local_sku) as local_sku,
+      coalesce(oi.qty, oi.quantity, 1)::numeric as qty
+    from public.marketplace_order_items oi
+    join public.marketplace_orders o
+      on o.marketplace_order_id = oi.marketplace_order_id
+    where o.order_created_at >= v_start_ts
+      and o.order_created_at < v_end_ts
+      and o.marketplace in ('shopee','tiktok_shop')
+      and lower(coalesce(o.order_status, o.status, '')) !~ '(cancel|batal|dibatalkan|unpaid|belum bayar|belum dibayar)'
+      and (v_tenant_id is null or o.tenant_id = v_tenant_id)
+      and (v_marketplace is null or v_marketplace = '' or v_marketplace = 'all' or o.marketplace = v_marketplace)
+      and (p_account_id is null or o.marketplace_account_id = p_account_id)
+  ),
+  matched_hpp as (
+    select
+      i.marketplace,
+      i.marketplace_account_id,
+      i.qty,
+      coalesce(mv.hpp_value, 0) as hpp_value
+    from item_rows i
+    left join lateral (
+      select coalesce(m.hpp, m.hpp_amount, m.hpp_per_item, 0)::numeric as hpp_value
+      from public.marketplace_variant_hpp_mappings m
+      where m.marketplace = i.marketplace
+        and (m.marketplace_account_id is null or m.marketplace_account_id = i.marketplace_account_id)
+        and m.is_active is true
+        and coalesce(m.hpp, m.hpp_amount, m.hpp_per_item, 0) > 0
+        and (
+          nullif(m.marketplace_sku_id,'') = nullif(i.marketplace_sku_id,'')
+          or lower(nullif(m.marketplace_seller_sku,'')) = lower(nullif(i.seller_sku,''))
+          or lower(nullif(m.local_sku,'')) = lower(nullif(i.local_sku,''))
+        )
+      order by
+        case
+          when nullif(m.marketplace_sku_id,'') = nullif(i.marketplace_sku_id,'') then 1
+          when lower(nullif(m.marketplace_seller_sku,'')) = lower(nullif(i.seller_sku,'')) then 2
+          when lower(nullif(m.local_sku,'')) = lower(nullif(i.local_sku,'')) then 3
+          else 9
+        end,
+        m.updated_at desc nulls last
+      limit 1
+    ) mv on true
+  ),
+  hpp_by_marketplace as (
+    select
+      marketplace,
+      marketplace_account_id,
+      sum(qty * hpp_value) as hpp_total
+    from matched_hpp
+    group by 1,2
   ),
   market_rows as (
     select
       row,
       coalesce(h.hpp_total, 0) as hpp_total
     from jsonb_array_elements(coalesce(v_recon->'by_marketplace', '[]'::jsonb)) row
-    left join sku_hpp_by_marketplace h
+    left join hpp_by_marketplace h
       on h.marketplace = row->>'marketplace'
-     and (
-       h.marketplace_account_id = row->>'marketplace_account_id'
-       or h.marketplace_account_id is null
-       or h.marketplace_account_id = ''
-     )
+     and h.marketplace_account_id::text = row->>'marketplace_account_id'
   )
   select coalesce(jsonb_agg(
     row || jsonb_build_object(
@@ -250,21 +455,31 @@ begin
   into v_by_marketplace
   from market_rows;
 
+  v_cash_flow := jsonb_build_array(
+    jsonb_build_object('source', 'Marketplace', 'category', 'Payout marketplace', 'cash_type', 'in', 'type', 'in', 'amount', v_payout, 'date', v_end),
+    jsonb_build_object('source', 'Biaya operasional', 'category', 'Biaya operasional', 'cash_type', 'out', 'type', 'out', 'amount', -abs(v_expense), 'date', v_end),
+    jsonb_build_object('source', 'Pembelian disetujui', 'category', 'Pembelian disetujui', 'cash_type', 'out', 'type', 'out', 'amount', -abs(v_purchase_cashout), 'date', v_end),
+    jsonb_build_object('source', 'Arus kas bersih', 'category', 'Arus kas bersih', 'cash_type', case when (v_payout - v_expense - v_purchase_cashout) >= 0 then 'in' else 'out' end, 'type', case when (v_payout - v_expense - v_purchase_cashout) >= 0 then 'in' else 'out' end, 'amount', v_payout - v_expense - v_purchase_cashout, 'date', v_end)
+  );
+
   v_profit_loss := jsonb_build_array(
-    jsonb_build_object('label', 'HPP settled', 'category', 'hpp', 'amount', v_hpp, 'format', 'money'),
-    jsonb_build_object('label', 'Biaya operasional', 'category', 'operational_expense', 'amount', v_expense, 'format', 'money'),
+    jsonb_build_object('label', 'Omzet', 'category', 'gross_sales', 'amount', v_gross, 'format', 'money'),
+    jsonb_build_object('label', 'Payout diterima', 'category', 'payout', 'amount', v_payout, 'format', 'money'),
+    jsonb_build_object('label', 'HPP settled', 'category', 'hpp', 'amount', -abs(v_hpp), 'format', 'money'),
+    jsonb_build_object('label', 'Biaya operasional', 'category', 'operational_expense', 'amount', -abs(v_expense), 'format', 'money'),
+    jsonb_build_object('label', 'Pembelian disetujui', 'category', 'approved_purchase', 'amount', -abs(v_purchase_cashout), 'format', 'money'),
     jsonb_build_object('label', 'Laba bersih', 'category', 'net_profit', 'amount', v_profit, 'format', 'money')
   );
 
   return jsonb_build_object(
     'ok', true,
-    'version', 'finance_customer_dashboard_snapshot_canonical_existing_wrappers_20260619',
+    'version', 'finance_customer_dashboard_snapshot_canonical_existing_wrappers_20260619_runtime_v2',
     'source', 'finance_customer_dashboard_snapshot',
     'reconciliation_source', coalesce(v_recon->>'reconciliation_source', 'finance_marketplace_reconciliation_breakdown'),
     'period_start', v_start,
     'period_end', v_end,
     'summary', jsonb_build_object(
-      'policy', 'canonical_existing_rpc_order_date_reconciliation_plus_sku_hpp',
+      'policy', 'canonical_existing_rpc_order_date_reconciliation_direct_hpp_expense_cash',
       'period_start', v_start,
       'period_end', v_end,
       'gross_sales', v_gross,
@@ -284,8 +499,13 @@ begin
       'pending_hpp_total', v_unpaid_hpp,
       'estimated_unpaid_hpp_total', v_unpaid_hpp,
       'unpaid_estimated_hpp_total', v_unpaid_hpp,
-      'expense_total', v_expense,
-      'operational_cost_total', v_expense,
+      'manual_expense_total', v_expense,
+      'manual_operational_expense', v_expense,
+      'expense_total', v_expense + v_purchase_cashout,
+      'operational_cost_total', v_expense + v_purchase_cashout,
+      'approved_purchase_total', v_purchase_cashout,
+      'purchase_cashout', v_purchase_cashout,
+      'approved_purchase_cashout', v_purchase_cashout,
       'net_profit', v_profit,
       'profit', v_profit,
       'margin_percent', v_margin,
@@ -307,6 +527,8 @@ begin
     ),
     'days', v_daily,
     'daily', v_daily,
+    'by_date', v_daily,
+    'trend', v_daily,
     'by_sku', v_sku_rows,
     'sku_rows', v_sku_rows,
     'by_marketplace', v_by_marketplace,
@@ -316,9 +538,9 @@ begin
     'abnormals', coalesce(v_recon->'abnormals', '[]'::jsonb),
     'server_abnormals', coalesce(v_recon->'abnormals', '[]'::jsonb),
     'sample_orders', coalesce(v_recon->'sample_orders', '[]'::jsonb),
-    'expenses', '[]'::jsonb,
-    'cash_flow', '[]'::jsonb,
-    'approved_purchases', '[]'::jsonb
+    'expenses', v_expenses,
+    'cash_flow', v_cash_flow,
+    'approved_purchases', v_approved_purchases
   );
 end;
 $$;

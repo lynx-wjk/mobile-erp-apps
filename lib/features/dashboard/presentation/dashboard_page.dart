@@ -1221,8 +1221,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           const SizedBox(height: 14),
                           _summaryGrid(),
                           const SizedBox(height: 20),
-                          if (_isAdmin &&
-                              _canAccessFinance &&
+                          if (_canAccessFinance &&
                               _financeTrend.isNotEmpty) ...[
                             _adminAnalyticsCard(),
                             const SizedBox(height: 20),

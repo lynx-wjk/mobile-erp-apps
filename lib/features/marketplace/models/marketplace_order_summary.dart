@@ -208,6 +208,17 @@ class MarketplaceOrderSummary {
     return 'Resi / reference';
   }
 
+  String get trackingDisplayText {
+    final clean = trackingNumber.trim();
+    if (clean.isEmpty || clean == '-') return '-';
+    final upper = clean.toUpperCase();
+    if (upper.startsWith('OFG')) return '-';
+    if (RegExp(r'^\\d{16,}$').hasMatch(clean)) return '-';
+    return clean;
+  }
+
+  String get stockOutReferenceText => resiText;
+
   String get cancelRequestStatusText {
     final value = cancelRequestStatus.trim();
     if (value.isEmpty || value == '-') return hasBatalRequest ? 'Batal Requested' : '-';

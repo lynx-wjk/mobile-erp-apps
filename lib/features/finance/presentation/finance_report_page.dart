@@ -9570,6 +9570,19 @@ return out;
           copy['waybill_no'];
     }
 
+    final rawReference = copy['resi'] ??
+        copy['tracking_number'] ??
+        copy['tracking_no'] ??
+        copy['logistics_tracking_number'] ??
+        copy['awb'] ??
+        copy['waybill_no'] ??
+        copy['label_code'] ??
+        copy['package_id'];
+    final displayTracking = _cleanMarketplaceTrackingDisplayTextV82o(rawReference);
+    copy['stockout_reference'] = _text(rawReference, '-');
+    copy['resi'] = displayTracking;
+    copy['tracking_display'] = displayTracking;
+
     return copy;
   }
 
@@ -9854,6 +9867,35 @@ return out;
     };
   }
 
+
+  String _canonicalSkuPayoutFilterV82o(String value) {
+    final clean = value.trim().toLowerCase().replaceAll('_', ' ');
+    if (clean == 'settled' ||
+        clean == 'released' ||
+        clean == 'release' ||
+        clean == 'payout' ||
+        clean == 'paid payout' ||
+        clean == 'sudah payout') {
+      return 'paid';
+    }
+    if (clean == 'pending' ||
+        clean == 'belum payout' ||
+        clean == 'no payout' ||
+        clean == 'missing payout') {
+      return 'unpaid';
+    }
+    return clean.isEmpty ? 'all' : value.trim().toLowerCase();
+  }
+
+  String _cleanMarketplaceTrackingDisplayTextV82o(Object? value) {
+    final raw = _text(value, '').trim();
+    if (raw.isEmpty || raw == '-') return '-';
+    final upper = raw.toUpperCase();
+    if (upper.startsWith('OFG')) return '-';
+    if (RegExp(r'^\\d{16,}$').hasMatch(raw)) return '-';
+    return raw;
+  }
+
   Future<Map<String, dynamic>> _fetchSkuOrderDetailsV82oPageForRow(
     Map<String, dynamic> row,
     String payoutFilter, {
@@ -9879,6 +9921,8 @@ return out;
       };
     }
 
+    final rpcPayoutFilter = _canonicalSkuPayoutFilterV82o(payoutFilter);
+
     final response = await _client.rpc(
       'finance_sku_order_details',
       params: {
@@ -9889,7 +9933,7 @@ return out;
         'p_marketplace_sku': marketplaceSku.isEmpty ? null : marketplaceSku,
         'p_local_sku': localSku.isEmpty || localSku == '-' ? null : localSku,
         'p_search': searchText.isEmpty ? null : searchText,
-        'p_payout_filter': payoutFilter,
+        'p_payout_filter': rpcPayoutFilter,
         'p_page': page,
         'p_page_size': pageSize,
       },
