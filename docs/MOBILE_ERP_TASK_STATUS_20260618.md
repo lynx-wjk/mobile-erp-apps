@@ -113,3 +113,9 @@
 - Order page no longer treats package_id / label_code / marketplace order id as Resi Marketplace.
 - Real tracking_number is backfilled from staging raw/normalized import rows when present.
 - Package/label reference is displayed separately from courier tracking number.
+
+## 2026-06-19 Finance Existing Profit Loss Detail Overwrite
+- Overwrote existing finance_marketplace_profit_loss_detail RPC; no new public RPC/version was added.
+- Reconciliation now uses marketplace order date instead of finance report created_at.
+- Laba Rugi final no longer treats gross-vs-payout diagnostic rows as direct expenses.
+- HPP values are normalized as positive costs before profit calculations.

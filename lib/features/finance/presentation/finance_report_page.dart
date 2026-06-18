@@ -59,7 +59,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260619_reconciliation_v21';
+      'finance_live_20260619_existing_pl_detail_v22';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -1549,8 +1549,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 mergedAccounts,
               );
     final normalizedCashFlow = _cashFlowRowsFromSummary(displaySummary);
-    final normalizedProfitLoss = _profitLossRowsFromSummary(
-        displaySummary, _asList(data['profit_loss_breakdown']));
+    final normalizedProfitLoss = _profitLossRowsFromSummary(displaySummary);
     setState(() {
       _accounts = mergedAccounts;
       _summary = displaySummary;
@@ -2341,15 +2340,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       map['total_hpp'],
       map['hpp_amount'],
       map['hpp']
-    ]);
+    ]).abs();
     final operational = _numFirstNonZero([
       map['operational_cost_total'],
       map['operational_expense'],
       map['expense_total'],
       map['manual_expense_total']
     ]);
-    final profit = _numFirstNonZero(
-        [map['net_profit'], map['profit'], payout - hpp - operational]);
+    final profit = payout - hpp - operational;
     final margin = payout > 0 ? ((profit / payout) * 100) : 0;
     map['gross_sales'] = gross;
     map['omzet'] = gross;
@@ -3145,7 +3143,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       summary['approved_purchase_cashout']
     ]);
     final ops = manual + purchases;
-    final marketplaceCut = (gross - payout).clamp(0, 999999999999).toDouble();
+    // Gross-vs-payout gap is reconciliation diagnostic, not P&L expense.
+    final marketplaceCut = 0.0;
     final profit = payout - hpp - ops;
     final margin = payout > 0 ? (profit / payout) * 100 : 0.0;
 
@@ -8238,7 +8237,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       MapEntry('Pajak', 'tax_amount'),
       MapEntry('Adjustment settlement', 'adjustment_amount'),
       MapEntry('Sample payout minus', 'sample_negative_payout_total'),
-      MapEntry('Settlement belum final', 'settlement_not_final_amount'),
+      MapEntry('Order belum match payout', 'settlement_not_final_amount'),
     ];
 
     double totalFor(String key) => _profitLossByMarketplace.fold<double>(
@@ -8254,14 +8253,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Detail Selisih Omzet ke Payout per Marketplace',
+          Text('Rekonsiliasi Omzet vs Payout Marketplace per Marketplace',
               style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w900,
                   color: Theme.of(context).dividerColor)),
           const SizedBox(height: 4),
           Text(
-            'Settlement belum final = payout/order non-sample yang belum matched atau komponen settlement yang belum final dari marketplace.',
+            'Order belum match payout = payout/order non-sample yang belum matched atau komponen settlement yang belum final dari marketplace.',
             style: TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w600,
