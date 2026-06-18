@@ -1178,7 +1178,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return copy;
   }
 
-
   Future<List<Map<String, dynamic>>> _fetchSkuRowsByPayoutFilter(
       String payoutFilter) async {
     final params = {
@@ -1453,7 +1452,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       // Kalau riwayat server belum tersedia, UI tetap memakai log lokal.
     }
   }
-
 
   List<Map<String, dynamic>> _marketplaceRowsWithFinanceAliases(
       List<Map<String, dynamic>> rows) {

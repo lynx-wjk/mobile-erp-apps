@@ -3062,7 +3062,6 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-
   Widget _financeTrendChartCard() {
     final color = Theme.of(context).colorScheme.primary;
     final source = _financeTrend.isNotEmpty
