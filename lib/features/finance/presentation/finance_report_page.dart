@@ -8177,56 +8177,127 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
 
+
+
+
   Widget _profitLossByMarketplaceCard() {
     if (_profitLossByMarketplace.isEmpty) return const SizedBox.shrink();
 
-    final children = <Widget>[];
-    for (final row in _profitLossByMarketplace) {
-      final marketplace = _marketplaceName(_text(row['marketplace']));
-      final shop = _text(row['shop_name'] ?? row['account_name'], marketplace);
-      final gross = _num(row['gross_sales']);
-      final payout = _num(row['payout_total']);
-      final gap = _num(row['gross_payout_gap']);
+    const rows = <MapEntry<String, String>>[
+      MapEntry('Omzet', 'gross_sales'),
+      MapEntry('Payout diterima', 'payout_total'),
+      MapEntry('Selisih omzet-payout', 'gross_payout_gap'),
+      MapEntry('Voucher / diskon', 'discount_amount'),
+      MapEntry('Platform fee', 'platform_fee'),
+      MapEntry('Komisi', 'commission_fee'),
+      MapEntry('Affiliate fee', 'affiliate_fee'),
+      MapEntry('Shipping fee', 'shipping_fee'),
+      MapEntry('Payment / transaction fee', 'payment_transaction_fee'),
+      MapEntry('Fee lain', 'other_fee'),
+      MapEntry('Refund / retur / batal', 'refund_amount'),
+      MapEntry('Pajak', 'tax_amount'),
+      MapEntry('Adjustment settlement', 'adjustment_amount'),
+      MapEntry('Sample payout minus', 'sample_negative_payout_total'),
+      MapEntry('Settlement belum final', 'settlement_not_final_amount'),
+    ];
 
-      children.add(_miniMetric(
-        '$marketplace · $shop',
-        'Omzet ${_money(gross)} · Payout ${_money(payout)} · Selisih ${_money(gap)}',
-      ));
+    double totalFor(String key) => _profitLossByMarketplace.fold<double>(
+        0, (sum, row) => sum + _num(row[key]));
 
-      final parts = <MapEntry<String, double>>[
-        MapEntry('Voucher / diskon', _num(row['discount_amount'])),
-        MapEntry('Platform fee', _num(row['platform_fee'])),
-        MapEntry('Komisi', _num(row['commission_fee'])),
-        MapEntry('Affiliate fee', _num(row['affiliate_fee'])),
-        MapEntry('Shipping fee', _num(row['shipping_fee'])),
-        MapEntry('Fee lain', _num(row['other_fee'])),
-        MapEntry('Refund / retur / batal', _num(row['refund_amount'])),
-        MapEntry('Pajak', _num(row['tax_amount'])),
-        MapEntry('Adjustment settlement', _num(row['adjustment_amount']).abs()),
-        MapEntry('Sample payout minus', _num(row['sample_negative_payout_total'])),
-        MapEntry('Belum terklasifikasi', _num(row['unclassified_amount'])),
-      ];
-
-      for (final part in parts) {
-        if (part.value.abs() > 0.49) {
-          children.add(_miniMetric(part.key, _money(part.value), warning: true));
-        }
-      }
-    }
-
-    return _detailCard(
-      title: 'Detail Selisih Omzet ke Payout per Marketplace',
-      subtitle:
-          'Breakdown settlement per toko: voucher, platform fee, komisi, affiliate fee, shipping fee, refund, pajak, adjustment, sample, dan sisa belum terklasifikasi.',
-      children: children,
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor.withOpacity(0.74),
+        borderRadius: BorderRadius.zero,
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Detail Selisih Omzet ke Payout per Marketplace',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  color: Theme.of(context).dividerColor)),
+          const SizedBox(height: 4),
+          Text(
+            'Settlement belum final = payout/order non-sample yang belum matched atau komponen settlement yang belum final dari marketplace.',
+            style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.outline),
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowHeight: 34,
+              dataRowMinHeight: 32,
+              dataRowMaxHeight: 42,
+              columnSpacing: 18,
+              border: TableBorder.all(
+                  color: Theme.of(context).dividerColor.withOpacity(0.35),
+                  width: 1),
+              columns: [
+                const DataColumn(label: Text('Komponen')),
+                ..._profitLossByMarketplace.map((row) => DataColumn(
+                      label: Text(_text(row['shop_name'] ?? row['account_name'],
+                          _marketplaceName(_text(row['marketplace'])))),
+                    )),
+                const DataColumn(label: Text('Total')),
+              ],
+              rows: rows
+                  .where((entry) =>
+                      entry.key == 'Omzet' ||
+                      entry.key == 'Payout diterima' ||
+                      entry.key == 'Selisih omzet-payout' ||
+                      totalFor(entry.value).abs() > 0.49)
+                  .map((entry) {
+                final key = entry.value;
+                final isPositive =
+                    entry.key == 'Omzet' || entry.key == 'Payout diterima';
+                return DataRow(cells: [
+                  DataCell(Text(entry.key,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 11))),
+                  ..._profitLossByMarketplace.map((row) => DataCell(Text(
+                        _money(_num(row[key]).abs()),
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: isPositive
+                                ? Colors.cyan
+                                : Theme.of(context).colorScheme.error),
+                      ))),
+                  DataCell(Text(
+                    _money(totalFor(key).abs()),
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        color: isPositive
+                            ? Colors.cyan
+                            : Theme.of(context).colorScheme.error),
+                  )),
+                ]);
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
     );
   }
+
 
   Widget _profitLossTab() {
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
-    final profitRows =
+    final rawProfitRows =
         _profitLoss.isNotEmpty ? _profitLoss : _fallbackProfitLossRows();
+    final profitRows = _profitLossByMarketplace.isNotEmpty
+        ? rawProfitRows
+            .where((row) => !_isGenericSettlementProfitLossRow(row))
+            .toList()
+        : rawProfitRows;
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,

@@ -73,3 +73,21 @@
 - Added finance_marketplace_profit_loss_detail RPC for detailed settlement components per marketplace.
 - Laba Rugi now shows one card for per-marketplace gross-to-payout detail: discount, platform fee, commission, affiliate fee, shipping fee, other fee, refund, tax, adjustment, sample payout minus, and unclassified.
 - Sample/zero-payment orders stay excluded from future missing payout retry policy unless a negative payout exists.
+
+## 2026-06-19 Finance Profit/Loss Table + Raw Settlement Mapping
+- Laba Rugi settlement detail is now a single per-marketplace table instead of chip cards.
+- Generic settlement rows are removed from the normal Laba Rugi list when the detailed table is available.
+- Label changed to Settlement belum final.
+- Added raw-payload alias mapping for seller/platform discount, platform fee, commission, affiliate fee, shipping fee, payment/transaction fee, refund/cancel/return, tax, and adjustment.
+
+## 2026-06-19 Finance Profit/Loss Table + Direct Settlement Mapping
+- Laba Rugi settlement detail is now a single per-marketplace table instead of chip cards.
+- Generic settlement rows are removed from the normal Laba Rugi list when the detailed table is available.
+- Label changed to Settlement belum final.
+- Runtime RPC now uses explicit raw_finance path mapping, avoiding broad JSON scans.
+
+## 2026-06-19 Finance Profit/Loss Table Fast Top-Level Mapping
+- Runtime detail RPC now joins finance rows to scoped order rows first, avoiding broad 90D finance scans.
+- Laba Rugi settlement detail is a single per-marketplace DataTable.
+- Generic settlement rows are removed from the normal Laba Rugi list when detailed table exists.
+- Label uses Settlement belum final.
