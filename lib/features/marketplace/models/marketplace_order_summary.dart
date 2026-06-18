@@ -184,10 +184,31 @@ class MarketplaceOrderSummary {
   bool get isDone => stockActionStatus == 'stock_out_done' || stockActionStatus == 'return_review_done' || stockActionStatus == 'cancelled_released';
 
   String get resiText {
-    if (trackingNumber.trim().isNotEmpty) return trackingNumber.trim();
-    if (labelCode.trim().isNotEmpty) return labelCode.trim();
-    if (packageId.trim().isNotEmpty) return packageId.trim();
+    final tracking = trackingNumber.trim();
+    if (tracking.isNotEmpty &&
+        tracking != '-' &&
+        tracking != externalOrderId.trim() &&
+        tracking != packageId.trim() &&
+        tracking != labelCode.trim() &&
+        !_looksLikeMarketplaceOrderReference(tracking)) {
+      return tracking;
+    }
     return '-';
+  }
+
+  String get shipmentReferenceText {
+    final package = packageId.trim();
+    if (package.isNotEmpty && package != '-') return package;
+    final label = labelCode.trim();
+    if (label.isNotEmpty && label != '-') return label;
+    return '-';
+  }
+
+  bool _looksLikeMarketplaceOrderReference(String value) {
+    final clean = value.trim();
+    if (RegExp(r'^OFG[0-9A-Z]{10,}$').hasMatch(clean)) return true;
+    if (RegExp(r'^[0-9]{16,}$').hasMatch(clean)) return true;
+    return false;
   }
 
 

@@ -108,3 +108,8 @@
 ## 2026-06-19 TikTok Finalize Function Ambiguity Fix
 - Removed ambiguous zero-argument overload for TikTok staging date repair.
 - Added same-batch valid-date fallback for malformed single exported order rows.
+
+## 2026-06-19 Marketplace Order Resi Display Fix
+- Order page no longer treats package_id / label_code / marketplace order id as Resi Marketplace.
+- Real tracking_number is backfilled from staging raw/normalized import rows when present.
+- Package/label reference is displayed separately from courier tracking number.
