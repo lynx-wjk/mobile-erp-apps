@@ -333,6 +333,57 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     throw Exception('Belum ada data pada filter ini.');
   }
 
+
+  Future<dynamic> _withMarketplaceReconciliation(
+    dynamic response,
+    Map<String, dynamic> params,
+  ) async {
+    if (response is! Map) return response;
+    try {
+      final reconciliation = await _client.rpc(
+        'finance_marketplace_reconciliation_breakdown',
+        params: {
+          'p_start': params['p_start'],
+          'p_end': params['p_end'],
+          'p_marketplace': params['p_marketplace'],
+          'p_account_id': params['p_account_id'],
+        },
+      );
+      if (reconciliation is! Map) return response;
+
+      final out = Map<String, dynamic>.from(response);
+      final summary = Map<String, dynamic>.from(_asMap(out['summary']));
+      final reconciliationSummary =
+          Map<String, dynamic>.from(_asMap(reconciliation['summary']));
+
+      for (final entry in reconciliationSummary.entries) {
+        summary[entry.key] = entry.value;
+      }
+      out['summary'] = summary;
+
+      final byMarketplace = _asList(reconciliation['by_marketplace']);
+      if (byMarketplace.isNotEmpty) {
+        out['by_marketplace'] = byMarketplace;
+        out['marketplaces'] = byMarketplace;
+      }
+
+      final existingBreakdown = _asList(out['profit_loss_breakdown']);
+      final reconciliationBreakdown =
+          _asList(reconciliation['profit_loss_breakdown']);
+      if (reconciliationBreakdown.isNotEmpty) {
+        out['profit_loss_breakdown'] = [
+          ...existingBreakdown,
+          ...reconciliationBreakdown,
+        ];
+      }
+
+      return out;
+    } catch (error) {
+      debugPrint('FINANCE_RECONCILIATION_RPC_FAILED: $error');
+      return response;
+    }
+  }
+
   List<Map<String, dynamic>> _snapshotParamVariantsForRpc(
       String rpcName, Map<String, dynamic> params) {
     final out = Map<String, dynamic>.from(params)..remove('p_store_name');
@@ -7427,6 +7478,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         : (_sources.isNotEmpty ? _sources.length : _byMarketplace.length);
     final negativePayout = _negativePayoutTotal();
     final unpaidEstimatedHpp = _unpaidEstimatedHppTotal();
+    final sampleOrderCount = _num(_summary['sample_order_count']);
+    final sampleHppTotal = _num(_summary['sample_hpp_total']);
+    final sampleNegativePayout =
+        _num(_summary['sample_negative_payout_total']);
+    final sampleLossEstimate = _numFirstNonZero([
+      _summary['sample_loss_estimate'],
+      sampleHppTotal + sampleNegativePayout,
+    ]);
 
     if (_loading) {
       return const Center(child: FuturisticLoader(message: 'MEMUAT DATA...'));
@@ -7472,6 +7531,25 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               positive: profit >= 0,
             ),
             const SizedBox(height: 12),
+            if (sampleOrderCount > 0 ||
+                sampleHppTotal > 0 ||
+                sampleNegativePayout > 0) ...[
+              _detailCard(
+                title: 'Sample / Gratis',
+                subtitle:
+                    '${sampleOrderCount.toStringAsFixed(0)} order · HPP ${_money(sampleHppTotal)} · Payout minus ${_money(sampleNegativePayout)}',
+                children: [
+                  _miniMetric('Order sample',
+                      sampleOrderCount.toStringAsFixed(0)),
+                  _miniMetric('HPP sample', _money(sampleHppTotal)),
+                  _miniMetric(
+                      'Payout minus sample', _money(sampleNegativePayout)),
+                  _miniMetric('Estimasi dampak',
+                      _money(sampleLossEstimate)),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
             _metricGrid([
               _Metric('Omzet', _money(gross), Icons.sell_rounded),
               _Metric('Payout', _money(payout), Icons.payments_rounded),

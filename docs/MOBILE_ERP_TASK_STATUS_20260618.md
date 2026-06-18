@@ -43,3 +43,13 @@
 - Sample/free/zero-payment orders are exposed as Finance abnormal rows.
 - Profit/loss can show gross-to-payout adjustment breakdown: voucher/discount, marketplace fee, tax, refund/return/cancel, sample/zero-payment, and unclassified adjustment.
 - Finance page merges reconciliation breakdown after loading the main finance snapshot.
+
+## 2026-06-19 Finance Sample Card + Marketplace Breakdown
+- Ringkasan Finance now has a Sample / Gratis card with order count, sample HPP, sample negative payout, and estimated impact.
+- Reconciliation now returns by_marketplace rows so Shopee and TikTok appear separately in the Marketplace tab.
+- Payout total is scoped by selected order period through order-key matching, preventing 90-day imported TikTok payout from inflating the current-month view.
+
+## 2026-06-19 Finance Sample Card + Marketplace Breakdown
+- Ringkasan Finance has a Sample / Gratis card with order count, sample HPP, sample negative payout, and estimated impact.
+- Reconciliation returns by_marketplace rows so Shopee and TikTok appear separately in the Marketplace tab.
+- Reconciliation function is volatile because it uses temporary tables for scoped period calculations.
