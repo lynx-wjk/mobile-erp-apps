@@ -59,7 +59,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260606_local_cache_fast_v20';
+      'finance_live_20260619_reconciliation_v21';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -1515,13 +1515,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         displaySummary, normalizedExpenses, approvedPurchases);
 
     final cashWalletData = await _fetchCashWalletPeriodData();
-    final normalizedMarketplace = _reconciledMarketplaceRows(
-      _normalizeMarketplaceRows(
-          _asList(data['by_marketplace'] ?? data['marketplaces'])),
-      normalizedSku,
-      displaySummary,
-      mergedAccounts,
-    );
+    final rawMarketplaceRows = _normalizeMarketplaceRows(
+        _asList(data['by_marketplace'] ?? data['marketplaces']));
+    final normalizedMarketplace =
+        _text(data['reconciliation_source']).trim().isNotEmpty &&
+                rawMarketplaceRows.isNotEmpty
+            ? rawMarketplaceRows
+            : _reconciledMarketplaceRows(
+                rawMarketplaceRows,
+                normalizedSku,
+                displaySummary,
+                mergedAccounts,
+              );
     final normalizedCashFlow = _cashFlowRowsFromSummary(displaySummary);
     final normalizedProfitLoss = _profitLossRowsFromSummary(
         displaySummary, _asList(data['profit_loss_breakdown']));

@@ -58,3 +58,8 @@
 - Ringkasan Finance has a Sample / Gratis card with order count, sample HPP, sample negative payout, and estimated impact.
 - Reconciliation returns by_marketplace rows so Shopee and TikTok appear separately in the Marketplace tab.
 - Reconciliation function is volatile because it uses temporary tables for scoped period calculations.
+
+## 2026-06-19 Finance UI + Detailed Marketplace Breakdown
+- Bumped Finance local cache key to avoid old 1.2B TikTok payout flash before reconciliation loads.
+- Finance reconciliation now returns detailed gross-to-payout breakdown: voucher/discount, marketplace fee, refund, tax, adjustment, sample, and unclassified.
+- Finance Marketplace tab uses reconciliation by_marketplace rows directly when available, so Shopee and TikTok remain separate.
