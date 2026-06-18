@@ -96,3 +96,7 @@
 - Historical import stores full raw Excel rows instead of metadata-only raw rows.
 - TikTok income import skips non-order sheets/rows and maps Detail pesanan settlement columns.
 - Finalize flow calls finance breakdown backfill from staging after done.
+
+## 2026-06-19 TikTok Fast Finance Breakdown Backfill
+- Replaced slow JSON-aggregating backfill with temp-table aggregation.
+- Backfill now updates settlement breakdown without storing full raw rows into each finance report.

@@ -444,15 +444,6 @@ class _HistoricalImportParser {
         continue;
       }
 
-      if (_shouldSkipParsedRow(
-        raw: raw,
-        normalized: normalized,
-        sourceLabel: sourceLabel,
-        marketplace: marketplace,
-      )) {
-        continue;
-      }
-
       final status = (normalized['status'] ?? normalized['payout_status'] ?? '')
           .toString()
           .toLowerCase();
