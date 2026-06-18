@@ -363,7 +363,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       // Jangan overwrite by_marketplace dari canonical snapshot.
       // Snapshot sudah membawa HPP split per marketplace; reconciliation raw tidak selalu punya HPP.
-      final existingMarketplaceRows = _asList(out['by_marketplace'] ?? out['marketplaces']);
+      final existingMarketplaceRows =
+          _asList(out['by_marketplace'] ?? out['marketplaces']);
       final byMarketplace = _asList(reconciliation['by_marketplace']);
       if (existingMarketplaceRows.isEmpty && byMarketplace.isNotEmpty) {
         out['by_marketplace'] = byMarketplace;
@@ -1558,7 +1559,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _expenses = normalizedExpenses;
       _profitLoss = normalizedProfitLoss;
       final rawProfitLossMarketplace = _asList(
-        data['profit_loss_by_marketplace'] ?? data['by_marketplace'] ?? data['marketplaces'],
+        data['profit_loss_by_marketplace'] ??
+            data['by_marketplace'] ??
+            data['marketplaces'],
       );
       _profitLossByMarketplace = rawProfitLossMarketplace
           .whereType<Map>()
