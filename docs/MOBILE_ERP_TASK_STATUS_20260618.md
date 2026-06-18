@@ -100,3 +100,7 @@
 ## 2026-06-19 TikTok Fast Finance Breakdown Backfill
 - Replaced slow JSON-aggregating backfill with temp-table aggregation.
 - Backfill now updates settlement breakdown without storing full raw rows into each finance report.
+
+## 2026-06-19 TikTok DDMM Date Repair
+- TikTok historical order import now repairs DD/MM/YYYY, MM/DD/YYYY, and Excel serial date cells.
+- Repair reparses all staged TikTok rows to avoid valid-but-wrong Jan/Dec dates.
