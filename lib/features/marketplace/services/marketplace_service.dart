@@ -1038,7 +1038,7 @@ class MarketplaceService {
     int totalVariants = 0;
     int batchCount = 0;
     String? lastMessage;
-    const maxBatches = 6;
+    const maxBatches = 1;
 
     while (true) {
       batchCount += 1;
@@ -1049,9 +1049,9 @@ class MarketplaceService {
           body: {
             'tenant_id': tenantId,
             'marketplace_account_id': marketplaceAccountId,
-            'page_size': limit.clamp(1, 30),
+            'page_size': limit.clamp(1, 10),
             'max_pages': 1,
-            'max_products_per_run': 2,
+            'max_products_per_run': 1,
             'clear_cache': batchCount == 1,
             if (cursor != null) 'cursor': cursor,
           },
@@ -1063,6 +1063,20 @@ class MarketplaceService {
             message.contains('status: 404')) {
           throw Exception(
             'Sinkron produk belum aktif di server. Hubungi admin untuk mengaktifkan pembaruan produk marketplace.',
+          );
+        }
+        if (message.contains('WorkerRequestCancelled') ||
+            message.contains('request has been cancelled by supervisor')) {
+          return MarketplaceProductPullResult(
+            ok: true,
+            marketplace: '',
+            products: totalProducts,
+            variants: totalVariants,
+            message:
+                'Request produk dihentikan server, tetapi data yang sudah masuk tetap disimpan. Tekan Refresh untuk memuat varian terbaru, lalu klik Ambil Produk & Varian lagi bila perlu.',
+            hasMore: true,
+            nextCursor: cursor,
+            batchCount: batchCount,
           );
         }
         throw Exception(message);
