@@ -44,3 +44,22 @@ This file is the active runtime backlog. Keep this list in every handoff until e
 - SKU merge must preserve settled qty/payout/HPP when settled and unpaid rows share the same SKU key.
 - Laba Rugi marketplace breakdown must use compact per-marketplace cards, not the old reconciliation matrix table.
 - Order status/resi settle requires cron/logistics audit; Shopee physical resi remains 0 until logistics/AWB pull fills it.
+
+## 2026-06-19 active handoff reminder
+P0 still active:
+- Finance daily chart source must be fixed from actual daily transaction/order/finance data; chart UI alone is not enough.
+- SKU settled/HPP row-level must be fixed; HPP/item Rp 0 on settled rows means mapping/join source is still wrong.
+- Shopee physical resi is not available from order pull yet; do not fallback to OFG/long package/order references.
+- Order status/logistics update job must be validated and patched after cron/logistics audit.
+- Laba Rugi card layout is improved but final formula/label validation remains.
+- Cashflow double requires regression check.
+
+P1 still active:
+- Dedicated Marketplace Job Monitoring page.
+- Token refresh audit for product/order/finance Shopee and TikTok.
+- Incremental order+payout settle validation.
+- Repo hygiene and migration review.
+- RPC cleanup dependency audit before any drop.
+- Cleanup sarcastic/satire wording in UI/docs/source.
+- Regression: upload evidence, demo read-only, stock in/out, purchases/expenses, refund/return.
+- Detail SKU sample rows after SKU/HPP base is correct.
