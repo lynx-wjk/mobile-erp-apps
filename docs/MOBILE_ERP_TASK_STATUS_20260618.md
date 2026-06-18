@@ -136,3 +136,12 @@
 - Finance page uses backend cash_flow when present and dedupes it to avoid refresh double rows.
 - Laba Rugi marketplace detail falls back to by_marketplace when profit_loss_by_marketplace is absent.
 - Marketplace order page wording no longer claims fallback reference as stock-out scan barcode/AWB source.
+
+## 2026-06-19 runtime finance cache physical resi
+- Patched dashboard to use active finance cache key and show finance trend card for finance/admin roles.
+- Patched Finance page to read compatible local cache versions.
+- Patched Finance marketplace rows with HPP aliases so UI cards can read hpp_total/total_hpp/hpp consistently.
+- Patched cashflow UI to avoid mixing backend cash_flow with wallet rows when backend cash_flow exists.
+- Patched SKU load to supplement snapshot rows from existing finance_sku_order_details(settled).
+- Overwrote existing marketplace_find_order_by_resi to search physical resi/tracking only, not OFG/package/order references.
+- Added runtime TODO tracker for active failures and project rules.

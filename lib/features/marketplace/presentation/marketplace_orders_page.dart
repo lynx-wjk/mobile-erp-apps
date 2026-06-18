@@ -1120,10 +1120,10 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                           icon: Icon(Icons.copy_rounded, size: 18),
                           label: Text('Copy Order ID'),
                         ),
-                        if (order.resiText != '-')
+                        if (order.resiText == '-' ? 'Belum ada resi fisik' : order.resiText != '-')
                           OutlinedButton.icon(
-                            onPressed: () => _copyValue('Referensi Marketplace',
-                                order.stockOutReferenceText),
+                            onPressed: () => _copyValue('Resi Fisik Stock Out',
+                                order.stockOutReferenceText == '-' ? 'Belum ada resi fisik' : order.stockOutReferenceText),
                             icon: Icon(Icons.copy_rounded, size: 18),
                             label: Text('Copy Resi'),
                           ),
@@ -1138,8 +1138,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                             : order.stockActionLabel),
                     _detailRow('Tracking Marketplace', order.trackingDisplayText),
                     _detailRow(
-                        'Referensi Marketplace', order.stockOutReferenceText),
-                    _detailRow('Sumber referensi', order.resiSourceText),
+                        'Resi Fisik Stock Out', order.stockOutReferenceText == '-' ? 'Belum ada resi fisik' : order.stockOutReferenceText),
+                    _detailRow('Sumber resi', order.resiSourceText),
                     _detailRow('Order time', order.orderTimeText),
                     _detailRow('Diambil', order.pulledTimeText),
                     if (order.hasCancelRequest) ...[
@@ -1707,9 +1707,9 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                   compact: true,
                 ),
               ],
-              if (order.resiText != '-') ...[
+              if (order.resiText == '-' ? 'Belum ada resi fisik' : order.resiText != '-') ...[
                 SizedBox(height: 4),
-                Text('Resi: ${order.resiText}'),
+                Text('Resi: ${order.resiText == '-' ? 'Belum ada resi fisik' : order.resiText}'),
               ],
               SizedBox(height: 4),
               Text(

@@ -683,7 +683,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 accountId: 'all',
               );
               final cacheKey =
-                  '$keyBase::finance_live_20260606_local_cache_fast_v20';
+                  '$keyBase::finance_live_20260619_recover_existing_rpc_v23';
               await FinanceLocalCache.writeJson(cacheKey, _asMap(response));
             } catch (_) {}
             return parsed;
@@ -751,6 +751,7 @@ class _DashboardPageState extends State<DashboardPage> {
     String? marketplaceFilter,
   ) async {
     final versions = <String>[
+      'finance_live_20260619_recover_existing_rpc_v23',
       'finance_live_20260606_local_cache_fast_v20',
       'finance_live_20260606_local_cache_fast_v19',
       'finance_live_20260606_local_cache_fast_v18',
@@ -3061,6 +3062,97 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+
+  Widget _financeTrendChartCard() {
+    final color = Theme.of(context).colorScheme.primary;
+    final source = _financeTrend.isNotEmpty
+        ? _financeTrend
+        : <_TrendPoint>[
+            _TrendPoint(
+              date: DateTime.now(),
+              omzet: _financeOmzet,
+              orders: _financeOrderCount,
+            ),
+          ];
+    final points =
+        source.length > 14 ? source.sublist(source.length - 14) : source;
+    final maxOmzet = points.fold<num>(
+      1,
+      (max, point) => math.max(max.toDouble(), point.omzet.toDouble()),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.zero,
+        color: Theme.of(context).cardColor,
+        border: Border.all(color: Colors.black, width: 2.5),
+        boxShadow: const [
+          BoxShadow(color: Colors.black, blurRadius: 0, offset: Offset(5, 5)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.show_chart_rounded, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Trend Finance Bulan Ini',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              _miniBadge('${points.length} hari'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 96,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final point in points) ...[
+                  Expanded(
+                    child: Tooltip(
+                      message:
+                          '${AppUi.date(point.date)} · ${_shortRupiah(point.omzet)} · ${point.orders} order',
+                      child: Container(
+                        height: (point.omzet / maxOmzet * 88)
+                            .clamp(8, 88)
+                            .toDouble(),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.82),
+                          borderRadius: BorderRadius.zero,
+                          border: Border.all(color: Colors.black, width: 1),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 3),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Omzet ${_shortRupiah(_financeOmzet)} · Laba ${_shortRupiah(_financeNetProfit)} · Order $_financeOrderCount',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.outline,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   List<Widget> _roleAnalyticsContent() {
     final role = _role;
     final title = 'Analytics ${_roleLabel(role)}';
@@ -3299,6 +3391,12 @@ class _DashboardPageState extends State<DashboardPage> {
       metricsForRole(),
       badge: _isAdmin || _isOperationalAdmin ? 'Realtime' : _roleLabel(role),
     ));
+
+    if (_canAccessFinance && (_isFinance || _isAdmin || _isOperationalAdmin)) {
+      cards
+        ..add(const SizedBox(height: 12))
+        ..add(_financeTrendChartCard());
+    }
 
     if (_isAdmin || _isOperationalAdmin) {
       cards

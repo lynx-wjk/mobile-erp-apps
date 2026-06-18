@@ -62,6 +62,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'finance_live_20260619_recover_existing_rpc_v23';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
+    'finance_live_20260619_recover_existing_rpc_v23',
+    'finance_live_20260606_local_cache_fast_v20',
+    'finance_live_20260606_local_cache_fast_v19',
+    'finance_live_20260606_local_cache_fast_v18',
+    'finance_live_20260606_local_cache_fast_v17',
   ];
 
   bool get _isDemoSuperAdmin =>
@@ -1173,6 +1178,36 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return copy;
   }
 
+
+  Future<List<Map<String, dynamic>>> _fetchSkuRowsByPayoutFilter(
+      String payoutFilter) async {
+    final params = {
+      'p_start': _toDateParam(_start),
+      'p_end': _toDateParam(_end),
+      'p_marketplace': _marketplaceRpcParam(),
+      'p_account_id': _accountUuidParam(),
+      'p_search': null,
+      'p_payout_filter': payoutFilter,
+      'p_page': 1,
+      'p_page_size': _skuPageSize * 2,
+    };
+    try {
+      final response = await _client.rpc(
+        'finance_sku_order_details',
+        params: params,
+      );
+      final map = _asMap(response);
+      final rows = _asList(map['rows'] ?? map['by_sku'] ?? map['sku']);
+      return rows
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (error) {
+      debugPrint('FINANCE_SKU_$payoutFilter failed: $error');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
   Future<List<Map<String, dynamic>>> _fetchUnpaidSkuRowsPeriod() async {
     final params = {
       'p_start': _toDateParam(_start),
@@ -1419,6 +1454,56 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
+
+  List<Map<String, dynamic>> _marketplaceRowsWithFinanceAliases(
+      List<Map<String, dynamic>> rows) {
+    return rows.map((row) {
+      final out = Map<String, dynamic>.from(row);
+      final gross = _numFirstNonZero([
+        out['gross_sales'],
+        out['omzet_total'],
+        out['gross_total'],
+        out['gross_amount'],
+        out['omzet'],
+      ]);
+      final payout = _numFirstNonZero([
+        out['payout_total'],
+        out['payout_amount'],
+        out['received_amount'],
+        out['net_settlement'],
+        out['net_received'],
+      ]);
+      final hpp = _numFirstNonZero([
+        out['hpp_total'],
+        out['total_hpp'],
+        out['settled_hpp_total'],
+        out['paid_hpp_total'],
+        out['hpp'],
+      ]);
+      final profit = _numFirstNonZero([
+        out['net_profit'],
+        out['profit'],
+      ]);
+      out['gross_sales'] = gross;
+      out['omzet_total'] = gross;
+      out['gross_total'] = gross;
+      out['payout_total'] = payout;
+      out['received_amount'] = payout;
+      out['net_settlement'] = payout;
+      out['hpp_total'] = hpp;
+      out['total_hpp'] = hpp;
+      out['hpp'] = hpp;
+      out['net_profit'] = profit != 0 ? profit : payout - hpp;
+      out['profit'] = out['net_profit'];
+      out['account_name'] = _text(
+        out['account_name'] ?? out['shop_name'] ?? out['store_alias'],
+        '-',
+      );
+      out['shop_name'] = _text(out['shop_name'] ?? out['account_name'], '-');
+      return out;
+    }).toList(growable: false);
+  }
+
   Future<void> _applyFinanceSnapshotData(
     Map<String, dynamic> data,
     List<Map<String, dynamic>> fallbackAccounts, {
@@ -1488,7 +1573,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     ]);
 
     final snapshotSkuRows = _skuRowsFromSnapshot(data);
-    var rawSkuRows = _filterSkuRowsBySelectedScope(snapshotSkuRows);
+    final liveSettledSkuRows = includeSupplementalSku
+        ? _filterSkuRowsBySelectedScope(
+            await _fetchSkuRowsByPayoutFilter('settled'),
+          )
+        : <Map<String, dynamic>>[];
+    var rawSkuRows = _filterSkuRowsBySelectedScope(<Map<String, dynamic>>[
+      ...snapshotSkuRows,
+      ...liveSettledSkuRows,
+    ]);
 
     // Backend snapshot/RPC sudah menerima p_marketplace dan p_account_id.
     // Beberapa summary SKU lama tidak membawa field marketplace/account di tiap row.
@@ -1533,10 +1626,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
-    final normalizedCashFlow = backendCashFlow.isNotEmpty
+    final useBackendCashFlow = backendCashFlow.isNotEmpty;
+    final normalizedCashFlow = useBackendCashFlow
         ? _dedupeCashFlowRows(backendCashFlow)
         : _cashFlowRowsFromSummary(displaySummary);
     final normalizedProfitLoss = _profitLossRowsFromSummary(displaySummary);
+    final normalizedMarketplaceForDisplay =
+        _marketplaceRowsWithFinanceAliases(normalizedMarketplace);
     setState(() {
       _accounts = mergedAccounts;
       _summary = displaySummary;
@@ -1544,18 +1640,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ? data['notes']
           : data['sources']);
       _approvedPurchases = approvedPurchases;
-      _byMarketplace = normalizedMarketplace;
+      _byMarketplace = normalizedMarketplaceForDisplay;
       _bySku = normalizedSku;
       _skuPage = 1;
       _cashFlow = normalizedCashFlow;
-      _cashOpeningBalances =
-          cashWalletData['opening'] ?? <Map<String, dynamic>>[];
-      _cashAdjustments =
-          cashWalletData['adjustments'] ?? <Map<String, dynamic>>[];
-      _marketplaceWithdrawals =
-          cashWalletData['withdrawals'] ?? <Map<String, dynamic>>[];
-      _withdrawalAllocations =
-          cashWalletData['allocations'] ?? <Map<String, dynamic>>[];
+      _cashOpeningBalances = useBackendCashFlow
+          ? <Map<String, dynamic>>[]
+          : cashWalletData['opening'] ?? <Map<String, dynamic>>[];
+      _cashAdjustments = useBackendCashFlow
+          ? <Map<String, dynamic>>[]
+          : cashWalletData['adjustments'] ?? <Map<String, dynamic>>[];
+      _marketplaceWithdrawals = useBackendCashFlow
+          ? <Map<String, dynamic>>[]
+          : cashWalletData['withdrawals'] ?? <Map<String, dynamic>>[];
+      _withdrawalAllocations = useBackendCashFlow
+          ? <Map<String, dynamic>>[]
+          : cashWalletData['allocations'] ?? <Map<String, dynamic>>[];
       _expenses = normalizedExpenses;
       _profitLoss = normalizedProfitLoss;
       final rawProfitLossMarketplace = _asList(
@@ -1563,10 +1663,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             data['by_marketplace'] ??
             data['marketplaces'],
       );
-      _profitLossByMarketplace = rawProfitLossMarketplace
-          .whereType<Map>()
-          .map((row) => Map<String, dynamic>.from(row))
-          .toList();
+      _profitLossByMarketplace = _marketplaceRowsWithFinanceAliases(
+        rawProfitLossMarketplace
+            .whereType<Map>()
+            .map((row) => Map<String, dynamic>.from(row))
+            .toList(),
+      );
       _abnormals = _normalizeAbnormalRows(_asList(data['abnormals']));
       if (_progressTitle.trim().isEmpty && _progressLines.isEmpty) {
         final lastMessage = _text(
@@ -1700,7 +1802,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         data,
         fallbackAccounts,
         includeOperationalExpenses: true,
-        includeSupplementalSku: false,
+        includeSupplementalSku: true,
       );
 
       if (!isCurrentFinanceLoad() || !mounted) return;

@@ -199,41 +199,32 @@ class MarketplaceOrderSummary {
       stockActionStatus == 'return_review_done' ||
       stockActionStatus == 'cancelled_released';
 
-  String get resiText {
+  bool _looksLikeNonPhysicalOrderReference(String value) {
+    final clean = value.trim();
+    if (clean.isEmpty || clean == '-') return true;
+    final upper = clean.toUpperCase();
+    if (upper.startsWith('OFG')) return true;
+    if (RegExp(r'^\\d{16,}$').hasMatch(clean)) return true;
+    return false;
+  }
+
+  String get physicalResiText {
     final tracking = trackingNumber.trim();
-    if (tracking.isNotEmpty && tracking != '-') return tracking;
-
-    // Fallback ini sengaja dipertahankan untuk proses Stock Out.
-    // Beberapa marketplace belum memberi courier AWB pada order baru,
-    // tapi package/label reference tetap harus bisa discan/dicopy untuk matching operasional.
-    final label = labelCode.trim();
-    if (label.isNotEmpty && label != '-') return label;
-
-    final package = packageId.trim();
-    if (package.isNotEmpty && package != '-') return package;
-
+    if (!_looksLikeNonPhysicalOrderReference(tracking)) return tracking;
     return '-';
   }
 
+  String get resiText => physicalResiText;
+
   String get resiSourceText {
-    final clean = resiText.trim();
-    if (clean.isEmpty || clean == '-') return '-';
-    if (trackingNumber.trim() == clean) return 'Tracking / AWB';
-    if (labelCode.trim() == clean) return 'Label marketplace';
-    if (packageId.trim() == clean) return 'Package / logistics reference';
-    return 'Resi / reference';
+    final clean = physicalResiText.trim();
+    if (clean.isEmpty || clean == '-') return 'Resi fisik belum tersedia';
+    return 'Resi fisik label pengiriman';
   }
 
-  String get trackingDisplayText {
-    final clean = trackingNumber.trim();
-    if (clean.isEmpty || clean == '-') return '-';
-    final upper = clean.toUpperCase();
-    if (upper.startsWith('OFG')) return '-';
-    if (RegExp(r'^\\d{16,}$').hasMatch(clean)) return '-';
-    return clean;
-  }
+  String get trackingDisplayText => physicalResiText;
 
-  String get stockOutReferenceText => resiText;
+  String get stockOutReferenceText => physicalResiText;
 
   String get cancelRequestStatusText {
     final value = cancelRequestStatus.trim();
