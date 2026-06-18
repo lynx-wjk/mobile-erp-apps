@@ -185,33 +185,28 @@ class MarketplaceOrderSummary {
 
   String get resiText {
     final tracking = trackingNumber.trim();
-    if (tracking.isNotEmpty &&
-        tracking != '-' &&
-        tracking != externalOrderId.trim() &&
-        tracking != packageId.trim() &&
-        tracking != labelCode.trim() &&
-        !_looksLikeMarketplaceOrderReference(tracking)) {
-      return tracking;
-    }
-    return '-';
-  }
+    if (tracking.isNotEmpty && tracking != '-') return tracking;
 
-  String get shipmentReferenceText {
-    final package = packageId.trim();
-    if (package.isNotEmpty && package != '-') return package;
+    // Fallback ini sengaja dipertahankan untuk proses Stock Out.
+    // Beberapa marketplace belum memberi courier AWB pada order baru,
+    // tapi package/label reference tetap harus bisa discan/dicopy untuk matching operasional.
     final label = labelCode.trim();
     if (label.isNotEmpty && label != '-') return label;
+
+    final package = packageId.trim();
+    if (package.isNotEmpty && package != '-') return package;
+
     return '-';
   }
 
-  bool _looksLikeMarketplaceOrderReference(String value) {
-    final clean = value.trim();
-    if (RegExp(r'^OFG[0-9A-Z]{10,}$').hasMatch(clean)) return true;
-    if (RegExp(r'^[0-9]{16,}$').hasMatch(clean)) return true;
-    return false;
+  String get resiSourceText {
+    final clean = resiText.trim();
+    if (clean.isEmpty || clean == '-') return '-';
+    if (trackingNumber.trim() == clean) return 'Tracking / AWB';
+    if (labelCode.trim() == clean) return 'Label marketplace';
+    if (packageId.trim() == clean) return 'Package / logistics reference';
+    return 'Resi / reference';
   }
-
-
 
   String get cancelRequestStatusText {
     final value = cancelRequestStatus.trim();

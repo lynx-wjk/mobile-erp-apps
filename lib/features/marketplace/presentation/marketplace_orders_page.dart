@@ -1122,7 +1122,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                         ),
                         if (order.resiText != '-')
                           OutlinedButton.icon(
-                            onPressed: () => _copyValue('Resi Marketplace', order.resiText),
+                            onPressed: () => _copyValue('Resi / Reference', order.resiText),
                             icon: Icon(Icons.copy_rounded, size: 18),
                             label: Text('Copy Resi'),
                           ),
@@ -1135,9 +1135,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                         order.hasPendingReturnReview
                             ? order.reviewBadgeLabel
                             : order.stockActionLabel),
-                    _detailRow('Resi Marketplace', order.resiText),
-                    if (order.shipmentReferenceText != '-')
-                      _detailRow('Referensi Paket / Label', order.shipmentReferenceText),
+                    _detailRow('Resi / Reference', order.resiText),
+                    _detailRow('Sumber resi', order.resiSourceText),
                     _detailRow('Order time', order.orderTimeText),
                     _detailRow('Diambil', order.pulledTimeText),
                     if (order.hasCancelRequest) ...[

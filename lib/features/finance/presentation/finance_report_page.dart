@@ -59,7 +59,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260619_existing_pl_detail_v22';
+      'finance_live_20260619_recover_existing_rpc_v23';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -377,28 +377,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ...reconciliationBreakdown,
         ];
       }
-
-      try {
-        final detail = await _client.rpc(
-          'finance_marketplace_profit_loss_detail',
-          params: {
-            'p_start': params['p_start'],
-            'p_end': params['p_end'],
-            'p_marketplace': params['p_marketplace'],
-            'p_account_id': params['p_account_id'],
-          },
-        );
-        if (detail is Map) {
-          final rows = _asList(detail['rows']);
-          if (rows.isNotEmpty) {
-            out['profit_loss_by_marketplace'] = rows;
-          }
-        }
-      } catch (detailError) {
-        debugPrint('FINANCE_MARKETPLACE_PL_DETAIL_RPC_FAILED: $detailError');
-      }
-
-      return out;
+return out;
     } catch (error) {
       debugPrint('FINANCE_RECONCILIATION_RPC_FAILED: $error');
       return response;

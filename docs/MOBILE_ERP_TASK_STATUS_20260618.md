@@ -119,3 +119,8 @@
 - Reconciliation now uses marketplace order date instead of finance report created_at.
 - Laba Rugi final no longer treats gross-vs-payout diagnostic rows as direct expenses.
 - HPP values are normalized as positive costs before profit calculations.
+
+## 2026-06-19 Recovery Finance Resi RPC Audit
+- Restored Resi/Reference fallback for stock-out operational matching.
+- Removed heavy rejected order-date reconciliation UI helper from Finance page.
+- Generated audit reports for app RPC usage versus existing public DB functions.
