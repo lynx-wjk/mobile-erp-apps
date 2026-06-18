@@ -32,3 +32,9 @@ This file is the active runtime backlog. Keep this list in every handoff until e
 - 90-day finance/order scope.
 - HPP and target margin from HPP mapping, not SKU mapping.
 - SKU mapping only variant to local SKU/product/barcode/sync settings.
+
+## 2026-06-19 remaining runtime patch
+- Dashboard Finance chart visibility no longer depends on finance trend being non-empty.
+- Dashboard Finance chart visibility no longer depends only on plan gate for owner/super-admin/admin/finance roles.
+- Finance SKU loader now pulls all pages from existing finance_sku_order_details for settled and unpaid filters.
+- Physical resi backfill tries to extract true tracking/AWB/waybill keys from raw marketplace JSON and explicitly excludes OFG/package/order references.

@@ -1178,6 +1178,47 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return copy;
   }
 
+
+  Future<List<Map<String, dynamic>>> _fetchSkuRowsByPayoutFilterAll(
+      String payoutFilter) async {
+    final allRows = <Map<String, dynamic>>[];
+    const pageSize = 500;
+
+    for (var page = 1; page <= 20; page++) {
+      final params = {
+        'p_start': _toDateParam(_start),
+        'p_end': _toDateParam(_end),
+        'p_marketplace': _marketplaceRpcParam(),
+        'p_account_id': _accountUuidParam(),
+        'p_search': null,
+        'p_payout_filter': payoutFilter,
+        'p_page': page,
+        'p_page_size': pageSize,
+      };
+
+      try {
+        final response = await _client.rpc(
+          'finance_sku_order_details',
+          params: params,
+        );
+        final map = _asMap(response);
+        final rows = _asList(map['rows'] ?? map['by_sku'] ?? map['sku'])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+
+        if (rows.isEmpty) break;
+        allRows.addAll(rows);
+        if (rows.length < pageSize) break;
+      } catch (error) {
+        debugPrint('FINANCE_SKU_${payoutFilter}_PAGE_$page failed: $error');
+        break;
+      }
+    }
+
+    return allRows;
+  }
+
   Future<List<Map<String, dynamic>>> _fetchSkuRowsByPayoutFilter(
       String payoutFilter) async {
     final params = {
@@ -1573,12 +1614,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final snapshotSkuRows = _skuRowsFromSnapshot(data);
     final liveSettledSkuRows = includeSupplementalSku
         ? _filterSkuRowsBySelectedScope(
-            await _fetchSkuRowsByPayoutFilter('settled'),
+            await _fetchSkuRowsByPayoutFilterAll('settled'),
           )
         : <Map<String, dynamic>>[];
+    final liveUnpaidSkuRows = includeSupplementalSku
+        ? _filterSkuRowsBySelectedScope(
+            await _fetchSkuRowsByPayoutFilterAll('unpaid'),
+          )
+        : <Map<String, dynamic>>[];
+
     var rawSkuRows = _filterSkuRowsBySelectedScope(<Map<String, dynamic>>[
       ...snapshotSkuRows,
       ...liveSettledSkuRows,
+      ...liveUnpaidSkuRows,
     ]);
 
     // Backend snapshot/RPC sudah menerima p_marketplace dan p_account_id.
@@ -1589,12 +1637,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       rawSkuRows = snapshotSkuRows;
     }
 
-    final rawUnpaidSkuRows = includeSupplementalSku && rawSkuRows.isEmpty
-        ? _filterSkuRowsBySelectedScope(await _fetchUnpaidSkuRowsPeriod())
-        : <Map<String, dynamic>>[];
     final normalizedSku = _mergeSkuRows(
       _normalizeSkuRows(rawSkuRows),
-      _normalizeSkuRows(rawUnpaidSkuRows),
+      const <Map<String, dynamic>>[],
     );
 
     var displaySummary = _summaryForDisplay(

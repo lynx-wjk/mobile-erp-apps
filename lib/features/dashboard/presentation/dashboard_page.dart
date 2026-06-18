@@ -1222,8 +1222,10 @@ class _DashboardPageState extends State<DashboardPage> {
                           const SizedBox(height: 14),
                           _summaryGrid(),
                           const SizedBox(height: 20),
-                          if (_canAccessFinance &&
-                              _financeTrend.isNotEmpty) ...[
+                          if (_isFinance ||
+                              _isAdmin ||
+                              _isOperationalAdmin ||
+                              _canAccessFinance) ...[
                             _adminAnalyticsCard(),
                             const SizedBox(height: 20),
                           ],
@@ -3391,7 +3393,7 @@ class _DashboardPageState extends State<DashboardPage> {
       badge: _isAdmin || _isOperationalAdmin ? 'Realtime' : _roleLabel(role),
     ));
 
-    if (_canAccessFinance && (_isFinance || _isAdmin || _isOperationalAdmin)) {
+    if (_isFinance || _isAdmin || _isOperationalAdmin || _canAccessFinance) {
       cards
         ..add(const SizedBox(height: 12))
         ..add(_financeTrendChartCard());
