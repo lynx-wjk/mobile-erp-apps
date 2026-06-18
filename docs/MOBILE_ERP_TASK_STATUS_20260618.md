@@ -37,3 +37,9 @@
 - Product pull endpoint returns has_more and next_cursor to Flutter.
 - Product pull no longer clears old snapshots on each partial pull.
 - Flutter product pull loops up to 40 small batches with 5 products per request.
+
+## 2026-06-19 Finance Reconciliation
+- Added finance_marketplace_reconciliation_breakdown RPC.
+- Sample/free/zero-payment orders are exposed as Finance abnormal rows.
+- Profit/loss can show gross-to-payout adjustment breakdown: voucher/discount, marketplace fee, tax, refund/return/cancel, sample/zero-payment, and unclassified adjustment.
+- Finance page merges reconciliation breakdown after loading the main finance snapshot.

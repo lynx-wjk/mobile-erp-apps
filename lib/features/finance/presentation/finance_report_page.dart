@@ -305,14 +305,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       try {
         final response = await _client.rpc(safeRpcName, params: params);
-        _lastSnapshotStats = '$safeRpcName · ${_snapshotStats(response)}';
+        final enrichedResponse =
+            await _withMarketplaceReconciliation(response, params);
+        _lastSnapshotStats =
+            '$safeRpcName · ${_snapshotStats(enrichedResponse)}';
 
-        if (!_isFinanceSnapshotEmpty(response) &&
-            !_isLegacySkuOnlySnapshot(response)) {
-          return response;
+        if (!_isFinanceSnapshotEmpty(enrichedResponse) &&
+            !_isLegacySkuOnlySnapshot(enrichedResponse)) {
+          return enrichedResponse;
         }
 
-        firstEmptyResponse ??= response;
+        firstEmptyResponse ??= enrichedResponse;
       } catch (e) {
         lastError = e;
         debugPrint('FINANCE_SNAPSHOT_RPC_FAILED $safeRpcName: $e');
@@ -1805,7 +1808,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _bySku = mergedRows;
       });
     } catch (e) {
-      // Overlay hitungan settled/belum payout hanya data pendukung.
+      // Overlay hitungan settled/belum payout hanya data peng.
       // Jangan pernah bikin laporan utama gagal dimuat gara-gara RPC overlay
       // belum ada, beda signature, timeout, atau schema cache Supabase sedang malas hidup.
       debugPrint('FINANCE_SKU_PAYOUT_COUNT_OVERLAY_SKIPPED: $e');
@@ -3072,15 +3075,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'amount': gross,
         'format': 'money'
       },
-      if (marketplaceCut > 0)
-        {
-          'name': 'Potongan marketplace',
-          'description':
-              'Selisih omzet dan payout. Termasuk komisi, biaya layanan, subsidi/voucher, pajak, refund, atau koreksi settlement.',
-          'amount': -marketplaceCut,
-          'format': 'money'
-        },
     ];
+
+    if (marketplaceCut > 0 && marketplaceDeductions.isEmpty) {
+      rows.add({
+        'name': 'Potongan marketplace',
+        'description':
+            'Selisih omzet dan payout. Termasuk komisi, biaya layanan, subsidi/voucher, pajak, refund, atau koreksi settlement.',
+        'amount': -marketplaceCut,
+        'format': 'money'
+      });
+    }
 
     for (final item in marketplaceDeductions) {
       final amount = _num(item['amount'] ?? item['total']);
