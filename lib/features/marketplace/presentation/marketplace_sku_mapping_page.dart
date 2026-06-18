@@ -1,10 +1,9 @@
 // ignore_for_file: unused_element
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/constants/marketplace_providers.dart';
@@ -639,17 +638,24 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       }
       final bytes = excel.encode();
       if (bytes == null) return;
-      final dir = await getTemporaryDirectory();
-      final file = File(
-          '${dir.path}/hpp_mapping_${DateTime.now().millisecondsSinceEpoch}.xlsx');
-      await file.writeAsBytes(bytes, flush: true);
+      final filename =
+          'hpp_mapping_${DateTime.now().millisecondsSinceEpoch}.xlsx';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
                 'Export HPP ${exportRows.length} varian. Sheet aktif: hpp_mapping.')));
       }
-      await Share.shareXFiles([XFile(file.path)],
-          text: 'Template bulk update HPP marketplace');
+      await Share.shareXFiles(
+        [
+          XFile.fromData(
+            Uint8List.fromList(bytes),
+            name: filename,
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ),
+        ],
+        text: 'Template bulk update HPP marketplace',
+      );
     } catch (error) {
       if (mounted)
         ScaffoldMessenger.of(context)
@@ -669,12 +675,11 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         ),
       ],
     );
-    final path = picked?.path;
-    if (path == null) return;
+    if (picked == null) return;
 
     setState(() => _isHppSaving = true);
     try {
-      final excel = Excel.decodeBytes(await File(path).readAsBytes());
+      final excel = Excel.decodeBytes(await picked.readAsBytes());
       final sheet = _findHppMappingSheet(excel);
       if (sheet == null || sheet.rows.length < 2) {
         throw Exception(
@@ -888,17 +893,24 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
 
       final bytes = excel.encode();
       if (bytes == null) return;
-      final dir = await getTemporaryDirectory();
-      final file = File(
-          '${dir.path}/sku_mapping_${DateTime.now().millisecondsSinceEpoch}.xlsx');
-      await file.writeAsBytes(bytes, flush: true);
+      final filename =
+          'sku_mapping_${DateTime.now().millisecondsSinceEpoch}.xlsx';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
                 'Export SKU mapping ${variants.length} varian dan ${localProducts.length} SKU lokal.')));
       }
-      await Share.shareXFiles([XFile(file.path)],
-          text: 'Template mapping SKU marketplace');
+      await Share.shareXFiles(
+        [
+          XFile.fromData(
+            Uint8List.fromList(bytes),
+            name: filename,
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ),
+        ],
+        text: 'Template mapping SKU marketplace',
+      );
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -916,12 +928,11 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         fs.XTypeGroup(label: 'Excel', extensions: <String>['xlsx']),
       ],
     );
-    final path = picked?.path;
-    if (path == null) return;
+    if (picked == null) return;
 
     setState(() => _isSkuExcelBusy = true);
     try {
-      final excel = Excel.decodeBytes(await File(path).readAsBytes());
+      final excel = Excel.decodeBytes(await picked.readAsBytes());
       final sheet = excel.tables['sku_mapping'] ?? excel.tables['SKU_MAPPING'];
       if (sheet == null || sheet.rows.length < 2) {
         throw Exception(
