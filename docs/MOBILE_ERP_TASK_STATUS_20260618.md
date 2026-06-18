@@ -104,3 +104,7 @@
 ## 2026-06-19 TikTok DDMM Date Repair
 - TikTok historical order import now repairs DD/MM/YYYY, MM/DD/YYYY, and Excel serial date cells.
 - Repair reparses all staged TikTok rows to avoid valid-but-wrong Jan/Dec dates.
+
+## 2026-06-19 TikTok Finalize Function Ambiguity Fix
+- Removed ambiguous zero-argument overload for TikTok staging date repair.
+- Added same-batch valid-date fallback for malformed single exported order rows.
