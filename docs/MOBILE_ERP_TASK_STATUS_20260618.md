@@ -31,3 +31,9 @@
 - Validasi order status update dan payout update setelah cron berjalan normal.
 - Validasi stock sync real API setelah mapping SKU dan marketplace sku id lengkap.
 - Rapikan repo: commit target file, abaikan audit/tmp, jangan commit logs.
+
+## 2026-06-18 Product Pull Cursor Fix
+- Product pull endpoint supports cursor-based paging for Shopee.
+- Product pull endpoint returns has_more and next_cursor to Flutter.
+- Product pull no longer clears old snapshots on each partial pull.
+- Flutter product pull loops up to 40 small batches with 5 products per request.

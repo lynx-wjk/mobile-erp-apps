@@ -1038,7 +1038,7 @@ class MarketplaceService {
     int totalVariants = 0;
     int batchCount = 0;
     String? lastMessage;
-    const maxBatches = 1;
+    const maxBatches = 40;
 
     while (true) {
       batchCount += 1;
@@ -1049,10 +1049,10 @@ class MarketplaceService {
           body: {
             'tenant_id': tenantId,
             'marketplace_account_id': marketplaceAccountId,
-            'page_size': limit.clamp(1, 10),
+            'page_size': limit.clamp(1, 5),
             'max_pages': 1,
-            'max_products_per_run': 1,
-            'clear_cache': batchCount == 1,
+            'max_products_per_run': 5,
+            'clear_cache': false,
             if (cursor != null) 'cursor': cursor,
           },
         );
@@ -1126,7 +1126,7 @@ class MarketplaceService {
           products: totalProducts,
           variants: totalVariants,
           message:
-              'Pull dihentikan sementara setelah $maxBatches batch supaya aplikasi tidak menggantung. Klik Ambil Produk & Varian lagi untuk melanjutkan jika angka belum lengkap.',
+              'Pull dihentikan sementara setelah $maxBatches batch. Klik Ambil Produk & Varian lagi untuk melanjutkan jika marketplace masih punya halaman produk berikutnya.',
           hasMore: true,
           nextCursor: result.nextCursor,
           batchCount: batchCount,

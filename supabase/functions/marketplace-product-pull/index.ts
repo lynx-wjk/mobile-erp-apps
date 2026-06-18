@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-product-pull-shopee-item-parser-v32-2026-06-09";
+const FUNCTION_VERSION = "marketplace-product-pull-cursor-v36-2026-06-18";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -71,7 +71,12 @@ Deno.serve(async (req) => {
 
     tenantId = String(body.tenant_id || profile.tenant_id || "").trim();
     marketplaceAccountId = String(body.marketplace_account_id || "").trim();
-    const limit = clampInt(body.limit, 1, 100, 30);
+    const limit = clampInt(body.limit ?? body.page_size, 1, 100, 10);
+    const cursor = body.cursor && typeof body.cursor === "object" && !Array.isArray(body.cursor)
+      ? body.cursor
+      : {};
+    const clearCache = body.clear_cache === true;
+    const maxProductsPerRun = clampInt(body.max_products_per_run ?? limit, 1, 20, Math.min(limit, 5));
 
     if (!tenantId) return json({ ok: false, message: "tenant_id is required" }, 400);
     if (!marketplaceAccountId) return json({ ok: false, message: "marketplace_account_id is required" }, 400);
@@ -108,16 +113,16 @@ Deno.serve(async (req) => {
     }
 
     if (account.marketplace === "tiktok_shop") {
-      const result = await pullTiktokProducts(admin, account, limit);
+      const result = await pullTiktokProducts(admin, account, { limit, cursor, clearCache, maxProductsPerRun });
       return json(result);
     }
 
     if (account.marketplace === "shopee") {
-      const result = await pullShopeeProducts(admin, account, limit);
+      const result = await pullShopeeProducts(admin, account, { limit, cursor, clearCache, maxProductsPerRun });
       return json(result);
     }
 
-    return json({ ok: false, message: `Marketplace ${account.marketplace} belum didukung.` }, 400);
+    return json({ ok: false, message: `Marketplace ${account.marketplace} belum dig.` }, 400);
   } catch (err) {
     const message = String(err.message || err);
     console.error("Product pull error caught:", message);
@@ -128,7 +133,7 @@ Deno.serve(async (req) => {
     if (message.includes("is not configured") || message.includes("Missing env") || message.includes("kosong")) {
       errorCode = "MISSING_CONFIGURATION";
       httpStatus = 400;
-    } else if (message.includes("belum didukung") || message.includes("not supported")) {
+    } else if (message.includes("belum dig") || message.includes("not supported")) {
       errorCode = "UNSUPPORTED_MARKETPLACE";
       httpStatus = 400;
     } else if (message.includes("decrypt") || message.includes("terenkripsi") || message.includes("decryption")) {
@@ -152,7 +157,12 @@ Deno.serve(async (req) => {
   }
 });
 
-async function pullTiktokProducts(admin: any, account: any, limit: number) {
+async function pullTiktokProducts(admin: any, account: any, options: { limit: number; cursor: any; clearCache: boolean; maxProductsPerRun: number }) {
+  const limit = options.limit;
+  const cursor = options.cursor || {};
+  const clearCache = options.clearCache === true;
+  const maxProductsPerRun = Math.max(1, Math.min(options.maxProductsPerRun || limit, limit));
+
   const tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, account);
   account = tokenBundle.account;
   const appKey = Deno.env.get("TIKTOK_APP_KEY")?.trim() || account.app_key;
@@ -217,10 +227,12 @@ async function pullTiktokProducts(admin: any, account: any, limit: number) {
   const resolvedWarehouseId = warehouseResult.warehouse_id;
 
   const baseQuery: Record<string, string> = {
-    page_size: String(limit),
+    page_size: String(Math.max(1, Math.min(limit, maxProductsPerRun))),
     version: "202309",
   };
   if (shopId) baseQuery.shop_id = shopId;
+  const tiktokPageToken = text(cursor.page_token) || text(cursor.pageToken) || text(cursor.next_page_token);
+  if (tiktokPageToken) baseQuery.page_token = tiktokPageToken;
 
   let searchJson: any = null;
   let firstError: unknown = null;
@@ -250,7 +262,7 @@ async function pullTiktokProducts(admin: any, account: any, limit: number) {
         accessToken,
         shopCipher,
         query: {
-          page_size: String(limit),
+          page_size: String(Math.max(1, Math.min(limit, maxProductsPerRun))),
         },
         body: {},
       });
@@ -284,14 +296,14 @@ async function pullTiktokProducts(admin: any, account: any, limit: number) {
   }
 
   const pulledProducts = collectProducts(searchJson);
-  const productList = pulledProducts.filter(isActiveMarketplaceProductRecord).slice(0, limit);
+  const productList = pulledProducts.filter(isActiveMarketplaceProductRecord).slice(0, maxProductsPerRun);
   let productCount = 0;
   let variantCount = 0;
   let skippedInactiveProducts = Math.max(0, pulledProducts.length - productList.length);
   let skippedInactiveVariants = 0;
   const errors: string[] = [];
 
-  if (pulledProducts.length > 0) {
+  if (clearCache && pulledProducts.length > 0) {
     await clearProductSnapshotCache(admin, account);
   }
 
@@ -369,9 +381,15 @@ async function pullTiktokProducts(admin: any, account: any, limit: number) {
     await cacheWarehouseIdForMappedVariants(admin, account, resolvedWarehouseId);
   }
 
+  const nextPageToken = tiktokNextPageToken(searchJson);
+  const hasMore = Boolean(nextPageToken);
+  const nextCursor = nextPageToken ? { page_token: nextPageToken } : null;
+
   return {
     ok: true,
     marketplace: "tiktok_shop",
+    has_more: hasMore,
+    next_cursor: nextCursor,
     products: productCount,
     variants: variantCount,
     skipped_inactive_products: skippedInactiveProducts,
@@ -386,48 +404,47 @@ async function pullTiktokProducts(admin: any, account: any, limit: number) {
   };
 }
 
-async function pullShopeeProducts(admin: any, account: any, limit: number) {
+async function pullShopeeProducts(admin: any, account: any, options: { limit: number; cursor: any; clearCache: boolean; maxProductsPerRun: number }) {
   const { account: activeAccount, accessToken } = await refreshShopeeAccessTokenIfNeeded(admin, account);
-  const pageSize = Math.min(50, Math.max(1, limit));
+  const limit = options.limit;
+  const cursor = options.cursor || {};
+  const clearCache = options.clearCache === true;
+  const maxProductsPerRun = Math.max(1, Math.min(options.maxProductsPerRun || limit, limit));
+  const pageSize = Math.min(50, Math.max(1, Math.min(limit, maxProductsPerRun)));
   const itemIds: string[] = [];
   const errors: string[] = [];
-  let offset = 0;
-  let pages = 0;
+  const rawOffset = Number(cursor.offset ?? cursor.next_offset ?? 0);
+  const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+  let nextOffset = offset;
+  let hasMore = false;
 
-  while (itemIds.length < limit && pages < 10) {
-    pages += 1;
-    try {
-      const listJson = await shopeeRequest({
-        method: "GET",
-        account: activeAccount,
-        accessToken,
-        path: "/api/v2/product/get_item_list",
-        query: {
-          offset,
-          page_size: Math.min(pageSize, limit - itemIds.length),
-          item_status: "NORMAL",
-        },
-      });
-      const list = collectShopeeItemList(listJson);
-      if (list.length === 0) {
-        const listData = (listJson?.response ?? listJson?.data ?? listJson) || {};
-        errors.push(`Shopee item list kosong. response_keys=${Object.keys(listData).slice(0, 12).join(",")}; total_count=${text(listData.total_count)}; has_next_page=${text(listData.has_next_page)}`);
-      }
-      for (const item of list) {
-        const id = text(item.item_id) || text(item.id);
-        if (id && !itemIds.includes(id)) itemIds.push(id);
-        if (itemIds.length >= limit) break;
-      }
-      const nextOffset = Number((listJson?.response ?? listJson)?.next_offset ?? offset + list.length);
-      if (!Number.isFinite(nextOffset) || nextOffset <= offset || list.length === 0 || (listJson?.response?.has_next_page === false)) break;
-      offset = nextOffset;
-    } catch (err) {
-      errors.push(`Get Shopee item list gagal: ${String(err)}`);
-      break;
+  try {
+    const listJson = await shopeeRequest({
+      method: "GET",
+      account: activeAccount,
+      accessToken,
+      path: "/api/v2/product/get_item_list",
+      query: { offset, page_size: pageSize, item_status: "NORMAL" },
+    });
+    const list = collectShopeeItemList(listJson);
+    if (list.length === 0) {
+      const listData = (listJson?.response ?? listJson?.data ?? listJson) || {};
+      errors.push(`Shopee item list kosong. response_keys=${Object.keys(listData).slice(0, 12).join(",")}; total_count=${text(listData.total_count)}; has_next_page=${text(listData.has_next_page)}`);
     }
+    for (const item of list) {
+      const id = text(item.item_id) || text(item.id);
+      if (id && !itemIds.includes(id)) itemIds.push(id);
+      if (itemIds.length >= maxProductsPerRun) break;
+    }
+    const responseData = listJson?.response ?? listJson?.data ?? listJson ?? {};
+    const parsedNextOffset = Number(responseData.next_offset ?? offset + list.length);
+    nextOffset = Number.isFinite(parsedNextOffset) && parsedNextOffset > offset ? parsedNextOffset : offset + list.length;
+    hasMore = responseData.has_next_page === true && nextOffset > offset;
+  } catch (err) {
+    errors.push(`Get Shopee item list gagal: ${String(err)}`);
   }
 
-  if (itemIds.length > 0) {
+  if (clearCache && itemIds.length > 0) {
     await clearProductSnapshotCache(admin, activeAccount);
   }
 
@@ -438,32 +455,21 @@ async function pullShopeeProducts(admin: any, account: any, limit: number) {
 
   for (const itemId of itemIds) {
     let detail: any = null;
-    try {
-      detail = await fetchShopeeItemBaseInfo({ account: activeAccount, accessToken, itemId });
-    } catch (err) {
-      errors.push(`Get Shopee item ${itemId} gagal: ${String(err)}`);
-    }
+    try { detail = await fetchShopeeItemBaseInfo({ account: activeAccount, accessToken, itemId }); }
+    catch (err) { errors.push(`Get Shopee item ${itemId} gagal: ${String(err)}`); }
 
     const product = normalizeProduct(detail, { item_id: itemId }, itemId);
-    if (!isActiveMarketplaceProductRecord(product.raw)) {
-      skippedInactiveProducts += 1;
-      continue;
-    }
-
+    if (!isActiveMarketplaceProductRecord(product.raw)) { skippedInactiveProducts += 1; continue; }
     await upsertProductSnapshot(admin, activeAccount, product);
     productCount += 1;
 
     let modelJson: any = null;
-    try {
-      modelJson = await fetchShopeeModelList({ account: activeAccount, accessToken, itemId });
-    } catch (err) {
-      errors.push(`Get Shopee model ${itemId} gagal: ${String(err)}`);
-    }
+    try { modelJson = await fetchShopeeModelList({ account: activeAccount, accessToken, itemId }); }
+    catch (err) { errors.push(`Get Shopee model ${itemId} gagal: ${String(err)}`); }
 
     const variants = normalizeShopeeVariants(modelJson, product);
     const activeVariants = variants.filter(isActiveMarketplaceVariantRecord);
     skippedInactiveVariants += Math.max(0, variants.length - activeVariants.length);
-
     if (variants.length > 0 && activeVariants.length === 0) continue;
 
     if (variants.length === 0) {
@@ -484,20 +490,13 @@ async function pullShopeeProducts(admin: any, account: any, limit: number) {
       variantCount += 1;
       continue;
     }
-
-    for (const variant of activeVariants) {
-      await upsertVariantSnapshot(admin, activeAccount, variant);
-      variantCount += 1;
-    }
+    for (const variant of activeVariants) { await upsertVariantSnapshot(admin, activeAccount, variant); variantCount += 1; }
   }
 
-  await admin
-    .from("marketplace_accounts")
-    .update({
-      last_error: errors.length > 0 ? errors.slice(0, 3).join(" | ") : null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("marketplace_account_id", activeAccount.marketplace_account_id);
+  await admin.from("marketplace_accounts").update({
+    last_error: errors.length > 0 ? errors.slice(0, 3).join(" | ") : null,
+    updated_at: new Date().toISOString(),
+  }).eq("marketplace_account_id", activeAccount.marketplace_account_id);
 
   return {
     ok: true,
@@ -508,10 +507,23 @@ async function pullShopeeProducts(admin: any, account: any, limit: number) {
     skipped_inactive_variants: skippedInactiveVariants,
     warning_count: errors.length,
     warnings: errors.slice(0, 5),
-    message: errors.length > 0
-      ? `Pull produk Shopee selesai dengan ${errors.length} warning.`
-      : "Pull produk Shopee aktif selesai.",
+    has_more: hasMore,
+    next_cursor: hasMore ? { offset: nextOffset } : null,
+    message: errors.length > 0 ? `Pull produk Shopee selesai dengan ${errors.length} warning.` : `Pull produk Shopee aktif selesai. Offset berikutnya: ${hasMore ? nextOffset : "selesai"}.`,
   };
+}
+
+
+
+function tiktokNextPageToken(jsonRes: any): string | null {
+  const response = jsonRes?.response ?? jsonRes;
+  const data = response?.data ?? response;
+  return text(data?.next_page_token)
+    || text(data?.nextPageToken)
+    || text(response?.next_page_token)
+    || text(response?.nextPageToken)
+    || text(jsonRes?.next_page_token)
+    || text(jsonRes?.nextPageToken);
 }
 
 
