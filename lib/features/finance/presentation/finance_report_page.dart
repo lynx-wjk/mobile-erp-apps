@@ -99,6 +99,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _withdrawalAllocations = [];
   List<Map<String, dynamic>> _expenses = [];
   List<Map<String, dynamic>> _profitLoss = [];
+  List<Map<String, dynamic>> _profitLossByMarketplace = [];
   List<Map<String, dynamic>> _abnormals = [];
 
   static const List<String> _baseExpenseCategories = [
@@ -375,6 +376,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ...existingBreakdown,
           ...reconciliationBreakdown,
         ];
+      }
+
+      try {
+        final detail = await _client.rpc(
+          'finance_marketplace_profit_loss_detail',
+          params: {
+            'p_start': params['p_start'],
+            'p_end': params['p_end'],
+            'p_marketplace': params['p_marketplace'],
+            'p_account_id': params['p_account_id'],
+          },
+        );
+        if (detail is Map) {
+          final rows = _asList(detail['rows']);
+          if (rows.isNotEmpty) {
+            out['profit_loss_by_marketplace'] = rows;
+          }
+        }
+      } catch (detailError) {
+        debugPrint('FINANCE_MARKETPLACE_PL_DETAIL_RPC_FAILED: $detailError');
       }
 
       return out;
@@ -1551,6 +1572,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           cashWalletData['allocations'] ?? <Map<String, dynamic>>[];
       _expenses = normalizedExpenses;
       _profitLoss = normalizedProfitLoss;
+      _profitLossByMarketplace = _asList(data['profit_loss_by_marketplace'])
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
       _abnormals = _normalizeAbnormalRows(_asList(data['abnormals']));
       if (_progressTitle.trim().isEmpty && _progressLines.isEmpty) {
         final lastMessage = _text(
@@ -8151,6 +8176,52 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
+
+  Widget _profitLossByMarketplaceCard() {
+    if (_profitLossByMarketplace.isEmpty) return const SizedBox.shrink();
+
+    final children = <Widget>[];
+    for (final row in _profitLossByMarketplace) {
+      final marketplace = _marketplaceName(_text(row['marketplace']));
+      final shop = _text(row['shop_name'] ?? row['account_name'], marketplace);
+      final gross = _num(row['gross_sales']);
+      final payout = _num(row['payout_total']);
+      final gap = _num(row['gross_payout_gap']);
+
+      children.add(_miniMetric(
+        '$marketplace · $shop',
+        'Omzet ${_money(gross)} · Payout ${_money(payout)} · Selisih ${_money(gap)}',
+      ));
+
+      final parts = <MapEntry<String, double>>[
+        MapEntry('Voucher / diskon', _num(row['discount_amount'])),
+        MapEntry('Platform fee', _num(row['platform_fee'])),
+        MapEntry('Komisi', _num(row['commission_fee'])),
+        MapEntry('Affiliate fee', _num(row['affiliate_fee'])),
+        MapEntry('Shipping fee', _num(row['shipping_fee'])),
+        MapEntry('Fee lain', _num(row['other_fee'])),
+        MapEntry('Refund / retur / batal', _num(row['refund_amount'])),
+        MapEntry('Pajak', _num(row['tax_amount'])),
+        MapEntry('Adjustment settlement', _num(row['adjustment_amount']).abs()),
+        MapEntry('Sample payout minus', _num(row['sample_negative_payout_total'])),
+        MapEntry('Belum terklasifikasi', _num(row['unclassified_amount'])),
+      ];
+
+      for (final part in parts) {
+        if (part.value.abs() > 0.49) {
+          children.add(_miniMetric(part.key, _money(part.value), warning: true));
+        }
+      }
+    }
+
+    return _detailCard(
+      title: 'Detail Selisih Omzet ke Payout per Marketplace',
+      subtitle:
+          'Breakdown settlement per toko: voucher, platform fee, komisi, affiliate fee, shipping fee, refund, pajak, adjustment, sample, dan sisa belum terklasifikasi.',
+      children: children,
+    );
+  }
+
   Widget _profitLossTab() {
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
@@ -8164,6 +8235,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           _sectionHeader('Laba Rugi'),
           SizedBox(height: 8),
+          if (_profitLossByMarketplace.isNotEmpty) ...[
+            _profitLossByMarketplaceCard(),
+            const SizedBox(height: 8),
+          ],
           if (profitRows.isEmpty)
             _emptyCard('Belum ada data laba rugi pada periode ini.')
           else

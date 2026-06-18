@@ -68,3 +68,8 @@
 - Bumped Finance local cache key to avoid old 1.2B TikTok payout flash before reconciliation loads.
 - Finance reconciliation now returns detailed gross-to-payout breakdown: voucher/discount, marketplace fee, refund, tax, adjustment, sample, and unclassified.
 - Finance Marketplace tab uses reconciliation by_marketplace rows directly when available, so Shopee and TikTok remain separate.
+
+## 2026-06-19 Profit/Loss Marketplace Detail Card
+- Added finance_marketplace_profit_loss_detail RPC for detailed settlement components per marketplace.
+- Laba Rugi now shows one card for per-marketplace gross-to-payout detail: discount, platform fee, commission, affiliate fee, shipping fee, other fee, refund, tax, adjustment, sample payout minus, and unclassified.
+- Sample/zero-payment orders stay excluded from future missing payout retry policy unless a negative payout exists.
