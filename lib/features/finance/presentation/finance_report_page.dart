@@ -334,7 +334,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     throw Exception('Belum ada data pada filter ini.');
   }
 
-
   Future<dynamic> _withMarketplaceReconciliation(
     dynamic response,
     Map<String, dynamic> params,
@@ -377,7 +376,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ...reconciliationBreakdown,
         ];
       }
-return out;
+      return out;
     } catch (error) {
       debugPrint('FINANCE_RECONCILIATION_RPC_FAILED: $error');
       return response;
@@ -7488,8 +7487,7 @@ return out;
     final unpaidEstimatedHpp = _unpaidEstimatedHppTotal();
     final sampleOrderCount = _num(_summary['sample_order_count']);
     final sampleHppTotal = _num(_summary['sample_hpp_total']);
-    final sampleNegativePayout =
-        _num(_summary['sample_negative_payout_total']);
+    final sampleNegativePayout = _num(_summary['sample_negative_payout_total']);
     final sampleLossEstimate = _numFirstNonZero([
       _summary['sample_loss_estimate'],
       sampleHppTotal + sampleNegativePayout,
@@ -7547,13 +7545,12 @@ return out;
                 subtitle:
                     '${sampleOrderCount.toStringAsFixed(0)} order · HPP ${_money(sampleHppTotal)} · Payout minus ${_money(sampleNegativePayout)}',
                 children: [
-                  _miniMetric('Order sample',
-                      sampleOrderCount.toStringAsFixed(0)),
+                  _miniMetric(
+                      'Order sample', sampleOrderCount.toStringAsFixed(0)),
                   _miniMetric('HPP sample', _money(sampleHppTotal)),
                   _miniMetric(
                       'Payout minus sample', _money(sampleNegativePayout)),
-                  _miniMetric('Estimasi dampak',
-                      _money(sampleLossEstimate)),
+                  _miniMetric('Estimasi dampak', _money(sampleLossEstimate)),
                 ],
               ),
               const SizedBox(height: 12),
@@ -8154,17 +8151,9 @@ return out;
     );
   }
 
-
-
-
-
-
-
   bool _isGenericSettlementProfitLossRow(Map<String, dynamic> row) {
     final raw = _text(row['category'] ?? row['name'] ?? row['label']);
-    final key = raw
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    final key = raw.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
 
     return key == 'omzet' ||
         key == 'gross_sales' ||
@@ -8196,7 +8185,6 @@ return out;
         key.contains('potongan_marketplace') ||
         raw.trim().toLowerCase() == 'marketplace';
   }
-
 
   Widget _profitLossByMarketplaceCard() {
     if (_profitLossByMarketplace.isEmpty) return const SizedBox.shrink();
@@ -8304,7 +8292,6 @@ return out;
       ),
     );
   }
-
 
   Widget _profitLossTab() {
     if (_loading)
@@ -9578,7 +9565,8 @@ return out;
         copy['waybill_no'] ??
         copy['label_code'] ??
         copy['package_id'];
-    final displayTracking = _cleanMarketplaceTrackingDisplayTextV82o(rawReference);
+    final displayTracking =
+        _cleanMarketplaceTrackingDisplayTextV82o(rawReference);
     copy['stockout_reference'] = _text(rawReference, '-');
     copy['resi'] = displayTracking;
     copy['tracking_display'] = displayTracking;
@@ -9866,7 +9854,6 @@ return out;
       'fallback_search': fallbackSearch,
     };
   }
-
 
   String _canonicalSkuPayoutFilterV82o(String value) {
     final clean = value.trim().toLowerCase().replaceAll('_', ' ');

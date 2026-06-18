@@ -97,11 +97,20 @@ class MarketplaceOrderSummary {
       tenantId: _pickText([map['tenant_id']]),
       marketplaceAccountId: _pickText([map['marketplace_account_id']]),
       marketplace: _pickText([map['marketplace']], '-'),
-      accountStoreAlias: _pickText([map['account_store_alias'], map['store_alias']], '-'),
-      accountShopName: _pickText([map['account_shop_name'], map['shop_name'], map['seller_name']], '-'),
-      externalOrderId: _pickText([map['external_order_id'], map['order_sn'], map['remote_order_id'], map['order_id']], '-'),
+      accountStoreAlias:
+          _pickText([map['account_store_alias'], map['store_alias']], '-'),
+      accountShopName: _pickText(
+          [map['account_shop_name'], map['shop_name'], map['seller_name']],
+          '-'),
+      externalOrderId: _pickText([
+        map['external_order_id'],
+        map['order_sn'],
+        map['remote_order_id'],
+        map['order_id']
+      ], '-'),
       orderStatus: _pickText([map['order_status'], map['status']], '-'),
-      orderStatusLabel: _pickText([map['order_status_label'], map['order_status'], map['status']], '-'),
+      orderStatusLabel: _pickText(
+          [map['order_status_label'], map['order_status'], map['status']], '-'),
       stockActionStatus: map['stock_action_status']?.toString() ?? 'pending',
       stockActionLabel: map['stock_action_label']?.toString() ?? 'Pending',
       buyerUsername: map['buyer_username']?.toString() ?? '-',
@@ -136,7 +145,8 @@ class MarketplaceOrderSummary {
       cancelRequestedAt: map['cancel_requested_at']?.toString(),
       cancelRequestPulledAt: map['cancel_request_pulled_at']?.toString(),
       pendingReturnReviewCount: _int(map['pending_return_review_count']),
-      pendingReturnReviewTypes: map['pending_return_review_types']?.toString() ?? '',
+      pendingReturnReviewTypes:
+          map['pending_return_review_types']?.toString() ?? '',
     );
   }
 
@@ -145,9 +155,9 @@ class MarketplaceOrderSummary {
   bool get canProcessStockOut =>
       !hasBatalRequest &&
       (stockActionStatus == 'ready_stock_out' ||
-      stockActionStatus == 'ready_to_pick' ||
-      stockActionStatus == 'reserve_failed' ||
-      stockActionStatus == 'insufficient_stock');
+          stockActionStatus == 'ready_to_pick' ||
+          stockActionStatus == 'reserve_failed' ||
+          stockActionStatus == 'insufficient_stock');
 
   bool get canOpenPickScan =>
       stockActionStatus == 'reserved' ||
@@ -175,13 +185,19 @@ class MarketplaceOrderSummary {
 
   String get pendingReturnReviewSummary {
     if (!hasPendingReturnReview) return '';
-    final typeText = pendingReturnReviewTypes.trim().isEmpty ? 'refund/cancel' : pendingReturnReviewTypes.trim();
+    final typeText = pendingReturnReviewTypes.trim().isEmpty
+        ? 'refund/cancel'
+        : pendingReturnReviewTypes.trim();
     return '$pendingReturnReviewCount item perlu dicek di Refund / Batal Monitor. Tipe: $typeText.';
   }
 
-  bool get hasUnmappedItems => unmappedItemCount > 0 || stockActionStatus == 'unmapped';
+  bool get hasUnmappedItems =>
+      unmappedItemCount > 0 || stockActionStatus == 'unmapped';
 
-  bool get isDone => stockActionStatus == 'stock_out_done' || stockActionStatus == 'return_review_done' || stockActionStatus == 'cancelled_released';
+  bool get isDone =>
+      stockActionStatus == 'stock_out_done' ||
+      stockActionStatus == 'return_review_done' ||
+      stockActionStatus == 'cancelled_released';
 
   String get resiText {
     final tracking = trackingNumber.trim();
@@ -221,7 +237,8 @@ class MarketplaceOrderSummary {
 
   String get cancelRequestStatusText {
     final value = cancelRequestStatus.trim();
-    if (value.isEmpty || value == '-') return hasBatalRequest ? 'Batal Requested' : '-';
+    if (value.isEmpty || value == '-')
+      return hasBatalRequest ? 'Batal Requested' : '-';
     return value.replaceAll('_', ' ');
   }
 
@@ -234,13 +251,17 @@ class MarketplaceOrderSummary {
     final parts = <String>[];
     final status = cancelRequestStatusText.trim();
     if (status.isNotEmpty && status != '-') parts.add(status);
-    if (cancelRequestReason.trim().isNotEmpty) parts.add(cancelRequestReason.trim());
+    if (cancelRequestReason.trim().isNotEmpty)
+      parts.add(cancelRequestReason.trim());
     if (cancelRequestedTimeText != '-') parts.add(cancelRequestedTimeText);
-    return parts.isEmpty ? 'Buyer cancellation request detected' : parts.join(' · ');
+    return parts.isEmpty
+        ? 'Buyer cancellation request detected'
+        : parts.join(' · ');
   }
 
   String get accountName {
-    if (accountShopName.trim().isNotEmpty && accountShopName != '-') return accountShopName;
+    if (accountShopName.trim().isNotEmpty && accountShopName != '-')
+      return accountShopName;
     return accountStoreAlias;
   }
 
@@ -252,7 +273,6 @@ class MarketplaceOrderSummary {
     if (totalAmount == 0 || currency.trim().isEmpty) return '-';
     return '$currency ${_formatMoney(totalAmount)}';
   }
-
 
   static String _formatMoney(num value) {
     final sign = value < 0 ? '-' : '';
