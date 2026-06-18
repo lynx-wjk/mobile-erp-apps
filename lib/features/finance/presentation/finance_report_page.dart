@@ -3054,6 +3054,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     ];
   }
 
+  List<Map<String, dynamic>> _dedupeCashFlowRows(
+      List<Map<String, dynamic>> rows) {
+    final out = <Map<String, dynamic>>[];
+    final seen = <String>{};
+
+    for (final row in rows) {
+      final source =
+          _text(row['source'] ?? row['category'] ?? row['type'], '-');
+      final date =
+          _text(row['date'] ?? row['created_at'] ?? row['period_start'], '-');
+      final amount = _num(row['amount']);
+      final key = '${source.toLowerCase()}|$date|${amount.toStringAsFixed(2)}';
+
+      if (seen.add(key)) {
+        out.add(row);
+      }
+    }
+
+    return out;
+  }
+
   List<Map<String, dynamic>> _cashFlowRowsFromSummary(
       Map<String, dynamic> summary) {
     final gross = _num(
