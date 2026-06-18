@@ -2242,12 +2242,14 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   List<_TrendPoint> _financeTrendForChart() {
-    if (_financeTrend.length >= 2) return _financeTrend;
     final now = DateTime.now();
-    return <_TrendPoint>[
-      _TrendPoint(date: DateTime(now.year, now.month, 1), omzet: 0, orders: 0),
+    if (_financeTrend.isNotEmpty) {
+      return _monthToDateTrend(now, _financeTrend);
+    }
+
+    return _monthToDateTrend(now, <_TrendPoint>[
       _TrendPoint(date: now, omzet: _financeOmzet, orders: _financeOrderCount),
-    ];
+    ]);
   }
 
   String? _dashboardFinanceMarketplaceParam() {

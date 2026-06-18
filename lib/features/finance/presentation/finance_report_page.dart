@@ -1683,7 +1683,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           : data['sources']);
       _approvedPurchases = approvedPurchases;
       _byMarketplace = normalizedMarketplaceForDisplay;
-      _bySku = normalizedSku;
+      _bySku = _sortSkuRowsForDisplay(normalizedSku);
       _skuPage = 1;
       _cashFlow = normalizedCashFlow;
       _cashOpeningBalances = useBackendCashFlow
@@ -3933,6 +3933,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }).toList();
   }
 
+
+  List<Map<String, dynamic>> _sortSkuRowsForDisplay(
+      List<Map<String, dynamic>> rows) {
+    final out = rows.map((row) => Map<String, dynamic>.from(row)).toList();
+    out.sort((a, b) {
+      final aSettled =
+          _num(a['paid_qty'] ?? a['settled_qty'] ?? a['qty_settled']);
+      final bSettled =
+          _num(b['paid_qty'] ?? b['settled_qty'] ?? b['qty_settled']);
+      final aPayout = _num(a['payout_total'] ?? a['payout_amount']);
+      final bPayout = _num(b['payout_total'] ?? b['payout_amount']);
+      final settledCmp = bSettled.compareTo(aSettled);
+      if (settledCmp != 0) return settledCmp;
+      final payoutCmp = bPayout.compareTo(aPayout);
+      if (payoutCmp != 0) return payoutCmp;
+      final aUnpaid = _num(a['unpaid_qty'] ?? a['qty_unpaid']);
+      final bUnpaid = _num(b['unpaid_qty'] ?? b['qty_unpaid']);
+      return bUnpaid.compareTo(aUnpaid);
+    });
+    return out;
+  }
+
   List<Map<String, dynamic>> _mergeSkuRows(
       List<Map<String, dynamic>> base, List<Map<String, dynamic>> extra) {
     final out = <Map<String, dynamic>>[];
@@ -3989,10 +4011,61 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         existing['qty'] = _num(existing['qty']) + _num(row['qty']);
         existing['qty_total'] =
             _num(existing['qty_total']) + _num(row['qty_total']);
+        existing['all_qty_total'] =
+            _num(existing['all_qty_total']) + _num(row['all_qty_total']);
+        existing['paid_qty'] =
+            _num(existing['paid_qty']) + _num(row['paid_qty']);
+        existing['settled_qty'] =
+            _num(existing['settled_qty']) + _num(row['settled_qty']);
+        existing['qty_settled'] =
+            _num(existing['qty_settled']) + _num(row['qty_settled']);
+        existing['qty_payout'] =
+            _num(existing['qty_payout']) + _num(row['qty_payout']);
         existing['unpaid_qty'] =
             _num(existing['unpaid_qty']) + _num(row['unpaid_qty']);
+        existing['qty_unpaid'] =
+            _num(existing['qty_unpaid']) + _num(row['qty_unpaid']);
         existing['pending_payout_qty'] = _num(existing['pending_payout_qty']) +
             _num(row['pending_payout_qty']);
+        existing['paid_gross_total'] =
+            _num(existing['paid_gross_total']) + _num(row['paid_gross_total']);
+        existing['settled_gross_total'] = _num(existing['settled_gross_total']) +
+            _num(row['settled_gross_total']);
+        existing['unpaid_gross_total'] = _num(existing['unpaid_gross_total']) +
+            _num(row['unpaid_gross_total']);
+        existing['payout_total'] =
+            _num(existing['payout_total']) + _num(row['payout_total']);
+        existing['payout_amount'] =
+            _num(existing['payout_amount']) + _num(row['payout_amount']);
+        existing['received_amount'] =
+            _num(existing['received_amount']) + _num(row['received_amount']);
+        existing['positive_payout_total'] = _num(existing['positive_payout_total']) +
+            _num(row['positive_payout_total']);
+        existing['negative_payout_total'] = _num(existing['negative_payout_total']) +
+            _num(row['negative_payout_total']);
+        existing['paid_hpp_total'] =
+            _num(existing['paid_hpp_total']) + _num(row['paid_hpp_total']);
+        existing['settled_hpp_total'] =
+            _num(existing['settled_hpp_total']) + _num(row['settled_hpp_total']);
+        existing['unpaid_hpp_total'] =
+            _num(existing['unpaid_hpp_total']) + _num(row['unpaid_hpp_total']);
+        existing['hpp_total'] =
+            _num(existing['hpp_total']) + _num(row['hpp_total']);
+        existing['total_hpp'] =
+            _num(existing['total_hpp']) + _num(row['total_hpp']);
+        final paidQty = _num(existing['paid_qty']);
+        final payout = _num(existing['payout_total']);
+        final hpp = _num(existing['paid_hpp_total']);
+        existing['payout_per_item'] = paidQty > 0 ? payout / paidQty : 0;
+        existing['payout_per_item_paid'] = existing['payout_per_item'];
+        existing['hpp_per_item'] = paidQty > 0 && hpp > 0
+            ? hpp / paidQty
+            : _numFirstNonZero([existing['hpp_per_item'], row['hpp_per_item']]);
+        existing['net_profit'] = payout - hpp;
+        existing['profit'] = existing['net_profit'];
+        existing['net_margin_percent'] =
+            payout > 0 ? ((payout - hpp) / payout * 100) : 0;
+        existing['margin_percent'] = existing['net_margin_percent'];
       }
       existing['order_details'] = <dynamic>[
         ..._asList(existing['order_details']),
@@ -8365,29 +8438,150 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         raw.trim().toLowerCase() == 'marketplace';
   }
 
+  Widget _profitLossMiniMetric(
+    String label,
+    String value, {
+    bool positive = false,
+    bool warning = false,
+  }) {
+    final color = warning
+        ? Theme.of(context).colorScheme.error
+        : positive
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).textTheme.bodyLarge?.color;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
+        borderRadius: BorderRadius.zero,
+        border: Border.all(
+          color: warning
+              ? Theme.of(context).colorScheme.error.withOpacity(0.32)
+              : Theme.of(context).colorScheme.primary.withOpacity(0.20),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _profitLossByMarketplaceCard() {
     if (_profitLossByMarketplace.isEmpty) return const SizedBox.shrink();
 
-    const rows = <MapEntry<String, String>>[
-      MapEntry('Omzet', 'gross_sales'),
-      MapEntry('Payout diterima', 'payout_total'),
-      MapEntry('Selisih omzet-payout', 'gross_payout_gap'),
-      MapEntry('Voucher / diskon', 'discount_amount'),
-      MapEntry('Platform fee', 'platform_fee'),
-      MapEntry('Komisi', 'commission_fee'),
-      MapEntry('Affiliate fee', 'affiliate_fee'),
-      MapEntry('Shipping fee', 'shipping_fee'),
-      MapEntry('Payment / transaction fee', 'payment_transaction_fee'),
-      MapEntry('Fee lain', 'other_fee'),
-      MapEntry('Refund / retur / batal', 'refund_amount'),
-      MapEntry('Pajak', 'tax_amount'),
-      MapEntry('Adjustment settlement', 'adjustment_amount'),
-      MapEntry('Sample payout minus', 'sample_negative_payout_total'),
-      MapEntry('Order belum match payout', 'settlement_not_final_amount'),
-    ];
+    Widget marketplaceCard(Map<String, dynamic> row) {
+      final marketplace =
+          _marketplaceName(_text(row['marketplace'], 'Marketplace'));
+      final shop = _text(row['shop_name'] ?? row['account_name'], marketplace);
+      final orderCount =
+          _num(row['order_count'] ?? row['finance_order_count']).toInt();
+      final gross =
+          _num(row['gross_sales'] ?? row['omzet_total'] ?? row['gross_total']);
+      final payout = _num(
+          row['payout_total'] ?? row['received_amount'] ?? row['net_settlement']);
+      final hpp = _num(row['hpp_total'] ?? row['total_hpp']);
+      final profit = _num(row['net_profit'] ?? row['profit'] ?? (payout - hpp));
+      final margin = payout > 0
+          ? _num(row['margin_percent'] ??
+              row['net_margin_percent'] ??
+              (profit / payout * 100))
+          : 0;
+      final discount = _num(row['discount_amount'] ?? row['voucher_amount']);
+      final refund = _num(row['refund_amount'] ?? row['return_refund_amount']);
+      final adjustment = _num(row['adjustment_amount']);
+      final payoutMinus = _num(row['sample_negative_payout_total'] ??
+          row['negative_payout_total'] ??
+          row['minus_payout_total']);
 
-    double totalFor(String key) => _profitLossByMarketplace.fold<double>(
-        0, (sum, row) => sum + _num(row[key]));
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor.withOpacity(0.76),
+          borderRadius: BorderRadius.zero,
+          border: Border.all(color: Theme.of(context).dividerColor),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$marketplace · $shop',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                color: Theme.of(context).textTheme.bodyLarge?.color,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '$orderCount pesanan · periode ${_date(_start)} - ${_date(_end)}',
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _profitLossMiniMetric('Omzet', _money(gross), positive: true),
+                _profitLossMiniMetric('Payout', _money(payout), positive: true),
+                _profitLossMiniMetric('HPP', _money(hpp), warning: hpp > 0),
+                _profitLossMiniMetric('Laba', _money(profit),
+                    positive: profit >= 0, warning: profit < 0),
+                _profitLossMiniMetric('Margin', '${margin.toStringAsFixed(2)}%'),
+                if (discount.abs() > 0.49)
+                  _profitLossMiniMetric('Voucher / diskon',
+                      _money(discount.abs()), warning: true),
+                if (refund.abs() > 0.49)
+                  _profitLossMiniMetric('Refund / retur', _money(refund.abs()),
+                      warning: true),
+                if (adjustment.abs() > 0.49)
+                  _profitLossMiniMetric('Adjustment', _money(adjustment),
+                      warning: adjustment < 0),
+                if (payoutMinus.abs() > 0.49)
+                  _profitLossMiniMetric('Payout minus',
+                      _money(payoutMinus.abs()), warning: true),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    final totalGross = _profitLossByMarketplace.fold<num>(
+        0, (sum, row) => sum + _num(row['gross_sales'] ?? row['omzet_total']));
+    final totalPayout = _profitLossByMarketplace.fold<num>(
+        0, (sum, row) => sum + _num(row['payout_total'] ?? row['received_amount']));
+    final totalHpp = _profitLossByMarketplace.fold<num>(
+        0, (sum, row) => sum + _num(row['hpp_total'] ?? row['total_hpp']));
+    final totalProfit = _profitLossByMarketplace.fold<num>(
+        0, (sum, row) => sum + _num(row['net_profit'] ?? row['profit']));
+    final totalMargin = totalPayout > 0 ? (totalProfit / totalPayout) * 100 : 0;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -8399,74 +8593,42 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Rekonsiliasi Omzet vs Payout Marketplace per Marketplace',
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                  color: Theme.of(context).dividerColor)),
-          const SizedBox(height: 4),
           Text(
-            'Order belum match payout = payout/order non-sample yang belum matched atau komponen settlement yang belum final dari marketplace.',
+            'Breakdown Laba Rugi per Marketplace',
             style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w600,
-                color: Theme.of(context).colorScheme.outline),
-          ),
-          const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowHeight: 34,
-              dataRowMinHeight: 32,
-              dataRowMaxHeight: 42,
-              columnSpacing: 18,
-              border: TableBorder.all(
-                  color: Theme.of(context).dividerColor.withOpacity(0.35),
-                  width: 1),
-              columns: [
-                const DataColumn(label: Text('Komponen')),
-                ..._profitLossByMarketplace.map((row) => DataColumn(
-                      label: Text(_text(row['shop_name'] ?? row['account_name'],
-                          _marketplaceName(_text(row['marketplace'])))),
-                    )),
-                const DataColumn(label: Text('Total')),
-              ],
-              rows: rows
-                  .where((entry) =>
-                      entry.key == 'Omzet' ||
-                      entry.key == 'Payout diterima' ||
-                      entry.key == 'Selisih omzet-payout' ||
-                      totalFor(entry.value).abs() > 0.49)
-                  .map((entry) {
-                final key = entry.value;
-                final isPositive =
-                    entry.key == 'Omzet' || entry.key == 'Payout diterima';
-                return DataRow(cells: [
-                  DataCell(Text(entry.key,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 11))),
-                  ..._profitLossByMarketplace.map((row) => DataCell(Text(
-                        _money(_num(row[key]).abs()),
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: isPositive
-                                ? Colors.cyan
-                                : Theme.of(context).colorScheme.error),
-                      ))),
-                  DataCell(Text(
-                    _money(totalFor(key).abs()),
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        color: isPositive
-                            ? Colors.cyan
-                            : Theme.of(context).colorScheme.error),
-                  )),
-                ]);
-              }).toList(),
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              color: Theme.of(context).textTheme.bodyLarge?.color,
             ),
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Tampilan kartu. Bukan tabel rekonsiliasi panjang.',
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _profitLossMiniMetric('Total omzet', _money(totalGross),
+                  positive: true),
+              _profitLossMiniMetric('Total payout', _money(totalPayout),
+                  positive: true),
+              _profitLossMiniMetric('Total HPP', _money(totalHpp),
+                  warning: true),
+              _profitLossMiniMetric('Total laba', _money(totalProfit),
+                  positive: totalProfit >= 0, warning: totalProfit < 0),
+              _profitLossMiniMetric(
+                  'Margin total', '${totalMargin.toStringAsFixed(2)}%'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ..._profitLossByMarketplace.map(marketplaceCard),
         ],
       ),
     );

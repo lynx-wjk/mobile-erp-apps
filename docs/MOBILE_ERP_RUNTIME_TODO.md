@@ -38,3 +38,9 @@ This file is the active runtime backlog. Keep this list in every handoff until e
 - Dashboard Finance chart visibility no longer depends only on plan gate for owner/super-admin/admin/finance roles.
 - Finance SKU loader now pulls all pages from existing finance_sku_order_details for settled and unpaid filters.
 - Physical resi backfill tries to extract true tracking/AWB/waybill keys from raw marketplace JSON and explicitly excludes OFG/package/order references.
+
+## 2026-06-19 chart sku pl ui follow-up
+- Dashboard Finance chart must show full month-to-date range, not only sparse non-zero backend dates.
+- SKU merge must preserve settled qty/payout/HPP when settled and unpaid rows share the same SKU key.
+- Laba Rugi marketplace breakdown must use compact per-marketplace cards, not the old reconciliation matrix table.
+- Order status/resi settle requires cron/logistics audit; Shopee physical resi remains 0 until logistics/AWB pull fills it.
