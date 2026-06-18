@@ -91,3 +91,8 @@
 - Laba Rugi settlement detail is a single per-marketplace DataTable.
 - Generic settlement rows are removed from the normal Laba Rugi list when detailed table exists.
 - Label uses Settlement belum final.
+
+## 2026-06-19 TikTok Excel Income Parser Detail Fix
+- Historical import stores full raw Excel rows instead of metadata-only raw rows.
+- TikTok income import skips non-order sheets/rows and maps Detail pesanan settlement columns.
+- Finalize flow calls finance breakdown backfill from staging after done.

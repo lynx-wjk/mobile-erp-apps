@@ -145,8 +145,8 @@ class MarketplaceHistoricalImportService {
         'p_original_filename': parsed.fileName,
         'p_total_rows': parsed.totalRows,
         'p_payout_total': parsed.validGrossTotal,
-        'p_fee_total': 0,
-        'p_adjustment_total': 0,
+        'p_fee_total': _sumNormalized(parsed.uploadRows, 'fee_amount'),
+        'p_adjustment_total': _sumNormalized(parsed.uploadRows, 'adjustment_amount'),
       },
     );
 
@@ -225,7 +225,13 @@ class MarketplaceHistoricalImportService {
 
     for (var step = 0; step < 5000; step++) {
       final state = status['status']?.toString();
-      if (state == 'done' || state == 'error') return status;
+      if (state == 'done') {
+        await _backfillFinanceBreakdown(
+          marketplaceAccountId: marketplaceAccountId,
+        );
+        return status;
+      }
+      if (state == 'error') return status;
 
       await Future<void>.delayed(const Duration(milliseconds: 150));
 
@@ -264,6 +270,30 @@ class MarketplaceHistoricalImportService {
     }
 
     return const <Map<String, dynamic>>[];
+  }
+
+  double _sumNormalized(
+    List<Map<String, dynamic>> rows,
+    String key,
+  ) {
+    return rows.fold<double>(0, (sum, row) {
+      final normalized = row['normalized'];
+      if (normalized is! Map) return sum;
+      return sum + _HistoricalImportParser.parseNumber(normalized[key]);
+    });
+  }
+
+  Future<void> _backfillFinanceBreakdown({
+    required String marketplaceAccountId,
+  }) async {
+    try {
+      await _rpcWithRetry(
+        'marketplace_backfill_finance_report_breakdown_from_staging',
+        params: {'p_account_id': marketplaceAccountId},
+      );
+    } catch (_) {
+      // Recovery metadata only. Finalize tetap valid kalau backfill gagal.
+    }
   }
 
   Future<dynamic> _rpcWithRetry(
@@ -405,6 +435,24 @@ class _HistoricalImportParser {
           ? _normalizeIncomeRow(raw, marketplace)
           : _normalizeOrderRow(raw, marketplace);
 
+      if (_shouldSkipParsedRow(
+        raw: raw,
+        normalized: normalized,
+        sourceLabel: sourceLabel,
+        marketplace: marketplace,
+      )) {
+        continue;
+      }
+
+      if (_shouldSkipParsedRow(
+        raw: raw,
+        normalized: normalized,
+        sourceLabel: sourceLabel,
+        marketplace: marketplace,
+      )) {
+        continue;
+      }
+
       final status = (normalized['status'] ?? normalized['payout_status'] ?? '')
           .toString()
           .toLowerCase();
@@ -428,7 +476,8 @@ class _HistoricalImportParser {
       uploadRows.add({
         'row_index': i + 1,
         'raw': {
-          '_row_index': i + 1,
+          ...raw,
+          '_row_index': '${i + 1}',
           '_source': sourceLabel,
           '_selected_marketplace': expectedMarketplace,
         },
@@ -875,6 +924,86 @@ class _HistoricalImportParser {
     return 'unknown';
   }
 
+
+  static bool _shouldSkipParsedRow({
+    required Map<String, String> raw,
+    required Map<String, dynamic> normalized,
+    required String sourceLabel,
+    required String marketplace,
+  }) {
+    final market = _normalizeMarketplace(marketplace);
+    final source = sourceLabel.trim().toLowerCase();
+
+    if (source == 'finance_income_export') {
+      final orderSn = normalized['order_sn']?.toString().trim() ?? '';
+      final payout = _toDouble(normalized['payout_amount']);
+      final fee = _toDouble(normalized['fee_amount']);
+      final adjustment = _toDouble(normalized['adjustment_amount']);
+
+      if (market == 'tiktok_shop') {
+        final hasTikTokIncomeShape = raw.keys.any((key) {
+          final norm = _normKey(key);
+          return norm == 'idpesananpenyesuaian' ||
+              norm == 'jumlahpenyelesaianpembayaran' ||
+              norm == 'jenistransaksi';
+        });
+
+        if (!hasTikTokIncomeShape) return true;
+      }
+
+      return orderSn.isEmpty && payout == 0 && fee == 0 && adjustment == 0;
+    }
+
+    if (source == 'order_export') {
+      final orderSn = normalized['order_sn']?.toString().trim() ?? '';
+      final sku = normalized['sku']?.toString().trim() ?? '';
+      return orderSn.isEmpty && sku.isEmpty;
+    }
+
+    return false;
+  }
+
+  static String? _sumNumbers(List<String?> values) {
+    var found = false;
+    var total = 0.0;
+
+    for (final value in values) {
+      if (value == null || value.trim().isEmpty) continue;
+      found = true;
+      total += _toDouble(value);
+    }
+
+    if (!found) return null;
+    return total.toStringAsFixed(2);
+  }
+
+  static String? _sumPicked(
+    Map<String, String> row,
+    List<String> aliases,
+  ) {
+    if (row.isEmpty) return null;
+
+    final normalized = <String, String>{};
+    for (final entry in row.entries) {
+      normalized[_normKey(entry.key)] = entry.value;
+    }
+
+    var found = false;
+    var total = 0.0;
+
+    for (final alias in aliases) {
+      final value = normalized[_normKey(alias)];
+      if (value == null || value.trim().isEmpty) continue;
+      found = true;
+      total += _toDouble(value);
+    }
+
+    if (!found) return null;
+    return total.toStringAsFixed(2);
+  }
+
+  static double parseNumber(dynamic value) => _toDouble(value);
+
   static Map<String, dynamic> _normalizeOrderRow(
     Map<String, String> row,
     String marketplace,
@@ -904,6 +1033,28 @@ class _HistoricalImportParser {
         'id order',
       ]),
       'status': status,
+      'order_substatus': pick([
+        'order substatus',
+        'order_substatus',
+        'substatus pesanan',
+      ]),
+      'cancel_return_type': pick([
+        'cancelation/return type',
+        'cancellation/return type',
+        'cancelation return type',
+        'cancellation return type',
+        'status pembatalan/pengembalian',
+        'tipe pembatalan/pengembalian',
+      ]),
+      'tracking_number': pick([
+        'tracking id',
+        'tracking_id',
+        'tracking number',
+        'awb',
+        'resi',
+        'no resi',
+        'nomor resi',
+      ]),
       'order_created_at': pick([
         'created time',
         'create time',
@@ -912,17 +1063,52 @@ class _HistoricalImportParser {
         'order creation time',
         'waktu dibuat',
         'tanggal dibuat',
+      ]),
+      'paid_at': pick([
         'paid time',
         'waktu pembayaran',
+        'waktu pembayaran pesanan',
+      ]),
+      'rts_at': pick([
+        'rts time',
+        'ready to ship time',
+      ]),
+      'shipped_at': pick([
+        'shipped time',
+        'waktu dikirim',
+      ]),
+      'delivered_at': pick([
+        'delivered time',
+        'waktu terkirim',
+      ]),
+      'cancelled_at': pick([
+        'cancelled time',
+        'canceled time',
+        'waktu dibatalkan',
       ]),
       'sku': pick([
         'seller sku',
+        'seller_sku',
         'sku penjual',
         'sku',
         'sku induk',
         'variation sku',
         'nomor referensi sku',
         'merchant sku',
+      ]),
+      'marketplace_sku_id': pick([
+        'sku id',
+        'skuid',
+        'marketplace sku id',
+      ]),
+      'product_name': pick([
+        'product name',
+        'nama produk',
+      ]),
+      'variation': pick([
+        'variation',
+        'variasi',
+        'nama variasi',
       ]),
       'quantity': pick([
         'quantity',
@@ -932,7 +1118,26 @@ class _HistoricalImportParser {
         'jumlah produk dipesan',
         'kuantitas',
       ]),
+      'seller_discount': _sumPicked(row, [
+        'sku seller discount',
+        'seller discount',
+        'diskon penjual',
+      ]),
+      'platform_discount': _sumPicked(row, [
+        'sku platform discount',
+        'platform discount',
+        'diskon platform',
+      ]),
+      'refund_amount': _sumPicked(row, [
+        'order refund amount',
+        'refund amount',
+        'jumlah refund',
+      ]),
       'total_amount': _pickOrderAmount(row, marketplace),
+      'payment_method': pick([
+        'payment method',
+        'metode pembayaran',
+      ]),
     }..removeWhere((_, value) => value == null || value.toString().trim().isEmpty);
   }
 
@@ -977,6 +1182,104 @@ class _HistoricalImportParser {
   ) {
     String? pick(List<String> aliases) => _pick(row, aliases);
 
+    final sellerDiscount = _sumPicked(row, [
+      'diskon penjual',
+      'seller discount',
+      'seller voucher',
+      'voucher penjual',
+    ]);
+
+    final platformDiscount = _sumPicked(row, [
+      'voucher gmv max',
+      'diskon platform',
+      'platform discount',
+      'platform voucher',
+      'voucher platform',
+    ]);
+
+    final platformFee = _sumPicked(row, [
+      'biaya layanan program bebas ongkir',
+      'biaya layanan khusus live',
+      'biaya layanan program eams',
+      'program layanan terkelola (biaya per pesanan)',
+      'platform fee',
+      'biaya platform',
+      'biaya layanan',
+    ]);
+
+    final commissionFee = _sumPicked(row, [
+      'biaya komisi platform',
+      'commission fee',
+      'komisi platform',
+      'komisi',
+    ]);
+
+    final affiliateFee = _sumPicked(row, [
+      'komisi afiliasi',
+      'komisi mitra afiliasi',
+      'komisi iklan toko afiliasi',
+      'komisi iklan toko mitra afiliasi',
+      'affiliate fee',
+      'affiliate commission',
+    ]);
+
+    final shippingFee = _sumPicked(row, [
+      'ongkir',
+      'subsidi ongkir',
+      'biaya layanan logistik',
+      'ongkir pesanan gagal kirim',
+      'ongkir pengembalian barang karena kesalahan pembeli',
+      'shipping fee',
+      'shipping cost',
+      'logistics fee',
+    ]);
+
+    final paymentFee = _sumPicked(row, [
+      'biaya pembayaran',
+      'biaya pemrosesan pesanan',
+      'payment fee',
+      'transaction fee',
+      'processing fee',
+    ]);
+
+    final refundAmount = _sumPicked(row, [
+      'subtotal pengembalian dana setelah diskon penjual',
+      'subtotal pengembalian dana sebelum diskon penjual',
+      'pengembalian dana diskon penjual',
+      'refund amount',
+      'return amount',
+    ]);
+
+    final taxAmount = _sumPicked(row, [
+      'pajak penjualan atas voucher gmv max',
+      'program layanan terkelola (pajak penjualan)',
+      'pajak',
+      'tax',
+      'ppn',
+      'pph',
+    ]);
+
+    final adjustmentAmount = _sumPicked(row, [
+      'biaya iklan gmv max',
+      'penalti platform',
+      'adjustment',
+      'penyesuaian',
+    ]);
+
+    final totalFees = _sumPicked(row, [
+      'total biaya',
+      'total fees',
+      'total fee',
+    ]);
+
+    final computedFee = _sumNumbers([
+      platformFee,
+      commissionFee,
+      affiliateFee,
+      shippingFee,
+      paymentFee,
+    ]);
+
     return {
       'marketplace': marketplace,
       'order_sn': pick([
@@ -990,6 +1293,10 @@ class _HistoricalImportParser {
         'id pesanan',
         'id order',
         'id pesanan/penyesuaian',
+      ]),
+      'transaction_type': pick([
+        'jenis transaksi',
+        'transaction type',
       ]),
       'statement_id': pick([
         'statement id',
@@ -1010,24 +1317,23 @@ class _HistoricalImportParser {
         'settlement status',
       ]),
       'payout_amount': _pickIncomePayout(row, marketplace),
-      'fee_amount': pick([
-        'fee',
-        'admin fee',
-        'biaya admin',
-        'commission fee',
-        'komisi',
-        'platform fee',
-        'biaya layanan',
-        'biaya proses pesanan',
+      'gross_income': pick([
+        'total pendapatan',
+        'total income',
       ]),
-      'adjustment_amount': pick([
-        'adjustment',
-        'penyesuaian',
-        'refund',
-        'pengembalian',
-        'subsidi',
-        'voucher',
-      ]),
+      'seller_discount': sellerDiscount,
+      'platform_discount': platformDiscount,
+      'discount_amount': _sumNumbers([sellerDiscount, platformDiscount]),
+      'platform_fee': platformFee,
+      'commission_fee': commissionFee,
+      'affiliate_fee': affiliateFee,
+      'shipping_fee': shippingFee,
+      'payment_transaction_fee': paymentFee,
+      'refund_amount': refundAmount,
+      'tax_amount': taxAmount,
+      'adjustment_amount': adjustmentAmount,
+      'fee_amount': totalFees ?? computedFee,
+      'total_fees': totalFees ?? computedFee,
       'settlement_at': pick([
         'settlement time',
         'settlement date',
@@ -1037,6 +1343,8 @@ class _HistoricalImportParser {
         'tanggal dana dilepaskan',
         'tanggal settlement',
         'waktu settlement',
+        'waktu pembayaran pesanan',
+        'waktu pemesanan',
       ]),
     }..removeWhere((_, value) => value == null || value.toString().trim().isEmpty);
   }
