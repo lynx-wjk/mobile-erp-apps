@@ -77,7 +77,7 @@ class _DashboardPageState extends State<DashboardPage> {
   int? _selectedTrendIndex;
   String _dashboardFinanceMarketplaceFilter = 'all';
   static const String _dashboardFinanceCacheVersion =
-      'finance_live_20260619_v29_filter_page_scope';
+      'finance_live_20260619_v30_dashboard_mtd_rpc';
   static const String _dashboardFinanceCacheTab = 'dashboard';
   List<_AppNotification> _notifications = const <_AppNotification>[];
   int _contentTotal = 0;
@@ -390,110 +390,23 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<Map<String, dynamic>> _safeRawFinanceSummary(DateTime now,
       {String? marketplaceFilter}) async {
-    final startDate = _ymd(DateTime(now.year, now.month, 1));
-    final endDate = _ymd(now);
     final effectiveMarketplace =
         marketplaceFilter ?? _dashboardFinanceMarketplaceParam();
     try {
-      dynamic query = _client
-          .from('marketplace_finance_reports')
-          .select(
-              'finance_report_id, order_id, marketplace_order_id, marketplace, period_start, gross_amount, gross_sales, payout_amount, received_amount, net_settlement, total_hpp')
-          .gte('period_start', startDate)
-          .lte('period_start', endDate);
-
-      final cleanMarketplace = effectiveMarketplace?.trim().toLowerCase();
-      if (cleanMarketplace == 'shopee') {
-        query = query.eq('marketplace', 'shopee');
-      } else if (cleanMarketplace == 'tiktok' ||
-          cleanMarketplace == 'tiktok_shop') {
-        query = query.inFilter('marketplace', ['tiktok', 'tiktok_shop']);
-      }
-
-      final response = await query.limit(10000);
-      final rows = response is List
-          ? response
-              .whereType<Map>()
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList()
-          : <Map<String, dynamic>>[];
-      if (rows.isEmpty) return <String, dynamic>{};
-
-      final orderKeys = <String>{};
-      final daily = <String, Map<String, dynamic>>{};
-      var gross = 0.0;
-      var payout = 0.0;
-      var hpp = 0.0;
-      var negativeCount = 0;
-      var negativeAbs = 0.0;
-
-      for (final row in rows) {
-        final orderKey =
-            AppUi.text(row['order_id'] ?? row['marketplace_order_id']);
-        if (orderKey.trim().isNotEmpty) orderKeys.add(orderKey);
-        final rowGross = AppUi.toNum(row['gross_amount'] ?? row['gross_sales']);
-        final rowPayout = AppUi.toNum(row['payout_amount'] ??
-            row['received_amount'] ??
-            row['net_settlement']);
-        final rowHpp = AppUi.toNum(row['total_hpp']);
-        gross += rowGross;
-        payout += rowPayout;
-        hpp += rowHpp;
-        if (rowPayout < 0) {
-          negativeCount += 1;
-          negativeAbs += rowPayout.abs();
-        }
-
-        final rawDate = AppUi.text(row['period_start']);
-        if (rawDate.trim().isEmpty) continue;
-        final dateKey =
-            rawDate.length >= 10 ? rawDate.substring(0, 10) : rawDate;
-        final bucket = daily.putIfAbsent(
-            dateKey,
-            () => <String, dynamic>{
-                  'date': dateKey,
-                  'gross': 0.0,
-                  'orders': <String>{},
-                });
-        bucket['gross'] = AppUi.toNum(bucket['gross']) + rowGross;
-        if (orderKey.trim().isNotEmpty) {
-          (bucket['orders'] as Set<String>).add(orderKey);
-        }
-      }
-
-      final trend = daily.entries.map((entry) {
-        final date = DateTime.tryParse(entry.key) ??
-            DateTime(now.year, now.month, now.day);
-        final orders = entry.value['orders'] is Set<String>
-            ? (entry.value['orders'] as Set<String>).length
-            : 0;
-        return _TrendPoint(
-          date: date,
-          omzet: AppUi.toNum(entry.value['gross']),
-          orders: orders,
-        );
-      }).toList()
-        ..sort((a, b) => a.date.compareTo(b.date));
-
-      final orders = orderKeys.length;
-      return <String, dynamic>{
-        'abnormal_count': negativeCount,
-        'anomaly_count': negativeCount,
-        'negative_payout_total_abs': negativeAbs,
-        'payout_minus_total_abs': negativeAbs,
-        'minus_payout_total_abs': negativeAbs,
-        'net_profit': payout - hpp,
-        'omzet_total': gross,
-        'orders_count': orders,
-        'trend': _monthToDateTrend(now, trend),
-      };
+      final response = await _client.rpc(
+        'dashboard_marketplace_order_analytics_90d',
+        params: {
+          'p_marketplace': effectiveMarketplace,
+          'p_days': now.day,
+        },
+      );
+      final parsed = _dashboardOrderAnalyticsFromRpc(now, _asMap(response));
+      if (_dashboardFinanceSummaryUsable(parsed)) return parsed;
     } catch (e) {
       debugPrint('Dashboard raw finance summary failed: $e');
-      return <String, dynamic>{};
     }
+    return <String, dynamic>{};
   }
-
-  static const int _dashboardOrderAnalyticsDays = 90;
 
   Map<String, dynamic> _dashboardOrderAnalyticsFromRpc(
     DateTime now,
@@ -545,70 +458,46 @@ class _DashboardPageState extends State<DashboardPage> {
     final orders = AppUi.toNum(
       summary['orders_count'] ?? summary['order_count'] ?? data['orders_count'],
     ).toInt();
+    final payout = AppUi.toNum(
+      summary['payout_total'] ??
+          summary['payout_amount'] ??
+          summary['received_amount'] ??
+          data['payout_total'],
+    );
+    final hpp = AppUi.toNum(
+      summary['hpp_total'] ?? summary['total_hpp'] ?? data['hpp_total'],
+    );
+    final netProfit = AppUi.toNum(
+      summary['net_profit'] ?? data['net_profit'] ?? (payout - hpp),
+    );
+    final abnormalCount = AppUi.toNum(
+      summary['abnormal_count'] ??
+          summary['anomaly_count'] ??
+          data['abnormal_count'] ??
+          data['anomaly_count'],
+    ).toInt();
+    final negativePayoutTotalAbs = AppUi.toNum(
+      summary['negative_payout_total_abs'] ??
+          summary['payout_minus_total_abs'] ??
+          data['negative_payout_total_abs'],
+    );
 
     if (omzet <= 0 && orders <= 0 && points.every((p) => p.orders <= 0)) {
       return <String, dynamic>{};
     }
 
     return <String, dynamic>{
-      'abnormal_count': 0,
-      'anomaly_count': 0,
-      'net_profit': 0,
+      'abnormal_count': abnormalCount,
+      'anomaly_count': abnormalCount,
+      'negative_payout_total_abs': negativePayoutTotalAbs,
+      'payout_minus_total_abs': negativePayoutTotalAbs,
+      'net_profit': netProfit,
       'omzet_total': omzet,
       'orders_count': orders,
       'trend': points,
-      'source_rpc': 'dashboard_marketplace_order_analytics_90d',
+      'source_rpc': AppUi.text(
+          data['source'], 'dashboard_marketplace_order_analytics_90d'),
     };
-  }
-
-  Future<Map<String, dynamic>> _safeDashboardOrderAnalytics90d(
-    DateTime now, {
-    String? marketplaceFilter,
-  }) async {
-    try {
-      final response = await _client.rpc(
-        'dashboard_marketplace_order_analytics_90d',
-        params: {
-          'p_marketplace': marketplaceFilter,
-          'p_days': _dashboardOrderAnalyticsDays,
-        },
-      );
-      final parsed = _dashboardOrderAnalyticsFromRpc(now, _asMap(response));
-      if (_dashboardFinanceSummaryUsable(parsed)) return parsed;
-    } catch (error) {
-      debugPrint('Dashboard marketplace order analytics RPC failed: $error');
-    }
-
-    return <String, dynamic>{};
-  }
-
-  Map<String, dynamic> _mergeDashboardOrderAnalytics(
-    Map<String, dynamic> base,
-    Map<String, dynamic> orderAnalytics,
-  ) {
-    if (!_dashboardFinanceSummaryUsable(base)) {
-      return _dashboardFinanceSummaryUsable(orderAnalytics)
-          ? orderAnalytics
-          : base;
-    }
-
-    final out = Map<String, dynamic>.from(base);
-    out['abnormal_count'] = out['abnormal_count'] ?? 0;
-    out['anomaly_count'] = out['anomaly_count'] ?? out['abnormal_count'] ?? 0;
-    out['net_profit'] = out['net_profit'] ?? 0;
-
-    final baseTrend = out['trend'];
-    if ((baseTrend is! List || baseTrend.isEmpty) &&
-        _dashboardFinanceSummaryUsable(orderAnalytics)) {
-      final orderTrend = orderAnalytics['trend'];
-      if (orderTrend is List && orderTrend.isNotEmpty) {
-        out['trend'] = orderTrend;
-        out['source_rpc'] =
-            '${AppUi.text(out['source_rpc'], 'finance_snapshot')}+marketplace_orders_90d_fallback';
-      }
-    }
-
-    return out;
   }
 
   Future<Map<String, dynamic>> _safeFinanceSummary(
@@ -653,98 +542,6 @@ class _DashboardPageState extends State<DashboardPage> {
         AppUi.toNum(data['orders_count']).abs() > 0 ||
         AppUi.toNum(data['net_profit']).abs() > 0 ||
         AppUi.toNum(data['abnormal_count'] ?? data['anomaly_count']).abs() > 0;
-  }
-
-  Future<Map<String, dynamic>> _safeFinanceSummaryFromSnapshot(
-    DateTime now,
-    String startDate,
-    String endDate,
-    String? marketplaceFilter, {
-    required String tenantId,
-  }) async {
-    final rpcCandidates = <String>[
-      'finance_customer_dashboard_snapshot',
-      'finance_customer_dashboard_snapshot',
-    ];
-
-    Object? lastError;
-    for (final rpcName in rpcCandidates) {
-      for (final rpcParams in _dashboardFinanceSnapshotParamVariants(
-          rpcName, startDate, endDate, marketplaceFilter)) {
-        try {
-          final response = await _client.rpc(rpcName, params: rpcParams);
-          final parsed =
-              _financeSummaryFromSnapshot(now, _asMap(response), rpcName);
-          if (_dashboardFinanceSummaryUsable(parsed)) {
-            try {
-              final cacheKey = FinanceLocalCache.snapshotKey(
-                start: DateTime(now.year, now.month, 1),
-                end: DateTime(now.year, now.month, now.day),
-                marketplace: marketplaceFilter ?? 'all',
-                accountId: 'all',
-                tenantId: tenantId.trim().isEmpty ? 'unknown' : tenantId.trim(),
-                tab: _dashboardFinanceCacheTab,
-                page: 1,
-                cacheVersion: _dashboardFinanceCacheVersion,
-              );
-              await FinanceLocalCache.writeJson(cacheKey, _asMap(response));
-            } catch (_) {}
-            return parsed;
-          }
-          break;
-        } catch (error) {
-          lastError = error;
-          if (!_isDashboardRpcParamMismatch(error)) break;
-        }
-      }
-    }
-
-    if (lastError != null) {
-      debugPrint('Dashboard finance snapshot failed: $lastError');
-    }
-    return <String, dynamic>{};
-  }
-
-  List<Map<String, dynamic>> _dashboardFinanceSnapshotParamVariants(
-    String rpcName,
-    String startDate,
-    String endDate,
-    String? marketplaceFilter,
-  ) {
-    if (rpcName.endsWith('82o')) {
-      return [
-        {
-          'p_start': startDate,
-          'p_end': endDate,
-          'p_marketplace': marketplaceFilter,
-          'p_account_id': null,
-        },
-        {
-          'p_start_date': startDate,
-          'p_end_date': endDate,
-          'p_marketplace_filter': marketplaceFilter,
-          'p_account_id_filter': null,
-        },
-      ];
-    }
-    return [
-      {
-        'p_start': startDate,
-        'p_end': endDate,
-        'p_marketplace': marketplaceFilter,
-        'p_account_id': null,
-      }
-    ];
-  }
-
-  bool _isDashboardRpcParamMismatch(Object error) {
-    final lower = error.toString().toLowerCase();
-    return lower.contains('could not find the function') ||
-        lower.contains('function public.') ||
-        lower.contains('does not exist') ||
-        lower.contains('pgrst202') ||
-        lower.contains('pgrst204') ||
-        lower.contains('pgrst301');
   }
 
   Future<Map<String, dynamic>> _safeFinanceSummaryFromLocalCache(
