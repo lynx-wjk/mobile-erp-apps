@@ -94,6 +94,15 @@ Deno.serve(async (req: Request) => {
         endSeconds: decision.endSeconds,
       });
 
+      const statusRefresh = child.ok && state.marketplace === "shopee"
+        ? await callShopeeStatusRefresh({
+          supabaseUrl,
+          cronSecret: configuredSecret,
+          tenantId: state.tenant_id,
+          marketplaceAccountId: state.marketplace_account_id,
+        })
+        : null;
+
       if (child.ok) {
         await finishSuccess(admin, state, decision, child);
       } else {
@@ -111,6 +120,12 @@ Deno.serve(async (req: Request) => {
         orders: child.orders,
         items: child.items,
         message: child.message,
+        status_refresh_ok: statusRefresh?.ok ?? null,
+        status_refresh_status: statusRefresh?.status ?? null,
+        status_refresh_checked: statusRefresh?.checked ?? 0,
+        status_refresh_updated: statusRefresh?.updated ?? 0,
+        status_refresh_failed: statusRefresh?.failed ?? 0,
+        status_refresh_message: statusRefresh?.message ?? null,
       });
     }
 
@@ -242,6 +257,53 @@ async function callOrderPull(args: {
     };
   } catch (err) {
     return { ok: false, status: 0, orders: 0, items: 0, message: String(err), data: null };
+  }
+}
+
+async function callShopeeStatusRefresh(args: {
+  supabaseUrl: string;
+  cronSecret: string;
+  tenantId: string;
+  marketplaceAccountId: string;
+}) {
+  try {
+    const response = await fetch(`${args.supabaseUrl}/functions/v1/marketplace-order-pull`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-marketplace-cron-secret": args.cronSecret,
+      },
+      body: JSON.stringify({
+        tenant_id: args.tenantId,
+        marketplace_account_id: args.marketplaceAccountId,
+        marketplace: "shopee",
+        action: "status_refresh",
+        status_range_days: 90,
+        max_existing_orders: 50,
+        skip_completed_status_refresh: true,
+        source: "marketplace_order_dispatcher_status_refresh",
+      }),
+    });
+
+    const textBody = await response.text();
+    let data: any = {};
+    try {
+      data = textBody ? JSON.parse(textBody) : {};
+    } catch {
+      data = { raw: textBody };
+    }
+
+    return {
+      ok: response.ok && data?.ok !== false,
+      status: response.status,
+      checked: numberOr(data?.checked, 0),
+      updated: numberOr(data?.updated, 0),
+      failed: numberOr(data?.failed, 0),
+      message: data?.message || data?.error || textBody.slice(0, 500) || `HTTP ${response.status}`,
+      data,
+    };
+  } catch (err) {
+    return { ok: false, status: 0, checked: 0, updated: 0, failed: 1, message: String(err), data: null };
   }
 }
 
