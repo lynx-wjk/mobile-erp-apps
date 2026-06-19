@@ -59,7 +59,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260619_recover_existing_rpc_v25';
+      'finance_live_20260619_recover_existing_rpc_v26';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
     'finance_live_20260619_recover_existing_rpc_v23',
@@ -1603,7 +1603,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final normalizedExpenses = _dedupeExpenseRows(<Map<String, dynamic>>[
       ...backendExpenses.where((row) => !_isPurchaseExpenseRow(row)),
       ...liveExpenses,
-    ]);
+    ]).where((row) => !_isSyntheticExpenseRow(row)).toList(growable: false);
     final approvedPurchases = _dedupeByStableKey(<Map<String, dynamic>>[
       ...backendPurchases,
       ...backendExpenses.where(_isPurchaseExpenseRow),
@@ -1622,16 +1622,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           )
         : <Map<String, dynamic>>[];
 
-    var rawSkuRows = _filterSkuRowsBySelectedScope(<Map<String, dynamic>>[
-      ...snapshotSkuRows,
+    final liveSkuRows = _filterSkuRowsBySelectedScope(<Map<String, dynamic>>[
       ...liveSettledSkuRows,
       ...liveUnpaidSkuRows,
     ]);
 
-    // Backend snapshot/RPC sudah menerima p_marketplace dan p_account_id.
-    // Beberapa summary SKU lama tidak membawa field marketplace/account di tiap row.
-    // Kalau filter scope lokal mengosongkan semua row padahal snapshot punya data,
-    // pakai data snapshot scoped dari server agar range lama seperti 1-31 Mei tetap tampil.
+    // Live finance_sku_order_details is the row-level source of truth for
+    // settled/unpaid SKU metrics and HPP. Snapshot SKU rows are fallback only.
+    // Mixing snapshot rows first can keep old HPP 0 rows visible on page 1.
+    var rawSkuRows = liveSkuRows.isNotEmpty
+        ? liveSkuRows
+        : _filterSkuRowsBySelectedScope(snapshotSkuRows);
+
+    // Backend snapshot/RPC already receives p_marketplace and p_account_id.
+    // Some legacy snapshot rows do not carry marketplace/account per row.
     if (rawSkuRows.isEmpty && snapshotSkuRows.isNotEmpty) {
       rawSkuRows = snapshotSkuRows;
     }
@@ -9534,8 +9538,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _expenseRowCard(Map<String, dynamic> row) {
-    final expenseId = _expenseId(row);
-    final canEditExpense = _isUuid(expenseId) && !_isSyntheticExpenseRow(row);
+    String firstUuid(List<dynamic> values) {
+      for (final value in values) {
+        final clean = _text(value, '').trim();
+        if (_isUuid(clean)) return clean;
+      }
+      return '';
+    }
+
+    final realExpenseId = firstUuid([
+      row['expense_id'],
+      row['finance_operational_expense_id'],
+      row['operational_expense_id'],
+      row['finance_expense_id'],
+      row['manual_expense_id'],
+      row['id'],
+    ]);
+    final editableRow = realExpenseId.isEmpty
+        ? row
+        : <String, dynamic>{...row, 'expense_id': realExpenseId};
+    final canEditExpense = realExpenseId.isNotEmpty &&
+        !_isSyntheticExpenseRow(row) &&
+        !_isPurchaseExpenseRow(row);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -9600,9 +9624,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     alignment: WrapAlignment.end,
                     children: [
                       _tinyActionButton(Icons.edit_rounded, 'Edit',
-                          () => _editManualExpense(row)),
+                          () => _editManualExpense(editableRow)),
                       _tinyActionButton(Icons.delete_outline_rounded, 'Hapus',
-                          () => _deleteManualExpense(row),
+                          () => _deleteManualExpense(editableRow),
                           danger: true),
                     ],
                   ),

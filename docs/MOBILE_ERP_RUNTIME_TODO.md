@@ -74,3 +74,8 @@ P1 still active:
 - SKU card HPP/item now uses first non-zero HPP source and recalculates margin from payout/item minus HPP/item.
 - Expense row edit/delete actions are shown only for real manual expense UUID rows, not synthetic/fallback rows.
 - Mapping tables must carry tenant_id; orphan mapping rows from deleted marketplace accounts are cleaned when account FK is present.
+
+## 2026-06-19 live SKU rows v26
+- Finance SKU tab must prefer live finance_sku_order_details rows over snapshot SKU rows because live rows carry settled HPP correctly.
+- Snapshot SKU rows are fallback only when live rows are empty.
+- Manual expense edit/delete uses the real UUID from expense_id/finance_operational_expense_id/operational_expense_id/id and hides actions for synthetic/purchase rows.
