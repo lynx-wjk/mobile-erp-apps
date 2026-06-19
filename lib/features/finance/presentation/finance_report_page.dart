@@ -59,7 +59,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260619_recover_existing_rpc_v27';
+      'finance_live_20260619_recover_existing_rpc_v28';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
     'finance_live_20260619_recover_existing_rpc_v23',
@@ -8071,13 +8071,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     ? paidHppTotalForDisplay / paidQtyDisplay
                     : 0,
               ]);
+              final hppStatusText = _text(row['hpp_status'], '').toLowerCase();
+              final hppMissing =
+                  displayHppPerItem <= 0 || hppStatusText.contains('belum');
               if (displayPayoutPerItem > 0 && displayHppPerItem > 0) {
                 actualMargin = ((displayPayoutPerItem - displayHppPerItem) /
                         displayPayoutPerItem) *
                     100;
+              } else if (hppMissing) {
+                actualMargin = 0;
               }
               final belowTarget =
-                  targetMargin > 0 && actualMargin < targetMargin;
+                  !hppMissing && targetMargin > 0 && actualMargin < targetMargin;
               return _detailCard(
                 title: sku,
                 subtitle: [
@@ -8155,9 +8160,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     _miniMetric('Net payout/item',
                         _money(_num(row['net_payout_per_item_paid'])),
                         warning: _num(row['net_payout_per_item_paid']) < 0),
-                  _miniMetric('HPP/item', _money(displayHppPerItem)),
                   _miniMetric(
-                      'Margin net', '${actualMargin.toStringAsFixed(2)}%',
+                      'HPP/item',
+                      hppMissing
+                          ? 'HPP belum mapping'
+                          : _money(displayHppPerItem),
+                      warning: hppMissing),
+                  _miniMetric(
+                      'Margin net',
+                      hppMissing ? '-' : '${actualMargin.toStringAsFixed(2)}%',
                       warning: belowTarget),
                   _miniMetric(
                       'Target',
@@ -8411,6 +8422,86 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
+  Widget _manualExpenseRowCard(Map<String, dynamic> row) {
+    final amount = _numFirstNonZero(
+      [row['amount'], row['total_amount'], row['expense_total']],
+    );
+    final editable = !_isDemoSuperAdmin &&
+        !_isSyntheticExpenseRow(row) &&
+        !_isPurchaseExpenseRow(row) &&
+        _isUuid(_expenseId(row));
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor.withOpacity(0.82),
+        borderRadius: BorderRadius.zero,
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _text(row['category'], 'Operasional'),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                    color: Theme.of(context).textTheme.bodyLarge?.color,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  [
+                    _date(row['expense_date'] ??
+                        row['paid_at'] ??
+                        row['created_at']),
+                    _text(row['note'] ?? row['description'], '-'),
+                  ]
+                      .where((item) =>
+                          item.trim().isNotEmpty && item.trim() != '-')
+                      .join('  ·  '),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _money(amount),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+              fontWeight: FontWeight.w900,
+              fontSize: 13,
+            ),
+          ),
+          if (editable) ...[
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Edit biaya',
+              onPressed: _processing ? null : () => _editManualExpense(row),
+              icon: const Icon(Icons.edit_note_rounded, size: 20),
+            ),
+            IconButton(
+              tooltip: 'Hapus biaya',
+              onPressed: _processing ? null : () => _deleteManualExpense(row),
+              icon: const Icon(Icons.delete_outline_rounded, size: 20),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _expensesTab() {
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
@@ -8426,7 +8517,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             _emptyCard(
                 'Belum ada biaya operasional atau pembelian yang sudah disetujui.')
           else ...[
-            ..._expenses.map(_expenseRowCard),
+            ..._expenses.map(_manualExpenseRowCard),
             if (_approvedPurchases.isNotEmpty) ...[
               SizedBox(height: 14),
               _sectionHeader('Pembelian Disetujui'),

@@ -85,3 +85,10 @@ P1 still active:
 - finance_sku_order_details now enriches existing v82o rows from central HPP mapping and marks unmapped rows as "HPP belum mapping".
 - finance_operational_expenses RLS policies added for authenticated tenant select/insert/update/delete so manual expense edit/delete works from Flutter.
 - Finance/Dashboard local cache version bumped to v27.
+
+## 2026-06-19 finance v28 dashboard expense hpp
+- Dashboard marketplace finance filter now prefers raw marketplace_finance_reports for selected Shopee/TikTok filter and supports tiktok_shop.
+- Biaya tab uses explicit manual expense row card with always-visible edit/delete for valid manual UUID rows.
+- Manual expense update/delete RPCs are overwritten as SECURITY DEFINER wrappers.
+- SKU tab displays "HPP belum mapping" and hides fake 100% margin when HPP is missing.
+- HPP mapping enrichment tries finance_sku_order_details_v24_6_82o rows against product master HPP.

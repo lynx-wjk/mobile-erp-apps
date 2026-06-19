@@ -387,7 +387,8 @@ class _DashboardPageState extends State<DashboardPage> {
       {String? marketplaceFilter}) async {
     final startDate = _ymd(DateTime(now.year, now.month, 1));
     final endDate = _ymd(now);
-    final marketplaceFilter = _dashboardFinanceMarketplaceParam();
+    final effectiveMarketplace =
+        marketplaceFilter ?? _dashboardFinanceMarketplaceParam();
     try {
       dynamic query = _client
           .from('marketplace_finance_reports')
@@ -396,10 +397,11 @@ class _DashboardPageState extends State<DashboardPage> {
           .gte('period_start', startDate)
           .lte('period_start', endDate);
 
-      final cleanMarketplace = marketplaceFilter?.trim().toLowerCase();
+      final cleanMarketplace = effectiveMarketplace?.trim().toLowerCase();
       if (cleanMarketplace == 'shopee') {
         query = query.eq('marketplace', 'shopee');
-      } else if (cleanMarketplace == 'tiktok') {
+      } else if (cleanMarketplace == 'tiktok' ||
+          cleanMarketplace == 'tiktok_shop') {
         query = query.inFilter('marketplace', ['tiktok', 'tiktok_shop']);
       }
 
@@ -609,6 +611,15 @@ class _DashboardPageState extends State<DashboardPage> {
     final endDate = _ymd(now);
     final marketplaceFilter = _dashboardFinanceMarketplaceParam();
 
+    final rawPreferred = await _safeRawFinanceSummary(
+      now,
+      marketplaceFilter: marketplaceFilter,
+    );
+    if (marketplaceFilter != null &&
+        _dashboardFinanceSummaryUsable(rawPreferred)) {
+      return rawPreferred;
+    }
+
     final orderAnalytics = await _safeDashboardOrderAnalytics90d(
       now,
       marketplaceFilter: marketplaceFilter,
@@ -692,7 +703,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 accountId: 'all',
               );
               final cacheKey =
-                  '$keyBase::finance_live_20260619_recover_existing_rpc_v27';
+                  '$keyBase::finance_live_20260619_recover_existing_rpc_v28';
               await FinanceLocalCache.writeJson(cacheKey, _asMap(response));
             } catch (_) {}
             return parsed;
@@ -760,7 +771,7 @@ class _DashboardPageState extends State<DashboardPage> {
     String? marketplaceFilter,
   ) async {
     final versions = <String>[
-      'finance_live_20260619_recover_existing_rpc_v27',
+      'finance_live_20260619_recover_existing_rpc_v28',
       'finance_live_20260619_recover_existing_rpc_v23',
       'finance_live_20260606_local_cache_fast_v20',
       'finance_live_20260606_local_cache_fast_v19',
