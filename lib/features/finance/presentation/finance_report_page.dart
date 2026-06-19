@@ -2222,25 +2222,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           row['date'] ??
           row['created_at']);
       final category = _text(row['category'], '').trim().toLowerCase();
-      final note = _text(row['note'] ?? row['description'], '')
-          .trim()
-          .toLowerCase();
+      final note =
+          _text(row['note'] ?? row['description'], '').trim().toLowerCase();
       final key = _isUuid(expenseId)
           ? 'id:$expenseId'
           : 'manual:$stableDate|$category|${amount.toStringAsFixed(0)}|$note';
 
       final existing = deduped[key];
-      if (existing == null || (!_isUuid(_expenseId(existing)) && _isUuid(expenseId))) {
+      if (existing == null ||
+          (!_isUuid(_expenseId(existing)) && _isUuid(expenseId))) {
         deduped[key] = row;
       }
     }
 
     final out = deduped.values.toList();
     out.sort((a, b) {
-      final ad = _parseDate(a['expense_date'] ?? a['paid_at'] ?? a['created_at']) ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-      final bd = _parseDate(b['expense_date'] ?? b['paid_at'] ?? b['created_at']) ??
-          DateTime.fromMillisecondsSinceEpoch(0);
+      final ad =
+          _parseDate(a['expense_date'] ?? a['paid_at'] ?? a['created_at']) ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+      final bd =
+          _parseDate(b['expense_date'] ?? b['paid_at'] ?? b['created_at']) ??
+              DateTime.fromMillisecondsSinceEpoch(0);
       final cmp = bd.compareTo(ad);
       if (cmp != 0) return cmp;
       return _text(a['category']).compareTo(_text(b['category']));
@@ -8061,13 +8063,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 row['hpp_unit'],
                 row['unit_hpp'],
                 row['hpp_item'],
-                paidQtyDisplay > 0 ? paidHppTotalForDisplay / paidQtyDisplay : 0,
+                paidQtyDisplay > 0
+                    ? paidHppTotalForDisplay / paidQtyDisplay
+                    : 0,
               ]);
               if (displayPayoutPerItem > 0 && displayHppPerItem > 0) {
-                actualMargin =
-                    ((displayPayoutPerItem - displayHppPerItem) /
-                            displayPayoutPerItem) *
-                        100;
+                actualMargin = ((displayPayoutPerItem - displayHppPerItem) /
+                        displayPayoutPerItem) *
+                    100;
               }
               final belowTarget =
                   targetMargin > 0 && actualMargin < targetMargin;
