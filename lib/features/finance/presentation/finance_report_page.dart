@@ -298,8 +298,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     };
 
     final candidates = <String>[
-      'finance_customer_dashboard_snapshot',
-      'finance_customer_dashboard_snapshot',
+      'finance_dashboard_snapshot',
     ];
 
     Object? lastError;
@@ -364,7 +363,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final accountsResponse = await _client
           .from('marketplace_accounts')
           .select(
-              'id, name, marketplace, account_id, marketplace_id, is_active')
+              'marketplace_account_id, tenant_id, marketplace, store_alias, shop_name, status, is_active')
           .eq('tenant_id', _currentTenantId);
       final accountsList = accountsResponse is List
           ? accountsResponse.map((e) => Map<String, dynamic>.from(e)).toList()
@@ -373,7 +372,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       var query = _client
           .from('marketplace_finance_reports')
           .select(
-              'gross_amount, gross_sales, payout_amount, received_amount, net_settlement, total_hpp, marketplace, period_start, order_id, marketplace_order_id, account_id')
+              'gross_amount, gross_sales, payout_amount, received_amount, net_settlement, total_hpp, marketplace, period_start, order_id, marketplace_order_id, marketplace_account_id')
+          .eq('tenant_id', _currentTenantId)
           .gte('period_start', startStr)
           .lte('period_start', endStr);
 
@@ -385,7 +385,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         }
       }
       if (accFilter != null && accFilter.isNotEmpty) {
-        query = query.eq('account_id', accFilter);
+        query = query.eq('marketplace_account_id', accFilter);
       }
 
       final reportsRes = await query.limit(5000);

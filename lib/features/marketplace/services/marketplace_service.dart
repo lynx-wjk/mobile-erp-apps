@@ -916,11 +916,59 @@ class MarketplaceService {
     }).eq('marketplace_sku_map_id', marketplaceSkuMapId);
   }
 
-  Future<void> deleteSkuMap(String marketplaceSkuMapId) async {
+  Future<void> deleteSkuMap({
+    required String tenantId,
+    required String marketplaceSkuMapId,
+  }) async {
+    final cleanTenantId = tenantId.trim();
+    final cleanMapId = marketplaceSkuMapId.trim();
+    if (cleanTenantId.isEmpty || cleanMapId.isEmpty) {
+      throw Exception('Data mapping belum lengkap.');
+    }
+
+    final mapRow = await _client
+        .from('marketplace_sku_maps')
+        .select(
+            'tenant_id, marketplace_account_id, marketplace_product_id, marketplace_sku_id, marketplace_seller_sku')
+        .eq('tenant_id', cleanTenantId)
+        .eq('marketplace_sku_map_id', cleanMapId)
+        .maybeSingle();
+
+    if (mapRow == null) return;
+
+    final now = DateTime.now().toIso8601String();
+    await _client
+        .from('marketplace_variant_hpp_mappings')
+        .update({'is_active': false, 'updated_at': now})
+        .eq('tenant_id', cleanTenantId)
+        .eq('marketplace_sku_map_id', cleanMapId);
+
+    final accountId = mapRow['marketplace_account_id']?.toString().trim() ?? '';
+    final productId = mapRow['marketplace_product_id']?.toString().trim() ?? '';
+    final skuId = mapRow['marketplace_sku_id']?.toString().trim() ?? '';
+    final sellerSku = mapRow['marketplace_seller_sku']?.toString().trim() ?? '';
+    if (accountId.isNotEmpty && (skuId.isNotEmpty || sellerSku.isNotEmpty)) {
+      var hppQuery = _client
+          .from('marketplace_variant_hpp_mappings')
+          .update({'is_active': false, 'updated_at': now})
+          .eq('tenant_id', cleanTenantId)
+          .eq('marketplace_account_id', accountId);
+      if (productId.isNotEmpty) {
+        hppQuery = hppQuery.eq('marketplace_product_id', productId);
+      }
+      if (skuId.isNotEmpty) {
+        hppQuery = hppQuery.eq('marketplace_sku_id', skuId);
+      } else {
+        hppQuery = hppQuery.eq('marketplace_seller_sku', sellerSku);
+      }
+      await hppQuery;
+    }
+
     await _client
         .from('marketplace_sku_maps')
         .delete()
-        .eq('marketplace_sku_map_id', marketplaceSkuMapId);
+        .eq('tenant_id', cleanTenantId)
+        .eq('marketplace_sku_map_id', cleanMapId);
   }
 
   Future<int> autoMatchSkuMaps({

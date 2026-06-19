@@ -1516,7 +1516,10 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
     if (confirmed != true) return;
 
     try {
-      await _service.deleteSkuMap(item.marketplaceSkuMapId);
+      await _service.deleteSkuMap(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceSkuMapId: item.marketplaceSkuMapId,
+      );
       await _refreshAll();
     } catch (error) {
       if (!mounted) return;
