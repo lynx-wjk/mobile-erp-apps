@@ -1973,10 +1973,12 @@ class _MarketplacePickItem {
   factory _MarketplacePickItem.fromMap(Map<String, dynamic> map) {
     final rawStatus =
         _asText(map['mapping_status'], 'unmapped').trim().toLowerCase();
+    final rawMapId = _asText(map['marketplace_sku_map_id']);
     final rawMappedProductId = _asText(map['mapped_product_id']);
     final rawMappedSku = _asText(map['mapped_local_sku'], '-');
     final hasMappedSku = rawMappedSku.isNotEmpty && rawMappedSku != '-';
     final isMapped = rawStatus == 'mapped' &&
+        rawMapId.isNotEmpty &&
         (rawMappedProductId.isNotEmpty || hasMappedSku);
 
     return _MarketplacePickItem(

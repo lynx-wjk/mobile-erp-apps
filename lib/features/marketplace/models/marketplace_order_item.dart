@@ -63,9 +63,12 @@ class MarketplaceOrderItem {
     final rawMappedProductId =
         map['mapped_product_id']?.toString().trim() ?? '';
     final rawMappedLocalSku = map['mapped_local_sku']?.toString().trim() ?? '';
+    final rawMarketplaceSkuMapId =
+        map['marketplace_sku_map_id']?.toString().trim() ?? '';
     final hasMappedSku =
         rawMappedLocalSku.isNotEmpty && rawMappedLocalSku != '-';
     final isMapped = rawMappingStatus == 'mapped' &&
+        rawMarketplaceSkuMapId.isNotEmpty &&
         (rawMappedProductId.isNotEmpty || hasMappedSku);
 
     return MarketplaceOrderItem(
@@ -81,8 +84,7 @@ class MarketplaceOrderItem {
       quantity: num.tryParse(map['quantity']?.toString() ?? '') ?? 0,
       mappedProductId: isMapped ? rawMappedProductId : null,
       mappedLocalSku: isMapped ? rawMappedLocalSku : '-',
-      marketplaceSkuMapId:
-          isMapped ? map['marketplace_sku_map_id']?.toString() : null,
+      marketplaceSkuMapId: isMapped ? rawMarketplaceSkuMapId : null,
       mappingStatus: isMapped ? 'mapped' : 'unmapped',
       mappingLabel:
           isMapped ? map['mapping_label']?.toString() ?? 'Mapped' : 'Unmapped',
@@ -111,6 +113,7 @@ class MarketplaceOrderItem {
 
   bool get isMapped =>
       mappingStatus == 'mapped' &&
+      (marketplaceSkuMapId?.trim().isNotEmpty ?? false) &&
       ((mappedProductId?.trim().isNotEmpty ?? false) ||
           mappedLocalSku.trim().isNotEmpty && mappedLocalSku.trim() != '-');
 
