@@ -68,3 +68,9 @@ P1 still active:
 - Dashboard Finance must not overwrite Finance snapshot daily trend with 90D marketplace order analytics.
 - Dashboard marketplace order analytics is fallback only when Finance snapshot/cache is unusable.
 - Finance cache version bumped to v24 so stale v23 SKU/chart cache does not keep showing old HPP/settled values.
+
+## 2026-06-19 ui hpp expense mapping guard
+- Removed duplicate lower Finance trend card for Owner/Super Admin dashboard because the main Analytics Finance card is the source of truth.
+- SKU card HPP/item now uses first non-zero HPP source and recalculates margin from payout/item minus HPP/item.
+- Expense row edit/delete actions are shown only for real manual expense UUID rows, not synthetic/fallback rows.
+- Mapping tables must carry tenant_id; orphan mapping rows from deleted marketplace accounts are cleaned when account FK is present.

@@ -59,7 +59,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260619_recover_existing_rpc_v24';
+      'finance_live_20260619_recover_existing_rpc_v25';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
     'finance_live_20260619_recover_existing_rpc_v23',
@@ -2204,17 +2204,48 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   List<Map<String, dynamic>> _dedupeExpenseRows(
       List<Map<String, dynamic>> rows) {
-    final manualOnly = rows
-        .where((row) => !_isPurchaseExpenseRow(row))
-        .where((row) => !_isSyntheticExpenseRow(row))
-        .map((row) => Map<String, dynamic>.from(row))
-        .where((row) =>
-            _numFirstNonZero(
-                    [row['amount'], row['total_amount'], row['expense_total']])
-                .abs() >
-            0)
-        .toList();
-    return _dedupeProductionExpenseRows(manualOnly);
+    final deduped = <String, Map<String, dynamic>>{};
+
+    for (final source in rows) {
+      if (_isPurchaseExpenseRow(source) || _isSyntheticExpenseRow(source)) {
+        continue;
+      }
+
+      final row = Map<String, dynamic>.from(source);
+      final amount = _numFirstNonZero(
+          [row['amount'], row['total_amount'], row['expense_total']]);
+      if (amount.abs() <= 0.49) continue;
+
+      final expenseId = _expenseId(row);
+      final stableDate = _date(row['expense_date'] ??
+          row['paid_at'] ??
+          row['date'] ??
+          row['created_at']);
+      final category = _text(row['category'], '').trim().toLowerCase();
+      final note = _text(row['note'] ?? row['description'], '')
+          .trim()
+          .toLowerCase();
+      final key = _isUuid(expenseId)
+          ? 'id:$expenseId'
+          : 'manual:$stableDate|$category|${amount.toStringAsFixed(0)}|$note';
+
+      final existing = deduped[key];
+      if (existing == null || (!_isUuid(_expenseId(existing)) && _isUuid(expenseId))) {
+        deduped[key] = row;
+      }
+    }
+
+    final out = deduped.values.toList();
+    out.sort((a, b) {
+      final ad = _parseDate(a['expense_date'] ?? a['paid_at'] ?? a['created_at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = _parseDate(b['expense_date'] ?? b['paid_at'] ?? b['created_at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final cmp = bd.compareTo(ad);
+      if (cmp != 0) return cmp;
+      return _text(a['category']).compareTo(_text(b['category']));
+    });
+    return out;
   }
 
   List<Map<String, dynamic>> _skuRowsFromSnapshot(Map<String, dynamic> data) {
@@ -7977,13 +8008,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   'Produk belum diberi nama');
               final variantName = _text(
                   row['variant_name'] ?? row['marketplace_variation_name'], '');
-              final actualMargin = _num(row['net_margin_percent'] ??
+              var actualMargin = _num(row['net_margin_percent'] ??
                   row['payout_margin_percent'] ??
                   row['actual_margin_percent'] ??
                   row['gross_margin_percent']);
               final targetMargin = _targetMarginFromRow(row);
-              final belowTarget =
-                  targetMargin > 0 && actualMargin < targetMargin;
               final skuDetailRows = _safeOrderRefRows(row);
               final paidDetailRows =
                   _filteredSkuOrderRows(skuDetailRows, 'paid');
@@ -8009,6 +8038,39 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 row['total_qty'],
                 paidQtyDisplay + unpaidQtyDisplay,
               ]).round();
+              final displayPayoutPerItem = _numFirstNonZero([
+                row['positive_payout_per_item'],
+                row['payout_per_item_paid'],
+                row['payout_per_item'],
+                paidQtyDisplay > 0
+                    ? (_num(row['payout_total'] ??
+                            row['payout_amount'] ??
+                            row['received_amount']) /
+                        paidQtyDisplay)
+                    : 0,
+              ]);
+              final paidHppTotalForDisplay = _numFirstNonZero([
+                row['paid_hpp_total'],
+                row['settled_hpp_total'],
+                row['hpp_total'],
+                row['total_hpp'],
+                row['hpp'],
+              ]);
+              final displayHppPerItem = _numFirstNonZero([
+                row['hpp_per_item'],
+                row['hpp_unit'],
+                row['unit_hpp'],
+                row['hpp_item'],
+                paidQtyDisplay > 0 ? paidHppTotalForDisplay / paidQtyDisplay : 0,
+              ]);
+              if (displayPayoutPerItem > 0 && displayHppPerItem > 0) {
+                actualMargin =
+                    ((displayPayoutPerItem - displayHppPerItem) /
+                            displayPayoutPerItem) *
+                        100;
+              }
+              final belowTarget =
+                  targetMargin > 0 && actualMargin < targetMargin;
               return _detailCard(
                 title: sku,
                 subtitle: [
@@ -8066,11 +8128,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         warning: true),
                   _miniMetric(
                       'Gross/item', _money(_num(row['gross_per_item']))),
-                  _miniMetric(
-                      'Payout +/item',
-                      _money(_num(row['positive_payout_per_item'] ??
-                          row['payout_per_item_paid'] ??
-                          row['payout_per_item']))),
+                  _miniMetric('Payout +/item', _money(displayPayoutPerItem)),
                   _miniMetric(
                       'Total payout',
                       _money(_num(row['payout_total'] ??
@@ -8090,12 +8148,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     _miniMetric('Net payout/item',
                         _money(_num(row['net_payout_per_item_paid'])),
                         warning: _num(row['net_payout_per_item_paid']) < 0),
-                  _miniMetric(
-                      'HPP/item',
-                      _money(_num(row['hpp_per_item'] ??
-                          ((_num(row['qty']) > 0)
-                              ? (_num(row['hpp']) / _num(row['qty']))
-                              : 0)))),
+                  _miniMetric('HPP/item', _money(displayHppPerItem)),
                   _miniMetric(
                       'Margin net', '${actualMargin.toStringAsFixed(2)}%',
                       warning: belowTarget),
@@ -9478,7 +9531,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _expenseRowCard(Map<String, dynamic> row) {
-    final canEditExpense = _expenseId(row).isNotEmpty;
+    final expenseId = _expenseId(row);
+    final canEditExpense = _isUuid(expenseId) && !_isSyntheticExpenseRow(row);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

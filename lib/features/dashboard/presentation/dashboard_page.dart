@@ -692,7 +692,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 accountId: 'all',
               );
               final cacheKey =
-                  '$keyBase::finance_live_20260619_recover_existing_rpc_v24';
+                  '$keyBase::finance_live_20260619_recover_existing_rpc_v25';
               await FinanceLocalCache.writeJson(cacheKey, _asMap(response));
             } catch (_) {}
             return parsed;
@@ -760,7 +760,7 @@ class _DashboardPageState extends State<DashboardPage> {
     String? marketplaceFilter,
   ) async {
     final versions = <String>[
-      'finance_live_20260619_recover_existing_rpc_v24',
+      'finance_live_20260619_recover_existing_rpc_v25',
       'finance_live_20260619_recover_existing_rpc_v23',
       'finance_live_20260606_local_cache_fast_v20',
       'finance_live_20260606_local_cache_fast_v19',
@@ -3087,8 +3087,7 @@ class _DashboardPageState extends State<DashboardPage> {
               orders: _financeOrderCount,
             ),
           ];
-    final points =
-        source.length > 14 ? source.sublist(source.length - 14) : source;
+    final points = _monthToDateTrend(DateTime.now(), source);
     final maxOmzet = points.fold<num>(
       1,
       (max, point) => math.max(max.toDouble(), point.omzet.toDouble()),
@@ -3405,7 +3404,7 @@ class _DashboardPageState extends State<DashboardPage> {
       badge: _isAdmin || _isOperationalAdmin ? 'Realtime' : _roleLabel(role),
     ));
 
-    if (_isFinance || _isAdmin || _isOperationalAdmin || _canAccessFinance) {
+    if (_isFinance && !_isAdmin && !_isOperationalAdmin) {
       cards
         ..add(const SizedBox(height: 12))
         ..add(_financeTrendChartCard());
