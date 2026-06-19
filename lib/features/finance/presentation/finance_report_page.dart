@@ -61,7 +61,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260619_v29_filter_page_scope';
+      'finance_live_20260620_v30_sku_unmapped_page_scope';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -1322,7 +1322,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     if (!ignoreCache) {
       final cachedRows = await FinanceLocalCache.readRows(cacheKey, ttlDays: 2);
-      if (cachedRows != null) return cachedRows;
+      if (cachedRows != null && (cachedRows.isNotEmpty || page > 1)) {
+        return cachedRows;
+      }
     }
 
     final params = {
@@ -1393,10 +1395,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     });
     try {
       final settled = _filterSkuRowsBySelectedScope(
-        await _fetchSkuRowsByPayoutFilterPage('settled', page: 1),
+        await _fetchSkuRowsByPayoutFilterPage(
+          'settled',
+          page: 1,
+          ignoreCache: true,
+        ),
       );
       final unpaid = _filterSkuRowsBySelectedScope(
-        await _fetchSkuRowsByPayoutFilterPage('unpaid', page: 1),
+        await _fetchSkuRowsByPayoutFilterPage(
+          'unpaid',
+          page: 1,
+          ignoreCache: true,
+        ),
       );
       final merged = _mergeSkuRows(
         _normalizeSkuRows(<Map<String, dynamic>>[
@@ -1690,7 +1700,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ..clear()
           ..addAll([
             if (updatedLine != null) updatedLine,
-            ...lines.take(10),
+            if (lines.isNotEmpty) lines.first,
           ]);
         _cacheFinanceProgress();
       });
@@ -1938,7 +1948,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 _summary['last_finance_sync_message']);
         if (lastMessage.trim().isNotEmpty) {
           _progressTitle = 'Status auto finance';
-          _progressLines.add(AppUi.userMessage(lastMessage));
+          _progressLines.add(
+            AppUi.userMessage(lastMessage.split('\n').first.trim()),
+          );
           _cacheFinanceProgress();
         }
       }
@@ -12612,8 +12624,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   DateTime? _parseDate(dynamic value) {
     if (value == null) return null;
-    if (value is DateTime) return value.toLocal();
-    return DateTime.tryParse(value.toString())?.toLocal();
+    final parsed =
+        value is DateTime ? value : DateTime.tryParse(value.toString());
+    if (parsed == null) return null;
+    return parsed.toUtc().add(const Duration(hours: 7));
   }
 
   DateTime _dateOnly(DateTime value) =>

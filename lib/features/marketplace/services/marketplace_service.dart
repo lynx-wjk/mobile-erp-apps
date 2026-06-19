@@ -947,6 +947,22 @@ class MarketplaceService {
     final productId = mapRow['marketplace_product_id']?.toString().trim() ?? '';
     final skuId = mapRow['marketplace_sku_id']?.toString().trim() ?? '';
     final sellerSku = mapRow['marketplace_seller_sku']?.toString().trim() ?? '';
+    final unmapOrderItemPayload = <String, dynamic>{
+      'marketplace_sku_map_id': null,
+      'product_id': null,
+      'local_product_id': null,
+      'mapped_product_id': null,
+      'mapped_local_sku': null,
+      'mapping_status': 'unmapped',
+      'updated_at': now,
+    };
+
+    await _client
+        .from('marketplace_order_items')
+        .update(unmapOrderItemPayload)
+        .eq('tenant_id', cleanTenantId)
+        .eq('marketplace_sku_map_id', cleanMapId);
+
     if (accountId.isNotEmpty && (skuId.isNotEmpty || sellerSku.isNotEmpty)) {
       var hppQuery = _client
           .from('marketplace_variant_hpp_mappings')
@@ -962,6 +978,21 @@ class MarketplaceService {
         hppQuery = hppQuery.eq('marketplace_seller_sku', sellerSku);
       }
       await hppQuery;
+
+      var itemQuery = _client
+          .from('marketplace_order_items')
+          .update(unmapOrderItemPayload)
+          .eq('tenant_id', cleanTenantId)
+          .eq('marketplace_account_id', accountId);
+      if (productId.isNotEmpty) {
+        itemQuery = itemQuery.eq('marketplace_product_id', productId);
+      }
+      if (skuId.isNotEmpty) {
+        itemQuery = itemQuery.eq('marketplace_sku_id', skuId);
+      } else {
+        itemQuery = itemQuery.eq('seller_sku', sellerSku);
+      }
+      await itemQuery;
     }
 
     await _client

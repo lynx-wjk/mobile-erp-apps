@@ -24,7 +24,7 @@ import '../../host_live/presentation/host_live_page.dart';
 import '../../hr/presentation/hr_performance_page.dart';
 import '../../marketplace/presentation/marketplace_accounts_page.dart';
 import '../../marketplace/presentation/marketplace_orders_page.dart';
-import '../../marketplace/presentation/marketplace_job_monitor_page.dart';
+import '../../marketplace/presentation/marketplace_dispatcher_monitor_page.dart';
 import '../../marketplace/presentation/marketplace_refund_monitor_page.dart';
 import '../../marketplace/presentation/marketplace_sku_mapping_page.dart';
 import '../../marketplace/presentation/marketplace_stock_difference_page.dart';
@@ -77,7 +77,7 @@ class _DashboardPageState extends State<DashboardPage> {
   int? _selectedTrendIndex;
   String _dashboardFinanceMarketplaceFilter = 'all';
   static const String _dashboardFinanceCacheVersion =
-      'finance_live_20260619_v30_dashboard_mtd_rpc';
+      'finance_live_20260620_v31_dashboard_mtd_order_date_wib';
   static const String _dashboardFinanceCacheTab = 'dashboard';
   List<_AppNotification> _notifications = const <_AppNotification>[];
   int _contentTotal = 0;
@@ -849,7 +849,8 @@ class _DashboardPageState extends State<DashboardPage> {
         type.contains('MarketplaceStockOutReviewPage')) {
       return 'marketplace_return_refund';
     }
-    if (type.contains('MarketplaceJobMonitorPage')) {
+    if (type.contains('MarketplaceDispatcherMonitorPage') ||
+        type.contains('MarketplaceJobMonitorPage')) {
       return 'marketplace_job_monitor';
     }
 
@@ -1725,7 +1726,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       'Status order pull, finance payout, retry, dan reset job macet.',
                   onTap: () {
                     Navigator.of(sheetContext).pop();
-                    _open(const MarketplaceJobMonitorPage());
+                    _open(const MarketplaceDispatcherMonitorPage());
                   },
                 ),
               ],
@@ -3905,7 +3906,7 @@ class _DashboardPageState extends State<DashboardPage> {
           Icons.sync_problem_rounded,
           'Monitor Job',
           'Pantau update order, payout, dan antrean.',
-          () => _open(const MarketplaceJobMonitorPage())),
+          () => _open(const MarketplaceDispatcherMonitorPage())),
       _DashboardMenu(
           Icons.shopping_cart_checkout_rounded,
           'Pembelian Barang / Bahan',
@@ -4056,7 +4057,7 @@ class _DashboardPageState extends State<DashboardPage> {
             Icons.sync_problem_rounded,
             'Monitor Job',
             'Pantau pembaruan order, payout, dan status antrean.',
-            () => _open(const MarketplaceJobMonitorPage())),
+            () => _open(const MarketplaceDispatcherMonitorPage())),
         _DashboardMenu(
             Icons.manage_accounts_rounded,
             'User Operasional',
@@ -4273,7 +4274,7 @@ class _DashboardPageState extends State<DashboardPage> {
           Icons.sync_problem_rounded,
           'Monitor Job',
           'Pantau update order, payout, dan antrean.',
-          () => _open(const MarketplaceJobMonitorPage())),
+          () => _open(const MarketplaceDispatcherMonitorPage())),
       _attendanceMenu(),
       _DashboardMenu(
           Icons.task_alt_rounded,

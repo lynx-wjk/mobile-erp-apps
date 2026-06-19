@@ -15,6 +15,7 @@ class _MarketplaceDispatcherMonitorPageState
     extends State<MarketplaceDispatcherMonitorPage> {
   final SupabaseClient _client = Supabase.instance.client;
   Map<String, dynamic>? _payload;
+  List<Map<String, dynamic>> _accountAuthRows = const <Map<String, dynamic>>[];
   bool _loading = true;
   String? _error;
   Timer? _timer;
@@ -45,10 +46,12 @@ class _MarketplaceDispatcherMonitorPageState
     try {
       final response =
           await _client.rpc('marketplace_dispatcher_monitor_snapshot');
+      final accountAuthRows = await _loadAccountAuthRows();
       if (!mounted) return;
 
       setState(() {
         _payload = _asMap(response);
+        _accountAuthRows = accountAuthRows;
         _error = null;
         _loading = false;
       });
@@ -58,6 +61,41 @@ class _MarketplaceDispatcherMonitorPageState
         _error = error.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<String?> _currentTenantId() async {
+    final authUser = _client.auth.currentUser;
+    if (authUser == null) return null;
+    final profile = await _client
+        .from('users')
+        .select('tenant_id')
+        .eq('user_id', authUser.id)
+        .maybeSingle();
+    final tenantId = profile?['tenant_id']?.toString().trim();
+    return tenantId == null || tenantId.isEmpty ? null : tenantId;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadAccountAuthRows() async {
+    try {
+      final tenantId = await _currentTenantId();
+      if (tenantId == null) return const <Map<String, dynamic>>[];
+
+      final response = await _client
+          .from('marketplace_accounts_public')
+          .select()
+          .eq('tenant_id', tenantId)
+          .order('updated_at', ascending: false)
+          .range(0, 49)
+          .timeout(const Duration(seconds: 4));
+      if (response is! List) return const <Map<String, dynamic>>[];
+      return response
+          .whereType<Map>()
+          .map((row) => _asMap(row))
+          .where((row) => _textValue(row['status']).toLowerCase() != 'deleted')
+          .toList(growable: false);
+    } catch (_) {
+      return const <Map<String, dynamic>>[];
     }
   }
 
@@ -101,6 +139,8 @@ class _MarketplaceDispatcherMonitorPageState
               ),
               const SizedBox(height: 12),
               _SummaryCard(summary: summary, coverage: coverage),
+              const SizedBox(height: 12),
+              _AccountAuthSection(rows: _accountAuthRows),
               const SizedBox(height: 12),
               _StateSection(
                 title: 'Order Dispatcher',
@@ -255,7 +295,9 @@ class _SummaryCard extends StatelessWidget {
             ),
             _MetricTile(
               label: 'Retention cron',
-              value: _boolValue(summary['retention_cron_active']) ? 'Aktif' : 'Mati',
+              value: _boolValue(summary['retention_cron_active'])
+                  ? 'Aktif'
+                  : 'Mati',
               ok: _boolValue(summary['retention_cron_active']),
             ),
             _MetricTile(
@@ -316,6 +358,107 @@ class _MetricTile extends StatelessWidget {
                 ?.copyWith(fontWeight: FontWeight.w800, color: color),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AccountAuthSection extends StatelessWidget {
+  const _AccountAuthSection({required this.rows});
+
+  final List<Map<String, dynamic>> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Akun & Token Marketplace',
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Text(
+              'Status akun, akses token, refresh token, dan update terakhir per tenant.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            if (rows.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text('Belum ada akun marketplace aktif.'),
+              )
+            else
+              ...rows.map((row) {
+                final tokenStatus = _accountTokenStatus(row);
+                final ok = tokenStatus == 'token_present' ||
+                    tokenStatus == 'access_expiring_soon' ||
+                    tokenStatus == 'access_expired_needs_refresh';
+                final lastError = _textValue(row['last_error']);
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color:
+                            ok ? theme.dividerColor : theme.colorScheme.error),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            ok
+                                ? Icons.verified_user_outlined
+                                : Icons.warning_amber_outlined,
+                            color: ok ? Colors.green : theme.colorScheme.error,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              '${_marketplaceLabel(row['marketplace'])} · ${_storeName(row)}',
+                              style: theme.textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 8,
+                        children: [
+                          _InfoRow('Account', _textOrDash(row['status'])),
+                          _InfoRow('Token', _tokenLabel(tokenStatus)),
+                          _InfoRow('Access exp',
+                              _formatDateTime(row['access_token_expired_at'])),
+                          _InfoRow('Refresh exp',
+                              _formatDateTime(row['refresh_token_expired_at'])),
+                          _InfoRow(
+                              'Updated', _formatDateTime(row['updated_at'])),
+                          _InfoRow('Account ID',
+                              _shortId(row['marketplace_account_id'])),
+                        ],
+                      ),
+                      if (lastError.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text(lastError,
+                            style: TextStyle(color: theme.colorScheme.error)),
+                      ],
+                    ],
+                  ),
+                );
+              }),
+          ],
+        ),
       ),
     );
   }
@@ -423,8 +566,6 @@ class _StateTile extends StatelessWidget {
   }
 }
 
-
-
 bool _stateOk(
   _DispatcherType type,
   Map<String, dynamic> state,
@@ -486,7 +627,8 @@ List<_InfoRow> _stateRows(_DispatcherType type, Map<String, dynamic> state) {
         _InfoRow('Last success', _formatDateTime(state['last_success_at'])),
         _InfoRow('Checked', _intValue(state['checked_total']).toString()),
         _InfoRow('Synced', _intValue(state['synced_total']).toString()),
-        _InfoRow('Reports 90d', _intValue(state['finance_reports_90d']).toString()),
+        _InfoRow(
+            'Reports 90d', _intValue(state['finance_reports_90d']).toString()),
         _InfoRow('Payout 90d', _moneyText(state['payout_sum_90d'])),
         _InfoRow('Next run', _formatDateTime(state['next_run_at'])),
       ];
@@ -494,8 +636,10 @@ List<_InfoRow> _stateRows(_DispatcherType type, Map<String, dynamic> state) {
       return [
         _InfoRow('Status', _textOrDash(state['status'])),
         _InfoRow('Products', _intValue(state['product_rows']).toString()),
-        _InfoRow('Product statuses', _productStatusText(state['product_statuses'])),
-        _InfoRow('Last updated', _formatDateTime(state['last_product_updated_at'])),
+        _InfoRow(
+            'Product statuses', _productStatusText(state['product_statuses'])),
+        _InfoRow(
+            'Last updated', _formatDateTime(state['last_product_updated_at'])),
         _InfoRow('Last seen', _formatDateTime(state['last_product_seen_at'])),
       ];
     case _DispatcherType.retention:
@@ -504,19 +648,27 @@ List<_InfoRow> _stateRows(_DispatcherType type, Map<String, dynamic> state) {
         _InfoRow('Cutoff', _textOrDash(state['cutoff_date_wib'])),
         _InfoRow('Old rows', _intValue(state['total_old_rows']).toString()),
         _InfoRow('Old orders', _intValue(state['old_order_rows']).toString()),
-        _InfoRow('Old finance', _intValue(state['old_finance_report_rows']).toString()),
-        _InfoRow('Order jobs', _intValue(state['old_order_job_rows']).toString()),
-        _InfoRow('Finance jobs', _intValue(state['old_finance_job_rows']).toString()),
+        _InfoRow('Old finance',
+            _intValue(state['old_finance_report_rows']).toString()),
+        _InfoRow(
+            'Order jobs', _intValue(state['old_order_job_rows']).toString()),
+        _InfoRow('Finance jobs',
+            _intValue(state['old_finance_job_rows']).toString()),
         _InfoRow('Refreshed', _formatDateTime(state['refreshed_at'])),
       ];
     case _DispatcherType.bootstrap:
       return [
         _InfoRow('Order status', _textOrDash(state['order_bootstrap_status'])),
-        _InfoRow('Order cursor', _formatDateTime(state['order_bootstrap_cursor_at'])),
-        _InfoRow('Order done', _formatDateTime(state['order_bootstrap_completed_at'])),
-        _InfoRow('Finance status', _textOrDash(state['finance_bootstrap_status'])),
-        _InfoRow('Finance cursor', _textOrDash(state['finance_bootstrap_cursor_date'])),
-        _InfoRow('Finance done', _formatDateTime(state['finance_bootstrap_completed_at'])),
+        _InfoRow('Order cursor',
+            _formatDateTime(state['order_bootstrap_cursor_at'])),
+        _InfoRow('Order done',
+            _formatDateTime(state['order_bootstrap_completed_at'])),
+        _InfoRow(
+            'Finance status', _textOrDash(state['finance_bootstrap_status'])),
+        _InfoRow('Finance cursor',
+            _textOrDash(state['finance_bootstrap_cursor_date'])),
+        _InfoRow('Finance done',
+            _formatDateTime(state['finance_bootstrap_completed_at'])),
       ];
   }
 }
@@ -635,10 +787,59 @@ String _formatDateTime(Object? value) {
   if (text.isEmpty || text == 'null') return '-';
   final parsed = DateTime.tryParse(text);
   if (parsed == null) return text;
-  final local = parsed.toLocal();
+  final local = parsed.toUtc().add(const Duration(hours: 7));
   String two(int n) => n.toString().padLeft(2, '0');
   return '${local.year}-${two(local.month)}-${two(local.day)} '
-      '${two(local.hour)}:${two(local.minute)}';
+      '${two(local.hour)}:${two(local.minute)} WIB';
+}
+
+DateTime? _parseDate(Object? value) {
+  final text = _textValue(value);
+  if (text.isEmpty || text == 'null') return null;
+  return DateTime.tryParse(text);
+}
+
+String _storeName(Map<String, dynamic> row) {
+  for (final key in const ['store_name', 'store_alias', 'shop_name']) {
+    final text = _textValue(row[key]);
+    if (text.isNotEmpty) return text;
+  }
+  return _shortId(row['marketplace_account_id']);
+}
+
+String _accountTokenStatus(Map<String, dynamic> row) {
+  final status = _textValue(row['status']).toLowerCase();
+  if (status.isNotEmpty && status != 'active') return 'inactive';
+
+  final now = DateTime.now().toUtc();
+  final refreshExpiry = _parseDate(row['refresh_token_expired_at'])?.toUtc();
+  if (refreshExpiry != null && !refreshExpiry.isAfter(now)) {
+    return 'refresh_expired_reconnect';
+  }
+
+  final accessExpiry = _parseDate(row['access_token_expired_at'])?.toUtc();
+  if (accessExpiry == null) return 'token_present';
+  if (!accessExpiry.isAfter(now)) return 'access_expired_needs_refresh';
+  if (!accessExpiry.isAfter(now.add(const Duration(days: 3)))) {
+    return 'access_expiring_soon';
+  }
+  return 'token_present';
+}
+
+String _tokenLabel(String status) {
+  switch (status) {
+    case 'inactive':
+      return 'Akun nonaktif';
+    case 'refresh_expired_reconnect':
+      return 'Reconnect';
+    case 'access_expired_needs_refresh':
+      return 'Perlu refresh';
+    case 'access_expiring_soon':
+      return 'Segera expired';
+    case 'token_present':
+      return 'OK';
+  }
+  return status;
 }
 
 String _marketplaceLabel(Object? value) {

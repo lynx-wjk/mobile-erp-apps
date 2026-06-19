@@ -839,6 +839,7 @@ class _StockOutPageState extends State<StockOutPage> {
     _MarketplacePickItem item,
     _ProductItem product,
   ) {
+    if (item.mappingStatus != 'mapped') return false;
     final mappedProductId = item.mappedProductId.trim();
     if (mappedProductId.isNotEmpty && mappedProductId == product.productId) {
       return true;
@@ -1939,6 +1940,7 @@ class _StockOutDraftItem {
 class _MarketplacePickItem {
   final String marketplaceOrderItemId;
   final String mappedProductId;
+  final String mappingStatus;
   final String productName;
   final String variantName;
   final String mappedLocalSku;
@@ -1954,6 +1956,7 @@ class _MarketplacePickItem {
   const _MarketplacePickItem({
     required this.marketplaceOrderItemId,
     required this.mappedProductId,
+    required this.mappingStatus,
     required this.productName,
     required this.variantName,
     required this.mappedLocalSku,
@@ -1968,13 +1971,22 @@ class _MarketplacePickItem {
   });
 
   factory _MarketplacePickItem.fromMap(Map<String, dynamic> map) {
+    final rawStatus =
+        _asText(map['mapping_status'], 'unmapped').trim().toLowerCase();
+    final rawMappedProductId = _asText(map['mapped_product_id']);
+    final rawMappedSku = _asText(map['mapped_local_sku'], '-');
+    final hasMappedSku = rawMappedSku.isNotEmpty && rawMappedSku != '-';
+    final isMapped = rawStatus == 'mapped' &&
+        (rawMappedProductId.isNotEmpty || hasMappedSku);
+
     return _MarketplacePickItem(
       marketplaceOrderItemId: _asText(map['marketplace_order_item_id']),
-      mappedProductId: _asText(map['mapped_product_id']),
+      mappedProductId: isMapped ? rawMappedProductId : '',
+      mappingStatus: isMapped ? 'mapped' : 'unmapped',
       productName: _asText(map['product_name'], '-'),
       variantName: _asText(map['variant_name'], '-'),
-      mappedLocalSku: _asText(map['mapped_local_sku'], '-'),
-      localBarcode: _asText(map['local_barcode'], '-'),
+      mappedLocalSku: isMapped ? rawMappedSku : '-',
+      localBarcode: isMapped ? _asText(map['local_barcode'], '-') : '-',
       quantity: _asNum(map['quantity']),
       scannedQty: _asNum(map['scanned_qty']),
       stockActionLabel: _asText(map['stock_action_label'], '-'),

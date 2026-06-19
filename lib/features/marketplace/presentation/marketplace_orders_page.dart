@@ -378,8 +378,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       _pullProgressTitle = header;
       _pullProgressLines
         ..clear()
-        ..add(friendlySummary)
-        ..addAll(digest.lines.take(7).map(AppUi.userMessage));
+        ..add(friendlySummary);
       _cachePullProgress();
     });
     return _lastOrderDigestSignature.isNotEmpty;

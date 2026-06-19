@@ -204,6 +204,14 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     }
   }
 
+  String _requireTenantIdForDataAction(String action) {
+    final tenantId = _tenantId?.trim() ?? '';
+    if (tenantId.isEmpty) {
+      throw Exception('Tenant aktif tidak terbaca. $action dibatalkan.');
+    }
+    return tenantId;
+  }
+
   CellValue _cell(dynamic value) {
     if (value == null) return TextCellValue('');
     if (value is DateTime) return TextCellValue(value.toIso8601String());
@@ -424,12 +432,14 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
 
     try {
       await _guardSuperAdmin();
+      final tenantId = _requireTenantIdForDataAction('Export template produk');
 
       final response = await _client
           .from('products')
           .select(
             'product_id, nama_barang, kode_sku, kode_barcode, kategori, satuan, harga_hpp_default, stock_saat_ini, low_stock_limit, lokasi_rak, status',
           )
+          .eq('tenant_id', tenantId)
           .order('nama_barang');
 
       final rows =
@@ -531,6 +541,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
 
     try {
       await _guardSuperAdmin();
+      final tenantId = _requireTenantIdForDataAction('Import produk');
 
       final bytes = await _pickXlsxBytes();
       if (bytes == null) {
@@ -620,6 +631,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         final found = await _client
             .from('products')
             .select('product_id,kode_sku,kode_barcode')
+            .eq('tenant_id', tenantId)
             .eq(column, trimmed)
             .maybeSingle();
         return found == null ? null : Map<String, dynamic>.from(found);
@@ -630,6 +642,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         await _client
             .from('products')
             .update(payload)
+            .eq('tenant_id', tenantId)
             .eq('product_id', productId);
       }
 
@@ -744,6 +757,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
               continue;
             }
             final insert = <String, dynamic>{
+              'tenant_id': tenantId,
               'kode_sku': skuForNewProduct,
               'kode_barcode': barcode,
               'nama_barang': name,
