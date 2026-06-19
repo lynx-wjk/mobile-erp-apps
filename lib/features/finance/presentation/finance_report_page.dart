@@ -59,14 +59,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260619_recover_existing_rpc_v28';
+      'finance_live_20260619_v29_filter_page_scope';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
-    'finance_live_20260619_recover_existing_rpc_v23',
-    'finance_live_20260606_local_cache_fast_v20',
-    'finance_live_20260606_local_cache_fast_v19',
-    'finance_live_20260606_local_cache_fast_v18',
-    'finance_live_20260606_local_cache_fast_v17',
   ];
 
   bool get _isDemoSuperAdmin =>
@@ -96,6 +91,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _byMarketplace = [];
   List<Map<String, dynamic>> _bySku = [];
   int _skuPage = 1;
+  int _skuServerPageLoaded = 1;
+  bool _skuHasMoreServerRows = true;
+  bool _skuLoadingMore = false;
   static const int _skuPageSize = 50;
   List<Map<String, dynamic>> _cashFlow = [];
   List<Map<String, dynamic>> _cashOpeningBalances = [];
@@ -428,20 +426,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   List<String> _financeSnapshotLocalKeys() {
-    final base = FinanceLocalCache.snapshotKey(
-      start: _start,
-      end: _end,
-      marketplace: _marketplaceFilter,
-      accountId: _accountFilter,
-    );
     return _financeCacheVersionFallbacks
-        .map((version) => '$base::$version')
+        .map((version) => FinanceLocalCache.snapshotKey(
+              start: _start,
+              end: _end,
+              marketplace: _marketplaceFilter,
+              accountId: _accountFilter,
+              tenantId: _currentTenantId.trim().isEmpty ? 'unknown' : _currentTenantId,
+              tab: 'dashboard',
+              page: 1,
+              cacheVersion: version,
+            ))
         .toList(growable: false);
   }
 
   Future<Map<String, dynamic>?> _readFinanceSnapshotLocalAny() async {
     for (final key in _financeSnapshotLocalKeys()) {
-      final cached = await FinanceLocalCache.readJson(key, ttlDays: 90);
+      final cached = await FinanceLocalCache.readJson(key, ttlDays: 2);
       if (cached != null && !_isFinanceSnapshotEmpty(cached)) return cached;
     }
     return null;
@@ -525,6 +526,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _approvedPurchases = keepApprovedPurchases;
         _byMarketplace = keepByMarketplace;
         _bySku = keepBySku;
+        _skuHasMoreServerRows = false;
+        _skuLoadingMore = false;
         _cashFlow = keepCashFlow;
         _expenses = keepExpenses;
         _profitLoss = keepProfitLoss;
@@ -1122,6 +1125,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         end: _end,
         marketplace: _marketplaceFilter,
         accountId: _accountFilter,
+        tenantId: _currentTenantId.trim().isEmpty ? 'unknown' : _currentTenantId,
+        tab: 'sku_detail',
+        page: 1,
+        cacheVersion: _financeCacheVersion,
         sku: sku,
       );
       final cachedRows = await FinanceLocalCache.readRows(detailKey);
@@ -1178,44 +1185,85 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return copy;
   }
 
-  Future<List<Map<String, dynamic>>> _fetchSkuRowsByPayoutFilterAll(
-      String payoutFilter) async {
-    final allRows = <Map<String, dynamic>>[];
-    const pageSize = 500;
+  Future<List<Map<String, dynamic>>> _fetchSkuRowsByPayoutFilterPage(
+    String payoutFilter, {
+    int page = 1,
+    bool ignoreCache = false,
+  }) async {
+    final cacheKey = FinanceLocalCache.skuPageKey(
+      start: _start,
+      end: _end,
+      marketplace: _marketplaceFilter,
+      accountId: _accountFilter,
+      tenantId: _currentTenantId.trim().isEmpty ? 'unknown' : _currentTenantId,
+      payoutFilter: payoutFilter,
+      page: page,
+      cacheVersion: _financeCacheVersion,
+    );
 
-    for (var page = 1; page <= 20; page++) {
-      final params = {
-        'p_start': _toDateParam(_start),
-        'p_end': _toDateParam(_end),
-        'p_marketplace': _marketplaceRpcParam(),
-        'p_account_id': _accountUuidParam(),
-        'p_search': null,
-        'p_payout_filter': payoutFilter,
-        'p_page': page,
-        'p_page_size': pageSize,
-      };
-
-      try {
-        final response = await _client.rpc(
-          'finance_sku_order_details',
-          params: params,
-        );
-        final map = _asMap(response);
-        final rows = _asList(map['rows'] ?? map['by_sku'] ?? map['sku'])
-            .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
-
-        if (rows.isEmpty) break;
-        allRows.addAll(rows);
-        if (rows.length < pageSize) break;
-      } catch (error) {
-        debugPrint('FINANCE_SKU_${payoutFilter}_PAGE_$page failed: $error');
-        break;
-      }
+    if (!ignoreCache) {
+      final cachedRows = await FinanceLocalCache.readRows(cacheKey, ttlDays: 2);
+      if (cachedRows != null) return cachedRows;
     }
 
-    return allRows;
+    final params = {
+      'p_start': _toDateParam(_start),
+      'p_end': _toDateParam(_end),
+      'p_marketplace': _marketplaceRpcParam(),
+      'p_account_id': _accountUuidParam(),
+      'p_search': null,
+      'p_payout_filter': payoutFilter,
+      'p_page': page,
+      'p_page_size': _skuPageSize,
+    };
+
+    try {
+      final response = await _client.rpc(
+        'finance_sku_order_details',
+        params: params,
+      );
+      final map = _asMap(response);
+      final rows = _asList(map['rows'] ?? map['by_sku'] ?? map['sku'])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      await FinanceLocalCache.writeRows(cacheKey, rows);
+      return rows;
+    } catch (error) {
+      debugPrint('FINANCE_SKU_${payoutFilter}_PAGE_$page failed: $error');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  Future<void> _loadNextSkuPage() async {
+    if (_skuLoadingMore || !_skuHasMoreServerRows) return;
+    setState(() => _skuLoadingMore = true);
+    final nextPage = _skuServerPageLoaded + 1;
+    try {
+      final settled = _filterSkuRowsBySelectedScope(
+        await _fetchSkuRowsByPayoutFilterPage('settled', page: nextPage),
+      );
+      final unpaid = _filterSkuRowsBySelectedScope(
+        await _fetchSkuRowsByPayoutFilterPage('unpaid', page: nextPage),
+      );
+      final merged = _mergeSkuRows(
+        _normalizeSkuRows(<Map<String, dynamic>>[
+          ..._bySku,
+          ...settled,
+          ...unpaid,
+        ]),
+        const <Map<String, dynamic>>[],
+      );
+      if (!mounted) return;
+      setState(() {
+        _bySku = _sortSkuRowsForDisplay(merged);
+        _skuServerPageLoaded = nextPage;
+        _skuHasMoreServerRows = settled.length >= _skuPageSize || unpaid.length >= _skuPageSize;
+        _skuPage = _skuTotalPages;
+      });
+    } finally {
+      if (mounted) setState(() => _skuLoadingMore = false);
+    }
   }
 
   Future<List<Map<String, dynamic>>> _fetchSkuRowsByPayoutFilter(
@@ -1613,12 +1661,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final snapshotSkuRows = _skuRowsFromSnapshot(data);
     final liveSettledSkuRows = includeSupplementalSku
         ? _filterSkuRowsBySelectedScope(
-            await _fetchSkuRowsByPayoutFilterAll('settled'),
+            await _fetchSkuRowsByPayoutFilterPage('settled'),
           )
         : <Map<String, dynamic>>[];
     final liveUnpaidSkuRows = includeSupplementalSku
         ? _filterSkuRowsBySelectedScope(
-            await _fetchSkuRowsByPayoutFilterAll('unpaid'),
+            await _fetchSkuRowsByPayoutFilterPage('unpaid'),
           )
         : <Map<String, dynamic>>[];
 
@@ -1644,6 +1692,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _normalizeSkuRows(rawSkuRows),
       const <Map<String, dynamic>>[],
     );
+    final hasMoreLiveSkuRows = includeSupplementalSku &&
+        (liveSettledSkuRows.length >= _skuPageSize ||
+            liveUnpaidSkuRows.length >= _skuPageSize);
 
     var displaySummary = _summaryForDisplay(
       normalizedSummary,
@@ -1689,6 +1740,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _byMarketplace = normalizedMarketplaceForDisplay;
       _bySku = _sortSkuRowsForDisplay(normalizedSku);
       _skuPage = 1;
+      _skuServerPageLoaded = 1;
+      _skuHasMoreServerRows = hasMoreLiveSkuRows;
+      _skuLoadingMore = false;
       _cashFlow = normalizedCashFlow;
       _cashOpeningBalances = useBackendCashFlow
           ? <Map<String, dynamic>>[]
@@ -1756,12 +1810,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _lastSnapshotStats = '';
 
       // Jangan tampilkan angka periode lama ketika user ganti filter.
-      // Lebih baik kosong saat loading daripada laporan keuangan cosplay jadi ramalan.
+      // Lebih baik kosong saat loading daripada laporan keuangan periode lain.
       _summary = <String, dynamic>{};
       _sources = [];
       _approvedPurchases = [];
       _byMarketplace = [];
       _bySku = [];
+      _skuPage = 1;
+      _skuServerPageLoaded = 1;
+      _skuHasMoreServerRows = true;
+      _skuLoadingMore = false;
       _cashFlow = [];
       _cashOpeningBalances = [];
       _cashAdjustments = [];
@@ -2028,9 +2086,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _bySku = mergedRows;
       });
     } catch (e) {
-      // Overlay hitungan settled/belum payout hanya data peng.
+      // Overlay hitungan settled/belum payout hanya data pendukung.
       // Jangan pernah bikin laporan utama gagal dimuat gara-gara RPC overlay
-      // belum ada, beda signature, timeout, atau schema cache Supabase sedang malas hidup.
+      // belum ada, beda signature, timeout, atau schema cache Supabase belum refresh.
       debugPrint('FINANCE_SKU_PAYOUT_COUNT_OVERLAY_SKIPPED: $e');
       return;
     }
@@ -7941,6 +7999,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final theme = Theme.of(context);
     final page = _skuSafePage;
     final totalPages = _skuTotalPages;
+    final canLoadMore = _skuHasMoreServerRows && !_skuLoadingMore;
     final start = ((page - 1) * _skuPageSize) + 1;
     final end = (page * _skuPageSize) > _bySku.length
         ? _bySku.length
@@ -7957,7 +8016,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           Expanded(
             child: Text(
-              'SKU $start–$end dari ${_bySku.length} · Page $page/$totalPages',
+              _skuHasMoreServerRows
+                  ? 'SKU $start–$end dari ${_bySku.length}+ · Page $page/$totalPages'
+                  : 'SKU $start–$end dari ${_bySku.length} · Page $page/$totalPages',
               style: TextStyle(
                 color: theme.colorScheme.onSurface,
                 fontSize: 12,
@@ -7972,11 +8033,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             icon: const Icon(Icons.chevron_left_rounded),
           ),
           IconButton(
-            tooltip: 'Page berikutnya',
+            tooltip: page < totalPages ? 'Page berikutnya' : 'Muat page SKU berikutnya',
             onPressed: page < totalPages
                 ? () => setState(() => _skuPage = page + 1)
-                : null,
-            icon: const Icon(Icons.chevron_right_rounded),
+                : canLoadMore
+                    ? _loadNextSkuPage
+                    : null,
+            icon: _skuLoadingMore
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.chevron_right_rounded),
           ),
         ],
       ),
@@ -11562,9 +11631,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String _expenseId(Map<String, dynamic> row) {
     final datas = [
       row['expense_id'],
-      row['id'],
-      row['finance_expense_id'],
+      row['finance_operational_expense_id'],
       row['operational_expense_id'],
+      row['finance_expense_id'],
+      row['manual_expense_id'],
+      row['id'],
     ];
     for (final value in datas) {
       final text = value?.toString().trim() ?? '';

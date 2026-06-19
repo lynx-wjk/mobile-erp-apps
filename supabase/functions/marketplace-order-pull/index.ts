@@ -65,21 +65,27 @@ const FINAL_MARKETPLACE_ORDER_STATUSES = new Set([
 ]);
 
 const STATUS_REFRESH_TARGET_STATUSES = [
-  
   "PROCESSED",
-  "TO_CONFIRM_RECEIVE",
-"AWAITING_SHIPMENT",
+  "AWAITING_SHIPMENT",
   "AWAITING_COLLECTION",
   "IN_TRANSIT",
+  "SHIPPED",
   "DELIVERED",
   "READY_TO_SHIP",
   "TO_SHIP",
   "TO_PACK",
   "PAID",
+  "UNPAID",
   "UNSHIPPED",
   "AWAITING_PICKUP",
   "READY_FOR_COLLECTION",
   "READY_FOR_PICKUP",
+  "SEDANG DIKIRIM",
+  "TELAH DIKIRIM",
+  "PERLU DIKIRIM",
+  "BELUM BAYAR",
+  "DIKIRIM",
+  "BELUM DIBAYAR",
 ];
 
 const STATUS_REFRESH_SKIP_CURRENT_STATUSES = new Set([
@@ -350,7 +356,8 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
   if (existingError) throw new Error(`Load existing marketplace order gagal: ${existingError.message}`);
 
   const payoutPriorityKeys = await loadPositivePayoutOrderKeys(admin, activeAccount, cutoffIso, 1000);
-  const existingOrders = prioritizeStatusRefreshCandidates(existingOrdersRaw || [], payoutPriorityKeys)
+  const eligibleExistingOrders = filterStatusRefreshCandidates(existingOrdersRaw || [], args.skipCompletedStatusRefresh);
+  const existingOrders = prioritizeStatusRefreshCandidates(eligibleExistingOrders, payoutPriorityKeys)
     .slice(0, args.maxExistingOrders);
 
   let checked = 0;
@@ -434,19 +441,27 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
       nextLastError = null;
     }
 
+    const nextPackageId = normalizedOrder.package_id || row.package_id || null;
+    const nextTrackingNumber = physicalTrackingNumber(
+      normalizedOrder.tracking_number || row.tracking_number,
+      orderId,
+      nextPackageId,
+    );
+    const nextLabelCode = nextTrackingNumber || physicalTrackingNumber(normalizedOrder.label_code || row.label_code, orderId, nextPackageId);
+
     const statusChanged = text(row.order_status).toUpperCase() !== orderStatusUpper
-      || text(row.tracking_number) !== text(normalizedOrder.tracking_number || row.tracking_number)
+      || text(row.tracking_number) !== text(nextTrackingNumber)
       || nextStockActionStatus !== existingOrderAction;
 
     const now = new Date().toISOString();
     const updatePayload: Record<string, unknown> = {
       order_status: normalizedOrder.order_status || row.order_status,
       order_status_label: normalizedOrder.order_status_label || row.order_status_label,
-      tracking_number: normalizedOrder.tracking_number || row.tracking_number,
+      tracking_number: nextTrackingNumber,
       shipping_provider_name: normalizedOrder.shipping_provider_name,
-      package_id: normalizedOrder.package_id,
+      package_id: nextPackageId,
       logistic_status: normalizedOrder.logistic_status,
-      label_code: normalizedOrder.tracking_number || row.tracking_number || nonOrderIdLabelCode(normalizedOrder.label_code, orderId),
+      label_code: nextLabelCode,
       cancel_request_id: normalizedOrder.cancel_request_id,
       cancel_request_status: normalizedOrder.cancel_request_status,
       cancel_request_reason: normalizedOrder.cancel_request_reason,
@@ -480,17 +495,17 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
     if (nextStockActionStatus === "cancel_review_required" || nextStockActionStatus === "return_review_required" || nextStockActionStatus === "ignored_status") {
       changedToReview += 1;
       await syncOrderItemsStatusFromOrder(admin, activeAccount, row.marketplace_order_id, {
-        trackingNumber: normalizedOrder.tracking_number || row.tracking_number,
-        packageId: normalizedOrder.package_id,
+        trackingNumber: nextTrackingNumber,
+        packageId: nextPackageId,
         nextStockActionStatus,
         lastError: nextLastError,
       });
-    } else if (normalizedOrder.tracking_number || normalizedOrder.package_id) {
+    } else if (nextTrackingNumber || nextPackageId) {
       await admin
         .from("marketplace_order_items")
         .update({
-          tracking_number: normalizedOrder.tracking_number || row.tracking_number,
-          package_id: normalizedOrder.package_id,
+          tracking_number: nextTrackingNumber,
+          package_id: nextPackageId,
           updated_at: now,
         })
         .eq("tenant_id", activeAccount.tenant_id)
@@ -548,6 +563,14 @@ async function loadPositivePayoutOrderKeys(admin: any, account: any, cutoffIso: 
   } catch (_) {
   }
   return keys;
+}
+
+function filterStatusRefreshCandidates(rows: any[], skipCompletedStatusRefresh: boolean) {
+  if (!skipCompletedStatusRefresh) return rows;
+  return rows.filter((row) => {
+    const currentStatus = text(row.order_status).toUpperCase();
+    return !STATUS_REFRESH_SKIP_CURRENT_STATUSES.has(currentStatus);
+  });
 }
 
 function prioritizeStatusRefreshCandidates(rows: any[], payoutPriorityKeys: Set<string>) {
@@ -643,7 +666,8 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
   if (existingError) throw new Error(`Load existing Shopee order gagal: ${existingError.message}`);
 
   const payoutPriorityKeys = await loadPositivePayoutOrderKeys(admin, activeAccount, cutoffIso, 1000);
-  const existingOrders = prioritizeStatusRefreshCandidates(existingOrdersRaw || [], payoutPriorityKeys)
+  const eligibleExistingOrders = filterStatusRefreshCandidates(existingOrdersRaw || [], args.skipCompletedStatusRefresh);
+  const existingOrders = prioritizeStatusRefreshCandidates(eligibleExistingOrders, payoutPriorityKeys)
     .slice(0, args.maxExistingOrders);
 
   let checked = 0;
@@ -2160,11 +2184,11 @@ function normalizeOrder(raw: any, account: any, orderId: string) {
     order_status_label: text(raw.status_label) || text(raw.order_status_label) || status,
     buyer_username: text(raw.buyer_username) || text(raw.buyer?.username) || text(raw.customer?.name) || null,
     recipient_name: text(recipient.name) || text(recipient.recipient_name) || text(raw.recipient_name) || null,
-    tracking_number: detectTrackingNumber(raw),
+    tracking_number: physicalTrackingNumber(detectTrackingNumber(raw), orderId, detectPackageId(raw)),
     shipping_provider_name: detectShippingProviderName(raw),
     package_id: detectPackageId(raw),
     logistic_status: detectLogisticStatus(raw),
-    label_code: detectTrackingNumber(raw) || nonOrderIdLabelCode(detectLabelCode(raw), orderId),
+    label_code: physicalTrackingNumber(detectTrackingNumber(raw), orderId, detectPackageId(raw)) || physicalTrackingNumber(detectLabelCode(raw), orderId, detectPackageId(raw)),
     cancel_request_id: cancelRequest.id,
     cancel_request_status: cancelRequest.status,
     cancel_request_reason: cancelRequest.reason,
@@ -2229,7 +2253,7 @@ function normalizeOrderItems(rawOrder: any, order: any) {
       seller_sku: sellerSku || null,
       product_name: text(item.product_name) || text(item.item_name) || text(item.name) || text(item.product?.name) || text(item.title) || null,
       variant_name: text(item.sku_name) || text(item.model_name) || text(item.variation_name) || text(item.variant_name) || buildVariantName(item),
-      tracking_number: detectTrackingNumber(item) || order.tracking_number || null,
+      tracking_number: physicalTrackingNumber(detectTrackingNumber(item), order.external_order_id, detectPackageId(item) || order.package_id) || order.tracking_number || null,
       package_id: detectPackageId(item) || order.package_id || null,
       quantity: Number(item.quantity ?? item.qty ?? item.item_quantity ?? item.model_quantity_purchased ?? 1) || 1,
       gross_amount: (() => {
@@ -2490,7 +2514,7 @@ function detectShopeePackageNumber(raw: any): string | null {
   ]);
 }
 
-function physicalShopeeTrackingNumber(
+function physicalTrackingNumber(
   value: unknown,
   orderId?: unknown,
   packageId?: unknown,
@@ -2508,6 +2532,15 @@ function physicalShopeeTrackingNumber(
     .filter(Boolean);
   if (references.includes(clean.toLowerCase())) return null;
   return clean;
+}
+
+function physicalShopeeTrackingNumber(
+  value: unknown,
+  orderId?: unknown,
+  packageId?: unknown,
+  packageNumber?: unknown,
+): string | null {
+  return physicalTrackingNumber(value, orderId, packageId, packageNumber);
 }
 function detectTrackingNumber(raw: any): string | null {
   return firstNonEmptyDeep([

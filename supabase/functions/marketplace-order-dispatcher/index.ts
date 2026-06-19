@@ -94,12 +94,13 @@ Deno.serve(async (req: Request) => {
         endSeconds: decision.endSeconds,
       });
 
-      const statusRefresh = child.ok && state.marketplace === "shopee"
-        ? await callShopeeStatusRefresh({
+      const statusRefresh = child.ok && (state.marketplace === "shopee" || state.marketplace === "tiktok_shop")
+        ? await callMarketplaceStatusRefresh({
           supabaseUrl,
           cronSecret: configuredSecret,
           tenantId: state.tenant_id,
           marketplaceAccountId: state.marketplace_account_id,
+          marketplace: state.marketplace,
         })
         : null;
 
@@ -260,11 +261,12 @@ async function callOrderPull(args: {
   }
 }
 
-async function callShopeeStatusRefresh(args: {
+async function callMarketplaceStatusRefresh(args: {
   supabaseUrl: string;
   cronSecret: string;
   tenantId: string;
   marketplaceAccountId: string;
+  marketplace: string;
 }) {
   try {
     const response = await fetch(`${args.supabaseUrl}/functions/v1/marketplace-order-pull`, {
@@ -276,7 +278,7 @@ async function callShopeeStatusRefresh(args: {
       body: JSON.stringify({
         tenant_id: args.tenantId,
         marketplace_account_id: args.marketplaceAccountId,
-        marketplace: "shopee",
+        marketplace: args.marketplace,
         action: "status_refresh",
         status_range_days: 90,
         max_existing_orders: 50,
