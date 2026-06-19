@@ -68,6 +68,9 @@ class _MarketplaceDispatcherMonitorPageState
     final coverage = _asMap(payload?['coverage']);
     final orderStates = _asMapList(payload?['order_states']);
     final financeStates = _asMapList(payload?['finance_states']);
+    final productStates = _asMapList(payload?['product_states']);
+    final retentionStates = _asMapList(payload?['retention_states']);
+    final bootstrapStates = _asMapList(payload?['bootstrap_states']);
     final cronJobs = _asMapList(payload?['cron_jobs']);
 
     return Scaffold(
@@ -113,6 +116,27 @@ class _MarketplaceDispatcherMonitorPageState
                 type: _DispatcherType.finance,
               ),
               const SizedBox(height: 12),
+              _StateSection(
+                title: 'Product Snapshot',
+                subtitle: 'Status pull katalog manual/onboarding per akun.',
+                states: productStates,
+                type: _DispatcherType.product,
+              ),
+              const SizedBox(height: 12),
+              _StateSection(
+                title: 'Retention 90 Hari',
+                subtitle: 'Audit data marketplace di luar window retensi.',
+                states: retentionStates,
+                type: _DispatcherType.retention,
+              ),
+              const SizedBox(height: 12),
+              _StateSection(
+                title: 'Bootstrap',
+                subtitle: 'Progress bootstrap order dan finance per akun.',
+                states: bootstrapStates,
+                type: _DispatcherType.bootstrap,
+              ),
+              const SizedBox(height: 12),
               _CronCard(jobs: cronJobs),
             ],
           ],
@@ -122,7 +146,7 @@ class _MarketplaceDispatcherMonitorPageState
   }
 }
 
-enum _DispatcherType { order, finance }
+enum _DispatcherType { order, finance, product, retention, bootstrap }
 
 class _HeaderCard extends StatelessWidget {
   const _HeaderCard({required this.generatedAt, required this.error});
@@ -213,6 +237,26 @@ class _SummaryCard extends StatelessWidget {
               label: 'Finance lama',
               value: oldFinanceActive ? 'Aktif' : 'Mati',
               ok: !oldFinanceActive,
+            ),
+            _MetricTile(
+              label: 'Product empty',
+              value: _intValue(summary['product_bad_count']).toString(),
+              ok: _intValue(summary['product_bad_count']) == 0,
+            ),
+            _MetricTile(
+              label: 'Retention rows',
+              value: _intValue(summary['retention_old_rows']).toString(),
+              ok: _intValue(summary['retention_old_rows']) == 0,
+            ),
+            _MetricTile(
+              label: 'Bootstrap run',
+              value: _intValue(summary['bootstrap_running_count']).toString(),
+              ok: true,
+            ),
+            _MetricTile(
+              label: 'Retention cron',
+              value: _boolValue(summary['retention_cron_active']) ? 'Aktif' : 'Mati',
+              ok: _boolValue(summary['retention_cron_active']),
             ),
             _MetricTile(
               label: 'Akun aktif',
@@ -334,39 +378,9 @@ class _StateTile extends StatelessWidget {
     final lockStatus = _textValue(state['lock_status']);
     final failureCount = _intValue(state['failure_count']);
     final lastError = _textValue(state['last_error']);
-    final isOk = failureCount == 0 &&
-        lastError.isEmpty &&
-        (lockStatus == 'free' || lockStatus == 'locked');
-
-    final status = type == _DispatcherType.order
-        ? _textValue(state['bootstrap_status'])
-        : _textValue(state['finance_status']);
-
-    final rows = type == _DispatcherType.order
-        ? [
-            _InfoRow('Mode', _textOrDash(state['last_mode'])),
-            _InfoRow('Status', _textOrDash(status)),
-            _InfoRow('Cursor', _formatDateTime(state['bootstrap_cursor_at'])),
-            _InfoRow('Recent', _formatDateTime(state['recent_cursor_at'])),
-            _InfoRow('Last success', _formatDateTime(state['last_success_at'])),
-            _InfoRow('Orders 90d', _intValue(state['orders_90d']).toString()),
-            _InfoRow(
-                'Last order', _formatDateTime(state['last_order_created_at'])),
-            _InfoRow('Next run', _formatDateTime(state['next_run_at'])),
-          ]
-        : [
-            _InfoRow('Mode', _textOrDash(state['last_mode'])),
-            _InfoRow('Status', _textOrDash(status)),
-            _InfoRow('Cursor', _textOrDash(state['bootstrap_cursor_date'])),
-            _InfoRow('Recent', _textOrDash(state['recent_cursor_date'])),
-            _InfoRow('Last success', _formatDateTime(state['last_success_at'])),
-            _InfoRow('Checked', _intValue(state['checked_total']).toString()),
-            _InfoRow('Synced', _intValue(state['synced_total']).toString()),
-            _InfoRow('Reports 90d',
-                _intValue(state['finance_reports_90d']).toString()),
-            _InfoRow('Payout 90d', _moneyText(state['payout_sum_90d'])),
-            _InfoRow('Next run', _formatDateTime(state['next_run_at'])),
-          ];
+    final status = _stateStatus(type, state);
+    final isOk = _stateOk(type, state, failureCount, lastError, lockStatus);
+    final rows = _stateRows(type, state);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -407,6 +421,112 @@ class _StateTile extends StatelessWidget {
       ),
     );
   }
+}
+
+
+
+bool _stateOk(
+  _DispatcherType type,
+  Map<String, dynamic> state,
+  int failureCount,
+  String lastError,
+  String lockStatus,
+) {
+  switch (type) {
+    case _DispatcherType.order:
+    case _DispatcherType.finance:
+      return failureCount == 0 &&
+          lastError.isEmpty &&
+          (lockStatus == 'free' || lockStatus == 'locked');
+    case _DispatcherType.product:
+      return _intValue(state['product_rows']) > 0;
+    case _DispatcherType.retention:
+      return _textValue(state['status']) == 'ok';
+    case _DispatcherType.bootstrap:
+      return !_stateStatus(type, state).toLowerCase().contains('missing');
+  }
+}
+
+String _stateStatus(_DispatcherType type, Map<String, dynamic> state) {
+  switch (type) {
+    case _DispatcherType.order:
+      return _textValue(state['bootstrap_status']);
+    case _DispatcherType.finance:
+      return _textValue(state['finance_status']);
+    case _DispatcherType.product:
+      return _textValue(state['status']);
+    case _DispatcherType.retention:
+      return _textValue(state['status']);
+    case _DispatcherType.bootstrap:
+      final order = _textOrDash(state['order_bootstrap_status']);
+      final finance = _textOrDash(state['finance_bootstrap_status']);
+      return 'Order $order / Finance $finance';
+  }
+}
+
+List<_InfoRow> _stateRows(_DispatcherType type, Map<String, dynamic> state) {
+  switch (type) {
+    case _DispatcherType.order:
+      return [
+        _InfoRow('Mode', _textOrDash(state['last_mode'])),
+        _InfoRow('Status', _textOrDash(state['bootstrap_status'])),
+        _InfoRow('Cursor', _formatDateTime(state['bootstrap_cursor_at'])),
+        _InfoRow('Recent', _formatDateTime(state['recent_cursor_at'])),
+        _InfoRow('Last success', _formatDateTime(state['last_success_at'])),
+        _InfoRow('Orders 90d', _intValue(state['orders_90d']).toString()),
+        _InfoRow('Last order', _formatDateTime(state['last_order_created_at'])),
+        _InfoRow('Next run', _formatDateTime(state['next_run_at'])),
+      ];
+    case _DispatcherType.finance:
+      return [
+        _InfoRow('Mode', _textOrDash(state['last_mode'])),
+        _InfoRow('Status', _textOrDash(state['finance_status'])),
+        _InfoRow('Cursor', _textOrDash(state['bootstrap_cursor_date'])),
+        _InfoRow('Recent', _textOrDash(state['recent_cursor_date'])),
+        _InfoRow('Last success', _formatDateTime(state['last_success_at'])),
+        _InfoRow('Checked', _intValue(state['checked_total']).toString()),
+        _InfoRow('Synced', _intValue(state['synced_total']).toString()),
+        _InfoRow('Reports 90d', _intValue(state['finance_reports_90d']).toString()),
+        _InfoRow('Payout 90d', _moneyText(state['payout_sum_90d'])),
+        _InfoRow('Next run', _formatDateTime(state['next_run_at'])),
+      ];
+    case _DispatcherType.product:
+      return [
+        _InfoRow('Status', _textOrDash(state['status'])),
+        _InfoRow('Products', _intValue(state['product_rows']).toString()),
+        _InfoRow('Product statuses', _productStatusText(state['product_statuses'])),
+        _InfoRow('Last updated', _formatDateTime(state['last_product_updated_at'])),
+        _InfoRow('Last seen', _formatDateTime(state['last_product_seen_at'])),
+      ];
+    case _DispatcherType.retention:
+      return [
+        _InfoRow('Status', _textOrDash(state['status'])),
+        _InfoRow('Cutoff', _textOrDash(state['cutoff_date_wib'])),
+        _InfoRow('Old rows', _intValue(state['total_old_rows']).toString()),
+        _InfoRow('Old orders', _intValue(state['old_order_rows']).toString()),
+        _InfoRow('Old finance', _intValue(state['old_finance_report_rows']).toString()),
+        _InfoRow('Order jobs', _intValue(state['old_order_job_rows']).toString()),
+        _InfoRow('Finance jobs', _intValue(state['old_finance_job_rows']).toString()),
+        _InfoRow('Refreshed', _formatDateTime(state['refreshed_at'])),
+      ];
+    case _DispatcherType.bootstrap:
+      return [
+        _InfoRow('Order status', _textOrDash(state['order_bootstrap_status'])),
+        _InfoRow('Order cursor', _formatDateTime(state['order_bootstrap_cursor_at'])),
+        _InfoRow('Order done', _formatDateTime(state['order_bootstrap_completed_at'])),
+        _InfoRow('Finance status', _textOrDash(state['finance_bootstrap_status'])),
+        _InfoRow('Finance cursor', _textOrDash(state['finance_bootstrap_cursor_date'])),
+        _InfoRow('Finance done', _formatDateTime(state['finance_bootstrap_completed_at'])),
+      ];
+  }
+}
+
+String _productStatusText(Object? value) {
+  final rows = _asMapList(value);
+  if (rows.isEmpty) return '-';
+  return rows
+      .map((row) => '${_textOrDash(row['status'])}: ${_intValue(row['rows'])}')
+      .join(', ');
 }
 
 class _InfoRow extends StatelessWidget {

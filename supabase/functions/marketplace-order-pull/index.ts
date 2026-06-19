@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-order-pull";
+const FUNCTION_VERSION = "marketplace-order-pull-physical-awb-v29";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -332,7 +332,7 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
 
   let existingQuery = admin
     .from("marketplace_orders")
-    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
+    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, package_id, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
     .eq("tenant_id", activeAccount.tenant_id)
     .eq("marketplace_account_id", activeAccount.marketplace_account_id)
     .or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
@@ -625,7 +625,7 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
 
   let existingQuery = admin
     .from("marketplace_orders")
-    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
+    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, package_id, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
     .eq("tenant_id", activeAccount.tenant_id)
     .eq("marketplace_account_id", activeAccount.marketplace_account_id)
     .or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
@@ -688,7 +688,15 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
       }
     }
 
-    const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
+    let normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
+    normalizedOrder = await enrichShopeeOrderWithPhysicalTracking({
+      account: activeAccount,
+      accessToken,
+      orderId,
+      rawOrder: detailOrder,
+      order: normalizedOrder,
+      warnings,
+    });
     const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
     const statusGroup = orderStatusGroup(orderStatusUpper);
     const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
@@ -721,8 +729,20 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
       nextLastError = null;
     }
 
+    const nextTrackingNumber = physicalShopeeTrackingNumber(
+      normalizedOrder.tracking_number || row.tracking_number,
+      orderId,
+      normalizedOrder.package_id || row.package_id,
+    );
+    const nextPackageId = normalizedOrder.package_id || row.package_id || null;
+    const nextLabelCode = physicalShopeeTrackingNumber(
+      normalizedOrder.label_code,
+      orderId,
+      nextPackageId,
+    ) || nextTrackingNumber;
+
     const statusChanged = text(row.order_status).toUpperCase() !== orderStatusUpper
-      || text(row.tracking_number) !== text(normalizedOrder.tracking_number || row.tracking_number)
+      || text(row.tracking_number) !== text(nextTrackingNumber)
       || nextStockActionStatus !== existingOrderAction;
 
     const now = new Date().toISOString();
@@ -731,11 +751,11 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
       .update({
         order_status: normalizedOrder.order_status || row.order_status,
         order_status_label: normalizedOrder.order_status_label || row.order_status_label,
-        tracking_number: normalizedOrder.tracking_number || row.tracking_number,
+        tracking_number: nextTrackingNumber,
         shipping_provider_name: normalizedOrder.shipping_provider_name,
-        package_id: normalizedOrder.package_id,
+        package_id: nextPackageId,
         logistic_status: normalizedOrder.logistic_status,
-        label_code: normalizedOrder.tracking_number || row.tracking_number || nonOrderIdLabelCode(normalizedOrder.label_code, orderId),
+        label_code: nextLabelCode,
         cancel_request_id: normalizedOrder.cancel_request_id,
         cancel_request_status: normalizedOrder.cancel_request_status,
         cancel_request_reason: normalizedOrder.cancel_request_reason,
@@ -765,17 +785,17 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
     if (nextStockActionStatus === "cancel_review_required" || nextStockActionStatus === "return_review_required" || nextStockActionStatus === "ignored_status") {
       changedToReview += 1;
       await syncOrderItemsStatusFromOrder(admin, activeAccount, row.marketplace_order_id, {
-        trackingNumber: normalizedOrder.tracking_number || row.tracking_number,
-        packageId: normalizedOrder.package_id,
+        trackingNumber: nextTrackingNumber,
+        packageId: nextPackageId,
         nextStockActionStatus,
         lastError: nextLastError,
       });
-    } else if (normalizedOrder.tracking_number || normalizedOrder.package_id) {
+    } else if (nextTrackingNumber || nextPackageId) {
       await admin
         .from("marketplace_order_items")
         .update({
-          tracking_number: normalizedOrder.tracking_number || row.tracking_number,
-          package_id: normalizedOrder.package_id,
+          tracking_number: nextTrackingNumber,
+          package_id: nextPackageId,
           updated_at: now,
         })
         .eq("tenant_id", activeAccount.tenant_id)
@@ -897,7 +917,15 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
       warnings.push(`Detail order Shopee ${mask(orderId)} gagal, memakai data list: ${String(e)}`);
     }
 
-    const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
+    let normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
+    normalizedOrder = await enrichShopeeOrderWithPhysicalTracking({
+      account: activeAccount,
+      accessToken,
+      orderId,
+      rawOrder: detailOrder,
+      order: normalizedOrder,
+      warnings,
+    });
     const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
     // Final marketplace statuses must still be imported to refresh stale local rows.
     // Do not skip COMPLETED/DELIVERED here, otherwise old IN_TRANSIT finance/order rows never become final.
@@ -1088,6 +1116,88 @@ async function fetchShopeeOrderDetail(args: { account: any; accessToken: string;
     ].join(","),
   };
   return shopeeRequest({ method: "GET", account: args.account, accessToken: args.accessToken, path, query });
+}
+
+async function fetchShopeeLogisticsTracking(args: {
+  account: any;
+  accessToken: string;
+  orderId: string;
+  packageNumber?: string | null;
+}) {
+  const path = "/api/v2/logistics/get_tracking_number";
+  const attempts: Array<Record<string, string>> = [];
+  const orderSn = text(args.orderId);
+  const packageNumber = text(args.packageNumber);
+  if (!orderSn) return null;
+  if (packageNumber) attempts.push({ order_sn: orderSn, package_number: packageNumber });
+  attempts.push({ order_sn: orderSn });
+
+  let lastError: unknown = null;
+  for (const query of attempts) {
+    try {
+      return await shopeeRequest({
+        method: "GET",
+        account: args.account,
+        accessToken: args.accessToken,
+        path,
+        query,
+      });
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
+
+async function enrichShopeeOrderWithPhysicalTracking(args: {
+  account: any;
+  accessToken: string;
+  orderId: string;
+  rawOrder: any;
+  order: any;
+  warnings: string[];
+}) {
+  const orderId = text(args.orderId || args.order.external_order_id || args.order.order_sn);
+  const packageId = text(args.order.package_id || detectPackageId(args.rawOrder));
+  const packageNumber = detectShopeePackageNumber(args.rawOrder) || packageId;
+  const currentTracking = physicalShopeeTrackingNumber(args.order.tracking_number, orderId, packageId, packageNumber);
+  const currentLabel = physicalShopeeTrackingNumber(args.order.label_code, orderId, packageId, packageNumber);
+
+  if (currentTracking) {
+    return {
+      ...args.order,
+      tracking_number: currentTracking,
+      label_code: currentLabel || currentTracking,
+    };
+  }
+
+  let logistics: any = null;
+  try {
+    logistics = await fetchShopeeLogisticsTracking({
+      account: args.account,
+      accessToken: args.accessToken,
+      orderId,
+      packageNumber,
+    });
+  } catch (e) {
+    args.warnings.push(`Tracking logistics Shopee ${mask(orderId)} gagal: ${String(e)}`);
+  }
+
+  const logisticsTracking = physicalShopeeTrackingNumber(detectTrackingNumber(logistics), orderId, packageId, packageNumber);
+  const logisticsLabel = physicalShopeeTrackingNumber(detectLabelCode(logistics), orderId, packageId, packageNumber);
+  const rawOrder = logistics
+    ? safeJsonForDb({ ...(args.rawOrder || {}), logistics_tracking_response: logistics })
+    : args.order.raw_order;
+
+  return {
+    ...args.order,
+    tracking_number: logisticsTracking,
+    label_code: logisticsLabel || logisticsTracking,
+    shipping_provider_name: detectShippingProviderName(logistics) || args.order.shipping_provider_name,
+    logistic_status: detectLogisticStatus(logistics) || args.order.logistic_status,
+    raw_order: rawOrder,
+  };
 }
 
 async function refreshShopeeAccessTokenIfNeeded(admin: any, account: any, force = false): Promise<{ account: any; accessToken: string }> {
@@ -2367,6 +2477,38 @@ function toIsoFromAny(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+
+function detectShopeePackageNumber(raw: any): string | null {
+  return firstNonEmptyDeep([
+    raw?.package_number,
+    raw?.packageNumber,
+    raw?.package?.package_number,
+    raw?.package_info?.package_number,
+    raw?.packages?.map((p: any) => [p?.package_number, p?.packageNumber]),
+    raw?.package_list?.map((p: any) => [p?.package_number, p?.packageNumber]),
+    raw?.shipping_packages?.map((p: any) => [p?.package_number, p?.packageNumber]),
+  ]);
+}
+
+function physicalShopeeTrackingNumber(
+  value: unknown,
+  orderId?: unknown,
+  packageId?: unknown,
+  packageNumber?: unknown,
+): string | null {
+  const clean = text(value);
+  if (!clean) return null;
+  const upper = clean.toUpperCase();
+  if (upper.startsWith("OFG")) return null;
+  if (/^1200[0-9]{6,}$/.test(clean)) return null;
+  if (/^[0-9]{16,}$/.test(clean)) return null;
+
+  const references = [orderId, packageId, packageNumber]
+    .map((item) => text(item).toLowerCase())
+    .filter(Boolean);
+  if (references.includes(clean.toLowerCase())) return null;
+  return clean;
+}
 function detectTrackingNumber(raw: any): string | null {
   return firstNonEmptyDeep([
     raw?.tracking_number,
