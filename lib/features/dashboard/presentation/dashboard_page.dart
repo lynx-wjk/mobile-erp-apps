@@ -76,6 +76,9 @@ class _DashboardPageState extends State<DashboardPage> {
   List<_TrendPoint> _financeTrend = const <_TrendPoint>[];
   int? _selectedTrendIndex;
   String _dashboardFinanceMarketplaceFilter = 'all';
+  static const String _dashboardFinanceCacheVersion =
+      'finance_live_20260619_v29_filter_page_scope';
+  static const String _dashboardFinanceCacheTab = 'dashboard_finance';
   List<_AppNotification> _notifications = const <_AppNotification>[];
   int _contentTotal = 0;
   int _contentDueSoon = 0;
@@ -261,12 +264,14 @@ class _DashboardPageState extends State<DashboardPage> {
               roleId == 'finance';
       final tenantSubscriptionInfo = await _safeTenantSubscriptionInfo(
           appUser?.tenantId ?? profile?['tenant_id']);
+      final financeTenantId =
+          (appUser?.tenantId ?? profile?['tenant_id']?.toString() ?? '').trim();
       final canLoadFinanceSummary =
           AppRolePermissions.isPlatformOwnerId(roleId) ||
               (AppRolePermissions.canAccessFinance(roleId) &&
                   entitlement.isFeatureEnabled('finance_basic'));
       final financeSummary = canLoadFinanceSummary
-          ? await _safeFinanceSummary(now)
+          ? await _safeFinanceSummary(now, tenantId: financeTenantId)
           : <String, dynamic>{};
       final notifications = _withLowStockNotificationFallback(
         await _safeNotifications(),
@@ -606,7 +611,10 @@ class _DashboardPageState extends State<DashboardPage> {
     return out;
   }
 
-  Future<Map<String, dynamic>> _safeFinanceSummary(DateTime now) async {
+  Future<Map<String, dynamic>> _safeFinanceSummary(
+    DateTime now, {
+    String tenantId = '',
+  }) async {
     final startDate = _ymd(DateTime(now.year, now.month, 1));
     final endDate = _ymd(now);
     final marketplaceFilter = _dashboardFinanceMarketplaceParam();
@@ -630,6 +638,7 @@ class _DashboardPageState extends State<DashboardPage> {
       startDate,
       endDate,
       marketplaceFilter,
+      tenantId: tenantId,
     );
     if (live['_tenant_empty_finance'] == true) {
       return _mergeDashboardOrderAnalytics(live, orderAnalytics);
@@ -643,6 +652,7 @@ class _DashboardPageState extends State<DashboardPage> {
       startDate,
       endDate,
       marketplaceFilter,
+      tenantId: tenantId,
     );
     if (_dashboardFinanceSummaryUsable(cached)) {
       return _mergeDashboardOrderAnalytics(cached, orderAnalytics);
@@ -679,8 +689,9 @@ class _DashboardPageState extends State<DashboardPage> {
     DateTime now,
     String startDate,
     String endDate,
-    String? marketplaceFilter,
-  ) async {
+    String? marketplaceFilter, {
+    required String tenantId,
+  }) async {
     final rpcCandidates = <String>[
       'finance_customer_dashboard_snapshot',
       'finance_customer_dashboard_snapshot',
@@ -696,14 +707,16 @@ class _DashboardPageState extends State<DashboardPage> {
               _financeSummaryFromSnapshot(now, _asMap(response), rpcName);
           if (_dashboardFinanceSummaryUsable(parsed)) {
             try {
-              final keyBase = FinanceLocalCache.snapshotKey(
+              final cacheKey = FinanceLocalCache.snapshotKey(
                 start: DateTime(now.year, now.month, 1),
                 end: DateTime(now.year, now.month, now.day),
                 marketplace: marketplaceFilter ?? 'all',
                 accountId: 'all',
+                tenantId: tenantId.trim().isEmpty ? 'unknown' : tenantId.trim(),
+                tab: _dashboardFinanceCacheTab,
+                page: 1,
+                cacheVersion: _dashboardFinanceCacheVersion,
               );
-              final cacheKey =
-                  '$keyBase::finance_live_20260619_recover_existing_rpc_v28';
               await FinanceLocalCache.writeJson(cacheKey, _asMap(response));
             } catch (_) {}
             return parsed;
@@ -768,29 +781,26 @@ class _DashboardPageState extends State<DashboardPage> {
     DateTime now,
     String startDate,
     String endDate,
-    String? marketplaceFilter,
-  ) async {
+    String? marketplaceFilter, {
+    required String tenantId,
+  }) async {
     final versions = <String>[
-      'finance_live_20260619_recover_existing_rpc_v28',
-      'finance_live_20260619_recover_existing_rpc_v23',
-      'finance_live_20260606_local_cache_fast_v20',
-      'finance_live_20260606_local_cache_fast_v19',
-      'finance_live_20260606_local_cache_fast_v18',
-      'finance_live_20260606_local_cache_fast_v17',
-      'finance_live_20260606_truth_abnormal_raw_v15',
-      'finance_live_20260606_no_local_cache_server_rpc_v16',
+      _dashboardFinanceCacheVersion,
     ];
-    final keyBase = FinanceLocalCache.snapshotKey(
-      start: DateTime(now.year, now.month, 1),
-      end: DateTime(now.year, now.month, now.day),
-      marketplace: marketplaceFilter ?? 'all',
-      accountId: 'all',
-    );
 
     for (final version in versions) {
       try {
-        final cached =
-            await FinanceLocalCache.readJson('$keyBase::$version', ttlDays: 90);
+        final cacheKey = FinanceLocalCache.snapshotKey(
+          start: DateTime(now.year, now.month, 1),
+          end: DateTime(now.year, now.month, now.day),
+          marketplace: marketplaceFilter ?? 'all',
+          accountId: 'all',
+          tenantId: tenantId.trim().isEmpty ? 'unknown' : tenantId.trim(),
+          tab: _dashboardFinanceCacheTab,
+          page: 1,
+          cacheVersion: version,
+        );
+        final cached = await FinanceLocalCache.readJson(cacheKey, ttlDays: 90);
         if (cached == null || cached.isEmpty) continue;
         final parsed = _financeSummaryFromSnapshot(now, cached, 'local_cache');
         if (_dashboardFinanceSummaryUsable(parsed)) return parsed;
