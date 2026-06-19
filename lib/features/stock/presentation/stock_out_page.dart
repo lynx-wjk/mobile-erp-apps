@@ -132,10 +132,15 @@ class _StockOutPageState extends State<StockOutPage> {
   bool _validatePhysicalResi(String resi) {
     final clean = resi.trim();
     if (clean.isEmpty) return false;
-    if (clean.toUpperCase().startsWith('OFG')) return false;
+    final upper = clean.toUpperCase();
+    if (upper.startsWith('SPX')) return true;
+    if (upper.startsWith('OFG')) return false;
+    if (upper.startsWith('PG')) return false;
+    if (upper.startsWith('PACKAGE')) return false;
+    if (upper.startsWith('ORDER')) return false;
     if (RegExp(r'^PG\d+$', caseSensitive: false).hasMatch(clean)) return false;
-    if (RegExp(r'^\d{16,}$').hasMatch(clean)) return false;
     if (RegExp(r'^1200\d{6,}$').hasMatch(clean)) return false;
+    if (RegExp(r'^\d{16,}$').hasMatch(clean)) return false;
     return true;
   }
 

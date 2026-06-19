@@ -349,8 +349,8 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
 
   const candidateLimit = Math.min(Math.max(args.maxExistingOrders * 3, args.maxExistingOrders), 600);
   const { data: existingOrdersRaw, error: existingError } = await existingQuery
+    .order("order_created_at", { ascending: false, nullsFirst: true })
     .order("pulled_at", { ascending: true, nullsFirst: true })
-    .order("updated_at", { ascending: true, nullsFirst: true })
     .limit(candidateLimit);
 
   if (existingError) throw new Error(`Load existing marketplace order gagal: ${existingError.message}`);
@@ -578,6 +578,15 @@ function prioritizeStatusRefreshCandidates(rows: any[], payoutPriorityKeys: Set<
     const aPriority = rowHasPayoutPriority(a, payoutPriorityKeys) ? 0 : 1;
     const bPriority = rowHasPayoutPriority(b, payoutPriorityKeys) ? 0 : 1;
     if (aPriority !== bPriority) return aPriority - bPriority;
+
+    const now = Date.now();
+    const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000;
+    const aCreated = Date.parse(String(a.order_created_at || ""));
+    const bCreated = Date.parse(String(b.order_created_at || ""));
+    const aIsNew = Number.isFinite(aCreated) && aCreated >= threeDaysAgo ? 0 : 1;
+    const bIsNew = Number.isFinite(bCreated) && bCreated >= threeDaysAgo ? 0 : 1;
+    if (aIsNew !== bIsNew) return aIsNew - bIsNew;
+
     return oldestRefreshTime(a) - oldestRefreshTime(b);
   });
 }
@@ -659,8 +668,8 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
 
   const candidateLimit = Math.min(Math.max(args.maxExistingOrders * 3, args.maxExistingOrders), 600);
   const { data: existingOrdersRaw, error: existingError } = await existingQuery
+    .order("order_created_at", { ascending: false, nullsFirst: true })
     .order("pulled_at", { ascending: true, nullsFirst: true })
-    .order("updated_at", { ascending: true, nullsFirst: true })
     .limit(candidateLimit);
 
   if (existingError) throw new Error(`Load existing Shopee order gagal: ${existingError.message}`);
@@ -2556,6 +2565,9 @@ function physicalTrackingNumber(
   if (!clean) return null;
   const upper = clean.toUpperCase();
   if (upper.startsWith("OFG")) return null;
+  if (upper.startsWith("PG")) return null;
+  if (upper.startsWith("PACKAGE")) return null;
+  if (upper.startsWith("ORDER")) return null;
   if (/^1200[0-9]{6,}$/.test(clean)) return null;
   if (/^[0-9]{16,}$/.test(clean)) return null;
 

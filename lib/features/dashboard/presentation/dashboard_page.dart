@@ -619,32 +619,12 @@ class _DashboardPageState extends State<DashboardPage> {
     final endDate = _ymd(now);
     final marketplaceFilter = _dashboardFinanceMarketplaceParam();
 
-    final rawPreferred = await _safeRawFinanceSummary(
+    final rawSummary = await _safeRawFinanceSummary(
       now,
       marketplaceFilter: marketplaceFilter,
     );
-    if (marketplaceFilter != null &&
-        _dashboardFinanceSummaryUsable(rawPreferred)) {
-      return rawPreferred;
-    }
-
-    final orderAnalytics = await _safeDashboardOrderAnalytics90d(
-      now,
-      marketplaceFilter: marketplaceFilter,
-    );
-
-    final live = await _safeFinanceSummaryFromSnapshot(
-      now,
-      startDate,
-      endDate,
-      marketplaceFilter,
-      tenantId: tenantId,
-    );
-    if (live['_tenant_empty_finance'] == true) {
-      return _mergeDashboardOrderAnalytics(live, orderAnalytics);
-    }
-    if (_dashboardFinanceSummaryUsable(live)) {
-      return _mergeDashboardOrderAnalytics(live, orderAnalytics);
+    if (_dashboardFinanceSummaryUsable(rawSummary)) {
+      return rawSummary;
     }
 
     final cached = await _safeFinanceSummaryFromLocalCache(
@@ -655,17 +635,7 @@ class _DashboardPageState extends State<DashboardPage> {
       tenantId: tenantId,
     );
     if (_dashboardFinanceSummaryUsable(cached)) {
-      return _mergeDashboardOrderAnalytics(cached, orderAnalytics);
-    }
-
-    final rawSummary =
-        await _safeRawFinanceSummary(now, marketplaceFilter: marketplaceFilter);
-    if (_dashboardFinanceSummaryUsable(rawSummary)) {
-      return _mergeDashboardOrderAnalytics(rawSummary, orderAnalytics);
-    }
-
-    if (_dashboardFinanceSummaryUsable(orderAnalytics)) {
-      return orderAnalytics;
+      return cached;
     }
 
     return <String, dynamic>{

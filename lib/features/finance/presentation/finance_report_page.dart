@@ -310,7 +310,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (safeRpcName.isEmpty) continue;
 
       try {
-        final response = await _client.rpc(safeRpcName, params: params);
+        final response = await _client
+            .rpc(safeRpcName, params: params)
+            .timeout(const Duration(seconds: 5));
         final enrichedResponse =
             await _withMarketplaceReconciliation(response, params);
         _lastSnapshotStats =
@@ -332,11 +334,123 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return firstEmptyResponse;
     }
 
+    try {
+      final fallbackResponse = await _buildFallbackFinanceSnapshot(params);
+      if (fallbackResponse != null) {
+        _lastSnapshotStats = 'fallback_marketplace_finance_reports · MTD raw';
+        return fallbackResponse;
+      }
+    } catch (fallbackErr) {
+      debugPrint('Finance snapshot fallback also failed: $fallbackErr');
+    }
+
     if (lastError != null) {
       throw lastError;
     }
 
     throw Exception('Belum ada data pada filter ini.');
+  }
+
+  Future<dynamic> _buildFallbackFinanceSnapshot(
+      Map<String, dynamic> params) async {
+    final startStr = params['p_start']?.toString();
+    final endStr = params['p_end']?.toString();
+    final mktFilter = params['p_marketplace']?.toString().trim().toLowerCase();
+    final accFilter = params['p_account_id']?.toString().trim();
+
+    if (startStr == null || endStr == null) return null;
+
+    try {
+      final accountsResponse = await _client
+          .from('marketplace_accounts')
+          .select(
+              'id, name, marketplace, account_id, marketplace_id, is_active')
+          .eq('tenant_id', _currentTenantId);
+      final accountsList = accountsResponse is List
+          ? accountsResponse.map((e) => Map<String, dynamic>.from(e)).toList()
+          : <Map<String, dynamic>>[];
+
+      var query = _client
+          .from('marketplace_finance_reports')
+          .select(
+              'gross_amount, gross_sales, payout_amount, received_amount, net_settlement, total_hpp, marketplace, period_start, order_id, marketplace_order_id, account_id')
+          .gte('period_start', startStr)
+          .lte('period_start', endStr);
+
+      if (mktFilter != null && mktFilter.isNotEmpty) {
+        if (mktFilter == 'shopee') {
+          query = query.eq('marketplace', 'shopee');
+        } else if (mktFilter == 'tiktok' || mktFilter == 'tiktok_shop') {
+          query = query.inFilter('marketplace', ['tiktok', 'tiktok_shop']);
+        }
+      }
+      if (accFilter != null && accFilter.isNotEmpty) {
+        query = query.eq('account_id', accFilter);
+      }
+
+      final reportsRes = await query.limit(5000);
+      final rows = reportsRes is List
+          ? reportsRes.map((e) => Map<String, dynamic>.from(e)).toList()
+          : <Map<String, dynamic>>[];
+
+      var gross = 0.0;
+      var payout = 0.0;
+      var hpp = 0.0;
+      var negativeCount = 0;
+      var negativeAbs = 0.0;
+      final orderKeys = <String>{};
+
+      for (final row in rows) {
+        final orderKey =
+            AppUi.text(row['order_id'] ?? row['marketplace_order_id']);
+        if (orderKey.trim().isNotEmpty) orderKeys.add(orderKey);
+
+        final rowGross = AppUi.toNum(row['gross_amount'] ?? row['gross_sales']);
+        final rowPayout = AppUi.toNum(row['payout_amount'] ??
+            row['received_amount'] ??
+            row['net_settlement']);
+        final rowHpp = AppUi.toNum(row['total_hpp']);
+
+        gross += rowGross;
+        payout += rowPayout;
+        hpp += rowHpp;
+
+        if (rowPayout < 0) {
+          negativeCount += 1;
+          negativeAbs += rowPayout.abs();
+        }
+      }
+
+      final summary = <String, dynamic>{
+        'gross_sales': gross,
+        'omzet_total': gross,
+        'payout_total': payout,
+        'net_settlement': payout,
+        'hpp_total': hpp,
+        'total_hpp': hpp,
+        'orders_count': orderKeys.length,
+        'finance_order_count': orderKeys.length,
+        'abnormal_count': negativeCount,
+        'negative_payout_total_abs': negativeAbs,
+        'net_profit': payout - hpp,
+      };
+
+      return <String, dynamic>{
+        'accounts': accountsList,
+        'summary': summary,
+        'abnormal_aggregates': <String, dynamic>{
+          'abnormal_count': negativeCount,
+          'negative_payout_total_abs': negativeAbs,
+        },
+        'expenses': const <dynamic>[],
+        'approved_purchases': const <dynamic>[],
+        'skus': const <dynamic>[],
+        'sku_rows': const <dynamic>[],
+      };
+    } catch (e) {
+      debugPrint('Finance snapshot fallback query failed: $e');
+      return null;
+    }
   }
 
   Future<dynamic> _withMarketplaceReconciliation(
@@ -1286,7 +1400,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       );
       final merged = _mergeSkuRows(
         _normalizeSkuRows(<Map<String, dynamic>>[
-          ..._bySku,
           ...settled,
           ...unpaid,
         ]),
@@ -1707,6 +1820,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     ]);
 
     final snapshotSkuRows = _skuRowsFromSnapshot(data);
+    final initialSkuRows = snapshotSkuRows.take(_skuPageSize).toList();
     final liveSettledSkuRows = includeSupplementalSku
         ? _filterSkuRowsBySelectedScope(
             await _fetchSkuRowsByPayoutFilterPage('settled'),
@@ -1728,12 +1842,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     // Mixing snapshot rows first can keep old HPP 0 rows visible on page 1.
     var rawSkuRows = liveSkuRows.isNotEmpty
         ? liveSkuRows
-        : _filterSkuRowsBySelectedScope(snapshotSkuRows);
+        : _filterSkuRowsBySelectedScope(initialSkuRows);
 
     // Backend snapshot/RPC already receives p_marketplace and p_account_id.
     // Some legacy snapshot rows do not carry marketplace/account per row.
-    if (rawSkuRows.isEmpty && snapshotSkuRows.isNotEmpty) {
-      rawSkuRows = snapshotSkuRows;
+    if (rawSkuRows.isEmpty && initialSkuRows.isNotEmpty) {
+      rawSkuRows = initialSkuRows;
     }
 
     final normalizedSku = _mergeSkuRows(
@@ -2317,6 +2431,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _dedupeExpenseRows(
       List<Map<String, dynamic>> rows) {
     final deduped = <String, Map<String, dynamic>>{};
+    final seenIds = <String>{};
+    final seenSignatures = <String>{};
 
     for (final source in rows) {
       if (_isPurchaseExpenseRow(source) || _isSyntheticExpenseRow(source)) {
@@ -2328,7 +2444,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           [row['amount'], row['total_amount'], row['expense_total']]);
       if (amount.abs() <= 0.49) continue;
 
-      final expenseId = _expenseId(row);
+      final expenseId = _expenseId(row).trim();
+      if (expenseId.isNotEmpty && seenIds.contains(expenseId)) {
+        continue;
+      }
+
       final stableDate = _date(row['expense_date'] ??
           row['paid_at'] ??
           row['date'] ??
@@ -2336,6 +2456,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final category = _text(row['category'], '').trim().toLowerCase();
       final note =
           _text(row['note'] ?? row['description'], '').trim().toLowerCase();
+      final sourceField = _text(row['source']).trim().toLowerCase();
+
+      final signature =
+          '$stableDate|$category|$note|${amount.toStringAsFixed(2)}|$sourceField';
+      if (seenSignatures.contains(signature)) {
+        continue;
+      }
+
       final key = _isUuid(expenseId)
           ? 'id:$expenseId'
           : 'manual:$stableDate|$category|${amount.toStringAsFixed(0)}|$note';
@@ -2344,6 +2472,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (existing == null ||
           (!_isUuid(_expenseId(existing)) && _isUuid(expenseId))) {
         deduped[key] = row;
+        if (expenseId.isNotEmpty) {
+          seenIds.add(expenseId);
+        }
+        seenSignatures.add(signature);
       }
     }
 

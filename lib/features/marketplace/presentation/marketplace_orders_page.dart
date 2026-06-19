@@ -1558,7 +1558,36 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   Widget _filterBox() {
-    final accounts = _filteredAccounts;
+    // 1. Guard marketplace filter value
+    final activeMarketplaces =
+        MarketplaceProviders.active.map((p) => p.id).toSet();
+    if (_filterMarketplace != 'all' &&
+        !activeMarketplaces.contains(_filterMarketplace)) {
+      _filterMarketplace = 'all';
+    }
+
+    // 2. Deduplicate accounts list and guard account filter value
+    final uniqueAccountsMap = <String, MarketplaceAccountPublic>{};
+    for (final account in _filteredAccounts) {
+      final key = account.marketplaceAccountId.trim();
+      if (key.isNotEmpty) {
+        uniqueAccountsMap.putIfAbsent(key, () => account);
+      }
+    }
+    final accounts = uniqueAccountsMap.values.toList();
+    final matchedAccountCount = accounts
+        .where((item) => item.marketplaceAccountId == _filterAccountId)
+        .length;
+    if (_filterAccountId != 'all' && matchedAccountCount != 1) {
+      _filterAccountId = 'all';
+    }
+
+    // 3. Guard status filter value
+    final validStatuses = _statuses.map((item) => item.key).toSet();
+    if (!validStatuses.contains(_filterStatus)) {
+      _filterStatus = _statuses.isNotEmpty ? _statuses.first.key : 'all';
+    }
+
     return Column(
       children: [
         DropdownButtonFormField<String>(
