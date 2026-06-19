@@ -8081,8 +8081,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               } else if (hppMissing) {
                 actualMargin = 0;
               }
-              final belowTarget =
-                  !hppMissing && targetMargin > 0 && actualMargin < targetMargin;
+              final belowTarget = !hppMissing &&
+                  targetMargin > 0 &&
+                  actualMargin < targetMargin;
               return _detailCard(
                 title: sku,
                 subtitle: [
@@ -8166,8 +8167,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           ? 'HPP belum mapping'
                           : _money(displayHppPerItem),
                       warning: hppMissing),
-                  _miniMetric(
-                      'Margin net',
+                  _miniMetric('Margin net',
                       hppMissing ? '-' : '${actualMargin.toStringAsFixed(2)}%',
                       warning: belowTarget),
                   _miniMetric(
