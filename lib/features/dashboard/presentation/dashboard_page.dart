@@ -78,7 +78,7 @@ class _DashboardPageState extends State<DashboardPage> {
   String _dashboardFinanceMarketplaceFilter = 'all';
   static const String _dashboardFinanceCacheVersion =
       'finance_live_20260619_v29_filter_page_scope';
-  static const String _dashboardFinanceCacheTab = 'dashboard_finance';
+  static const String _dashboardFinanceCacheTab = 'dashboard';
   List<_AppNotification> _notifications = const <_AppNotification>[];
   int _contentTotal = 0;
   int _contentDueSoon = 0;
@@ -2286,7 +2286,7 @@ class _DashboardPageState extends State<DashboardPage> {
   String? _dashboardFinanceMarketplaceParam() {
     final clean = _dashboardFinanceMarketplaceFilter.trim().toLowerCase();
     if (clean == 'shopee') return 'shopee';
-    if (clean == 'tiktok') return 'tiktok';
+    if (clean == 'tiktok') return 'tiktok_shop';
     return null;
   }
 

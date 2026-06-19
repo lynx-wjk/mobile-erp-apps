@@ -48,7 +48,7 @@ begin
         new.tenant_id,
         new.marketplace_account_id,
         new.marketplace,
-        'complete',
+        'done',
         v_now_epoch,
         v_now_epoch,
         v_now_epoch,
@@ -77,7 +77,7 @@ begin
       set
         tenant_id = new.tenant_id,
         marketplace = new.marketplace,
-        bootstrap_status = 'complete',
+        bootstrap_status = 'done',
         bootstrap_from_seconds = coalesce(bootstrap_from_seconds, v_now_epoch),
         bootstrap_to_seconds = v_now_epoch,
         bootstrap_cursor_seconds = v_now_epoch,

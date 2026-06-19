@@ -857,6 +857,16 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
   let activeAccount = tokenBundle.account;
   let accessToken = tokenBundle.accessToken;
 
+  const { data: preloadedMaps, error: mapsError } = await admin
+    .from("marketplace_sku_maps")
+    .select("marketplace_sku_map_id, product_id, local_sku, marketplace_sku_id, marketplace_seller_sku, marketplace_product_id")
+    .eq("tenant_id", activeAccount.tenant_id)
+    .eq("marketplace_account_id", activeAccount.marketplace_account_id)
+    .eq("status", "active");
+  if (mapsError) {
+    console.warn(`Gagal memuat preloaded maps Shopee: ${mapsError.message}`);
+  }
+
   const todayStartWib = startOfTodayWibSeconds();
   const normalSinceSeconds = args.startSeconds;
   const previousUnpackedSinceSeconds = Math.floor(Date.now() / 1000) - args.previousUnpackedDays * 24 * 60 * 60;
@@ -979,7 +989,7 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
 
     let orderUnmapped = 0;
     for (const item of items) {
-      const mapping = await findSkuMapping(admin, activeAccount, item);
+      const mapping = await findSkuMapping(admin, activeAccount, item, preloadedMaps || undefined);
       const itemPayload = {
         ...item,
         mapped_product_id: mapping?.product_id || null,
@@ -1441,6 +1451,16 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
   let activeAccount = tokenBundle.account;
   let accessToken = tokenBundle.accessToken;
 
+  const { data: preloadedMaps, error: mapsError } = await admin
+    .from("marketplace_sku_maps")
+    .select("marketplace_sku_map_id, product_id, local_sku, marketplace_sku_id, marketplace_seller_sku, marketplace_product_id")
+    .eq("tenant_id", activeAccount.tenant_id)
+    .eq("marketplace_account_id", activeAccount.marketplace_account_id)
+    .eq("status", "active");
+  if (mapsError) {
+    console.warn(`Gagal memuat preloaded maps TikTok: ${mapsError.message}`);
+  }
+
   let shopCipher = detectShopCipher(activeAccount);
   let shopId = text(activeAccount.shop_id);
 
@@ -1614,7 +1634,7 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
     let orderUnmapped = 0;
 
     for (const item of items) {
-      const mapping = await findSkuMapping(admin, activeAccount, item);
+      const mapping = await findSkuMapping(admin, activeAccount, item, preloadedMaps || undefined);
       const itemPayload = {
         ...item,
         mapped_product_id: mapping?.product_id || null,
@@ -1960,21 +1980,9 @@ async function fetchTikTokOrderDetail(args: {
   const attempts = [
     {
       method: "GET" as const,
-      path: `/order/202309/orders/${encodeURIComponent(args.orderId)}`,
-      query: args.shopId ? { shop_id: args.shopId, version: "202309" } : { version: "202309" },
-      body: {},
-    },
-    {
-      method: "GET" as const,
       path: "/order/202309/orders",
       query: args.shopId ? { shop_id: args.shopId, ids: args.orderId, version: "202309" } : { ids: args.orderId, version: "202309" },
       body: {},
-    },
-    {
-      method: "POST" as const,
-      path: "/order/202309/orders/detail/query",
-      query: args.shopId ? { shop_id: args.shopId, version: "202309" } : { version: "202309" },
-      body: { order_id_list: [args.orderId], order_ids: [args.orderId] },
     },
   ];
 
@@ -2097,10 +2105,36 @@ async function upsertOrderItem(admin: any, marketplaceOrderId: string, account: 
   if (error) throw new Error(`Upsert marketplace order item gagal: ${error.message}`);
 }
 
-async function findSkuMapping(admin: any, account: any, item: any): Promise<any | null> {
+async function findSkuMapping(admin: any, account: any, item: any, preloadedMaps?: any[]): Promise<any | null> {
   const baseSelect = "marketplace_sku_map_id, product_id, local_sku";
 
   const skuId = text(item.marketplace_sku_id);
+  const sellerSku = text(item.seller_sku);
+  const productId = text(item.marketplace_product_id);
+
+  if (preloadedMaps) {
+    if (skuId) {
+      const match = preloadedMaps.find((m: any) =>
+        text(m.marketplace_sku_id) === skuId
+      );
+      if (match) return match;
+    }
+    if (sellerSku) {
+      const match = preloadedMaps.find((m: any) =>
+        text(m.marketplace_seller_sku) === sellerSku
+      );
+      if (match) return match;
+    }
+    if (productId && skuId) {
+      const match = preloadedMaps.find((m: any) =>
+        text(m.marketplace_product_id) === productId &&
+        text(m.marketplace_sku_id) === skuId
+      );
+      if (match) return match;
+    }
+    return null;
+  }
+
   if (skuId) {
     const { data, error } = await admin
       .from("marketplace_sku_maps")
@@ -2115,7 +2149,6 @@ async function findSkuMapping(admin: any, account: any, item: any): Promise<any 
     if (data) return data;
   }
 
-  const sellerSku = text(item.seller_sku);
   if (sellerSku) {
     const { data, error } = await admin
       .from("marketplace_sku_maps")
@@ -2130,7 +2163,6 @@ async function findSkuMapping(admin: any, account: any, item: any): Promise<any 
     if (data) return data;
   }
 
-  const productId = text(item.marketplace_product_id);
   if (productId && skuId) {
     const { data, error } = await admin
       .from("marketplace_sku_maps")

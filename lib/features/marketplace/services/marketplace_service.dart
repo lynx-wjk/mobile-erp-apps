@@ -1340,12 +1340,24 @@ class MarketplaceService {
       if (productId != null) productIds.add(productId);
     }
 
-    final productRows = productIds.isEmpty
-        ? const <Map<String, dynamic>>[]
-        : await _safeRows(() async => _client
+    final List<Map<String, dynamic>> productRows = [];
+    if (productIds.isNotEmpty) {
+      final idList = productIds.toList();
+      final chunks = <List<String>>[];
+      for (var i = 0; i < idList.length; i += 50) {
+        chunks.add(
+            idList.sublist(i, i + 50 > idList.length ? idList.length : i + 50));
+      }
+      final chunkResults = await Future.wait(chunks.map((chunk) {
+        return _safeRows(() async => _client
             .from('products')
             .select('product_id, kode_sku, nama_barang, stock_saat_ini')
-            .inFilter('product_id', productIds.toList()));
+            .inFilter('product_id', chunk));
+      }));
+      for (final res in chunkResults) {
+        productRows.addAll(res);
+      }
+    }
 
     final accountsById = <String, Map<String, dynamic>>{};
     for (final row in accountRows) {
@@ -2308,13 +2320,28 @@ class MarketplaceService {
     if (orderIds.isEmpty) return;
 
     try {
-      final reviewRows = await _client
-          .from('marketplace_return_item_reviews')
-          .select('marketplace_order_id, review_status, review_type')
-          .eq('tenant_id', tenantId)
-          .inFilter('marketplace_order_id', orderIds)
-          .inFilter(
-              'review_status', const ['pending', 'open', 'review_required']);
+      final List<dynamic> reviewRows = [];
+      if (orderIds.isNotEmpty) {
+        final chunks = <List<String>>[];
+        for (var i = 0; i < orderIds.length; i += 50) {
+          chunks.add(orderIds.sublist(
+              i, i + 50 > orderIds.length ? orderIds.length : i + 50));
+        }
+        final chunkResults = await Future.wait(chunks.map((chunk) {
+          return _client
+              .from('marketplace_return_item_reviews')
+              .select('marketplace_order_id, review_status, review_type')
+              .eq('tenant_id', tenantId)
+              .inFilter('marketplace_order_id', chunk)
+              .inFilter('review_status',
+                  const ['pending', 'open', 'review_required']);
+        }));
+        for (final res in chunkResults) {
+          if (res is List) {
+            reviewRows.addAll(res);
+          }
+        }
+      }
 
       final counts = <String, int>{};
       final types = <String, Set<String>>{};
@@ -2527,7 +2554,6 @@ class MarketplaceService {
     return _rpcMap(response);
   }
 
-
   // ── HPP / Margin Mapping ─────────────────────────────────────────────────
   // v24.6.44: sumber HPP dari variant snapshot + order item, bukan cuma order item.
 
@@ -2548,22 +2574,22 @@ class MarketplaceService {
       'p_page_size': pageSize,
     };
     try {
-      final res = await _client.rpc('marketplace_variant_hpp_list',
-          params: params);
+      final res =
+          await _client.rpc('marketplace_variant_hpp_list', params: params);
       return _rpcMap(res);
     } catch (_) {
       try {
-        final res = await _client.rpc('marketplace_variant_hpp_list',
-            params: params);
+        final res =
+            await _client.rpc('marketplace_variant_hpp_list', params: params);
         return _rpcMap(res);
       } catch (_) {
         try {
-          final res = await _client.rpc('marketplace_variant_hpp_list',
-              params: params);
+          final res =
+              await _client.rpc('marketplace_variant_hpp_list', params: params);
           return _rpcMap(res);
         } catch (_) {
-          final res = await _client.rpc('marketplace_variant_hpp_list',
-              params: params);
+          final res =
+              await _client.rpc('marketplace_variant_hpp_list', params: params);
           return _rpcMap(res);
         }
       }
@@ -2639,7 +2665,6 @@ class MarketplaceService {
     }
   }
 
-
   Future<Map<String, dynamic>> skuMappingExportSnapshot({
     required String tenantId,
     String? marketplaceAccountId,
@@ -2714,5 +2739,4 @@ class MarketplaceService {
     );
     return _rpcMap(res);
   }
-
 }

@@ -129,6 +129,16 @@ class _StockOutPageState extends State<StockOutPage> {
     }
   }
 
+  bool _validatePhysicalResi(String resi) {
+    final clean = resi.trim();
+    if (clean.isEmpty) return false;
+    if (clean.toUpperCase().startsWith('OFG')) return false;
+    if (RegExp(r'^PG\d+$', caseSensitive: false).hasMatch(clean)) return false;
+    if (RegExp(r'^\d{16,}$').hasMatch(clean)) return false;
+    if (RegExp(r'^1200\d{6,}$').hasMatch(clean)) return false;
+    return true;
+  }
+
   Future<void> _loadInitial() async {
     setState(() {
       _isLoading = true;
@@ -266,6 +276,15 @@ class _StockOutPageState extends State<StockOutPage> {
       return false;
     }
 
+    if (!_validatePhysicalResi(resi)) {
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Resi fisik tidak valid. Pastikan Anda men-scan AWB/Resi di label pengiriman fisik, bukan nomor pesanan (Order SN) atau package ID.')),
+      );
+      return false;
+    }
+
     setState(() => _isCheckingResi = true);
     try {
       final result = await _marketplacePickService.findOrderByResi(
@@ -374,6 +393,15 @@ class _StockOutPageState extends State<StockOutPage> {
     if (resi.isEmpty) {
       rootScaffoldMessengerKey.currentState?.showSnackBar(
         const SnackBar(content: Text('Scan atau input resi marketplace dulu.')),
+      );
+      return;
+    }
+
+    if (!_validatePhysicalResi(resi)) {
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Resi fisik tidak valid. Pastikan Anda men-scan AWB/Resi di label pengiriman fisik, bukan nomor pesanan (Order SN) atau package ID.')),
       );
       return;
     }
@@ -1496,12 +1524,14 @@ class _StockOutPageState extends State<StockOutPage> {
             ],
             SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _tujuan,
+              value: _tujuanOptions.contains(_tujuan)
+                  ? _tujuan
+                  : _tujuanOptions.first,
               decoration: const InputDecoration(
                 labelText: 'Tujuan Keluar',
                 border: OutlineInputBorder(),
               ),
-              items: _tujuanOptions.map((item) {
+              items: _tujuanOptions.toSet().map((item) {
                 return DropdownMenuItem<String>(
                   value: item,
                   child: Text(item),

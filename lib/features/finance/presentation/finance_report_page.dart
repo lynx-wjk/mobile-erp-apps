@@ -29,6 +29,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   bool _loading = true;
   bool _processing = false;
+  bool _skuLoaded = false;
+  bool _skuLoadingFirstPage = false;
   bool _financeAutoSyncEnabled = false;
   bool _financeAutoSyncBusy = false;
   bool _filterExpanded = false;
@@ -432,7 +434,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               end: _end,
               marketplace: _marketplaceFilter,
               accountId: _accountFilter,
-              tenantId: _currentTenantId.trim().isEmpty ? 'unknown' : _currentTenantId,
+              tenantId: _currentTenantId.trim().isEmpty
+                  ? 'unknown'
+                  : _currentTenantId,
               tab: 'dashboard',
               page: 1,
               cacheVersion: version,
@@ -1125,7 +1129,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         end: _end,
         marketplace: _marketplaceFilter,
         accountId: _accountFilter,
-        tenantId: _currentTenantId.trim().isEmpty ? 'unknown' : _currentTenantId,
+        tenantId:
+            _currentTenantId.trim().isEmpty ? 'unknown' : _currentTenantId,
         tab: 'sku_detail',
         page: 1,
         cacheVersion: _financeCacheVersion,
@@ -1258,11 +1263,51 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       setState(() {
         _bySku = _sortSkuRowsForDisplay(merged);
         _skuServerPageLoaded = nextPage;
-        _skuHasMoreServerRows = settled.length >= _skuPageSize || unpaid.length >= _skuPageSize;
+        _skuHasMoreServerRows =
+            settled.length >= _skuPageSize || unpaid.length >= _skuPageSize;
         _skuPage = _skuTotalPages;
       });
     } finally {
       if (mounted) setState(() => _skuLoadingMore = false);
+    }
+  }
+
+  Future<void> _lazyLoadSkuFirstPage() async {
+    if (_skuLoaded || _skuLoadingFirstPage) return;
+    setState(() {
+      _skuLoadingFirstPage = true;
+    });
+    try {
+      final settled = _filterSkuRowsBySelectedScope(
+        await _fetchSkuRowsByPayoutFilterPage('settled', page: 1),
+      );
+      final unpaid = _filterSkuRowsBySelectedScope(
+        await _fetchSkuRowsByPayoutFilterPage('unpaid', page: 1),
+      );
+      final merged = _mergeSkuRows(
+        _normalizeSkuRows(<Map<String, dynamic>>[
+          ..._bySku,
+          ...settled,
+          ...unpaid,
+        ]),
+        const <Map<String, dynamic>>[],
+      );
+      if (!mounted) return;
+      setState(() {
+        _bySku = _sortSkuRowsForDisplay(merged);
+        _skuServerPageLoaded = 1;
+        _skuHasMoreServerRows =
+            settled.length >= _skuPageSize || unpaid.length >= _skuPageSize;
+        _skuLoaded = true;
+      });
+    } catch (e) {
+      debugPrint('Error lazy loading SKU first page: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _skuLoadingFirstPage = false;
+        });
+      }
     }
   }
 
@@ -1648,8 +1693,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final livePurchases = includeOperationalExpenses
         ? await _fetchApprovedPurchasesPeriod()
         : <Map<String, dynamic>>[];
+    final filteredBackendExpenses = liveExpenses.isNotEmpty
+        ? <Map<String, dynamic>>[]
+        : backendExpenses.where((row) => !_isPurchaseExpenseRow(row)).toList();
     final normalizedExpenses = _dedupeExpenseRows(<Map<String, dynamic>>[
-      ...backendExpenses.where((row) => !_isPurchaseExpenseRow(row)),
+      ...filteredBackendExpenses,
       ...liveExpenses,
     ]).where((row) => !_isSyntheticExpenseRow(row)).toList(growable: false);
     final approvedPurchases = _dedupeByStableKey(<Map<String, dynamic>>[
@@ -1818,6 +1866,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _bySku = [];
       _skuPage = 1;
       _skuServerPageLoaded = 1;
+      _skuLoaded = false;
+      _skuLoadingFirstPage = false;
       _skuHasMoreServerRows = true;
       _skuLoadingMore = false;
       _cashFlow = [];
@@ -1906,7 +1956,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         data,
         fallbackAccounts,
         includeOperationalExpenses: true,
-        includeSupplementalSku: true,
+        includeSupplementalSku: false,
       );
 
       if (!isCurrentFinanceLoad() || !mounted) return;
@@ -8033,7 +8083,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             icon: const Icon(Icons.chevron_left_rounded),
           ),
           IconButton(
-            tooltip: page < totalPages ? 'Page berikutnya' : 'Muat page SKU berikutnya',
+            tooltip: page < totalPages
+                ? 'Page berikutnya'
+                : 'Muat page SKU berikutnya',
             onPressed: page < totalPages
                 ? () => setState(() => _skuPage = page + 1)
                 : canLoadMore
@@ -8055,6 +8107,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Widget _skuTab() {
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
+
+    if (!_skuLoaded && !_skuLoadingFirstPage) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _lazyLoadSkuFirstPage();
+      });
+    }
+
+    if (_skuLoadingFirstPage && _bySku.isEmpty) {
+      return Center(child: FuturisticLoader(message: 'Memuat data SKU...'));
+    }
+
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -8397,6 +8460,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       ...cashRows.where((row) => !isNetRow(row)),
       ...walletRows,
     ]) {
+      if (row['_cash_wallet_kind'] == 'withdrawal') {
+        continue;
+      }
       final amount = _num(row['amount']);
       if (amount >= 0) {
         totalIn += amount;
@@ -8808,7 +8874,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final totalHpp = _profitLossByMarketplace.fold<num>(
         0, (sum, row) => sum + _num(row['hpp_total'] ?? row['total_hpp']));
     final totalProfit = _profitLossByMarketplace.fold<num>(
-        0, (sum, row) => sum + _num(row['net_profit'] ?? row['profit']));
+        0,
+        (sum, row) =>
+            sum +
+            _num(row['net_profit'] ??
+                row['profit'] ??
+                (_num(row['payout_total'] ??
+                        row['received_amount'] ??
+                        row['net_settlement']) -
+                    _num(row['hpp_total'] ?? row['total_hpp']))));
     final totalMargin = totalPayout > 0 ? (totalProfit / totalPayout) * 100 : 0;
 
     return Container(
