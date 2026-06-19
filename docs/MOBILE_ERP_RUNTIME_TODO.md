@@ -79,3 +79,9 @@ P1 still active:
 - Finance SKU tab must prefer live finance_sku_order_details rows over snapshot SKU rows because live rows carry settled HPP correctly.
 - Snapshot SKU rows are fallback only when live rows are empty.
 - Manual expense edit/delete uses the real UUID from expense_id/finance_operational_expense_id/operational_expense_id/id and hides actions for synthetic/purchase rows.
+
+## 2026-06-19 hpp mapping expense rls v27
+- Backfilled central marketplace_variant_hpp_mappings from mapped marketplace_order_items + products.harga_hpp_default.
+- finance_sku_order_details now enriches existing v82o rows from central HPP mapping and marks unmapped rows as "HPP belum mapping".
+- finance_operational_expenses RLS policies added for authenticated tenant select/insert/update/delete so manual expense edit/delete works from Flutter.
+- Finance/Dashboard local cache version bumped to v27.

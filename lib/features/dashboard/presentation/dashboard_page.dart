@@ -692,7 +692,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 accountId: 'all',
               );
               final cacheKey =
-                  '$keyBase::finance_live_20260619_recover_existing_rpc_v25';
+                  '$keyBase::finance_live_20260619_recover_existing_rpc_v27';
               await FinanceLocalCache.writeJson(cacheKey, _asMap(response));
             } catch (_) {}
             return parsed;
@@ -760,7 +760,7 @@ class _DashboardPageState extends State<DashboardPage> {
     String? marketplaceFilter,
   ) async {
     final versions = <String>[
-      'finance_live_20260619_recover_existing_rpc_v25',
+      'finance_live_20260619_recover_existing_rpc_v27',
       'finance_live_20260619_recover_existing_rpc_v23',
       'finance_live_20260606_local_cache_fast_v20',
       'finance_live_20260606_local_cache_fast_v19',

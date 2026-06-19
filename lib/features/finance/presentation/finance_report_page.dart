@@ -59,7 +59,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260619_recover_existing_rpc_v26';
+      'finance_live_20260619_recover_existing_rpc_v27';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
     'finance_live_20260619_recover_existing_rpc_v23',
