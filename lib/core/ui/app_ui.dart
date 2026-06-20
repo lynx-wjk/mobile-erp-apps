@@ -103,10 +103,16 @@ class AppUi {
   }
 
   static String dateTime(dynamic value) {
-    final date = _toDate(value);
-    if (date == null) return '-';
+    return formatWibDateTime(value);
+  }
+
+  static String formatWibDateTime(dynamic value) {
+    if (value == null) return '-';
+    final parsed = value is DateTime ? value : DateTime.tryParse(value.toString());
+    if (parsed == null) return '-';
+    final wib = parsed.toUtc().add(const Duration(hours: 7));
     String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(date.day)}/${two(date.month)}/${date.year} ${two(date.hour)}:${two(date.minute)}';
+    return '${two(wib.day)}/${two(wib.month)}/${wib.year} ${two(wib.hour)}:${two(wib.minute)} WIB';
   }
 
   static DateTime? _toDate(dynamic value) {

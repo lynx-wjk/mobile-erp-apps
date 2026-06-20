@@ -2309,16 +2309,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   Theme.of(context).colorScheme.tertiary, 'Pesanan per hari'),
             ],
           ),
-          if (selected != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              '${AppUi.date(selected.date)} · omzet hari terpilih ${_shortRupiah(selected.omzet)} · ${selected.orders} pesanan',
-              style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800),
-            ),
-          ],
         ],
       ),
     );

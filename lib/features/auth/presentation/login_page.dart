@@ -50,26 +50,54 @@ class _LoginPageState extends State<LoginPage>
       final msg = error.message.toLowerCase();
       if (msg.contains('invalid login') ||
           msg.contains('invalid credentials') ||
-          msg.contains('wrong password')) {
-        return 'Email atau password salah.';
+          msg.contains('wrong password') ||
+          msg.contains('username tidak ditemukan') ||
+          msg.contains('email/username atau password salah')) {
+        return 'Email/Username atau password salah.';
       }
       return error.message;
     }
     return 'Gagal. Coba lagi.';
   }
 
+  Future<String> _resolveUsername(String username) async {
+    final response = await _client.functions.invoke(
+      'admin-auth',
+      body: {
+        'action': 'lookup_username',
+        'username': username,
+      },
+    );
+    if (response.status == 200) {
+      final data = response.data;
+      if (data is Map && data.containsKey('email')) {
+        return data['email'].toString();
+      }
+    }
+    throw const AuthException('Email/Username atau password salah.');
+  }
+
   Future<void> _login() async {
     FocusManager.instance.primaryFocus?.unfocus();
-    final email = _emailController.text.trim().toLowerCase();
+    final input = _emailController.text.trim().toLowerCase();
     final password = _passwordController.text;
-    if (email.isEmpty || password.isEmpty) {
+    if (input.isEmpty || password.isEmpty) {
       AppUi.showSnack('Isi semua bidang.');
       return;
     }
     setState(() => _isLoading = true);
     try {
+      String resolvedEmail = input;
+      if (!input.contains('@')) {
+        try {
+          resolvedEmail = await _resolveUsername(input);
+        } catch (_) {
+          throw const AuthException('Email/Username atau password salah.');
+        }
+      }
+
       final authResponse = await _client.auth
-          .signInWithPassword(email: email, password: password);
+          .signInWithPassword(email: resolvedEmail, password: password);
 
       if (authResponse.session == null || authResponse.user == null) {
         AppUi.showSnack('Login berhasil tapi sesi belum aktif. Coba lagi.');
@@ -216,7 +244,7 @@ class _LoginPageState extends State<LoginPage>
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
             decoration: const InputDecoration(
-                labelText: 'EMAIL', prefixIcon: Icon(Icons.email)),
+                labelText: 'EMAIL ATAU USERNAME', prefixIcon: Icon(Icons.email)),
           ),
           const SizedBox(height: 14),
           TextField(

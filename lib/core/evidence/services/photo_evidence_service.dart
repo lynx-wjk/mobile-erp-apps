@@ -202,7 +202,7 @@ class PhotoEvidenceService {
         );
       }
       return _validateHttpUri(
-        Uri.base.resolve('/api/upload-drive'),
+        Uri.base.resolve('/functions/v1/upload-drive'),
         envName: 'PHOTO_UPLOAD_PROXY_URL',
       );
     }
@@ -258,7 +258,7 @@ class PhotoEvidenceService {
   }
 
   bool _isProxyUri(Uri uri) {
-    return uri.path.contains('/api/upload-drive');
+    return uri.path.contains('/api/upload-drive') || uri.path.contains('/functions/v1/upload-drive');
   }
 
   Future<String> _postJson({

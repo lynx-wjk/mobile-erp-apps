@@ -1893,7 +1893,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final normalizedCashFlow = useBackendCashFlow
         ? _dedupeCashFlowRows(backendCashFlow)
         : _cashFlowRowsFromSummary(displaySummary);
-    final normalizedProfitLoss = _profitLossRowsFromSummary(displaySummary);
+    final breakdown = _asList(data['profit_loss_breakdown'])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final normalizedProfitLoss =
+        _profitLossRowsFromSummary(displaySummary, breakdown);
     final normalizedMarketplaceForDisplay =
         _marketplaceRowsWithFinanceAliases(normalizedMarketplace);
     setState(() {
@@ -3611,7 +3616,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     for (final item in marketplaceDeductions) {
       final amount = _num(item['amount'] ?? item['total']);
-      if (amount <= 0) continue;
+      if (amount == 0) continue;
       final label = _text(item['label'] ?? item['name'] ?? item['category'],
           'Rincian potongan');
       final cleanLabel = label.toLowerCase().trim();
@@ -3628,7 +3633,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'name': label,
         'description': _text(
             item['description'], 'Rincian dari data settlement marketplace'),
-        'amount': -amount.abs(),
+        'amount': amount < 0 ? amount : -amount,
         'format': 'money',
       });
     }
@@ -7726,47 +7731,70 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'finance_states',
       const ['last_finance_updated_at'],
     );
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withOpacity(0.72),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Periode: $period',
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor.withOpacity(0.85),
+            border: Border.all(color: Theme.of(context).dividerColor),
+          ),
+          child: Text(
+            'Periode data: $period',
             style: TextStyle(
                 color: Theme.of(context).textTheme.bodyLarge?.color,
                 fontSize: 11,
                 fontWeight: FontWeight.w800),
           ),
-          SizedBox(height: 4),
-          Text(
-            'Last order pull: ${_dateTime(orderPullAt)}',
-            style: TextStyle(
-                color: Theme.of(context).textTheme.bodyMedium?.color,
-                fontSize: 11),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor.withOpacity(0.72),
+            borderRadius: BorderRadius.zero,
+            border: Border.all(color: Theme.of(context).dividerColor),
           ),
-          Text(
-            'Last finance pull: ${_dateTime(financePullAt)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                color: Theme.of(context).textTheme.bodyMedium?.color,
-                fontSize: 11),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Terakhir sinkron data (WIB)',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Sync Order: ${_dateTime(orderPullAt)}',
+                style: TextStyle(
+                    color: Theme.of(context).textTheme.bodyMedium?.color,
+                    fontSize: 11),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Sync Finance: ${_dateTime(financePullAt)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: Theme.of(context).textTheme.bodyMedium?.color,
+                    fontSize: 11),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Sync Payout: ${_dateTime(payoutUpdateAt)}',
+                style: TextStyle(
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                    fontSize: 10.5),
+              ),
+            ],
           ),
-          Text(
-            'Last payout update: ${_dateTime(payoutUpdateAt)}',
-            style: TextStyle(
-                color: Theme.of(context).textTheme.bodySmall?.color,
-                fontSize: 10.5),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -8893,35 +8921,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final raw = _text(row['category'] ?? row['name'] ?? row['label']);
     final key = raw.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
 
-    return key == 'omzet' ||
+    if (key == 'omzet' ||
         key == 'gross_sales' ||
         key.contains('payout_diterima') ||
         key.contains('payout_received') ||
-        key.contains('voucher') ||
-        key.contains('discount') ||
-        key.contains('diskon') ||
-        key.contains('marketplace') ||
-        key.contains('platform_fee') ||
-        key.contains('commission') ||
-        key.contains('komisi') ||
-        key.contains('affiliate') ||
-        key.contains('shipping') ||
-        key.contains('transaction_fee') ||
-        key.contains('payment_fee') ||
-        key.contains('refund') ||
-        key.contains('retur') ||
-        key.contains('return') ||
-        key.contains('cancel') ||
-        key.contains('tax') ||
-        key.contains('pajak') ||
-        key.contains('adjustment') ||
-        key.contains('sample_zero_payment') ||
-        key.contains('sample') ||
-        key.contains('unclassified') ||
-        key.contains('belum_terklasifikasi') ||
-        key.contains('settlement_belum_final') ||
-        key.contains('potongan_marketplace') ||
-        raw.trim().toLowerCase() == 'marketplace';
+        key.contains('potongan_marketplace')) {
+      return true;
+    }
+    return false;
   }
 
   Widget _profitLossMiniMetric(
@@ -10505,15 +10512,88 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .map(_normalizeSkuOrderDetailDisplayRowV82o)
         .toList(growable: false);
 
+    final Set<String> seen = {};
+    final List<Map<String, dynamic>> deduped = [];
+    for (final row in normalized) {
+      final orderId = _text(row['order']).trim();
+      final sku = _text(row['sku']).trim();
+      final qty = _num(row['qty']).toStringAsFixed(0);
+      final gross = _num(row['gross']).toStringAsFixed(2);
+      final key = '$orderId|$sku|$qty|$gross';
+      if (!seen.contains(key)) {
+        seen.add(key);
+        deduped.add(row);
+      }
+    }
+
     if (payoutFilter == 'paid') {
-      return normalized.where(_skuDetailHasPayoutV82o).toList();
+      return deduped.where(_skuDetailHasPayoutV82o).toList();
     }
 
     if (payoutFilter == 'unpaid') {
-      return normalized.where(_skuDetailIsPendingPayoutV82o).toList();
+      return deduped.where(_skuDetailIsPendingPayoutV82o).toList();
     }
 
-    return normalized;
+    return deduped;
+  }
+
+  Widget _buildFeeBreakdownV82o(Map<String, dynamic> item) {
+    final platformFee = _num(item['platform_fee_item']);
+    final commissionFee = _num(item['commission_fee_item']);
+    final affiliateFee = _num(item['affiliate_fee_item']);
+    final shippingFee = _num(item['shipping_fee_item']);
+    final discount = _num(item['discount_amount_item']);
+    final refund = _num(item['refund_amount_item']);
+    final adjustment = _num(item['adjustment_amount_item']);
+
+    final list = <Widget>[];
+
+    void addIfNonZero(String label, double val) {
+      if (val != 0) {
+        list.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                Text(_money(val), style: TextStyle(fontSize: 10, color: val < 0 ? Colors.red : Colors.green)),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    addIfNonZero('Platform Fee/item', platformFee);
+    addIfNonZero('Komisi/item', commissionFee);
+    addIfNonZero('Afiliasi/item', affiliateFee);
+    addIfNonZero('Ongkir/item', shippingFee);
+    addIfNonZero('Diskon/Voucher/item', discount);
+    addIfNonZero('Refund/item', refund);
+    addIfNonZero('Koreksi/item', adjustment);
+
+    if (list.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.03),
+        border: Border.all(color: Colors.black.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Rincian Biaya/Item:',
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+          ),
+          const SizedBox(height: 4),
+          ...list,
+        ],
+      ),
+    );
   }
 
   List<dynamic> _extractSkuOrderDetailRowsV82o(Object? payload) {
@@ -11255,7 +11335,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                               _money(_num(item[
                                                                   'gross_per_item']))),
                                                           _miniMetric(
-                                                              'Payout/item',
+                                                              'Net settlement/item',
                                                               _skuDetailPayoutItemText(
                                                                   item)),
                                                           _miniMetric(
@@ -11275,6 +11355,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                                 .outline,
                                                             height: 1.3),
                                                       ),
+                                                      _buildFeeBreakdownV82o(item),
                                                     ],
                                                   ),
                                                 ),
@@ -11294,7 +11375,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       'Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                                       'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
                                                       'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
-                                                      'Payout/item: ${_skuDetailPayoutItemText(item)}',
+                                                      'Net settlement/item: ${_skuDetailPayoutItemText(item)}',
                                                       'HPP/item: ${_skuDetailHppItemText(item)}',
                                                       'Settlement: ${_skuDetailSettlementText(item)}',
                                                       'Sumber: ${_cleanText(item['source'], 'Sumber tidak tersimpan')}',
@@ -11600,7 +11681,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                     _money(_num(item[
                                                         'gross_per_item']))),
                                                 _miniMetric(
-                                                    'Payout/item',
+                                                    'Net settlement/item',
                                                     _skuDetailPayoutItemText(
                                                         item)),
                                                 _miniMetric(
@@ -11619,6 +11700,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       .outline,
                                                   height: 1.3),
                                             ),
+                                            _buildFeeBreakdownV82o(item),
                                           ],
                                         ),
                                       ),
@@ -11638,7 +11720,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             'Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                             'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
                                             'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
-                                            'Payout/item: ${_skuDetailPayoutItemText(item)}',
+                                            'Net settlement/item: ${_skuDetailPayoutItemText(item)}',
                                             'HPP/item: ${_skuDetailHppItemText(item)}',
                                             'Settlement: ${_skuDetailSettlementText(item)}',
                                             'Sumber: ${_cleanText(item['source'], 'Sumber tidak tersimpan')}',
@@ -12791,9 +12873,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _dateTime(dynamic value) {
-    final date = _parseDate(value);
-    if (date == null) return '-';
-    return '${_date(date)} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} WIB';
+    return AppUi.formatWibDateTime(value);
   }
 
   DateTime? _parseDate(dynamic value) {

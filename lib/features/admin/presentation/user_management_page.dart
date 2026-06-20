@@ -546,6 +546,80 @@ class _UserManagementPageState extends State<UserManagementPage> {
     }
   }
 
+  Future<void> _showResetPasswordDialog(Map<String, dynamic> user) async {
+    final passwordCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Reset Password: ${AppUi.text(user['nama'])}'),
+          content: Form(
+            key: formKey,
+            child: TextFormField(
+              controller: passwordCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Password Baru',
+                prefixIcon: Icon(Icons.lock),
+              ),
+              validator: (val) {
+                if (val == null || val.trim().isEmpty) {
+                  return 'Password tidak boleh kosong';
+                }
+                if (val.trim().length < 6) {
+                  return 'Password minimal 6 karakter';
+                }
+                return null;
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() ?? false) {
+                  Navigator.pop(context, true);
+                }
+              },
+              child: const Text('Simpan'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result == true) {
+      final newPassword = passwordCtrl.text.trim();
+      setState(() => _isLoading = true);
+      try {
+        final response = await _client.functions.invoke(
+          'admin-auth',
+          body: {
+            'action': 'reset_password',
+            'userId': user['user_id'],
+            'newPassword': newPassword,
+          },
+        );
+
+        if (response.status == 200) {
+          AppUi.showSnack('Password berhasil direset.');
+        } else {
+          final errorMsg = response.data?['error'] ?? 'Gagal reset password.';
+          AppUi.showSnack(errorMsg);
+        }
+      } catch (e) {
+        AppUi.showSnack('Gagal reset password: $e');
+      } finally {
+        _loadData();
+      }
+    }
+  }
+
   Widget _body() {
     if (_isLoading) return const LoadingState();
 
@@ -652,15 +726,19 @@ class _UserManagementPageState extends State<UserManagementPage> {
                           onSelected: (value) {
                             if (value == 'edit') _openForm(user);
                             if (value == 'delete') _deleteUser(user);
+                            if (value == 'reset_password') _showResetPasswordDialog(user);
                           },
                           itemBuilder: (context) => [
                             if (canEdit)
                               const PopupMenuItem(
                                   value: 'edit', child: Text('Edit')),
+                            if (_currentRoleId == 'platform_owner')
+                              const PopupMenuItem(
+                                  value: 'reset_password', child: Text('Reset Password')),
                             if (canDelete)
                               const PopupMenuItem(
                                   value: 'delete', child: Text('Hapus')),
-                            if (!canEdit && !canDelete)
+                            if (!canEdit && !canDelete && _currentRoleId != 'platform_owner')
                               const PopupMenuItem(
                                   enabled: false,
                                   value: 'locked',

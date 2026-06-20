@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/ui/app_ui.dart';
 
 class MarketplaceDispatcherMonitorPage extends StatefulWidget {
   const MarketplaceDispatcherMonitorPage({super.key});
@@ -783,14 +784,7 @@ bool _boolValue(Object? value) {
 }
 
 String _formatDateTime(Object? value) {
-  final text = _textValue(value);
-  if (text.isEmpty || text == 'null') return '-';
-  final parsed = DateTime.tryParse(text);
-  if (parsed == null) return text;
-  final local = parsed.toUtc().add(const Duration(hours: 7));
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(local.day)}/${two(local.month)}/${local.year} '
-      '${two(local.hour)}:${two(local.minute)} WIB';
+  return AppUi.formatWibDateTime(value);
 }
 
 DateTime? _parseDate(Object? value) {

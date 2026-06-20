@@ -548,17 +548,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   String _dateTimeWib(dynamic value) {
-    DateTime? parsed;
-    if (value is DateTime) parsed = value;
-    parsed ??= DateTime.tryParse(value?.toString() ?? '');
-    if (parsed == null) return '-';
-    final wib =
-        (parsed.isUtc ? parsed : parsed.toUtc()).add(const Duration(hours: 7));
-    final d = wib.day.toString().padLeft(2, '0');
-    final m = wib.month.toString().padLeft(2, '0');
-    final h = wib.hour.toString().padLeft(2, '0');
-    final minute = wib.minute.toString().padLeft(2, '0');
-    return '$d/$m/${wib.year} $h:$minute WIB';
+    return AppUi.formatWibDateTime(value);
   }
 
   Future<void> _pickPullDateRange() async {
