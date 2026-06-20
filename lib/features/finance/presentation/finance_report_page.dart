@@ -109,6 +109,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _profitLoss = [];
   List<Map<String, dynamic>> _profitLossByMarketplace = [];
   List<Map<String, dynamic>> _abnormals = [];
+  List<Map<String, dynamic>> _sampleFreeOrders = [];
 
   static const List<String> _baseExpenseCategories = [
     'Salary',
@@ -1941,6 +1942,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             .toList(),
       );
       _abnormals = _normalizeAbnormalRows(_asList(data['abnormals']));
+      _sampleFreeOrders = _normalizeAbnormalRows(
+        _asList(data['sample_orders']).whereType<Map>().map((item) {
+          final row = Map<String, dynamic>.from(item);
+          row['abnormal_status'] = 'SAMPLE_FREE';
+          row['payout_status'] = row['payout_status'] ?? 'SAMPLE_FREE';
+          row['finance_status'] = row['finance_status'] ?? 'SAMPLE_FREE';
+          row['message'] = _text(
+            row['message'] ?? row['note'],
+            'Sample/gratis sesuai filter. Tidak masuk omzet normal.',
+          );
+          row['category'] = row['category'] ?? 'sample_zero_payment';
+          return row;
+        }).toList(),
+      );
       if (_progressTitle.trim().isEmpty && _progressLines.isEmpty) {
         final lastMessage = _text(
             _summary['last_manual_finance_sync_message'] ??
@@ -2002,6 +2017,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _withdrawalAllocations = [];
       _expenses = [];
       _profitLoss = [];
+      _sampleFreeOrders = [];
       _serverAbnormales = [];
       _abnormalTotal = 0;
     });
@@ -4500,55 +4516,206 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<String> _abnormalStatusOptions() {
     return const [
       'all',
-      'NEGATIVE_PAYOUT',
-      'MISSING_PAYOUT_FINAL',
-      'PENDING_PAYOUT',
-      'SAFE_CANCEL_UNPAID',
+      'sample_free',
+      'no_payout',
+      'payout_minus',
+      'low_margin',
     ];
   }
 
   String _abnormalFilterLabel(String value) {
-    switch (value.toUpperCase()) {
-      case 'ALL':
-        return 'Semua abnormal';
-      case 'NEGATIVE_PAYOUT':
-        return 'Payout minus / rugi';
-      case 'MISSING_PAYOUT_FINAL':
-        return 'Final tanpa payout';
-      case 'PENDING_PAYOUT':
-        return 'Belum payout';
-      case 'SAFE_CANCEL_UNPAID':
-        return 'Batal/unpaid aman';
+    switch (value.toLowerCase()) {
+      case 'all':
+        return 'Semua';
+      case 'sample_free':
+        return 'Sample/Gratis';
+      case 'no_payout':
+        return 'No Payout';
+      case 'payout_minus':
+        return 'Payout Minus';
+      case 'low_margin':
+        return 'Low Margin';
       default:
         return value;
     }
   }
 
+  String? _abnormalServerStatusParam(String value) {
+    switch (value.toLowerCase()) {
+      case 'payout_minus':
+        return 'NEGATIVE_PAYOUT';
+      case 'all':
+      case 'sample_free':
+      case 'no_payout':
+      case 'low_margin':
+      default:
+        return null;
+    }
+  }
+
+  bool _isSampleFreeAbnormalRow(Map<String, dynamic> row) {
+    final status = _text(
+            row['abnormal_status'] ??
+                row['finance_status'] ??
+                row['payout_status'] ??
+                row['category'] ??
+                row['source'],
+            '')
+        .toLowerCase();
+    final searchable = [
+      row['message'],
+      row['note'],
+      row['description'],
+      row['payment_status'],
+      row['payment_text'],
+      row['order_status'],
+      row['title'],
+    ].map((item) => _text(item, '').toLowerCase()).join(' ');
+    return row['is_sample_order'] == true ||
+        status.contains('sample') ||
+        status.contains('gratis') ||
+        status.contains('free') ||
+        status.contains('zero_payment') ||
+        searchable.contains('sample') ||
+        searchable.contains('gratis') ||
+        searchable.contains('free') ||
+        searchable.contains('zero payment') ||
+        searchable.contains('pembayaran 0');
+  }
+
+  bool _hasPayoutMinusSettlementReason(Map<String, dynamic> row) {
+    final payout = _num(row['payout_amount'] ??
+        row['payout_total'] ??
+        row['payout'] ??
+        row['received_amount'] ??
+        row['net_settlement']);
+    final diff = _num(row['difference_amount'] ?? row['gap_amount']);
+    final status = _text(
+            row['abnormal_status'] ??
+                row['finance_status'] ??
+                row['payout_status'] ??
+                row['status'],
+            '')
+        .toLowerCase();
+    final reason = _text(
+            row['payout_reason'] ??
+                row['abnormal_reason'] ??
+                row['message'] ??
+                row['note'],
+            '')
+        .toLowerCase();
+    return payout < 0 ||
+        diff < 0 ||
+        status.contains('negative') ||
+        status.contains('minus') ||
+        reason.contains('settlement') ||
+        reason.contains('payout minus') ||
+        reason.contains('minus') ||
+        reason.contains('koreksi') ||
+        reason.contains('charge') ||
+        reason.contains('penalty');
+  }
+
+  bool _isNoPayoutAbnormalRow(Map<String, dynamic> row) {
+    if (_isSampleFreeAbnormalRow(row) &&
+        !_hasPayoutMinusSettlementReason(row)) {
+      return false;
+    }
+    final payout = _num(row['payout_amount'] ??
+        row['payout_total'] ??
+        row['payout'] ??
+        row['received_amount'] ??
+        row['net_settlement']);
+    final status = _text(
+            row['abnormal_status'] ??
+                row['finance_status'] ??
+                row['payout_status'] ??
+                row['status'],
+            '')
+        .toLowerCase();
+    return payout == 0 &&
+        (status.contains('missing') ||
+            status.contains('pending') ||
+            status.contains('no_payout') ||
+            status.contains('belum') ||
+            status.contains('menunggu'));
+  }
+
+  bool _isLowMarginAbnormalRow(Map<String, dynamic> row) {
+    if (_isSampleFreeAbnormalRow(row)) return false;
+    final payout = _num(row['payout_amount'] ??
+        row['payout_total'] ??
+        row['payout'] ??
+        row['received_amount'] ??
+        row['net_settlement']);
+    final hpp = _num(row['hpp'] ?? row['hpp_total'] ?? row['total_hpp']);
+    final explicitMargin =
+        _num(row['net_margin_percent'] ?? row['margin_percent']);
+    final margin = explicitMargin != 0
+        ? explicitMargin
+        : payout > 0
+            ? ((payout - hpp) / payout * 100)
+            : 0;
+    final target = _numFirstNonZero([
+      row['target_margin_percent'],
+      row['margin_target_percent'],
+      row['target_net_margin_percent'],
+    ]);
+    return payout > 0 && (target > 0 ? margin < target : margin < 10);
+  }
+
+  List<Map<String, dynamic>> _abnormalFilterSource() {
+    final byKey = <String, Map<String, dynamic>>{};
+    void add(Map<String, dynamic> row) {
+      if (!_rowMatchesSelectedScope(row)) return;
+      final key = [
+        _text(row['marketplace_order_item_id'], ''),
+        _text(row['marketplace_order_id'], ''),
+        _text(
+            row['order_id'] ?? row['order_sn'] ?? row['external_order_id'], ''),
+        _text(row['local_sku'] ?? row['sku'], ''),
+        _text(row['abnormal_status'] ?? row['category'], ''),
+      ].where((part) => part.trim().isNotEmpty && part != '-').join('|');
+      byKey[key.isEmpty ? 'row_${byKey.length}' : key] = row;
+    }
+
+    for (final row in _abnormalServerLoaded ? _serverAbnormales : _abnormals) {
+      add(row);
+    }
+    for (final row in _sampleFreeOrders) {
+      add(row);
+    }
+    return byKey.values.toList();
+  }
+
   List<Map<String, dynamic>> _filteredAbnormales() {
-    final source = _abnormalServerLoaded ? _serverAbnormales : _abnormals;
-    final filter = _abnormalStatusFilter.trim().toUpperCase();
+    final source = _abnormalFilterSource();
+    final filter = _abnormalStatusFilter.trim().toLowerCase();
     return source
         .where((row) {
           if (!_abnormalServerLoaded && _shouldHideZeroCancelAbnormal(row))
             return false;
-          if (filter.isEmpty || filter == 'ALL') return true;
+          if (filter.isEmpty || filter == 'all') {
+            return !_isSampleFreeAbnormalRow(row) ||
+                _hasPayoutMinusSettlementReason(row);
+          }
+          if (filter == 'sample_free') return _isSampleFreeAbnormalRow(row);
+          if (filter == 'no_payout') return _isNoPayoutAbnormalRow(row);
+          if (filter == 'payout_minus') {
+            return _hasPayoutMinusSettlementReason(row);
+          }
+          if (filter == 'low_margin') return _isLowMarginAbnormalRow(row);
           final status = _text(row['abnormal_status'] ??
                   row['payout_status'] ??
                   row['order_status'] ??
                   row['status'])
               .trim()
               .toUpperCase();
-          if (filter == 'NEGATIVE_PAYOUT')
-            return _num(row['payout_amount'] ??
-                        row['payout_total'] ??
-                        row['payout']) <
-                    0 ||
-                status == 'NEGATIVE_PAYOUT';
-          return status == filter ||
+          return status == filter.toUpperCase() ||
               _text(row['order_status'] ?? row['status'])
                       .trim()
                       .toUpperCase() ==
-                  filter;
+                  filter.toUpperCase();
         })
         .take(_abnormalPageSize)
         .toList();
@@ -4669,7 +4836,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'p_search': _abnormalSearchController.text.trim().isEmpty
           ? null
           : _abnormalSearchController.text.trim(),
-      'p_status': _abnormalStatusFilter == 'all' ? null : _abnormalStatusFilter,
+      'p_status': _abnormalServerStatusParam(_abnormalStatusFilter),
       'p_page': page,
       'p_page_size': _abnormalPageSize,
     };
@@ -9308,6 +9475,31 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               ),
             ),
           ),
+          SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _abnormalStatusOptions().map((value) {
+              final selected = _abnormalStatusFilter == value;
+              return ChoiceChip(
+                label: Text(_abnormalFilterLabel(value)),
+                selected: selected,
+                onSelected: _abnormalSearchBusy
+                    ? null
+                    : (_) {
+                        setState(() {
+                          _abnormalStatusFilter = value;
+                          _abnormalPage = 1;
+                        });
+                        _refreshAbnormalTab(resetPage: true);
+                      },
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.zero,
+                  side: BorderSide(color: Theme.of(context).dividerColor),
+                ),
+              );
+            }).toList(),
+          ),
 
           // Action buttons row
           Row(
@@ -9382,6 +9574,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     payout > 0 ? ((payout - hpp) / payout * 100) : 0.0;
                 final statusInfo = _abnormalStatusInfo(row);
                 final isCandidate = _isRefreshPayoutCandidate(row);
+                final sampleFree = _isSampleFreeAbnormalRow(row);
 
                 return _detailCard(
                   title: _text(
@@ -9419,8 +9612,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     // Status badge
                     Padding(
                       padding: const EdgeInsets.only(bottom: 6),
-                      child: _abnormalStatusBadge(
-                          statusInfo.label, statusInfo.color),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          _abnormalStatusBadge(
+                              statusInfo.label, statusInfo.color),
+                          if (sampleFree)
+                            _abnormalStatusBadge(
+                                'Sample/Gratis - keluar dari omzet normal',
+                                Colors.amberAccent),
+                        ],
+                      ),
                     ),
                     _miniMetric('Order ID',
                         count > 1 && orderId == '-' ? '$count order' : orderId),
