@@ -1,10 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:excel/excel.dart' hide Border;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -61,7 +60,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260620_v30_sku_unmapped_page_scope';
+      'finance_live_20260620_v32_order_mtd_active_hpp_web_xlsx';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -458,6 +457,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     Map<String, dynamic> params,
   ) async {
     if (response is! Map) return response;
+    final sourceTable = _text(response['source_table']).toLowerCase();
+    final source = _text(response['source']).toLowerCase();
+    final isCanonicalOrderSnapshot = source == 'finance_dashboard_snapshot' &&
+        (sourceTable
+                .contains('marketplace_orders+marketplace_finance_reports') ||
+            sourceTable.contains('dashboard_marketplace_order_analytics_90d'));
+    if (isCanonicalOrderSnapshot) return response;
     try {
       final reconciliation = await _client.rpc(
         'finance_marketplace_reconciliation_breakdown',
@@ -5482,13 +5488,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .replaceAll(':', '-')
           .split('.')
           .first;
-      final dir = await getApplicationDocumentsDirectory();
-      final file =
-          File('${dir.path}/laporan_keuangan_semua_marketplace_$stamp.xlsx');
-      await file.writeAsBytes(bytes, flush: true);
+      final fileName = 'laporan_keuangan_semua_marketplace_$stamp.xlsx';
 
       await Share.shareXFiles(
-        [XFile(file.path)],
+        [
+          XFile.fromData(
+            Uint8List.fromList(bytes),
+            name: fileName,
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ),
+        ],
         subject: 'Laporan keuangan semua marketplace',
         text:
             'Export laporan keuangan semua marketplace periode ${_toDateParam(_start)} s/d ${_toDateParam(_end)}.',
@@ -7741,18 +7751,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 color: Theme.of(context).textTheme.bodySmall?.color,
                 fontSize: 10.5),
           ),
-          if (_lastSnapshotStats.trim().isNotEmpty) ...[
-            SizedBox(height: 3),
-            Text(
-              _lastSnapshotStats,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700),
-            ),
-          ],
         ],
       ),
     );

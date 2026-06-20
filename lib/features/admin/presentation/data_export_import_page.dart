@@ -1,10 +1,8 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:excel/excel.dart';
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -258,14 +256,27 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     return num.tryParse(cleaned);
   }
 
-  Future<File> _saveWorkbook(Excel workbook, String fileName) async {
+  Future<void> _shareWorkbook(
+    Excel workbook,
+    String fileName, {
+    required String subject,
+    required String text,
+  }) async {
     final bytes = workbook.save();
     if (bytes == null) throw Exception('Gagal membuat file XLSX');
 
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/$fileName');
-    await file.writeAsBytes(bytes, flush: true);
-    return file;
+    await Share.shareXFiles(
+      [
+        XFile.fromData(
+          Uint8List.fromList(bytes),
+          name: fileName,
+          mimeType:
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ),
+      ],
+      subject: subject,
+      text: text,
+    );
   }
 
   void _appendMapSheet(
@@ -373,15 +384,15 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
 
     final stamp =
         DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
-    final file = await _saveWorkbook(workbook, '${filePrefix}_$stamp.xlsx');
-
-    await Share.shareXFiles(
-      [XFile(file.path)],
+    final fileName = '${filePrefix}_$stamp.xlsx';
+    await _shareWorkbook(
+      workbook,
+      fileName,
       subject: subject,
       text: 'File export berhasil dibuat.',
     );
 
-    setState(() => _log = 'Berhasil export: ${file.path}');
+    setState(() => _log = 'Berhasil export: $fileName');
   }
 
   Future<void> _exportAllData() async {
@@ -490,15 +501,15 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         workbook.delete(defaultSheet);
       }
 
-      final file =
-          await _saveWorkbook(workbook, 'template_update_sku_stock.xlsx');
-      await Share.shareXFiles(
-        [XFile(file.path)],
+      const fileName = 'template_update_sku_stock.xlsx';
+      await _shareWorkbook(
+        workbook,
+        fileName,
         subject: 'Template update SKU dan stock',
         text: 'Edit file ini lalu import kembali dari menu Super Admin.',
       );
 
-      setState(() => _log = 'Template berhasil dibuat: ${file.path}');
+      setState(() => _log = 'Template berhasil dibuat: $fileName');
     } catch (error) {
       setState(() => _log = 'Gagal membuat template: $error');
     } finally {

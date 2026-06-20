@@ -503,65 +503,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   Widget _pullProgressCard() {
-    if (_pullProgressTitle.trim().isEmpty && _pullProgressLines.isEmpty)
-      return const SizedBox.shrink();
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: (Theme.of(context).cardColor),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.35)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (_isPulling || _pullProgressFromServerActive)
-                SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Theme.of(context).colorScheme.primary))
-              else
-                Icon(Icons.check_circle_rounded,
-                    size: 16, color: Theme.of(context).colorScheme.primary),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  _pullProgressTitle.isEmpty
-                      ? 'Riwayat pembaruan order'
-                      : _pullProgressTitle,
-                  style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                      color: Theme.of(context).dividerColor),
-                ),
-              ),
-            ],
-          ),
-          if (_pullProgressLines.isNotEmpty) ...[
-            SizedBox(height: 8),
-            ..._pullProgressLines.take(6).map((line) => Padding(
-                  padding: const EdgeInsets.only(top: 3),
-                  child: Text(
-                    line,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: Theme.of(context).colorScheme.outline,
-                        height: 1.25),
-                  ),
-                )),
-          ],
-        ],
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   String _shortMessage(String value) {
