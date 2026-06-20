@@ -8355,6 +8355,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               );
               final highestPayout = payoutRange['highest'] ?? 0.0;
               final lowestPayout = payoutRange['lowest'] ?? 0.0;
+              final showPayoutRange = highestPayout > 0 &&
+                  lowestPayout > 0 &&
+                  (highestPayout - lowestPayout).abs() >= 0.5;
               final paidHppTotalForDisplay = _numFirstNonZero([
                 row['paid_hpp_total'],
                 row['settled_hpp_total'],
@@ -8466,18 +8469,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         warning: true),
                   _miniMetric(
                       'Gross/item', _money(_num(row['gross_per_item']))),
-                  _miniMetric(
-                    'Payout tertinggi',
-                    highestPayout > 0
-                        ? _money(highestPayout)
-                        : 'Belum ada payout',
-                  ),
-                  _miniMetric(
-                    'Payout terendah',
-                    lowestPayout > 0
-                        ? _money(lowestPayout)
-                        : 'Belum ada payout',
-                  ),
+                  if (showPayoutRange) ...[
+                    _miniMetric('Payout tertinggi', _money(highestPayout)),
+                    _miniMetric('Payout terendah', _money(lowestPayout)),
+                  ] else
+                    _miniMetric(
+                      'Payout settled/item',
+                      highestPayout > 0
+                          ? _money(highestPayout)
+                          : 'Belum ada payout',
+                    ),
                   _miniMetric(
                       'Total payout',
                       _money(_num(row['payout_total'] ??
@@ -10307,14 +10308,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _skuDetailOrderStatusV82o(Map<String, dynamic> row) {
-    return _text(
+    final status = _text(
       row['order_status'] ??
           row['status_order'] ??
           row['live_order_status'] ??
           row['raw_order_status'] ??
           row['status'],
-      '-',
+      '',
     ).trim();
+    return status.isEmpty || status == '-'
+        ? 'Status order belum tersimpan'
+        : status;
   }
 
   bool _skuDetailNeedsMarketplaceRefreshV82o(Map<String, dynamic> row) {
@@ -11543,7 +11547,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ),
                                             SizedBox(height: 4),
                                             Text(
-                                              'Status: ${_cleanText(item['order_status'], 'Belum ada status')}  ·  Payout: ${_payoutStatusText(item)}',
+                                              'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
@@ -11625,7 +11629,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             'Order: ${_cleanText(item['order'], 'Belum ada order')}',
                                             'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                             'Tanggal pesanan: ${_dateTime(item['order_date'])}',
-                                            'Status: ${_cleanText(item['order_status'], 'Belum ada status')}',
+                                            'Status: ${_skuDetailOrderStatusV82o(item)}',
                                             'Payout status: ${_payoutStatusText(item)}',
                                             'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? 'Tidak ada catatan payout' : _payoutExplainText(item)}',
                                             'Catatan resi: ${_cleanText(item['resi_reason'], 'Tidak ada catatan resi')}',
@@ -12680,7 +12684,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   String _skuDetailPayoutItemText(Map<String, dynamic> detail) {
     if (!_hasReleasedPayout(detail)) return 'Belum ada payout';
-    return _money(_num(detail['payout_per_item']));
+    final qty = _num(detail['qty'] ?? detail['quantity']);
+    final safeQty = qty > 0 ? qty : 1.0;
+    final perItem = _numFirstNonZero([
+      detail['payout_per_item'],
+      detail['payout_item'],
+      detail['settlement_per_item'],
+      _linePayoutAmount(detail, defaultQty: safeQty) / safeQty,
+    ]);
+    return perItem > 0 ? _money(perItem) : 'Payout item belum tersimpan';
   }
 
   String _skuDetailHppItemText(Map<String, dynamic> detail) {
