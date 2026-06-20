@@ -9004,9 +9004,81 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final discount = _num(row['discount_amount'] ?? row['voucher_amount']);
       final refund = _num(row['refund_amount'] ?? row['return_refund_amount']);
       final adjustment = _num(row['adjustment_amount']);
+      final platformFee = _num(row['platform_fee']);
+      final commissionFee = _num(row['commission_fee']);
+      final affiliateFee = _num(row['affiliate_fee']);
+      final shippingFee = _num(row['shipping_fee']);
+      final feeAmount = _num(row['fee_amount'] ?? row['total_fees']);
+      final subsidy = _num(row['subsidy_amount'] ??
+          row['marketplace_subsidy'] ??
+          row['seller_subsidy']);
+      final sampleFree = _num(row['sample_order_count'] ??
+          row['free_order_count'] ??
+          row['gratis_order_count']);
       final payoutMinus = _num(row['sample_negative_payout_total'] ??
           row['negative_payout_total'] ??
           row['minus_payout_total']);
+      final auditedFields = const [
+        'platform_fee',
+        'commission_fee',
+        'affiliate_fee',
+        'shipping_fee',
+        'discount_amount',
+        'voucher_amount',
+        'refund_amount',
+        'return_refund_amount',
+        'adjustment_amount',
+        'fee_amount',
+        'total_fees',
+        'subsidy_amount',
+        'marketplace_subsidy',
+        'seller_subsidy',
+        'sample_order_count',
+        'free_order_count',
+        'gratis_order_count',
+      ];
+      final hasAuditedBreakdown =
+          auditedFields.any((key) => row.containsKey(key));
+      final breakdownWidgets = <Widget>[
+        if (platformFee.abs() > 0.49)
+          _profitLossMiniMetric('Platform fee', _money(platformFee.abs()),
+              warning: true),
+        if (commissionFee.abs() > 0.49)
+          _profitLossMiniMetric('Komisi', _money(commissionFee.abs()),
+              warning: true),
+        if (affiliateFee.abs() > 0.49)
+          _profitLossMiniMetric('Afiliasi', _money(affiliateFee.abs()),
+              warning: true),
+        if (shippingFee.abs() > 0.49)
+          _profitLossMiniMetric('Ongkir', _money(shippingFee.abs()),
+              warning: true),
+        if (platformFee.abs() <= 0.49 &&
+            commissionFee.abs() <= 0.49 &&
+            affiliateFee.abs() <= 0.49 &&
+            shippingFee.abs() <= 0.49 &&
+            feeAmount.abs() > 0.49)
+          _profitLossMiniMetric('Biaya marketplace', _money(feeAmount.abs()),
+              warning: true),
+        if (discount.abs() > 0.49)
+          _profitLossMiniMetric('Voucher / diskon', _money(discount.abs()),
+              warning: true),
+        if (subsidy.abs() > 0.49)
+          _profitLossMiniMetric('Subsidi', _money(subsidy.abs()),
+              positive: subsidy > 0, warning: subsidy < 0),
+        if (refund.abs() > 0.49)
+          _profitLossMiniMetric('Refund / retur', _money(refund.abs()),
+              warning: true),
+        if (adjustment.abs() > 0.49)
+          _profitLossMiniMetric('Koreksi settlement', _money(adjustment),
+              warning: adjustment < 0),
+        if (payoutMinus.abs() > 0.49)
+          _profitLossMiniMetric('Payout minus', _money(payoutMinus.abs()),
+              warning: true),
+        if (sampleFree > 0)
+          _profitLossMiniMetric(
+              'Sample / gratis', sampleFree.toStringAsFixed(0),
+              warning: true),
+      ];
 
       return Container(
         width: double.infinity,
@@ -9049,22 +9121,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     positive: profit >= 0, warning: profit < 0),
                 _profitLossMiniMetric(
                     'Margin', '${margin.toStringAsFixed(2)}%'),
-                if (discount.abs() > 0.49)
-                  _profitLossMiniMetric(
-                      'Voucher / diskon', _money(discount.abs()),
-                      warning: true),
-                if (refund.abs() > 0.49)
-                  _profitLossMiniMetric('Refund / retur', _money(refund.abs()),
-                      warning: true),
-                if (adjustment.abs() > 0.49)
-                  _profitLossMiniMetric('Adjustment', _money(adjustment),
-                      warning: adjustment < 0),
-                if (payoutMinus.abs() > 0.49)
-                  _profitLossMiniMetric(
-                      'Payout minus', _money(payoutMinus.abs()),
-                      warning: true),
+                ...breakdownWidgets,
               ],
             ),
+            if (breakdownWidgets.isEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                hasAuditedBreakdown
+                    ? 'Rincian settlement sudah diaudit; tidak ada komponen potongan bernilai pada filter ini.'
+                    : 'Rincian fee, voucher, subsidi, refund, koreksi, dan sample/gratis belum tersedia dari sumber finance yang diaudit.',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+              ),
+            ],
           ],
         ),
       );
@@ -10556,8 +10628,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                Text(_money(val), style: TextStyle(fontSize: 10, color: val < 0 ? Colors.red : Colors.green)),
+                Text(label,
+                    style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                Text(_money(val),
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: val < 0 ? Colors.red : Colors.green)),
               ],
             ),
           ),
@@ -10587,7 +10663,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           const Text(
             'Rincian Biaya/Item:',
-            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+            style: TextStyle(
+                fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
           ),
           const SizedBox(height: 4),
           ...list,
@@ -11335,7 +11412,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                               _money(_num(item[
                                                                   'gross_per_item']))),
                                                           _miniMetric(
-                                                              'Net settlement/item',
+                                                              _skuDetailPayoutItemLabel(
+                                                                  item),
                                                               _skuDetailPayoutItemText(
                                                                   item)),
                                                           _miniMetric(
@@ -11346,7 +11424,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ),
                                                       SizedBox(height: 6),
                                                       Text(
-                                                        'Settlement: ${_skuDetailSettlementText(item)}  ·   ${_cleanText(item['source'], 'Sumber tidak tersimpan')}',
+                                                        'Settlement: ${_skuDetailSettlementText(item)}  ·   ${_skuDetailSourceText(item)}',
                                                         style: TextStyle(
                                                             fontSize: 10.5,
                                                             color: Theme.of(
@@ -11355,7 +11433,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                                 .outline,
                                                             height: 1.3),
                                                       ),
-                                                      _buildFeeBreakdownV82o(item),
+                                                      _buildFeeBreakdownV82o(
+                                                          item),
                                                     ],
                                                   ),
                                                 ),
@@ -11375,10 +11454,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       'Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                                       'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
                                                       'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
-                                                      'Net settlement/item: ${_skuDetailPayoutItemText(item)}',
+                                                      '${_skuDetailPayoutItemLabel(item)}: ${_skuDetailPayoutItemText(item)}',
                                                       'HPP/item: ${_skuDetailHppItemText(item)}',
                                                       'Settlement: ${_skuDetailSettlementText(item)}',
-                                                      'Sumber: ${_cleanText(item['source'], 'Sumber tidak tersimpan')}',
+                                                      'Sumber: ${_skuDetailSourceText(item)}',
                                                       if (_skuDetailNeedsMarketplaceRefreshV82o(
                                                           item))
                                                         'Warning: Payout sudah masuk, tetapi status order masih ${_skuDetailOrderStatusV82o(item)}. Perlu refresh marketplace.',
@@ -11681,7 +11760,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                     _money(_num(item[
                                                         'gross_per_item']))),
                                                 _miniMetric(
-                                                    'Net settlement/item',
+                                                    _skuDetailPayoutItemLabel(
+                                                        item),
                                                     _skuDetailPayoutItemText(
                                                         item)),
                                                 _miniMetric(
@@ -11692,7 +11772,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ),
                                             SizedBox(height: 6),
                                             Text(
-                                              'Settlement: ${_skuDetailSettlementText(item)}  ·   ${_cleanText(item['source'], 'Sumber tidak tersimpan')}',
+                                              'Settlement: ${_skuDetailSettlementText(item)}  ·   ${_skuDetailSourceText(item)}',
                                               style: TextStyle(
                                                   fontSize: 10.5,
                                                   color: Theme.of(context)
@@ -11720,10 +11800,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             'Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                             'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
                                             'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
-                                            'Net settlement/item: ${_skuDetailPayoutItemText(item)}',
+                                            '${_skuDetailPayoutItemLabel(item)}: ${_skuDetailPayoutItemText(item)}',
                                             'HPP/item: ${_skuDetailHppItemText(item)}',
                                             'Settlement: ${_skuDetailSettlementText(item)}',
-                                            'Sumber: ${_cleanText(item['source'], 'Sumber tidak tersimpan')}',
+                                            'Sumber: ${_skuDetailSourceText(item)}',
                                           ].join('\n');
                                           Clipboard.setData(
                                               ClipboardData(text: text));
@@ -12762,6 +12842,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final text = _text(value, '').trim();
     if (text.isEmpty || text == '-') return fallback;
     return text;
+  }
+
+  String _skuDetailPayoutItemLabel(Map<String, dynamic> detail) {
+    final source = _text(detail['payout_source'] ?? detail['source'], '')
+        .trim()
+        .toLowerCase();
+    return source.contains('net_settlement')
+        ? 'Net settlement/item'
+        : 'Payout/item';
+  }
+
+  String _skuDetailSourceText(Map<String, dynamic> detail) {
+    return _cleanText(
+      detail['payout_source'] ?? detail['source'],
+      'Sumber tidak tersimpan',
+    );
   }
 
   String _skuDetailPayoutItemText(Map<String, dynamic> detail) {

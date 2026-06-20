@@ -10,6 +10,7 @@ import '../../../services/auth_service.dart';
 import '../../auth/presentation/login_page.dart';
 import 'subscription_plans_page.dart';
 import 'tenant_subscription_detail_page.dart';
+import 'user_management_page.dart';
 
 class PlatformOwnerDashboard extends StatefulWidget {
   const PlatformOwnerDashboard({super.key});
@@ -879,6 +880,25 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                       onPressed: () =>
                                           _showGenerateInviteDialog(
                                               preselectedTenantId: tenantId),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Kelola User / Reset Password',
+                                      icon: const Icon(
+                                          Icons.manage_accounts_rounded,
+                                          size: 18),
+                                      onPressed: () {
+                                        Navigator.of(context)
+                                            .push(
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    UserManagementPage(
+                                                  tenantId: tenantId,
+                                                  tenantName: tenantName,
+                                                ),
+                                              ),
+                                            )
+                                            .then((_) => _loadData());
+                                      },
                                     ),
                                   ],
                                 ),

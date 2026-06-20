@@ -5,7 +5,14 @@ import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
 
 class UserManagementPage extends StatefulWidget {
-  const UserManagementPage({super.key});
+  final String? tenantId;
+  final String? tenantName;
+
+  const UserManagementPage({
+    super.key,
+    this.tenantId,
+    this.tenantName,
+  });
 
   @override
   State<UserManagementPage> createState() => _UserManagementPageState();
@@ -81,7 +88,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
 
       final currentProfile = await _client
           .from('users')
-          .select('role_id, status')
+          .select('role_id, status, tenant_id')
           .eq('user_id', authUser.id)
           .maybeSingle();
 
@@ -102,16 +109,23 @@ class _UserManagementPageState extends State<UserManagementPage> {
         throw Exception('Halaman user hanya untuk Admin dan Super Admin.');
       }
 
-      final data = await _client
+      var query = _client
           .from('users')
           .select(
-              'user_id, nama, username, email, role_id, status, nomor_hp, created_at, updated_at')
-          .neq('role_id', 'platform_owner')
-          .order('created_at', ascending: false);
+              'user_id, tenant_id, nama, username, email, role_id, status, nomor_hp, created_at, updated_at')
+          .neq('role_id', 'platform_owner');
+
+      final tenantContext = widget.tenantId?.trim() ?? '';
+      if (tenantContext.isNotEmpty && currentRoleId == 'platform_owner') {
+        query = query.eq('tenant_id', tenantContext);
+      }
+
+      final data = await query.order('created_at', ascending: false);
 
       final items = (data as List)
           .map((e) => Map<String, dynamic>.from(e))
-          .where((e) => AppUi.text(e['role_id']).toLowerCase() != 'platform_owner')
+          .where(
+              (e) => AppUi.text(e['role_id']).toLowerCase() != 'platform_owner')
           .toList();
 
       if (!mounted) return;
@@ -242,22 +256,26 @@ class _UserManagementPageState extends State<UserManagementPage> {
     String? finalTenantId = originalTenantId;
 
     if (existingUser != null) {
-      if (originalRole != null && AppRolePermissions.isPlatformOwnerId(originalRole)) {
+      if (originalRole != null &&
+          AppRolePermissions.isPlatformOwnerId(originalRole)) {
         finalRole = originalRole;
         finalStatus = 'active';
       } else {
         if (originalRole != role) {
           if (!_canAssignRole(role) || originalRole == 'platform_owner') {
-            throw Exception('Anda tidak memiliki wewenang untuk mengubah role dari $originalRole ke $role.');
+            throw Exception(
+                'Anda tidak memiliki wewenang untuk mengubah role dari $originalRole ke $role.');
           }
         }
       }
     } else {
       if (AppRolePermissions.isPlatformOwnerId(role)) {
-        throw Exception('Tidak dapat membuat user baru dengan role Platform Owner.');
+        throw Exception(
+            'Tidak dapat membuat user baru dengan role Platform Owner.');
       }
       if (!_canAssignRole(role)) {
-        throw Exception('Anda tidak memiliki wewenang untuk mengatur role ke $role.');
+        throw Exception(
+            'Anda tidak memiliki wewenang untuk mengatur role ke $role.');
       }
       final authUser = _client.auth.currentUser;
       if (authUser != null) {
@@ -318,7 +336,9 @@ class _UserManagementPageState extends State<UserManagementPage> {
       dropdownRoles.add(originalRole);
     }
     String role = originalRole ?? 'warehouse';
-    final bool isRoleEditable = user == null || (_canAssignRole(originalRole ?? '') && originalRole != 'platform_owner');
+    final bool isRoleEditable = user == null ||
+        (_canAssignRole(originalRole ?? '') &&
+            originalRole != 'platform_owner');
     String status = AppUi.text(user?['status'], 'active');
     bool saving = false;
 
@@ -611,7 +631,8 @@ class _UserManagementPageState extends State<UserManagementPage> {
   Future<void> _showResetPasswordDialog(Map<String, dynamic> user) async {
     final targetRole = AppUi.text(user['role_id']).toLowerCase();
     if (targetRole == 'platform_owner') {
-      AppUi.showSnack('Reset password Platform Owner tidak diijinkan dari tenant context.');
+      AppUi.showSnack(
+          'Reset password Platform Owner tidak diijinkan dari tenant context.');
       return;
     }
     final passwordCtrl = TextEditingController();
@@ -701,10 +722,14 @@ class _UserManagementPageState extends State<UserManagementPage> {
         children: [
           FuturisticHeader(
             icon: Icons.manage_accounts_outlined,
-            title: 'Master User',
+            title: widget.tenantName?.trim().isNotEmpty == true
+                ? 'Kelola User / Reset Password'
+                : 'Master User',
             subtitle: _isDemoSuperAdmin
                 ? 'Mode demo: data user hanya bisa dilihat.'
-                : 'Kelola user, role, dan status akun.',
+                : widget.tenantName?.trim().isNotEmpty == true
+                    ? 'Tenant ${widget.tenantName}: kelola user aktif dan reset password non-Platform Owner.'
+                    : 'Kelola user, role, dan status akun.',
             stats: [
               StatPill(label: 'Total', value: _items.length.toString()),
               StatPill(
@@ -788,12 +813,15 @@ class _UserManagementPageState extends State<UserManagementPage> {
                     'ID: ${AppUi.text(user['user_id'])}',
                   ),
                   isThreeLine: true,
-                  trailing: (_canManageUsers && AppUi.text(user['role_id']).toLowerCase() != 'platform_owner')
+                  trailing: (_canManageUsers &&
+                          AppUi.text(user['role_id']).toLowerCase() !=
+                              'platform_owner')
                       ? PopupMenuButton<String>(
                           onSelected: (value) {
                             if (value == 'edit') _openForm(user);
                             if (value == 'delete') _deleteUser(user);
-                            if (value == 'reset_password') _showResetPasswordDialog(user);
+                            if (value == 'reset_password')
+                              _showResetPasswordDialog(user);
                           },
                           itemBuilder: (context) => [
                             if (canEdit)
@@ -801,11 +829,14 @@ class _UserManagementPageState extends State<UserManagementPage> {
                                   value: 'edit', child: Text('Edit')),
                             if (_currentRoleId == 'platform_owner')
                               const PopupMenuItem(
-                                  value: 'reset_password', child: Text('Reset Password')),
+                                  value: 'reset_password',
+                                  child: Text('Reset Password')),
                             if (canDelete)
                               const PopupMenuItem(
                                   value: 'delete', child: Text('Hapus')),
-                            if (!canEdit && !canDelete && _currentRoleId != 'platform_owner')
+                            if (!canEdit &&
+                                !canDelete &&
+                                _currentRoleId != 'platform_owner')
                               const PopupMenuItem(
                                   enabled: false,
                                   value: 'locked',
