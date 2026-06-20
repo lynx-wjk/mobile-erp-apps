@@ -222,55 +222,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<void> _loadDispatcherSnapshot({bool showError = false}) async {
     if (_currentTenantId.trim().isEmpty) return;
     try {
-      final responses = await Future.wait<dynamic>([
-        _client
-            .from('marketplace_order_sync_state')
-            .select('tenant_id, last_success_at, updated_at')
-            .eq('tenant_id', _currentTenantId)
-            .order('last_success_at', ascending: false)
-            .limit(20)
-            .timeout(const Duration(seconds: 5)),
-        _client
-            .from('marketplace_finance_sync_state')
-            .select('tenant_id, last_success_at, updated_at')
-            .eq('tenant_id', _currentTenantId)
-            .order('last_success_at', ascending: false)
-            .limit(20)
-            .timeout(const Duration(seconds: 5)),
-        _client
-            .from('marketplace_finance_reports')
-            .select('updated_at')
-            .eq('tenant_id', _currentTenantId)
-            .order('updated_at', ascending: false)
-            .limit(1)
-            .timeout(const Duration(seconds: 5)),
-      ]);
+      final response = await _client
+          .rpc('marketplace_dispatcher_pull_state')
+          .timeout(const Duration(seconds: 5));
       if (!mounted) return;
-      final orderStates = responses[0] is List
-          ? (responses[0] as List)
-              .whereType<Map>()
-              .map((row) => Map<String, dynamic>.from(row))
-              .toList(growable: false)
-          : <Map<String, dynamic>>[];
-      final payoutUpdatedAt = responses[2] is List &&
-              (responses[2] as List).isNotEmpty &&
-              (responses[2] as List).first is Map
-          ? Map<String, dynamic>.from(
-              (responses[2] as List).first as Map)['updated_at']
-          : null;
-      final financeStates = responses[1] is List
-          ? (responses[1] as List)
-              .whereType<Map>()
-              .map((row) => <String, dynamic>{
-                    ...Map<String, dynamic>.from(row),
-                    'last_finance_updated_at': payoutUpdatedAt,
-                  })
-              .toList(growable: false)
-          : <Map<String, dynamic>>[];
+      final snapshot = _asMap(response);
+      final orderStates = _asList(snapshot['order_states'])
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList(growable: false);
+      final financeStates = _asList(snapshot['finance_states'])
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList(growable: false);
       setState(() {
         _dispatcherSnapshot = <String, dynamic>{
           'order_states': orderStates,
           'finance_states': financeStates,
+          'source': snapshot['source'] ?? 'marketplace_dispatcher_pull_state',
         };
       });
     } catch (_) {
@@ -5539,9 +5508,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (downloaded) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content:
-                  Text('Export laporan semua marketplace berhasil diunduh.')),
+          SnackBar(
+              content: Text(
+                  'Export laporan semua marketplace berhasil diunduh: $fileName')),
         );
         return;
       }
@@ -8424,6 +8393,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'paid');
               final unpaidBusy =
                   _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'unpaid');
+              final detailBusy = _skuDetailBusyKey != null;
               return _detailCard(
                 title: sku,
                 subtitle: [
@@ -8436,7 +8406,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   spacing: 6,
                   children: [
                     TextButton.icon(
-                      onPressed: settledBusy
+                      onPressed: detailBusy
                           ? null
                           : () => _showSkuOrderRefsV82o(
                                 row,
@@ -8459,7 +8429,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       ),
                     ),
                     TextButton.icon(
-                      onPressed: unpaidBusy
+                      onPressed: detailBusy
                           ? null
                           : () => _showSkuOrderRefsV82o(
                                 row,
@@ -10801,14 +10771,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     final rpcPayoutFilter = _canonicalSkuPayoutFilterV82o(payoutFilter);
+    final rowMarketplace = _text(row['marketplace'], '').trim();
+    final rowAccountId = _text(
+      row['marketplace_account_id'] ?? row['account_id'],
+      '',
+    ).trim();
+    final detailMarketplace = _marketplaceRpcParam() ??
+        (rowMarketplace.isEmpty ? null : rowMarketplace);
+    final detailAccountId =
+        _accountUuidParam() ?? (_isUuid(rowAccountId) ? rowAccountId : null);
 
     final response = await _client.rpc(
-      'finance_sku_order_details',
+      'finance_sku_order_line_details',
       params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
-        'p_marketplace': _marketplaceRpcParam(),
-        'p_account_id': _accountUuidParam(),
+        'p_marketplace': detailMarketplace,
+        'p_account_id': detailAccountId,
         'p_marketplace_sku': marketplaceSku.isEmpty ? null : marketplaceSku,
         'p_local_sku': localSku.isEmpty || localSku == '-' ? null : localSku,
         'p_search': searchText.isEmpty ? null : searchText,

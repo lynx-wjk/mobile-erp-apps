@@ -2225,23 +2225,52 @@ class _DashboardPageState extends State<DashboardPage> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      _shortRupiah(selected.omzet),
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
-                        height: 1,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${AppUi.date(selected.date)} omzet',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _shortRupiah(selected.omzet),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            height: 1,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Text(
-                    '${selected.orders} pesanan',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Omzet hari terpilih',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${selected.orders} pesanan',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -2283,7 +2312,7 @@ class _DashboardPageState extends State<DashboardPage> {
           if (selected != null) ...[
             const SizedBox(height: 10),
             Text(
-              '${AppUi.date(selected.date)} · omzet ${_shortRupiah(selected.omzet)} · ${selected.orders} pesanan',
+              '${AppUi.date(selected.date)} · omzet hari terpilih ${_shortRupiah(selected.omzet)} · ${selected.orders} pesanan',
               style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 12,

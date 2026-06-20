@@ -274,7 +274,13 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
       fileName: fileName,
       mimeType: mimeType,
     );
-    if (downloaded) return;
+    if (downloaded) {
+      if (mounted) {
+        setState(() => _log = 'Download dimulai: $fileName');
+        AppUi.safeSnack(context, 'Download dimulai: $fileName');
+      }
+      return;
+    }
 
     await Share.shareXFiles(
       [

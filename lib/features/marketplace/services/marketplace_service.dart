@@ -637,13 +637,14 @@ class MarketplaceService {
     if (tenantId.trim().isEmpty) return null;
     try {
       final data = await _client
-          .from('marketplace_order_sync_state')
-          .select('last_success_at, updated_at')
-          .eq('tenant_id', tenantId)
-          .order('last_success_at', ascending: false)
-          .limit(1);
-      if (data is! List || data.isEmpty || data.first is! Map) return null;
-      final row = Map<String, dynamic>.from(data.first as Map);
+          .rpc('marketplace_dispatcher_pull_state')
+          .timeout(const Duration(seconds: 5));
+      final snapshot = data is Map ? Map<String, dynamic>.from(data) : null;
+      final states = snapshot?['order_states'];
+      if (states is! List || states.isEmpty || states.first is! Map) {
+        return null;
+      }
+      final row = Map<String, dynamic>.from(states.first as Map);
       return DateTime.tryParse(
         (row['last_success_at'] ?? row['updated_at'] ?? '').toString(),
       );
