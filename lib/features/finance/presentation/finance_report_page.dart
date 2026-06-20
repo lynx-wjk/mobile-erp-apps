@@ -62,7 +62,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Map<String, dynamic> _dispatcherSnapshot = const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260620_v33_fast_mtd_sku_web_xlsx';
+      'finance_live_20260620_v34_sku_all_aggregate';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -1372,17 +1372,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     setState(() => _skuLoadingMore = true);
     final nextPage = _skuServerPageLoaded + 1;
     try {
-      final settled = _filterSkuRowsBySelectedScope(
-        await _fetchSkuRowsByPayoutFilterPage('settled', page: nextPage),
-      );
-      final unpaid = _filterSkuRowsBySelectedScope(
-        await _fetchSkuRowsByPayoutFilterPage('unpaid', page: nextPage),
+      final rows = _filterSkuRowsBySelectedScope(
+        await _fetchSkuRowsByPayoutFilterPage('all', page: nextPage),
       );
       final merged = _mergeSkuRows(
         _normalizeSkuRows(<Map<String, dynamic>>[
           ..._bySku,
-          ...settled,
-          ...unpaid,
+          ...rows,
         ]),
         const <Map<String, dynamic>>[],
       );
@@ -1390,8 +1386,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       setState(() {
         _bySku = _sortSkuRowsForDisplay(merged);
         _skuServerPageLoaded = nextPage;
-        _skuHasMoreServerRows =
-            settled.length >= _skuPageSize || unpaid.length >= _skuPageSize;
+        _skuHasMoreServerRows = rows.length >= _skuPageSize;
         _skuPage = _skuTotalPages;
       });
     } finally {
@@ -1405,33 +1400,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _skuLoadingFirstPage = true;
     });
     try {
-      final settled = _filterSkuRowsBySelectedScope(
+      final rows = _filterSkuRowsBySelectedScope(
         await _fetchSkuRowsByPayoutFilterPage(
-          'settled',
-          page: 1,
-          ignoreCache: true,
-        ),
-      );
-      final unpaid = _filterSkuRowsBySelectedScope(
-        await _fetchSkuRowsByPayoutFilterPage(
-          'unpaid',
+          'all',
           page: 1,
           ignoreCache: true,
         ),
       );
       final merged = _mergeSkuRows(
-        _normalizeSkuRows(<Map<String, dynamic>>[
-          ...settled,
-          ...unpaid,
-        ]),
+        _normalizeSkuRows(rows),
         const <Map<String, dynamic>>[],
       );
       if (!mounted) return;
       setState(() {
         _bySku = _sortSkuRowsForDisplay(merged);
         _skuServerPageLoaded = 1;
-        _skuHasMoreServerRows =
-            settled.length >= _skuPageSize || unpaid.length >= _skuPageSize;
+        _skuHasMoreServerRows = rows.length >= _skuPageSize;
         _skuLoaded = true;
       });
     } catch (e) {
@@ -8332,6 +8316,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               final paidQtyDisplay = _qtyFromOrderRows(paidDetailRows) > 0
                   ? _qtyFromOrderRows(paidDetailRows)
                   : _numFirstNonZero([
+                      row['paid_qty_total'],
+                      row['settled_qty_total'],
                       row['paid_qty'],
                       row['settled_qty'],
                       row['qty_paid']
@@ -8339,8 +8325,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               final unpaidQtyDisplay = _qtyFromOrderRows(unpaidDetailRows) > 0
                   ? _qtyFromOrderRows(unpaidDetailRows)
                   : _numFirstNonZero([
+                      row['unpaid_qty_total'],
                       row['unpaid_qty'],
                       row['pending_payout_qty'],
+                      row['pending_payout_qty_total'],
                       row['qty_unpaid']
                     ]).round();
               final qtyTotalDisplay = _numFirstNonZero([
@@ -10857,7 +10845,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<void> _showSkuOrderRefsV82o(Map<String, dynamic> row,
       {String payoutFilter = 'all'}) async {
     final busyKey = _skuDetailBusyKeyV82o(row, payoutFilter);
-    if (_skuDetailBusyKey == busyKey) return;
+    if (_skuDetailBusyKey != null) return;
     if (mounted) setState(() => _skuDetailBusyKey = busyKey);
 
     final payoutLabel = payoutFilter == 'paid'
