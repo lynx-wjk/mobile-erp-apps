@@ -6,7 +6,7 @@ source: community
 date_added: "2026-02-27"
 ---
 
-# PostgreSQL Table Design 
+# PostgreSQL Table Design
 
 ## Use this skill when
 
