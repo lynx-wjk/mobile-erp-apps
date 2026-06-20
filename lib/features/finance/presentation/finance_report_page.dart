@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -2068,7 +2069,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final snapshotParams = {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
-        'p_marketplace': _marketplaceRpcParam(),
+        'p_marketplace': _marketplaceRpcParam(accounts: fallbackAccounts),
         'p_account_id': _accountUuidParam(),
       };
 
@@ -2101,6 +2102,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         includeOperationalExpenses: true,
         includeSupplementalSku: false,
       );
+      unawaited(_loadSampleFreeOrdersSupplemental());
 
       if (!isCurrentFinanceLoad() || !mounted) return;
       await _overlaySkuPayoutCountSummaryFromServer();
@@ -2118,6 +2120,53 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
     } finally {
       if (isCurrentFinanceLoad()) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadSampleFreeOrdersSupplemental() async {
+    try {
+      final response = await _client.rpc(
+        'finance_sample_order_counts',
+        params: {
+          'p_start': _toDateParam(_start),
+          'p_end': _toDateParam(_end),
+          'p_marketplace': _marketplaceRpcParam(),
+          'p_account_id': _accountUuidParam(),
+        },
+      ).timeout(const Duration(seconds: 4));
+      if (!mounted) return;
+      final data = _asMap(response);
+      final summary = _asMap(data['summary']);
+      final rows = _normalizeAbnormalRows(
+        _asList(data['sample_orders'] ?? data['rows'])
+            .whereType<Map>()
+            .map((item) {
+          final row = Map<String, dynamic>.from(item);
+          row['abnormal_status'] = 'SAMPLE_FREE';
+          row['payout_status'] = row['payout_status'] ?? 'SAMPLE_FREE';
+          row['finance_status'] = row['finance_status'] ?? 'SAMPLE_FREE';
+          row['message'] = _text(
+            row['message'] ?? row['note'],
+            'Sample/gratis sesuai filter. Tidak masuk omzet normal.',
+          );
+          row['category'] = row['category'] ?? 'sample_free';
+          return row;
+        }).toList(),
+      );
+      setState(() {
+        final nextSummary = Map<String, dynamic>.from(_summary);
+        for (final key in const [
+          'sample_order_count',
+          'sample_free_count',
+        ]) {
+          final value = summary[key];
+          if (value != null) nextSummary[key] = value;
+        }
+        _summary = nextSummary;
+        _sampleFreeOrders = rows;
+      });
+    } catch (error) {
+      debugPrint('Finance sample/free supplemental load failed: $error');
     }
   }
 
@@ -8242,6 +8291,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _summary['sample_loss_estimate'],
       sampleHppTotal + sampleNegativePayout,
     ]);
+    final noPayoutCount = _numFirstNonZero([
+      _summary['no_payout_count'],
+      _summary['missing_payout_non_sample_count'],
+      _summary['unpaid_order_count'],
+      _summary['pending_payout_order_count'],
+    ]);
+    final payoutMinusCount = _numFirstNonZero([
+      _summary['payout_minus_count'],
+      _summary['negative_payout_count'],
+      _summary['minus_payout_count'],
+    ]);
 
     if (_loading) {
       return const Center(child: FuturisticLoader(message: 'MEMUAT DATA...'));
@@ -8311,8 +8371,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               _Metric('HPP', _money(hpp), Icons.inventory_2_rounded),
               _Metric(
                   'Biaya Ops', _money(operational), Icons.receipt_long_rounded),
-              _Metric('Payout Minus', _money(negativePayout),
+              _Metric('Sample/Gratis', sampleOrderCount.toStringAsFixed(0),
+                  Icons.card_giftcard_rounded),
+              _Metric('No Payout', noPayoutCount.toStringAsFixed(0),
+                  Icons.hourglass_empty_rounded),
+              _Metric('Payout Minus', payoutMinusCount.toStringAsFixed(0),
                   Icons.remove_circle_outline),
+              _Metric('Nominal Minus', _money(negativePayout),
+                  Icons.money_off_rounded),
               _Metric('Est. HPP Belum Payout', _money(unpaidEstimatedHpp),
                   Icons.inventory_2_outlined),
               _Metric('Abnormal', abnormalCount.toStringAsFixed(0),
@@ -10791,10 +10857,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final List<Map<String, dynamic>> deduped = [];
     for (final row in normalized) {
       final orderId = _text(row['order']).trim();
+      final itemId = _text(row['marketplace_order_item_id'] ??
+              row['external_order_item_id'] ??
+              row['order_item_id'] ??
+              row['line_id'])
+          .trim();
       final sku = _text(row['sku']).trim();
       final qty = _num(row['qty']).toStringAsFixed(0);
       final gross = _num(row['gross']).toStringAsFixed(2);
-      final key = '$orderId|$sku|$qty|$gross';
+      final payout =
+          _num(row['payout'] ?? row['payout_amount']).toStringAsFixed(2);
+      final key = itemId.isNotEmpty
+          ? '$orderId|$itemId'
+          : '$orderId|$sku|$qty|$gross|$payout';
       if (!seen.contains(key)) {
         seen.add(key);
         deduped.add(row);
@@ -11018,10 +11093,33 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return 'Menampilkan $start-$end dari $total · Hal $page/$totalPages';
   }
 
-  String? _marketplaceRpcParam() {
+  String? _marketplaceForAccountId(
+    String? accountId, {
+    List<Map<String, dynamic>>? accounts,
+  }) {
+    final id = accountId?.trim().toLowerCase() ?? '';
+    if (id.isEmpty) return null;
+    final source = accounts ?? _accounts;
+    for (final account in source) {
+      final accountKey = _accountId(account).toLowerCase();
+      if (accountKey != id) continue;
+      final normalized = _normalizeMarketplaceFilter(
+        _text(
+            account['marketplace'] ?? account['platform'] ?? account['channel'],
+            ''),
+      );
+      if (normalized != null && normalized != 'all') return normalized;
+    }
+    return null;
+  }
+
+  String? _marketplaceRpcParam({List<Map<String, dynamic>>? accounts}) {
     final value = _text(_marketplaceParam(), '').trim();
-    if (value.isEmpty || value.toLowerCase() == 'all') return null;
-    return value;
+    if (value.isNotEmpty && value.toLowerCase() != 'all') return value;
+    final inferred =
+        _marketplaceForAccountId(_accountUuidParam(), accounts: accounts);
+    if (inferred != null && inferred != 'all') return inferred;
+    return null;
   }
 
   Map<String, String> _skuOrderLookupParamsV82o(Map<String, dynamic> row) {
@@ -11636,50 +11734,72 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                                 .outline,
                                                             height: 1.3),
                                                       ),
+                                                      if (_skuDetailAllocationText(
+                                                              item)
+                                                          .isNotEmpty) ...[
+                                                        SizedBox(height: 4),
+                                                        Text(
+                                                          _skuDetailAllocationText(
+                                                              item),
+                                                          style: TextStyle(
+                                                              fontSize: 10.5,
+                                                              color: Theme.of(
+                                                                      context)
+                                                                  .colorScheme
+                                                                  .outline,
+                                                              height: 1.3),
+                                                        ),
+                                                      ],
                                                       _buildFeeBreakdownV82o(
                                                           item),
+                                                      SizedBox(height: 8),
+                                                      Wrap(
+                                                        spacing: 6,
+                                                        runSpacing: 6,
+                                                        children: [
+                                                          _copyFieldButton(
+                                                            sheetContext,
+                                                            label:
+                                                                'Copy Order ID',
+                                                            icon: Icons
+                                                                .receipt_long_rounded,
+                                                            value:
+                                                                item['order'],
+                                                          ),
+                                                          _copyFieldButton(
+                                                            sheetContext,
+                                                            label: 'Copy Resi',
+                                                            icon: Icons
+                                                                .local_shipping_rounded,
+                                                            value: item['resi'],
+                                                          ),
+                                                          _copyFieldButton(
+                                                            sheetContext,
+                                                            label:
+                                                                'Copy Settlement',
+                                                            icon: Icons
+                                                                .payments_rounded,
+                                                            value: item[
+                                                                    'statement_id'] ??
+                                                                item[
+                                                                    'settlement_ref'],
+                                                          ),
+                                                          _copyFieldButton(
+                                                            sheetContext,
+                                                            label: 'Copy SKU',
+                                                            icon: Icons
+                                                                .inventory_2_rounded,
+                                                            value: item[
+                                                                    'local_sku'] ??
+                                                                item[
+                                                                    'marketplace_sku'] ??
+                                                                item[
+                                                                    'marketplace_seller_sku'],
+                                                          ),
+                                                        ],
+                                                      ),
                                                     ],
                                                   ),
-                                                ),
-                                                IconButton(
-                                                  tooltip: 'Salin',
-                                                  onPressed: () {
-                                                    final text = [
-                                                      'Order: ${_cleanText(item['order'], 'Belum ada order')}',
-                                                      'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
-                                                      'Tanggal pesanan: ${_dateTime(item['order_date'])}',
-                                                      'Status: ${_skuDetailOrderStatusV82o(item)}',
-                                                      'Payout status: ${_payoutStatusText(item)}',
-                                                      'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? 'Tidak ada catatan payout' : _payoutExplainText(item)}',
-                                                      'Catatan resi: ${_cleanText(item['resi_reason'], 'Tidak ada catatan resi')}',
-                                                      'SKU lokal: ${_cleanText(item['local_sku'], _cleanText(detailRow['local_sku'] ?? detailRow['sku'], 'Belum mapping'))}',
-                                                      'SKU marketplace: ${_cleanText(item['marketplace_sku'] ?? item['marketplace_seller_sku'], 'Belum ada SKU marketplace')}',
-                                                      'Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
-                                                      'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
-                                                      'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
-                                                      '${_skuDetailPayoutItemLabel(item)}: ${_skuDetailPayoutItemText(item)}',
-                                                      'HPP/item: ${_skuDetailHppItemText(item)}',
-                                                      'Settlement: ${_skuDetailSettlementText(item)}',
-                                                      'Sumber: ${_skuDetailSourceText(item)}',
-                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(
-                                                          item))
-                                                        'Warning: Payout sudah masuk, tetapi status order masih ${_skuDetailOrderStatusV82o(item)}. Perlu refresh marketplace.',
-                                                    ].join('\n');
-                                                    Clipboard.setData(
-                                                        ClipboardData(
-                                                            text: text));
-                                                    ScaffoldMessenger.of(
-                                                            sheetContext)
-                                                        .showSnackBar(
-                                                            const SnackBar(
-                                                                content: Text(
-                                                                    'Detail order disalin.')));
-                                                  },
-                                                  icon: Icon(Icons.copy_rounded,
-                                                      size: 18,
-                                                      color: Theme.of(context)
-                                                          .colorScheme
-                                                          .outline),
                                                 ),
                                               ],
                                             ),
@@ -11983,43 +12103,60 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       .outline,
                                                   height: 1.3),
                                             ),
+                                            if (_skuDetailAllocationText(item)
+                                                .isNotEmpty) ...[
+                                              SizedBox(height: 4),
+                                              Text(
+                                                _skuDetailAllocationText(item),
+                                                style: TextStyle(
+                                                    fontSize: 10.5,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .outline,
+                                                    height: 1.3),
+                                              ),
+                                            ],
                                             _buildFeeBreakdownV82o(item),
+                                            SizedBox(height: 8),
+                                            Wrap(
+                                              spacing: 6,
+                                              runSpacing: 6,
+                                              children: [
+                                                _copyFieldButton(
+                                                  sheetContext,
+                                                  label: 'Copy Order ID',
+                                                  icon: Icons
+                                                      .receipt_long_rounded,
+                                                  value: item['order'],
+                                                ),
+                                                _copyFieldButton(
+                                                  sheetContext,
+                                                  label: 'Copy Resi',
+                                                  icon: Icons
+                                                      .local_shipping_rounded,
+                                                  value: item['resi'],
+                                                ),
+                                                _copyFieldButton(
+                                                  sheetContext,
+                                                  label: 'Copy Settlement',
+                                                  icon: Icons.payments_rounded,
+                                                  value: item['statement_id'] ??
+                                                      item['settlement_ref'],
+                                                ),
+                                                _copyFieldButton(
+                                                  sheetContext,
+                                                  label: 'Copy SKU',
+                                                  icon:
+                                                      Icons.inventory_2_rounded,
+                                                  value: item['local_sku'] ??
+                                                      item['marketplace_sku'] ??
+                                                      item[
+                                                          'marketplace_seller_sku'],
+                                                ),
+                                              ],
+                                            ),
                                           ],
                                         ),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Salin',
-                                        onPressed: () {
-                                          final text = [
-                                            'Order: ${_cleanText(item['order'], 'Belum ada order')}',
-                                            'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
-                                            'Tanggal pesanan: ${_dateTime(item['order_date'])}',
-                                            'Status: ${_skuDetailOrderStatusV82o(item)}',
-                                            'Payout status: ${_payoutStatusText(item)}',
-                                            'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? 'Tidak ada catatan payout' : _payoutExplainText(item)}',
-                                            'Catatan resi: ${_cleanText(item['resi_reason'], 'Tidak ada catatan resi')}',
-                                            'SKU lokal: ${_cleanText(item['local_sku'], _cleanText(detailRow['local_sku'] ?? detailRow['sku'], 'Belum mapping'))}',
-                                            'SKU marketplace: ${_cleanText(item['marketplace_sku'] ?? item['marketplace_seller_sku'], 'Belum ada SKU marketplace')}',
-                                            'Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
-                                            'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
-                                            'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
-                                            '${_skuDetailPayoutItemLabel(item)}: ${_skuDetailPayoutItemText(item)}',
-                                            'HPP/item: ${_skuDetailHppItemText(item)}',
-                                            'Settlement: ${_skuDetailSettlementText(item)}',
-                                            'Sumber: ${_skuDetailSourceText(item)}',
-                                          ].join('\n');
-                                          Clipboard.setData(
-                                              ClipboardData(text: text));
-                                          ScaffoldMessenger.of(sheetContext)
-                                              .showSnackBar(const SnackBar(
-                                                  content: Text(
-                                                      'Detail order disalin.')));
-                                        },
-                                        icon: Icon(Icons.copy_rounded,
-                                            size: 18,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .outline),
                                       ),
                                     ],
                                   ),
@@ -12069,6 +12206,33 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _copyFieldButton(
+    BuildContext targetContext, {
+    required String label,
+    required IconData icon,
+    required dynamic value,
+  }) {
+    final clean = _cleanText(value, '');
+    return OutlinedButton.icon(
+      onPressed: clean.isEmpty
+          ? null
+          : () {
+              Clipboard.setData(ClipboardData(text: clean));
+              ScaffoldMessenger.of(targetContext).showSnackBar(
+                SnackBar(content: Text('$label disalin.')),
+              );
+            },
+      icon: Icon(icon, size: 14),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        minimumSize: Size.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
       ),
     );
   }
@@ -13051,9 +13215,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final source = _text(detail['payout_source'] ?? detail['source'], '')
         .trim()
         .toLowerCase();
-    return source.contains('net_settlement')
-        ? 'Net settlement/item'
-        : 'Payout/item';
+    if (source.contains('marketplace_finance_reports') ||
+        source.contains('net_settlement') ||
+        source.contains('settlement')) {
+      return 'Alokasi settlement/item';
+    }
+    return 'Alokasi payout/item';
   }
 
   String _skuDetailSourceText(Map<String, dynamic> detail) {
@@ -13074,6 +13241,35 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _linePayoutAmount(detail, defaultQty: safeQty) / safeQty,
     ]);
     return perItem > 0 ? _money(perItem) : 'Payout item belum tersimpan';
+  }
+
+  String _skuDetailAllocationText(Map<String, dynamic> detail) {
+    if (!_hasReleasedPayout(detail)) return '';
+    final source = _text(detail['payout_source'] ?? detail['source'], '')
+        .trim()
+        .toLowerCase();
+    if (!source.contains('marketplace_finance_reports') &&
+        !source.contains('settlement')) {
+      return '';
+    }
+    final orderPayout = _numFirstNonZero([
+      detail['order_payout_total'],
+      detail['order_settlement_total'],
+      detail['order_net_settlement'],
+    ]);
+    final orderGross = _numFirstNonZero([
+      detail['order_gross_total'],
+      detail['order_line_gross_total'],
+    ]);
+    final lineGross = _numFirstNonZero([
+      detail['gross'],
+      detail['gross_amount'],
+      detail['gross_total'],
+    ]);
+    if (orderPayout > 0 && orderGross > 0 && lineGross > 0) {
+      return 'Formula: ${_money(orderPayout)} x ${_money(lineGross)} / ${_money(orderGross)}.';
+    }
+    return 'Alokasi proporsional dari settlement marketplace per order berdasarkan gross item.';
   }
 
   String _skuDetailHppItemText(Map<String, dynamic> detail) {

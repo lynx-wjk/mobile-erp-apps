@@ -180,6 +180,117 @@ class _StockInPageState extends State<StockInPage> {
     return MarketplaceReturnReviewItem.fromMap(row);
   }
 
+  num _returnQtyFromRow(
+      Map<String, dynamic> row, MarketplaceReturnReviewItem item) {
+    final values = [
+      item.itemReturnedQty,
+      row['qty_return'],
+      row['return_qty'],
+      row['returned_qty'],
+      row['item_returned_qty'],
+      row['return_quantity'],
+      row['refund_quantity'],
+    ];
+    for (final value in values) {
+      final qty = AppUi.toNum(value);
+      if (qty > 0) return qty;
+    }
+    return 0;
+  }
+
+  ({bool canStockIn, String reason, num qty}) _returnStockEligibility(
+    Map<String, dynamic> row,
+    MarketplaceReturnReviewItem item,
+  ) {
+    final returnQty = _returnQtyFromRow(row, item);
+    final statusText = [
+      row['source'],
+      row['recommended_action'],
+      row['return_status'],
+      row['refund_status'],
+      row['case_status'],
+      row['return_case_status'],
+      row['cancel_request_status'],
+      row['order_status'],
+      row['order_status_label'],
+      row['stock_action_status'],
+    ].map((value) => AppUi.text(value).toUpperCase()).join(' ');
+
+    if (_isBlank(item.marketplaceOrderItemId)) {
+      return (
+        canStockIn: false,
+        reason: 'Item order belum tersedia untuk dicatat.',
+        qty: returnQty,
+      );
+    }
+    if (_isBlank(item.mappedProductId)) {
+      return (
+        canStockIn: false,
+        reason: 'SKU lokal belum mapping, stock tidak bisa ditambah otomatis.',
+        qty: returnQty,
+      );
+    }
+    if (!item.hasPhysicalStockOut) {
+      return (
+        canStockIn: false,
+        reason: 'Item belum tercatat stock-out fisik.',
+        qty: returnQty,
+      );
+    }
+    if (!item.isPending) {
+      return (
+        canStockIn: false,
+        reason: 'Review return item ini sudah diproses.',
+        qty: returnQty,
+      );
+    }
+    if (returnQty <= 0) {
+      return (
+        canStockIn: false,
+        reason:
+            'Qty return 0 atau barang fisik belum diterima. Gunakan "Jangan masukkan".',
+        qty: returnQty,
+      );
+    }
+
+    final isReturnOrRefund =
+        statusText.contains('RETURN') || statusText.contains('REFUND');
+    final isReceivedOrApproved = statusText.contains('RECEIVED') ||
+        statusText.contains('APPROVED') ||
+        statusText.contains('ACCEPTED') ||
+        statusText.contains('COMPLETED') ||
+        statusText.contains('DONE') ||
+        statusText.contains('SUCCESS');
+    final isAwaiting = statusText.contains('AWAITING') ||
+        statusText.contains('PENDING') ||
+        statusText.contains('REQUESTED');
+    final isCancelOnly = statusText.contains('CANCEL') && !isReturnOrRefund;
+
+    if (isCancelOnly) {
+      return (
+        canStockIn: false,
+        reason:
+            'Cancel sebelum shipment tidak membuktikan barang fisik kembali.',
+        qty: returnQty,
+      );
+    }
+    if (!isReturnOrRefund || !isReceivedOrApproved || isAwaiting) {
+      return (
+        canStockIn: false,
+        reason:
+            'Belum ada bukti return/refund diterima atau disetujui marketplace.',
+        qty: returnQty,
+      );
+    }
+
+    return (
+      canStockIn: true,
+      reason:
+          'Return/refund sudah diterima/disetujui dan qty return lebih dari 0.',
+      qty: returnQty,
+    );
+  }
+
   Future<Map<String, dynamic>?> _pickReturnMatch(
       List<Map<String, dynamic>> rows) async {
     return showModalBottomSheet<Map<String, dynamic>>(
@@ -288,11 +399,13 @@ class _StockInPageState extends State<StockInPage> {
       Map<String, dynamic> row, String scannedResi) async {
     final item = _returnReviewItemFromRow(row);
     final hasItemId = !_isBlank(item.marketplaceOrderItemId);
-    final hasMappedProduct = !_isBlank(item.mappedProductId);
-    final canStockIn = hasItemId && hasMappedProduct && item.canStockIn;
-    final qty = item.qtyTotal > 0
-        ? item.qtyTotal
-        : AppUi.toNum(row['quantity'] ?? row['item_qty'] ?? row['qty']);
+    final eligibility = _returnStockEligibility(row, item);
+    final canStockIn = eligibility.canStockIn;
+    final qty = eligibility.qty > 0
+        ? eligibility.qty
+        : (item.qtyTotal > 0
+            ? item.qtyTotal
+            : AppUi.toNum(row['quantity'] ?? row['item_qty'] ?? row['qty']));
     final source = _returnSourceLabel(row);
 
     final decision = await showDialog<_ReturnStockDecision>(
@@ -315,7 +428,7 @@ class _StockInPageState extends State<StockInPage> {
             Text(
               canStockIn
                   ? 'Pilih "Masukkan stok" hanya jika barang fisik benar diterima dan kondisinya layak masuk stok.'
-                  : 'Data ini belum memenuhi syarat stock-in otomatis. Kamu tetap bisa catat keputusan "jangan masukkan".',
+                  : 'Tidak memenuhi syarat stock-in. ${eligibility.reason}',
             ),
           ],
         ),
