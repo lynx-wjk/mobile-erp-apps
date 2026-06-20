@@ -264,6 +264,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return b.isAfter(a) ? b : a;
   }
 
+  DateTime? _parseServerInstant(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value.toUtc();
+    final raw = value.toString().trim();
+    if (raw.isEmpty || raw == '-') return null;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return null;
+    final hasExplicitZone =
+        RegExp(r'(z|[+-]\d{2}(:?\d{2})?)$', caseSensitive: false).hasMatch(raw);
+    if (hasExplicitZone) return parsed.toUtc();
+    return DateTime.utc(
+      parsed.year,
+      parsed.month,
+      parsed.day,
+      parsed.hour,
+      parsed.minute,
+      parsed.second,
+      parsed.millisecond,
+      parsed.microsecond,
+    );
+  }
+
   DateTime? _latestDispatcherTimestamp(
     String listKey,
     List<String> fields,
@@ -271,10 +293,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     DateTime? latest;
     for (final row in _asList(_dispatcherSnapshot[listKey])) {
       for (final field in fields) {
-        latest = _maxDate(latest, _parseDate(row[field]));
+        latest = _maxDate(latest, _parseServerInstant(row[field]));
       }
     }
     return latest;
+  }
+
+  String _syncTimestampText(DateTime? value) {
+    if (value == null) return 'Belum tersedia';
+    final rawDiff = DateTime.now().toUtc().difference(value.toUtc());
+    final diff = rawDiff.isNegative ? Duration.zero : rawDiff;
+    String relative;
+    if (diff.inMinutes < 1) {
+      relative = 'baru saja';
+    } else if (diff.inHours < 1) {
+      relative = '${diff.inMinutes} menit lalu';
+    } else if (diff.inDays < 1) {
+      relative = '${diff.inHours} jam lalu';
+    } else {
+      relative = '${diff.inDays} hari lalu';
+    }
+    return '${_dateTime(value)} ($relative)';
   }
 
   Future<void> _setFinanceAutoSyncEnabled(bool enabled) async {
@@ -4602,6 +4641,40 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
+  bool _abnormalUsesClientPaging([String? value]) {
+    switch ((value ?? _abnormalStatusFilter).toLowerCase()) {
+      case 'sample_free':
+      case 'no_payout':
+      case 'low_margin':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool _abnormalRowMatchesSearch(Map<String, dynamic> row, String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    final haystack = [
+      row['order_id'],
+      row['external_order_id'],
+      row['order_sn'],
+      row['resi'],
+      row['tracking_number'],
+      row['local_sku'],
+      row['seller_sku'],
+      row['sku'],
+      row['marketplace_sku'],
+      row['variant_name'],
+      row['marketplace_variant_name'],
+      row['title'],
+      row['product_name'],
+      row['message'],
+      row['note'],
+    ].map((item) => _text(item, '').toLowerCase()).join(' ');
+    return haystack.contains(q);
+  }
+
   bool _isSampleFreeAbnormalRow(Map<String, dynamic> row) {
     final status = _text(
             row['abnormal_status'] ??
@@ -4737,37 +4810,50 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return byKey.values.toList();
   }
 
-  List<Map<String, dynamic>> _filteredAbnormales() {
+  List<Map<String, dynamic>> _filteredAbnormales({bool paged = true}) {
     final source = _abnormalFilterSource();
     final filter = _abnormalStatusFilter.trim().toLowerCase();
-    return source
-        .where((row) {
-          if (!_abnormalServerLoaded && _shouldHideZeroCancelAbnormal(row))
-            return false;
-          if (filter.isEmpty || filter == 'all') {
-            return !_isSampleFreeAbnormalRow(row) ||
-                _hasPayoutMinusSettlementReason(row);
-          }
-          if (filter == 'sample_free') return _isSampleFreeAbnormalRow(row);
-          if (filter == 'no_payout') return _isNoPayoutAbnormalRow(row);
-          if (filter == 'payout_minus') {
-            return _hasPayoutMinusSettlementReason(row);
-          }
-          if (filter == 'low_margin') return _isLowMarginAbnormalRow(row);
-          final status = _text(row['abnormal_status'] ??
-                  row['payout_status'] ??
-                  row['order_status'] ??
-                  row['status'])
-              .trim()
-              .toUpperCase();
-          return status == filter.toUpperCase() ||
-              _text(row['order_status'] ?? row['status'])
-                      .trim()
-                      .toUpperCase() ==
-                  filter.toUpperCase();
-        })
-        .take(_abnormalPageSize)
-        .toList();
+    final query = _abnormalSearchController.text.trim();
+    final filtered = source.where((row) {
+      if (!_abnormalRowMatchesSearch(row, query)) return false;
+      if (!_abnormalServerLoaded && _shouldHideZeroCancelAbnormal(row))
+        return false;
+      if (filter.isEmpty || filter == 'all') {
+        return !_isSampleFreeAbnormalRow(row) ||
+            _hasPayoutMinusSettlementReason(row);
+      }
+      if (filter == 'sample_free') return _isSampleFreeAbnormalRow(row);
+      if (filter == 'no_payout') return _isNoPayoutAbnormalRow(row);
+      if (filter == 'payout_minus') {
+        return _hasPayoutMinusSettlementReason(row);
+      }
+      if (filter == 'low_margin') return _isLowMarginAbnormalRow(row);
+      final status = _text(row['abnormal_status'] ??
+              row['payout_status'] ??
+              row['order_status'] ??
+              row['status'])
+          .trim()
+          .toUpperCase();
+      return status == filter.toUpperCase() ||
+          _text(row['order_status'] ?? row['status']).trim().toUpperCase() ==
+              filter.toUpperCase();
+    }).toList();
+    if (!paged) return filtered;
+    if (_abnormalUsesClientPaging()) {
+      final page = _abnormalPage <= 1 ? 1 : _abnormalPage;
+      return filtered
+          .skip((page - 1) * _abnormalPageSize)
+          .take(_abnormalPageSize)
+          .toList();
+    }
+    return filtered.take(_abnormalPageSize).toList();
+  }
+
+  int _visibleAbnormalTotal() {
+    if (_abnormalUsesClientPaging()) {
+      return _filteredAbnormales(paged: false).length;
+    }
+    return _abnormalTotal;
   }
 
   //  Abnormal reader
@@ -5204,6 +5290,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Future<void> _refreshAbnormalTab({bool resetPage = false}) async {
     if (resetPage) _abnormalPage = 1;
+    if (_abnormalUsesClientPaging() && _abnormalServerLoaded) {
+      if (mounted) setState(() {});
+      return;
+    }
     await _loadAbnormalesPage(resetPage: resetPage);
   }
 
@@ -7947,6 +8037,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'finance_states',
       const ['last_finance_updated_at'],
     );
+    final latestSync =
+        _maxDate(_maxDate(orderPullAt, financePullAt), payoutUpdateAt);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -7978,7 +8070,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Terakhir sinkron data (WIB)',
+                'Terakhir sinkron: ${_syncTimestampText(latestSync)}',
                 style: TextStyle(
                     color: Theme.of(context).colorScheme.primary,
                     fontSize: 11,
@@ -7986,14 +8078,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Sync Order: ${_dateTime(orderPullAt)}',
+                'Order pull: ${_syncTimestampText(orderPullAt)}',
                 style: TextStyle(
                     color: Theme.of(context).textTheme.bodyMedium?.color,
                     fontSize: 11),
               ),
               const SizedBox(height: 2),
               Text(
-                'Sync Finance: ${_dateTime(financePullAt)}',
+                'Finance pull: ${_syncTimestampText(financePullAt)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -8002,7 +8094,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               ),
               const SizedBox(height: 2),
               Text(
-                'Sync Payout: ${_dateTime(payoutUpdateAt)}',
+                'Payout update: ${_syncTimestampText(payoutUpdateAt)}',
                 style: TextStyle(
                     color: Theme.of(context).textTheme.bodySmall?.color,
                     fontSize: 10.5),
@@ -8284,7 +8376,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         : (_sources.isNotEmpty ? _sources.length : _byMarketplace.length);
     final negativePayout = _negativePayoutTotal();
     final unpaidEstimatedHpp = _unpaidEstimatedHppTotal();
-    final sampleOrderCount = _num(_summary['sample_order_count']);
+    final abnormalSummarySource = _abnormalFilterSource();
+    final localSampleCount =
+        abnormalSummarySource.where(_isSampleFreeAbnormalRow).length;
+    final localNoPayoutCount =
+        abnormalSummarySource.where(_isNoPayoutAbnormalRow).length;
+    final localPayoutMinusCount =
+        abnormalSummarySource.where(_hasPayoutMinusSettlementReason).length;
+    final sampleOrderCount = _numFirstNonZero([
+      _summary['sample_order_count'],
+      _summary['sample_free_count'],
+      localSampleCount,
+    ]);
     final sampleHppTotal = _num(_summary['sample_hpp_total']);
     final sampleNegativePayout = _num(_summary['sample_negative_payout_total']);
     final sampleLossEstimate = _numFirstNonZero([
@@ -8296,11 +8399,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _summary['missing_payout_non_sample_count'],
       _summary['unpaid_order_count'],
       _summary['pending_payout_order_count'],
+      localNoPayoutCount,
     ]);
     final payoutMinusCount = _numFirstNonZero([
       _summary['payout_minus_count'],
       _summary['negative_payout_count'],
       _summary['minus_payout_count'],
+      localPayoutMinusCount,
     ]);
 
     if (_loading) {
@@ -9490,13 +9595,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
     final visibleAbnormales = _filteredAbnormales();
-    final pageMax = (_abnormalTotal <= 0)
+    final visibleTotal = _visibleAbnormalTotal();
+    final pageMax = (visibleTotal <= 0)
         ? 1
-        : ((_abnormalTotal + _abnormalPageSize - 1) ~/ _abnormalPageSize);
+        : ((visibleTotal + _abnormalPageSize - 1) ~/ _abnormalPageSize);
     final startRow =
-        _abnormalTotal <= 0 ? 0 : ((_abnormalPage - 1) * _abnormalPageSize) + 1;
+        visibleTotal <= 0 ? 0 : ((_abnormalPage - 1) * _abnormalPageSize) + 1;
     final endRow =
-        (_abnormalPage * _abnormalPageSize).clamp(0, _abnormalTotal).toInt();
+        (_abnormalPage * _abnormalPageSize).clamp(0, visibleTotal).toInt();
 
     // Count true refresh-payout datas for the info banner.
     final dataCount = visibleAbnormales.where(_isRefreshPayoutCandidate).length;
@@ -9605,7 +9711,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               ),
               child: Text(
                 _abnormalServerLoaded
-                    ? 'Hal $_abnormalPage/$pageMax · $startRow-$endRow dari $_abnormalTotal · $dataCount perlu cek payout'
+                    ? 'Hal $_abnormalPage/$pageMax · $startRow-$endRow dari $visibleTotal · $dataCount perlu cek payout'
                     : 'Belum ada hasil pencarian.',
                 style: TextStyle(
                     fontSize: 11,
@@ -9750,8 +9856,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 );
               }),
 
-            if (_abnormalServerLoaded &&
-                _abnormalTotal > _abnormalPageSize) ...[
+            if (_abnormalServerLoaded && visibleTotal > _abnormalPageSize) ...[
               SizedBox(height: 10),
               Row(
                 children: [
@@ -10853,23 +10958,80 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .map(_normalizeSkuOrderDetailDisplayRowV82o)
         .toList(growable: false);
 
-    final Set<String> seen = {};
-    final List<Map<String, dynamic>> deduped = [];
-    for (final row in normalized) {
-      final orderId = _text(row['order']).trim();
-      final itemId = _text(row['marketplace_order_item_id'] ??
-              row['external_order_item_id'] ??
-              row['order_item_id'] ??
-              row['line_id'])
-          .trim();
-      final sku = _text(row['sku']).trim();
-      final qty = _num(row['qty']).toStringAsFixed(0);
+    String cleanPart(dynamic value) {
+      final text = _cleanText(value, '').trim();
+      if (text == '-' || text.toLowerCase() == 'null') return '';
+      return text.toLowerCase();
+    }
+
+    String firstPart(Map<String, dynamic> row, List<String> keys) {
+      for (final key in keys) {
+        final value = cleanPart(row[key]);
+        if (value.isNotEmpty) return value;
+      }
+      return '';
+    }
+
+    String stableLineKey(Map<String, dynamic> row) {
+      final orderId = firstPart(row, const [
+        'order',
+        'order_sn',
+        'external_order_id',
+        'order_id',
+      ]);
+      final externalLineId = firstPart(row, const [
+        'external_order_item_id',
+        'platform_order_item_id',
+        'remote_order_item_id',
+        'line_item_id',
+        'line_id',
+      ]);
+      if (orderId.isNotEmpty && externalLineId.isNotEmpty) {
+        return 'line|$orderId|$externalLineId';
+      }
+
+      final resi = firstPart(row, const ['resi', 'tracking_number']);
+      final settlement = firstPart(row, const [
+        'statement_id',
+        'settlement_ref',
+        'settlement_id',
+        'statement_ref',
+      ]);
+      final sku = firstPart(row, const [
+        'local_sku',
+        'sku',
+        'marketplace_sku',
+        'marketplace_seller_sku',
+      ]);
+      final variant = firstPart(row, const [
+        'variant_name',
+        'marketplace_variation_name',
+        'product_name',
+        'title',
+      ]);
+      final qty = _num(row['qty']).toStringAsFixed(4);
       final gross = _num(row['gross']).toStringAsFixed(2);
       final payout =
           _num(row['payout'] ?? row['payout_amount']).toStringAsFixed(2);
-      final key = itemId.isNotEmpty
-          ? '$orderId|$itemId'
-          : '$orderId|$sku|$qty|$gross|$payout';
+      final hpp = _num(row['hpp_item'] ?? row['hpp']).toStringAsFixed(2);
+      return [
+        'facts',
+        orderId,
+        resi,
+        settlement,
+        sku,
+        variant,
+        qty,
+        gross,
+        payout,
+        hpp,
+      ].join('|');
+    }
+
+    final Set<String> seen = {};
+    final List<Map<String, dynamic>> deduped = [];
+    for (final row in normalized) {
+      final key = stableLineKey(row);
       if (!seen.contains(key)) {
         seen.add(key);
         deduped.add(row);
@@ -12217,22 +12379,55 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required dynamic value,
   }) {
     final clean = _cleanText(value, '');
-    return OutlinedButton.icon(
-      onPressed: clean.isEmpty
-          ? null
-          : () {
-              Clipboard.setData(ClipboardData(text: clean));
-              ScaffoldMessenger.of(targetContext).showSnackBar(
-                SnackBar(content: Text('$label disalin.')),
-              );
-            },
-      icon: Icon(icon, size: 14),
-      label: Text(label),
-      style: OutlinedButton.styleFrom(
-        minimumSize: Size.zero,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+    final enabled = clean.isNotEmpty;
+    final scheme = Theme.of(targetContext).colorScheme;
+    final foreground = enabled
+        ? scheme.primary
+        : Theme.of(targetContext).disabledColor.withValues(alpha: 0.75);
+    return Tooltip(
+      message: enabled ? label : '$label belum tersedia',
+      child: InkWell(
+        onTap: enabled
+            ? () {
+                Clipboard.setData(ClipboardData(text: clean));
+                ScaffoldMessenger.of(targetContext).showSnackBar(
+                  SnackBar(content: Text('$label disalin.')),
+                );
+              }
+            : null,
+        borderRadius: BorderRadius.zero,
+        child: Container(
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: enabled
+                ? scheme.primary.withValues(alpha: 0.08)
+                : Theme.of(targetContext).disabledColor.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.zero,
+            border: Border.all(
+              color: enabled
+                  ? scheme.primary.withValues(alpha: 0.42)
+                  : Theme.of(targetContext)
+                      .dividerColor
+                      .withValues(alpha: 0.45),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 13, color: foreground),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w900,
+                  color: foreground,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
