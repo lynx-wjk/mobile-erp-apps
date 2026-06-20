@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/utils/file_download.dart';
 
 class DataExportImportPage extends StatefulWidget {
   const DataExportImportPage({super.key});
@@ -264,14 +265,23 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
   }) async {
     final bytes = workbook.save();
     if (bytes == null) throw Exception('Gagal membuat file XLSX');
+    final data = Uint8List.fromList(bytes);
+    const mimeType =
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    final downloaded = await downloadBytesAsFile(
+      bytes: data,
+      fileName: fileName,
+      mimeType: mimeType,
+    );
+    if (downloaded) return;
 
     await Share.shareXFiles(
       [
         XFile.fromData(
-          Uint8List.fromList(bytes),
+          data,
           name: fileName,
-          mimeType:
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          mimeType: mimeType,
         ),
       ],
       subject: subject,

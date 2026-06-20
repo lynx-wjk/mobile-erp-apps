@@ -46,6 +46,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   bool _isSavingAutoPullSetting = false;
   MarketplaceOrderAutoPullSetting? _autoPullSetting;
   MarketplaceOrderPullJobDigest? _orderJobDigest;
+  DateTime? _orderDispatcherLastSuccessAt;
   String? _autoPullSettingWarning;
   String? _errorMessage;
   int _backgroundRefreshToken = 0;
@@ -354,11 +355,20 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   Future<bool> _refreshPersistentOrderPullLog() async {
+    final dispatcherLastSuccess =
+        await _service.getLatestOrderDispatcherSuccessAt(
+      tenantId: widget.currentUser.tenantId,
+    );
     final digest = await _service.getRecentOrderPullJobDigest(
       tenantId: widget.currentUser.tenantId,
       limit: 20,
     );
-    if (!mounted || digest == null || digest.total == 0) return false;
+    if (!mounted) return false;
+    _orderDispatcherLastSuccessAt = dispatcherLastSuccess;
+    if (digest == null || digest.total == 0) {
+      setState(() {});
+      return dispatcherLastSuccess != null;
+    }
 
     final updatedLabel = digest.latestUpdatedAt == null
         ? '-'
@@ -373,6 +383,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
 
     setState(() {
       _orderJobDigest = digest;
+      _orderDispatcherLastSuccessAt = dispatcherLastSuccess;
       _lastOrderDigestSignature = _orderDigestSignature(digest);
       _pullProgressFromServerActive = active;
       _pullProgressTitle = header;
@@ -1398,13 +1409,15 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     final jobDigest = _orderJobDigest;
     final settingUpdatedAt = setting?.lastAutoRunAt ?? setting?.updatedAt;
     final jobUpdatedAt = jobDigest?.latestUpdatedAt;
-    final latestUpdatedAt = jobUpdatedAt != null &&
-            (settingUpdatedAt == null || jobUpdatedAt.isAfter(settingUpdatedAt))
-        ? jobUpdatedAt
-        : settingUpdatedAt;
+    final latestUpdatedAt = _orderDispatcherLastSuccessAt ??
+        (jobUpdatedAt != null &&
+                (settingUpdatedAt == null ||
+                    jobUpdatedAt.isAfter(settingUpdatedAt))
+            ? jobUpdatedAt
+            : settingUpdatedAt);
     final updatedText = latestUpdatedAt == null
-        ? 'Updated: -'
-        : 'Updated: ${_dateTimeWib(latestUpdatedAt)} WIB';
+        ? 'Last order pull: -'
+        : 'Last order pull: ${_dateTimeWib(latestUpdatedAt)} WIB';
     final jobSummary = jobDigest == null
         ? null
         : 'Antrean: menunggu ${jobDigest.pending}, berjalan ${jobDigest.running}, selesai ${jobDigest.done}, gagal ${jobDigest.failed}';

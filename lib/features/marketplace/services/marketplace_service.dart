@@ -631,6 +631,27 @@ class MarketplaceService {
     }
   }
 
+  Future<DateTime?> getLatestOrderDispatcherSuccessAt({
+    required String tenantId,
+  }) async {
+    if (tenantId.trim().isEmpty) return null;
+    try {
+      final data = await _client
+          .from('marketplace_order_sync_state')
+          .select('last_success_at, updated_at')
+          .eq('tenant_id', tenantId)
+          .order('last_success_at', ascending: false)
+          .limit(1);
+      if (data is! List || data.isEmpty || data.first is! Map) return null;
+      final row = Map<String, dynamic>.from(data.first as Map);
+      return DateTime.tryParse(
+        (row['last_success_at'] ?? row['updated_at'] ?? '').toString(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<MarketplaceAccountPublic>> listAccounts({
     required String tenantId,
   }) async {

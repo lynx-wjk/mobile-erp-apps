@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/utils/file_download.dart';
 import '../services/finance_local_cache.dart';
 
 class FinanceReportPage extends StatefulWidget {
@@ -58,9 +59,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String _lastSnapshotStats = '';
   Map<String, dynamic> _marketplaceBootstrapUiStatus =
       const <String, dynamic>{};
+  Map<String, dynamic> _dispatcherSnapshot = const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260620_v32_order_mtd_active_hpp_web_xlsx';
+      'finance_live_20260620_v33_fast_mtd_sku_web_xlsx';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -95,7 +97,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   int _skuServerPageLoaded = 1;
   bool _skuHasMoreServerRows = true;
   bool _skuLoadingMore = false;
-  static const int _skuPageSize = 50;
+  static const int _skuPageSize = 20;
+  static const int _skuDetailPageSize = 25;
+  String? _skuDetailBusyKey;
   List<Map<String, dynamic>> _cashFlow = [];
   List<Map<String, dynamic>> _cashOpeningBalances = [];
   List<Map<String, dynamic>> _cashAdjustments = [];
@@ -213,6 +217,93 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         );
       }
     }
+  }
+
+  Future<void> _loadDispatcherSnapshot({bool showError = false}) async {
+    if (_currentTenantId.trim().isEmpty) return;
+    try {
+      final responses = await Future.wait<dynamic>([
+        _client
+            .from('marketplace_order_sync_state')
+            .select('tenant_id, last_success_at, updated_at')
+            .eq('tenant_id', _currentTenantId)
+            .order('last_success_at', ascending: false)
+            .limit(20)
+            .timeout(const Duration(seconds: 5)),
+        _client
+            .from('marketplace_finance_sync_state')
+            .select('tenant_id, last_success_at, updated_at')
+            .eq('tenant_id', _currentTenantId)
+            .order('last_success_at', ascending: false)
+            .limit(20)
+            .timeout(const Duration(seconds: 5)),
+        _client
+            .from('marketplace_finance_reports')
+            .select('updated_at')
+            .eq('tenant_id', _currentTenantId)
+            .order('updated_at', ascending: false)
+            .limit(1)
+            .timeout(const Duration(seconds: 5)),
+      ]);
+      if (!mounted) return;
+      final orderStates = responses[0] is List
+          ? (responses[0] as List)
+              .whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row))
+              .toList(growable: false)
+          : <Map<String, dynamic>>[];
+      final payoutUpdatedAt = responses[2] is List &&
+              (responses[2] as List).isNotEmpty &&
+              (responses[2] as List).first is Map
+          ? Map<String, dynamic>.from(
+              (responses[2] as List).first as Map)['updated_at']
+          : null;
+      final financeStates = responses[1] is List
+          ? (responses[1] as List)
+              .whereType<Map>()
+              .map((row) => <String, dynamic>{
+                    ...Map<String, dynamic>.from(row),
+                    'last_finance_updated_at': payoutUpdatedAt,
+                  })
+              .toList(growable: false)
+          : <Map<String, dynamic>>[];
+      setState(() {
+        _dispatcherSnapshot = <String, dynamic>{
+          'order_states': orderStates,
+          'finance_states': financeStates,
+        };
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _dispatcherSnapshot = const <String, dynamic>{};
+      });
+      if (showError) {
+        AppUi.safeSnack(
+          context,
+          'Status dispatcher marketplace belum tersedia.',
+        );
+      }
+    }
+  }
+
+  DateTime? _maxDate(DateTime? a, DateTime? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return b.isAfter(a) ? b : a;
+  }
+
+  DateTime? _latestDispatcherTimestamp(
+    String listKey,
+    List<String> fields,
+  ) {
+    DateTime? latest;
+    for (final row in _asList(_dispatcherSnapshot[listKey])) {
+      for (final field in fields) {
+        latest = _maxDate(latest, _parseDate(row[field]));
+      }
+    }
+    return latest;
   }
 
   Future<void> _setFinanceAutoSyncEnabled(bool enabled) async {
@@ -335,7 +426,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       final fallbackResponse = await _buildFallbackFinanceSnapshot(params);
       if (fallbackResponse != null) {
-        _lastSnapshotStats = 'fallback_marketplace_finance_reports · MTD raw';
+        _lastSnapshotStats = 'fallback_dashboard_mtd_rpc';
         return fallbackResponse;
       }
     } catch (fallbackErr) {
@@ -351,12 +442,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Future<dynamic> _buildFallbackFinanceSnapshot(
       Map<String, dynamic> params) async {
-    final startStr = params['p_start']?.toString();
-    final endStr = params['p_end']?.toString();
     final mktFilter = params['p_marketplace']?.toString().trim().toLowerCase();
-    final accFilter = params['p_account_id']?.toString().trim();
-
-    if (startStr == null || endStr == null) return null;
 
     try {
       final accountsResponse = await _client
@@ -368,78 +454,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ? accountsResponse.map((e) => Map<String, dynamic>.from(e)).toList()
           : <Map<String, dynamic>>[];
 
-      var query = _client
-          .from('marketplace_finance_reports')
-          .select(
-              'gross_amount, gross_sales, payout_amount, received_amount, net_settlement, total_hpp, marketplace, period_start, order_id, marketplace_order_id, marketplace_account_id')
-          .eq('tenant_id', _currentTenantId)
-          .gte('period_start', startStr)
-          .lte('period_start', endStr);
-
-      if (mktFilter != null && mktFilter.isNotEmpty) {
-        if (mktFilter == 'shopee') {
-          query = query.eq('marketplace', 'shopee');
-        } else if (mktFilter == 'tiktok' || mktFilter == 'tiktok_shop') {
-          query = query.inFilter('marketplace', ['tiktok', 'tiktok_shop']);
-        }
-      }
-      if (accFilter != null && accFilter.isNotEmpty) {
-        query = query.eq('marketplace_account_id', accFilter);
-      }
-
-      final reportsRes = await query.limit(5000);
-      final rows = reportsRes is List
-          ? reportsRes.map((e) => Map<String, dynamic>.from(e)).toList()
-          : <Map<String, dynamic>>[];
-
-      var gross = 0.0;
-      var payout = 0.0;
-      var hpp = 0.0;
-      var negativeCount = 0;
-      var negativeAbs = 0.0;
-      final orderKeys = <String>{};
-
-      for (final row in rows) {
-        final orderKey =
-            AppUi.text(row['order_id'] ?? row['marketplace_order_id']);
-        if (orderKey.trim().isNotEmpty) orderKeys.add(orderKey);
-
-        final rowGross = AppUi.toNum(row['gross_amount'] ?? row['gross_sales']);
-        final rowPayout = AppUi.toNum(row['payout_amount'] ??
-            row['received_amount'] ??
-            row['net_settlement']);
-        final rowHpp = AppUi.toNum(row['total_hpp']);
-
-        gross += rowGross;
-        payout += rowPayout;
-        hpp += rowHpp;
-
-        if (rowPayout < 0) {
-          negativeCount += 1;
-          negativeAbs += rowPayout.abs();
-        }
-      }
-
-      final summary = <String, dynamic>{
-        'gross_sales': gross,
-        'omzet_total': gross,
-        'payout_total': payout,
-        'net_settlement': payout,
-        'hpp_total': hpp,
-        'total_hpp': hpp,
-        'orders_count': orderKeys.length,
-        'finance_order_count': orderKeys.length,
-        'abnormal_count': negativeCount,
-        'negative_payout_total_abs': negativeAbs,
-        'net_profit': payout - hpp,
-      };
+      final dashboard = await _client.rpc(
+        'dashboard_marketplace_order_analytics_90d',
+        params: {
+          'p_marketplace':
+              (mktFilter == null || mktFilter.isEmpty) ? null : mktFilter,
+          'p_days': 20,
+        },
+      ).timeout(const Duration(seconds: 5));
+      final dashboardMap = _asMap(dashboard);
+      final summary = _asMap(dashboardMap['summary']);
 
       return <String, dynamic>{
+        'source': 'finance_dashboard_snapshot_fallback',
+        'source_table': 'dashboard_marketplace_order_analytics_90d',
+        'daily': dashboardMap['daily'] ?? const <dynamic>[],
+        'by_marketplace': dashboardMap['by_marketplace'] ?? const <dynamic>[],
         'accounts': accountsList,
         'summary': summary,
         'abnormal_aggregates': <String, dynamic>{
-          'abnormal_count': negativeCount,
-          'negative_payout_total_abs': negativeAbs,
+          'abnormal_count': summary['abnormal_count'] ?? 0,
+          'negative_payout_total_abs':
+              summary['negative_payout_total_abs'] ?? 0,
         },
         'expenses': const <dynamic>[],
         'approved_purchases': const <dynamic>[],
@@ -2029,6 +2065,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         return;
       }
       await _loadFinanceAutoSyncSetting(showError: false);
+      if (!isCurrentFinanceLoad()) return;
+      await _loadDispatcherSnapshot();
       if (!isCurrentFinanceLoad()) return;
 
       _marketplaceFilter =
@@ -5489,14 +5527,31 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .split('.')
           .first;
       final fileName = 'laporan_keuangan_semua_marketplace_$stamp.xlsx';
+      final fileBytes = Uint8List.fromList(bytes);
+      const mimeType =
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+      final downloaded = await downloadBytesAsFile(
+        bytes: fileBytes,
+        fileName: fileName,
+        mimeType: mimeType,
+      );
+      if (downloaded) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content:
+                  Text('Export laporan semua marketplace berhasil diunduh.')),
+        );
+        return;
+      }
 
       await Share.shareXFiles(
         [
           XFile.fromData(
-            Uint8List.fromList(bytes),
+            fileBytes,
             name: fileName,
-            mimeType:
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            mimeType: mimeType,
           ),
         ],
         subject: 'Laporan keuangan semua marketplace',
@@ -7706,12 +7761,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _financeSyncInfo() {
-    final manual = _summary['last_manual_finance_sync_at'];
-    final auto = _financeAutoSyncLastRunAt ??
-        _parseDate(_summary['last_auto_finance_sync_at']);
-    final finance = _summary['last_finance_updated_at'];
-    final order = _summary['last_order_pulled_at'];
     final period = '${_date(_start)} s/d ${_date(_end)}';
+    final orderPullAt = _latestDispatcherTimestamp(
+      'order_states',
+      const ['last_success_at', 'last_order_updated_at'],
+    );
+    final financePullAt = _latestDispatcherTimestamp(
+      'finance_states',
+      const ['last_success_at'],
+    );
+    final payoutUpdateAt = _latestDispatcherTimestamp(
+      'finance_states',
+      const ['last_finance_updated_at'],
+    );
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(10),
@@ -7732,21 +7794,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ),
           SizedBox(height: 4),
           Text(
-            ' ${_dateTime(manual)}',
+            'Last order pull: ${_dateTime(orderPullAt)}',
             style: TextStyle(
                 color: Theme.of(context).textTheme.bodyMedium?.color,
                 fontSize: 11),
           ),
           Text(
-            ' ${_dateTime(auto)}${_financeAutoSyncMessage.isNotEmpty ? ' · $_financeAutoSyncMessage' : ''}',
-            maxLines: 2,
+            'Last finance pull: ${_dateTime(financePullAt)}',
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
                 color: Theme.of(context).textTheme.bodyMedium?.color,
                 fontSize: 11),
           ),
           Text(
-            'Order: ${_dateTime(order)} · Finance: ${_dateTime(finance)}',
+            'Last payout update: ${_dateTime(payoutUpdateAt)}',
             style: TextStyle(
                 color: Theme.of(context).textTheme.bodySmall?.color,
                 fontSize: 10.5),
@@ -8358,6 +8420,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               final belowTarget = !hppMissing &&
                   targetMargin > 0 &&
                   actualMargin < targetMargin;
+              final settledBusy =
+                  _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'paid');
+              final unpaidBusy =
+                  _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'unpaid');
               return _detailCard(
                 title: sku,
                 subtitle: [
@@ -8370,9 +8436,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   spacing: 6,
                   children: [
                     TextButton.icon(
-                      onPressed: () =>
-                          _showSkuOrderRefsV82o(row, payoutFilter: 'paid'),
-                      icon: Icon(Icons.receipt_long_rounded, size: 16),
+                      onPressed: settledBusy
+                          ? null
+                          : () => _showSkuOrderRefsV82o(
+                                row,
+                                payoutFilter: 'paid',
+                              ),
+                      icon: settledBusy
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(Icons.receipt_long_rounded, size: 16),
                       label: Text('Settled $paidQtyDisplay',
                           style: TextStyle(fontSize: 12)),
                       style: TextButton.styleFrom(
@@ -8383,9 +8459,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       ),
                     ),
                     TextButton.icon(
-                      onPressed: () =>
-                          _showSkuOrderRefsV82o(row, payoutFilter: 'unpaid'),
-                      icon: Icon(Icons.pending_actions_rounded, size: 16),
+                      onPressed: unpaidBusy
+                          ? null
+                          : () => _showSkuOrderRefsV82o(
+                                row,
+                                payoutFilter: 'unpaid',
+                              ),
+                      icon: unpaidBusy
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(Icons.pending_actions_rounded, size: 16),
                       label: Text('Belum payout $unpaidQtyDisplay',
                           style: TextStyle(fontSize: 12)),
                       style: TextButton.styleFrom(
@@ -10693,7 +10779,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     Map<String, dynamic> row,
     String payoutFilter, {
     int page = 1,
-    int pageSize = 100,
+    int pageSize = _skuDetailPageSize,
     String keyword = '',
   }) async {
     final lookup = _skuOrderLookupParamsV82o(row);
@@ -10765,7 +10851,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         row,
         payoutFilter,
         page: 1,
-        pageSize: 100,
+        pageSize: _skuDetailPageSize,
       );
       final rows = result['rows'];
       if (rows is List<Map<String, dynamic>>) return rows;
@@ -10779,8 +10865,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return <Map<String, dynamic>>[];
   }
 
+  String _skuDetailBusyKeyV82o(Map<String, dynamic> row, String payoutFilter) {
+    final lookup = _skuOrderLookupParamsV82o(row);
+    return [
+      payoutFilter,
+      lookup['marketplace_sku'] ?? '',
+      lookup['local_sku'] ?? '',
+      lookup['fallback_search'] ?? '',
+    ].join('|');
+  }
+
   Future<void> _showSkuOrderRefsV82o(Map<String, dynamic> row,
       {String payoutFilter = 'all'}) async {
+    final busyKey = _skuDetailBusyKeyV82o(row, payoutFilter);
+    if (_skuDetailBusyKey == busyKey) return;
+    if (mounted) setState(() => _skuDetailBusyKey = busyKey);
+
     final payoutLabel = payoutFilter == 'paid'
         ? 'sudah ada payout'
         : payoutFilter == 'unpaid'
@@ -10793,9 +10893,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         row,
         payoutFilter,
         page: 1,
-        pageSize: 100,
+        pageSize: _skuDetailPageSize,
       );
     } catch (error) {
+      if (mounted && _skuDetailBusyKey == busyKey) {
+        setState(() => _skuDetailBusyKey = null);
+      }
       _setMessage(
           'Detail order SKU ($payoutLabel) gagal dimuat: ${_cleanError(error)}');
       return;
@@ -10807,11 +10910,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             .toList() ??
         <Map<String, dynamic>>[];
     var page = _positiveIntV82o(pageResult['page'], 1);
-    var pageSize = _positiveIntV82o(pageResult['page_size'], 100);
+    var pageSize =
+        _positiveIntV82o(pageResult['page_size'], _skuDetailPageSize);
     var total = _intFromV82o(pageResult['total'], rows.length);
     var totalPages = _positiveIntV82o(pageResult['total_pages'], 1);
 
     if (rows.isEmpty && total <= 0) {
+      if (mounted && _skuDetailBusyKey == busyKey) {
+        setState(() => _skuDetailBusyKey = null);
+      }
       _setMessage(
           'Detail order SKU ($payoutLabel) belum ditemukan dari server.');
       return;
@@ -10841,7 +10948,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           row,
           payoutFilter,
           page: nextPage < 1 ? 1 : nextPage,
-          pageSize: 100,
+          pageSize: _skuDetailPageSize,
           keyword: cleanKeyword,
         );
         if (!sheetOpen) return;
@@ -10853,7 +10960,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         setSheetState(() {
           rows = nextRows;
           page = _positiveIntV82o(result['page'], nextPage);
-          pageSize = _positiveIntV82o(result['page_size'], 100);
+          pageSize = _positiveIntV82o(result['page_size'], _skuDetailPageSize);
           total = _intFromV82o(result['total'], nextRows.length);
           totalPages = _positiveIntV82o(result['total_pages'], 1);
           loadingPage = false;
@@ -11261,6 +11368,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     } finally {
       sheetOpen = false;
       searchController.dispose();
+      if (mounted && _skuDetailBusyKey == busyKey) {
+        setState(() => _skuDetailBusyKey = null);
+      }
     }
   }
 
