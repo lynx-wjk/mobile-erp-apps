@@ -103,7 +103,8 @@ class _HostLivePageState extends State<HostLivePage> {
       dynamic usersQuery = _client
           .from('users')
           .select('user_id, nama, email, role_id, status, tenant_id')
-          .eq('status', 'active');
+          .eq('status', 'active')
+          .neq('role_id', 'platform_owner');
       if (_tenantId.isNotEmpty) {
         usersQuery = usersQuery.eq('tenant_id', _tenantId);
       }

@@ -94,6 +94,7 @@ class _TaskPageState extends State<TaskPage> {
           .from('users')
           .select('user_id, nama, email, role_id, status')
           .eq('status', 'active')
+          .neq('role_id', 'platform_owner')
           .order('nama', ascending: true);
 
       final allUsers = (userData as List)

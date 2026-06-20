@@ -193,6 +193,9 @@ class PhotoEvidenceService {
   Uri _resolveUploadUri() {
     final proxyUrl = dotenv.env['PHOTO_UPLOAD_PROXY_URL']?.trim() ?? '';
     final directUrl = dotenv.env['GOOGLE_DRIVE_UPLOAD_URL']?.trim() ?? '';
+    final supabaseUrl = (dotenv.env['SUPABASE_URL'] ?? '').trim();
+    final cleanUrl = supabaseUrl.endsWith('/') ? supabaseUrl.substring(0, supabaseUrl.length - 1) : supabaseUrl;
+    final functionsUrl = '$cleanUrl/functions/v1';
 
     if (kIsWeb) {
       if (proxyUrl.isNotEmpty) {
@@ -202,7 +205,7 @@ class PhotoEvidenceService {
         );
       }
       return _validateHttpUri(
-        Uri.base.resolve('/functions/v1/upload-drive'),
+        Uri.parse('$functionsUrl/upload-drive'),
         envName: 'PHOTO_UPLOAD_PROXY_URL',
       );
     }
@@ -228,9 +231,10 @@ class PhotoEvidenceService {
       return _validateHttpUri(parsed, envName: 'PHOTO_UPLOAD_PROXY_URL');
     }
 
-    throw Exception(
-      'Endpoint upload foto belum dikonfigurasi. Isi GOOGLE_DRIVE_UPLOAD_URL untuk Android/iOS, '
-      'atau isi PHOTO_UPLOAD_PROXY_URL dengan URL https absolut.',
+    // Default to the Supabase Edge Function URL as fallback for native
+    return _validateHttpUri(
+      Uri.parse('$functionsUrl/upload-drive'),
+      envName: 'PHOTO_UPLOAD_PROXY_URL',
     );
   }
 

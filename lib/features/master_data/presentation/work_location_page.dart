@@ -335,6 +335,7 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
           .from('users')
           .select('user_id, nama, role_id, status, email')
           .neq('status', 'deleted')
+          .neq('role_id', 'platform_owner')
           .order('nama');
       if (!mounted) return;
       final users = (data as List<dynamic>)

@@ -106,10 +106,13 @@ class _UserManagementPageState extends State<UserManagementPage> {
           .from('users')
           .select(
               'user_id, nama, username, email, role_id, status, nomor_hp, created_at, updated_at')
+          .neq('role_id', 'platform_owner')
           .order('created_at', ascending: false);
 
-      final items =
-          (data as List).map((e) => Map<String, dynamic>.from(e)).toList();
+      final items = (data as List)
+          .map((e) => Map<String, dynamic>.from(e))
+          .where((e) => AppUi.text(e['role_id']).toLowerCase() != 'platform_owner')
+          .toList();
 
       if (!mounted) return;
 
@@ -160,6 +163,9 @@ class _UserManagementPageState extends State<UserManagementPage> {
     if (!_canManageUsers) return false;
     if (user == null) return true;
     final targetRole = AppUi.text(user['role_id']).toLowerCase();
+    if (targetRole == 'platform_owner') {
+      return false;
+    }
     if (_isOperationalAdmin &&
         AppRolePermissions.isSensitiveUserRole(targetRole)) {
       return false;
@@ -170,6 +176,9 @@ class _UserManagementPageState extends State<UserManagementPage> {
   bool _canDeleteUser(Map<String, dynamic> user) {
     if (!_isSuperAdmin || _isDemoSuperAdmin) return false;
     final targetRole = AppUi.text(user['role_id']).toLowerCase();
+    if (targetRole == 'platform_owner') {
+      return false;
+    }
     return !AppRolePermissions.isDemoSuperAdminId(targetRole);
   }
 
@@ -212,8 +221,56 @@ class _UserManagementPageState extends State<UserManagementPage> {
     required String status,
   }) async {
     if (!_guardDemoUserManagement()) return;
-    if (!_canAssignRole(role)) {
-      throw Exception('Role ini hanya bisa diatur oleh Super Admin.');
+
+    Map<String, dynamic>? existingUser;
+    if (existingId != null) {
+      final res = await _client
+          .from('users')
+          .select()
+          .eq('user_id', existingId)
+          .maybeSingle();
+      if (res != null) {
+        existingUser = Map<String, dynamic>.from(res);
+      }
+    }
+
+    final originalRole = existingUser?['role_id']?.toString();
+    final originalTenantId = existingUser?['tenant_id']?.toString();
+
+    String finalRole = role;
+    String finalStatus = status;
+    String? finalTenantId = originalTenantId;
+
+    if (existingUser != null) {
+      if (originalRole != null && AppRolePermissions.isPlatformOwnerId(originalRole)) {
+        finalRole = originalRole;
+        finalStatus = 'active';
+      } else {
+        if (originalRole != role) {
+          if (!_canAssignRole(role) || originalRole == 'platform_owner') {
+            throw Exception('Anda tidak memiliki wewenang untuk mengubah role dari $originalRole ke $role.');
+          }
+        }
+      }
+    } else {
+      if (AppRolePermissions.isPlatformOwnerId(role)) {
+        throw Exception('Tidak dapat membuat user baru dengan role Platform Owner.');
+      }
+      if (!_canAssignRole(role)) {
+        throw Exception('Anda tidak memiliki wewenang untuk mengatur role ke $role.');
+      }
+      final authUser = _client.auth.currentUser;
+      if (authUser != null) {
+        final currentProfile = await _client
+            .from('users')
+            .select('tenant_id')
+            .eq('user_id', authUser.id)
+            .maybeSingle();
+        finalTenantId = currentProfile?['tenant_id']?.toString();
+      }
+      if (finalTenantId == null) {
+        throw Exception('Tenant ID tidak ditemukan untuk user saat ini.');
+      }
     }
 
     final payload = {
@@ -222,8 +279,9 @@ class _UserManagementPageState extends State<UserManagementPage> {
       'username': username.isEmpty ? nama : username,
       'email': email,
       'nomor_hp': nomorHp,
-      'role_id': role,
-      'status': status,
+      'role_id': finalRole,
+      'status': finalStatus,
+      if (finalTenantId != null) 'tenant_id': finalTenantId,
       'updated_at': DateTime.now().toIso8601String(),
       if (existingId == null) 'created_at': DateTime.now().toIso8601String(),
     };
@@ -254,9 +312,13 @@ class _UserManagementPageState extends State<UserManagementPage> {
       text: AppUi.text(user?['nomor_hp'], ''),
     );
 
-    String role = _assignableRoles.contains(user?['role_id'])
-        ? user!['role_id'].toString()
-        : 'warehouse';
+    final originalRole = user?['role_id']?.toString();
+    final dropdownRoles = List<String>.from(_assignableRoles);
+    if (originalRole != null && !dropdownRoles.contains(originalRole)) {
+      dropdownRoles.add(originalRole);
+    }
+    String role = originalRole ?? 'warehouse';
+    final bool isRoleEditable = user == null || (_canAssignRole(originalRole ?? '') && originalRole != 'platform_owner');
     String status = AppUi.text(user?['status'], 'active');
     bool saving = false;
 
@@ -441,13 +503,13 @@ class _UserManagementPageState extends State<UserManagementPage> {
                       labelText: 'Role',
                       border: OutlineInputBorder(),
                     ),
-                    items: _assignableRoles
-                        .map((role) => DropdownMenuItem(
-                              value: role,
-                              child: Text(_roleLabel(role)),
+                    items: dropdownRoles
+                        .map((r) => DropdownMenuItem(
+                              value: r,
+                              child: Text(_roleLabel(r)),
                             ))
                         .toList(),
-                    onChanged: saving
+                    onChanged: (saving || !isRoleEditable)
                         ? null
                         : (value) {
                             if (value == null) return;
@@ -547,6 +609,11 @@ class _UserManagementPageState extends State<UserManagementPage> {
   }
 
   Future<void> _showResetPasswordDialog(Map<String, dynamic> user) async {
+    final targetRole = AppUi.text(user['role_id']).toLowerCase();
+    if (targetRole == 'platform_owner') {
+      AppUi.showSnack('Reset password Platform Owner tidak diijinkan dari tenant context.');
+      return;
+    }
     final passwordCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
@@ -721,7 +788,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
                     'ID: ${AppUi.text(user['user_id'])}',
                   ),
                   isThreeLine: true,
-                  trailing: _canManageUsers
+                  trailing: (_canManageUsers && AppUi.text(user['role_id']).toLowerCase() != 'platform_owner')
                       ? PopupMenuButton<String>(
                           onSelected: (value) {
                             if (value == 'edit') _openForm(user);

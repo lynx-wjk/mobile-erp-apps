@@ -274,6 +274,24 @@ class _MarketplaceRefundMonitorPageState
       initialDateRange: DateTimeRange(start: initialStart, end: initialEnd),
       firstDate: firstDate,
       lastDate: lastDate,
+      builder: (BuildContext context, Widget? child) {
+        return Align(
+          alignment: Alignment.center,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: 420,
+              maxHeight: 560,
+            ),
+            child: Material(
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: child,
+            ),
+          ),
+        );
+      },
     );
     if (picked == null) return;
     setState(() {

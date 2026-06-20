@@ -109,6 +109,7 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
           .from('users')
           .select('user_id, nama, email, role_id, status')
           .eq('status', 'active')
+          .neq('role_id', 'platform_owner')
           .order('nama', ascending: true);
 
       if (!mounted) return;
