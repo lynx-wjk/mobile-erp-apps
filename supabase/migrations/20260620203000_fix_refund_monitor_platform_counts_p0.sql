@@ -87,6 +87,8 @@ begin
       and (coalesce(o.order_created_at, o.created_time, o.paid_at, o.created_at) at time zone 'Asia/Jakarta')::date between v_start and v_end
       and (
         upper(coalesce(o.order_status, o.status, '')) in ('CANCELLED', 'CANCELED', 'UNPAID', 'RETURNED', 'REFUND', 'REFUNDED', 'AWAITING_COLLECTION')
+        or upper(coalesce(o.logistic_status, '')) = 'AWAITING_COLLECTION'
+        or nullif(o.label_code, '') is not null
         or coalesce(o.has_cancel_request, false) = true
         or nullif(o.cancel_request_id, '') is not null
         or nullif(o.return_case_id, '') is not null
