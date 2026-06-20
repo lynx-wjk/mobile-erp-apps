@@ -789,7 +789,7 @@ String _formatDateTime(Object? value) {
   if (parsed == null) return text;
   final local = parsed.toUtc().add(const Duration(hours: 7));
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} '
+  return '${two(local.day)}/${two(local.month)}/${local.year} '
       '${two(local.hour)}:${two(local.minute)} WIB';
 }
 

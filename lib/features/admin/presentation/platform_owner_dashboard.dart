@@ -1061,12 +1061,20 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                       AppUi.toNum(row['order_count']).toInt();
                                   final financeCount =
                                       AppUi.toNum(row['finance_count']).toInt();
-                                  final skuMapped =
+                                  final rawSkuMapped =
                                       AppUi.toNum(row['sku_mapped_count'])
                                           .toInt();
-                                  final hppMapped =
+                                  final rawHppMapped =
                                       AppUi.toNum(row['hpp_mapped_count'])
                                           .toInt();
+                                  final skuMapped = variantsCount > 0 &&
+                                          rawSkuMapped > variantsCount
+                                      ? variantsCount
+                                      : rawSkuMapped;
+                                  final hppMapped = variantsCount > 0 &&
+                                          rawHppMapped > variantsCount
+                                      ? variantsCount
+                                      : rawHppMapped;
                                   final unmappedItems = AppUi.toNum(
                                           row['unmapped_order_item_count'])
                                       .toInt();

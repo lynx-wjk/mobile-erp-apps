@@ -186,8 +186,7 @@ class _MarketplaceRefundMonitorPageState
         return;
       }
 
-      final payload =
-          await _callReviewRpc('marketplace_refund_cancel_review');
+      final payload = await _callReviewRpc('marketplace_refund_cancel_review');
 
       final safePayload = payload;
       final rawRows = safePayload['rows'];
@@ -231,48 +230,50 @@ class _MarketplaceRefundMonitorPageState
     final items = await _pickService.listReturnReviews(
       tenantId: tenantId,
       marketplaceAccountId: _selectedAccountParam,
+      marketplace: _selectedMarketplaceParam,
+      startDate: _dateParam(_startDate),
+      endDate: _dateParam(_endDate),
+      search: _searchController.text.trim(),
+      page: _page,
       status: 'all',
-      limit: 150,
+      limit: _pageSize,
     );
 
-    final search = _searchController.text.trim().toLowerCase();
-    final filtered = search.isEmpty
-        ? items
-        : items.where((item) {
-            final haystack = [
-              item.externalOrderId,
-              item.orderSn,
-              item.trackingNumber,
-              item.marketplaceItemTitle,
-              item.localItemTitle,
-              item.sellerSku,
-            ].whereType<String>().join(' ').toLowerCase();
-            return haystack.contains(search);
-          }).toList();
-    final marketplaceFiltered = _marketplace == 'all'
-        ? filtered
-        : filtered
-            .where((item) =>
-                MarketplaceProviders.normalize(item.marketplace) ==
-                _marketplace)
-            .toList(growable: false);
+    final offset = (_page - 1) * _pageSize;
+    final totalEstimate =
+        offset + items.length + (items.length == _pageSize ? 1 : 0);
 
     if (!mounted) return;
     setState(() {
       _version = 'cek item';
-      _total = marketplaceFiltered.length;
+      _total = totalEstimate;
       _rows = <Map<String, dynamic>>[];
-      _reviewItems = marketplaceFiltered;
+      _reviewItems = items;
       _loading = false;
     });
   }
 
   Future<void> _pickDateRange() async {
+    final today = DateTime.now();
+    final firstDate = DateTime(today.year, today.month, today.day)
+        .subtract(const Duration(days: 90));
+    final lastDate = DateTime(today.year, today.month, today.day)
+        .add(const Duration(days: 365));
+    DateTime clampDate(DateTime value) {
+      final date = DateTime(value.year, value.month, value.day);
+      if (date.isBefore(firstDate)) return firstDate;
+      if (date.isAfter(lastDate)) return lastDate;
+      return date;
+    }
+
+    final initialStart = clampDate(_startDate);
+    var initialEnd = clampDate(_endDate);
+    if (initialEnd.isBefore(initialStart)) initialEnd = initialStart;
     final picked = await showDateRangePicker(
       context: context,
-      initialDateRange: DateTimeRange(start: _startDate, end: _endDate),
-      firstDate: DateTime.now().subtract(const Duration(days: 90)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDateRange: DateTimeRange(start: initialStart, end: initialEnd),
+      firstDate: firstDate,
+      lastDate: lastDate,
     );
     if (picked == null) return;
     setState(() {
@@ -370,11 +371,16 @@ class _MarketplaceRefundMonitorPageState
                 ),
                 SizedBox(height: 6),
                 Text('Resi: $code',
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.6))),
                 SizedBox(height: 12),
                 ...matches.map((row) {
                   final source = _asText(row['source'], fallback: 'database');
-                  final shop = _asText(row['shop_name'], fallback: 'Semua toko');
+                  final shop =
+                      _asText(row['shop_name'], fallback: 'Semua toko');
                   final resi = _asText(row['tracking_number'] ??
                       row['return_tracking_number'] ??
                       row['label_code']);
@@ -384,19 +390,26 @@ class _MarketplaceRefundMonitorPageState
                       title: Text(
                         _asText(row['external_order_id']),
                         style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w800),
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontWeight: FontWeight.w800),
                       ),
                       subtitle: Text(
                         '$shop - ${_asText(row['marketplace'])} - $resi ($source)',
-                        style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.6)),
                       ),
                       trailing: Icon(Icons.chevron_right,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.7)),
                       onTap: () => Navigator.pop(sheetContext, row),
                     ),
                   );
                 }),
-
               ],
             ),
           );
@@ -488,7 +501,11 @@ class _MarketplaceRefundMonitorPageState
                     ),
                     IconButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
+                      icon: Icon(Icons.close,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.7)),
                     ),
                   ],
                 ),
@@ -558,7 +575,11 @@ class _MarketplaceRefundMonitorPageState
                       Text(
                         _asText(row['note']),
                         style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7), height: 1.35),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.7),
+                            height: 1.35),
                       ),
                     ],
                   ),
@@ -566,7 +587,12 @@ class _MarketplaceRefundMonitorPageState
                 SizedBox(height: 14),
                 Text(
                   'Gunakan detail ini untuk mencocokkan resi, status pesanan, dan item sebelum keputusan stok.',
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.54), height: 1.35),
+                  style: TextStyle(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.54),
+                      height: 1.35),
                 ),
               ],
             );
@@ -583,11 +609,15 @@ class _MarketplaceRefundMonitorPageState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label,
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.38), fontSize: 12)),
+              style: TextStyle(
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withOpacity(0.38),
+                  fontSize: 12)),
           SizedBox(height: 3),
           SelectableText(value,
               style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w700)),
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontWeight: FontWeight.w700)),
         ],
       ),
     );
@@ -605,9 +635,14 @@ class _MarketplaceRefundMonitorPageState
         onSelected: (_) => onTap(),
         selectedColor: Colors.cyanAccent.withOpacity(0.22),
         backgroundColor: Theme.of(context).cardColor,
-        labelStyle:
-            TextStyle(color: selected ? Colors.cyanAccent : Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
-        side: BorderSide(color: selected ? Colors.cyanAccent : Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
+        labelStyle: TextStyle(
+            color: selected
+                ? Colors.cyanAccent
+                : Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
+        side: BorderSide(
+            color: selected
+                ? Colors.cyanAccent
+                : Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
       ),
     );
   }
@@ -623,7 +658,8 @@ class _MarketplaceRefundMonitorPageState
       color: Theme.of(context).cardColor,
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1))),
+          side: BorderSide(
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1))),
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -666,7 +702,11 @@ class _MarketplaceRefundMonitorPageState
               SizedBox(height: 8),
               Text(
                 '${_asText(row['marketplace'])} • ${_asText(row['order_status'])}',
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+                style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.6)),
               ),
               SizedBox(height: 14),
               Wrap(
@@ -690,7 +730,12 @@ class _MarketplaceRefundMonitorPageState
                       Border.all(color: Colors.cyanAccent.withOpacity(0.18)),
                 ),
                 child: Text(_asText(row['note']),
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7), height: 1.3)),
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.7),
+                        height: 1.3)),
               ),
             ],
           ),
@@ -825,17 +870,26 @@ class _MarketplaceRefundMonitorPageState
                       ),
                       IconButton(
                         onPressed: () => AppUi.safePop(sheetContext, false),
-                        icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
+                        icon: Icon(Icons.close,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.7)),
                       ),
                     ],
                   ),
                   SizedBox(height: 8),
                   Text(item.marketplaceItemTitle,
                       style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w800)),
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontWeight: FontWeight.w800)),
                   SizedBox(height: 4),
                   Text(item.localItemTitle,
-                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
+                      style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.6))),
                   SizedBox(height: 14),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -867,13 +921,21 @@ class _MarketplaceRefundMonitorPageState
                         SizedBox(height: 6),
                         Text(
                           'SKU/Barcode lokal: ${item.localBarcode ?? item.mappedLocalSku ?? '-'}',
-                          style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.6)),
                         ),
                         if (scannedProductCode.isNotEmpty) ...[
                           SizedBox(height: 4),
                           Text(
                             'Scan terakhir: $scannedProductCode',
-                            style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.54)),
+                            style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.54)),
                           ),
                         ],
                         SizedBox(height: 10),
@@ -889,7 +951,8 @@ class _MarketplaceRefundMonitorPageState
                   DropdownButtonFormField<String>(
                     value: packageStatus,
                     dropdownColor: Theme.of(context).cardColor,
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface),
                     decoration: _darkInput('Kecocokan barang'),
                     items: const [
                       DropdownMenuItem(value: 'sesuai', child: Text('Cocok')),
@@ -907,7 +970,8 @@ class _MarketplaceRefundMonitorPageState
                   DropdownButtonFormField<String>(
                     value: condition,
                     dropdownColor: Theme.of(context).cardColor,
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface),
                     decoration: _darkInput('Kondisi barang'),
                     items: const [
                       DropdownMenuItem(value: 'baik', child: Text('Baik')),
@@ -927,12 +991,17 @@ class _MarketplaceRefundMonitorPageState
                     value: canRestock,
                     activeColor: Colors.cyanAccent,
                     title: Text('Bisa restock',
-                        style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface)),
                     subtitle: Text(
                       productBarcodeMatched == true
                           ? 'Barcode cocok. Jika kondisi baik dan stok fisik pernah keluar, backend akan stock-in.'
                           : 'Scan barcode produk yang cocok dulu sebelum stock-in return.',
-                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.54)),
+                      style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.54)),
                     ),
                     onChanged: saving ||
                             productBarcodeMatched != true ||
@@ -946,7 +1015,8 @@ class _MarketplaceRefundMonitorPageState
                   TextField(
                     controller: note,
                     maxLines: 3,
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface),
                     decoration: _darkInput('Catatan'),
                   ),
                   SizedBox(height: 16),
@@ -976,16 +1046,19 @@ class _MarketplaceRefundMonitorPageState
   InputDecoration _darkInput(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+      labelStyle: TextStyle(
+          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
       filled: true,
       fillColor: Theme.of(context).cardColor,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
+        borderSide: BorderSide(
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
+        borderSide: BorderSide(
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -1004,7 +1077,8 @@ class _MarketplaceRefundMonitorPageState
       color: Theme.of(context).cardColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1)),
+        side: BorderSide(
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1)),
       ),
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -1040,10 +1114,18 @@ class _MarketplaceRefundMonitorPageState
             ),
             SizedBox(height: 8),
             Text(item.marketplaceItemTitle,
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+                style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.7))),
             SizedBox(height: 4),
             Text('Lokal: ${item.localItemTitle}',
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.54))),
+                style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.54))),
             SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -1074,9 +1156,14 @@ class _MarketplaceRefundMonitorPageState
       selected: selected,
       selectedColor: Colors.cyanAccent.withOpacity(0.22),
       backgroundColor: Theme.of(context).cardColor,
-      labelStyle:
-          TextStyle(color: selected ? Colors.cyanAccent : Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
-      side: BorderSide(color: selected ? Colors.cyanAccent : Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
+      labelStyle: TextStyle(
+          color: selected
+              ? Colors.cyanAccent
+              : Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
+      side: BorderSide(
+          color: selected
+              ? Colors.cyanAccent
+              : Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
       onSelected: (_) {
         setState(() => _itemCheckMode = targetMode);
         _load(resetPage: true);
@@ -1097,11 +1184,15 @@ class _MarketplaceRefundMonitorPageState
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(label,
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.38), fontSize: 11)),
+              style: TextStyle(
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withOpacity(0.38),
+                  fontSize: 11)),
           SizedBox(height: 3),
           Text(value,
               style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w700)),
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontWeight: FontWeight.w700)),
         ],
       ),
     );
@@ -1137,11 +1228,20 @@ class _MarketplaceRefundMonitorPageState
                 decoration: BoxDecoration(
                   color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1)),
+                  border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.1)),
                 ),
                 child: Text(
                   'Gunakan halaman ini untuk mengecek refund, cancel, return, dan status stok per pesanan. Scan resi mencari seluruh database tenant, bukan hanya data yang tampil di list.',
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7), height: 1.35),
+                  style: TextStyle(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.7),
+                      height: 1.35),
                 ),
               ),
               SizedBox(height: 14),
@@ -1159,25 +1259,39 @@ class _MarketplaceRefundMonitorPageState
                 child: OutlinedButton.icon(
                   onPressed: _loading ? null : _pickDateRange,
                   icon: Icon(Icons.calendar_month, size: 16),
-                  label: Text('Periode: ${_dateLabel(_startDate)} - ${_dateLabel(_endDate)}'),
+                  label: Text(
+                      'Periode: ${_dateLabel(_startDate)} - ${_dateLabel(_endDate)}'),
                 ),
               ),
               SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _marketplace,
                 dropdownColor: Theme.of(context).cardColor,
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                style:
+                    TextStyle(color: Theme.of(context).colorScheme.onSurface),
                 decoration: InputDecoration(
                   labelText: 'Marketplace',
-                  labelStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+                  labelStyle: TextStyle(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.6)),
                   filled: true,
                   fillColor: Theme.of(context).cardColor,
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12))),
+                      borderSide: BorderSide(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.12))),
                   enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12))),
+                      borderSide: BorderSide(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.12))),
                   focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
                       borderSide: BorderSide(color: Colors.cyanAccent)),
@@ -1209,18 +1323,31 @@ class _MarketplaceRefundMonitorPageState
                 DropdownButtonFormField<String>(
                   value: _accountId,
                   dropdownColor: Theme.of(context).cardColor,
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                  style:
+                      TextStyle(color: Theme.of(context).colorScheme.onSurface),
                   decoration: InputDecoration(
                     labelText: 'Toko',
-                    labelStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+                    labelStyle: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.6)),
                     filled: true,
                     fillColor: Theme.of(context).cardColor,
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12))),
+                        borderSide: BorderSide(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.12))),
                     enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12))),
+                        borderSide: BorderSide(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.12))),
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                         borderSide: BorderSide(color: Colors.cyanAccent)),
@@ -1249,12 +1376,16 @@ class _MarketplaceRefundMonitorPageState
               TextField(
                 controller: _searchController,
                 onChanged: _onSearchChanged,
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                style:
+                    TextStyle(color: Theme.of(context).colorScheme.onSurface),
                 decoration: InputDecoration(
-                  hintText: 'Cari order ID / resi / label code',
-                  hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.38)),
-                  prefixIcon:
-                      Icon(Icons.search, color: Colors.cyanAccent),
+                  hintText: 'Cari order ID / resi / label / barcode',
+                  hintStyle: TextStyle(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.38)),
+                  prefixIcon: Icon(Icons.search, color: Colors.cyanAccent),
                   suffixIcon: _searchController.text.trim().isEmpty
                       ? null
                       : IconButton(
@@ -1262,16 +1393,28 @@ class _MarketplaceRefundMonitorPageState
                             _searchController.clear();
                             _load(resetPage: true);
                           },
-                          icon: Icon(Icons.clear, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
+                          icon: Icon(Icons.clear,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.7)),
                         ),
                   filled: true,
                   fillColor: Theme.of(context).cardColor,
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12))),
+                      borderSide: BorderSide(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.12))),
                   enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12))),
+                      borderSide: BorderSide(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.12))),
                   focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
                       borderSide: BorderSide(color: Colors.cyanAccent)),
@@ -1340,7 +1483,11 @@ class _MarketplaceRefundMonitorPageState
                       _itemCheckMode
                           ? 'Total $_total item - $_version'
                           : 'Total $_total data • halaman $_page • $_version',
-                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+                      style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.6)),
                     ),
                   ),
                   if (_loading)
@@ -1361,8 +1508,7 @@ class _MarketplaceRefundMonitorPageState
                         Border.all(color: Colors.redAccent.withOpacity(0.35)),
                   ),
                   child: Text(_error!,
-                      style: TextStyle(
-                          color: Colors.redAccent, height: 1.35)),
+                      style: TextStyle(color: Colors.redAccent, height: 1.35)),
                 ),
               ],
               SizedBox(height: 14),
@@ -1373,11 +1519,20 @@ class _MarketplaceRefundMonitorPageState
                   decoration: BoxDecoration(
                     color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1)),
+                    border: Border.all(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.1)),
                   ),
                   child: Text(
                     'Belum ada data untuk filter ini. Ubah tanggal, toko, atau kata kunci lalu coba lagi.',
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7), height: 1.35),
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.7),
+                        height: 1.35),
                   ),
                 )
               else if (_itemCheckMode)
@@ -1385,36 +1540,35 @@ class _MarketplaceRefundMonitorPageState
               else
                 ..._rows.map(_card),
               SizedBox(height: 8),
-              if (!_itemCheckMode)
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _page <= 1 || _loading
-                            ? null
-                            : () {
-                                setState(() => _page -= 1);
-                                _load();
-                              },
-                        icon: Icon(Icons.chevron_left),
-                        label: Text('Sebelumnya'),
-                      ),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _page <= 1 || _loading
+                          ? null
+                          : () {
+                              setState(() => _page -= 1);
+                              _load();
+                            },
+                      icon: Icon(Icons.chevron_left),
+                      label: Text('Sebelumnya'),
                     ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: !_hasNextPage || _loading
-                            ? null
-                            : () {
-                                setState(() => _page += 1);
-                                _load();
-                              },
-                        icon: Icon(Icons.chevron_right),
-                        label: Text('Berikutnya'),
-                      ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: !_hasNextPage || _loading
+                          ? null
+                          : () {
+                              setState(() => _page += 1);
+                              _load();
+                            },
+                      icon: Icon(Icons.chevron_right),
+                      label: Text('Berikutnya'),
                     ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),

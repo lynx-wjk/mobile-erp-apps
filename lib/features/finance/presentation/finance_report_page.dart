@@ -1686,9 +1686,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           : status == 'failed'
               ? 'Tarik data gagal'
               : 'Status auto finance';
-      final updatedLine = updatedAt == null
-          ? null
-          : 'Update terakhir: ${_dateTime(updatedAt)} WIB';
+      final updatedLine =
+          updatedAt == null ? null : 'Update terakhir: ${_dateTime(updatedAt)}';
       setState(() {
         _progressTitle = title;
         _progressLines
@@ -8097,7 +8096,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 sampleHppTotal > 0 ||
                 sampleNegativePayout > 0) ...[
               _detailCard(
-                title: 'Sample / Gratis',
+                title: 'Sample / Gratis sesuai filter',
                 subtitle:
                     '${sampleOrderCount.toStringAsFixed(0)} order · HPP ${_money(sampleHppTotal)} · Payout minus ${_money(sampleNegativePayout)}',
                 children: [
@@ -8348,6 +8347,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         paidQtyDisplay)
                     : 0,
               ]);
+              final payoutRange = _positivePayoutRangeForSku(
+                row: row,
+                detailRows:
+                    paidDetailRows.isNotEmpty ? paidDetailRows : skuDetailRows,
+                settledQty: paidQtyDisplay,
+              );
+              final highestPayout = payoutRange['highest'] ?? 0.0;
+              final lowestPayout = payoutRange['lowest'] ?? 0.0;
               final paidHppTotalForDisplay = _numFirstNonZero([
                 row['paid_hpp_total'],
                 row['settled_hpp_total'],
@@ -8459,7 +8466,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         warning: true),
                   _miniMetric(
                       'Gross/item', _money(_num(row['gross_per_item']))),
-                  _miniMetric('Payout +/item', _money(displayPayoutPerItem)),
+                  _miniMetric(
+                    'Payout tertinggi',
+                    highestPayout > 0
+                        ? _money(highestPayout)
+                        : 'Belum ada payout',
+                  ),
+                  _miniMetric(
+                    'Payout terendah',
+                    lowestPayout > 0
+                        ? _money(lowestPayout)
+                        : 'Belum ada payout',
+                  ),
                   _miniMetric(
                       'Total payout',
                       _money(_num(row['payout_total'] ??
@@ -8469,29 +8487,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     _miniMetric('Koreksi minus',
                         _money(_num(row['negative_payout_total'])),
                         warning: true),
-                  if (_num(row['net_payout_per_item_paid']) != 0 &&
-                      (_num(row['net_payout_per_item_paid']) -
-                                  _num(row['positive_payout_per_item'] ??
-                                      row['payout_per_item_paid'] ??
-                                      row['payout_per_item']))
-                              .abs() >
-                          0.49)
-                    _miniMetric('Net payout/item',
-                        _money(_num(row['net_payout_per_item_paid'])),
-                        warning: _num(row['net_payout_per_item_paid']) < 0),
                   _miniMetric(
                       'HPP/item',
                       hppMissing
                           ? 'HPP belum mapping'
                           : _money(displayHppPerItem),
                       warning: hppMissing),
-                  _miniMetric('Margin net',
-                      hppMissing ? '-' : '${actualMargin.toStringAsFixed(2)}%',
+                  _miniMetric(
+                      'Margin net',
+                      hppMissing
+                          ? 'HPP belum mapping'
+                          : '${actualMargin.toStringAsFixed(2)}%',
                       warning: belowTarget),
                   _miniMetric(
                       'Target',
                       targetMargin <= 0
-                          ? '-'
+                          ? 'Belum ada target'
                           : '${targetMargin.toStringAsFixed(2)}%'),
                 ],
               );
@@ -11141,7 +11152,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                             .start,
                                                     children: [
                                                       SelectableText(
-                                                        'Order: ${_text(item['order'], '-')}',
+                                                        'Order: ${_cleanText(item['order'], 'Belum ada order')}',
                                                         style: TextStyle(
                                                             fontSize: 13.5,
                                                             fontWeight:
@@ -11152,7 +11163,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ),
                                                       SizedBox(height: 4),
                                                       SelectableText(
-                                                        'Resi: ${_text(item['resi'], '-')}',
+                                                        'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
                                                             color: Theme.of(
@@ -11216,7 +11227,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ],
                                                       SizedBox(height: 4),
                                                       Text(
-                                                        'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  ·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  ·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                                        'SKU lokal: ${_cleanText(item['local_sku'], _cleanText(detailRow['local_sku'] ?? detailRow['sku'], 'Belum mapping'))}  ·  SKU marketplace: ${_cleanText(item['marketplace_sku'] ?? item['marketplace_seller_sku'], 'Belum ada SKU marketplace')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
                                                             color: Theme.of(
@@ -11241,19 +11252,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                                   'gross_per_item']))),
                                                           _miniMetric(
                                                               'Payout/item',
-                                                              _moneyNullable(item[
-                                                                  'payout_per_item'])),
+                                                              _skuDetailPayoutItemText(
+                                                                  item)),
                                                           _miniMetric(
                                                               'HPP/item',
-                                                              _money(_num(item[
-                                                                      'hpp_per_item'] ??
-                                                                  item[
-                                                                      'hpp']))),
+                                                              _skuDetailHppItemText(
+                                                                  item)),
                                                         ],
                                                       ),
                                                       SizedBox(height: 6),
                                                       Text(
-                                                        'Statement: ${_text(item['statement_id'], '-')}  ·   ${_text(item['source'], '-')}',
+                                                        'Settlement: ${_skuDetailSettlementText(item)}  ·   ${_cleanText(item['source'], 'Sumber tidak tersimpan')}',
                                                         style: TextStyle(
                                                             fontSize: 10.5,
                                                             color: Theme.of(
@@ -11269,22 +11278,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                   tooltip: 'Salin',
                                                   onPressed: () {
                                                     final text = [
-                                                      'Order: ${_text(item['order'], '-')}',
-                                                      'Resi: ${_text(item['resi'], '-')}',
+                                                      'Order: ${_cleanText(item['order'], 'Belum ada order')}',
+                                                      'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                                       'Tanggal pesanan: ${_dateTime(item['order_date'])}',
                                                       'Status: ${_skuDetailOrderStatusV82o(item)}',
                                                       'Payout status: ${_payoutStatusText(item)}',
-                                                      'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? '-' : _payoutExplainText(item)}',
-                                                      'Catatan resi: ${_text(item['resi_reason'], '-')}',
-                                                      'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}',
-                                                      'SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}',
-                                                      'Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                                      'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? 'Tidak ada catatan payout' : _payoutExplainText(item)}',
+                                                      'Catatan resi: ${_cleanText(item['resi_reason'], 'Tidak ada catatan resi')}',
+                                                      'SKU lokal: ${_cleanText(item['local_sku'], _cleanText(detailRow['local_sku'] ?? detailRow['sku'], 'Belum mapping'))}',
+                                                      'SKU marketplace: ${_cleanText(item['marketplace_sku'] ?? item['marketplace_seller_sku'], 'Belum ada SKU marketplace')}',
+                                                      'Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                                       'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
                                                       'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
-                                                      'Payout/item: ${_moneyNullable(item['payout_per_item'])}',
-                                                      'HPP/item: ${_money(_num(item['hpp_per_item'] ?? item['hpp']))}',
-                                                      'Statement: ${_text(item['statement_id'], '-')}',
-                                                      ' ${_text(item['source'], '-')}',
+                                                      'Payout/item: ${_skuDetailPayoutItemText(item)}',
+                                                      'HPP/item: ${_skuDetailHppItemText(item)}',
+                                                      'Settlement: ${_skuDetailSettlementText(item)}',
+                                                      'Sumber: ${_cleanText(item['source'], 'Sumber tidak tersimpan')}',
                                                       if (_skuDetailNeedsMarketplaceRefreshV82o(
                                                           item))
                                                         'Warning: Payout sudah masuk, tetapi status order masih ${_skuDetailOrderStatusV82o(item)}. Perlu refresh marketplace.',
@@ -11505,7 +11514,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               CrossAxisAlignment.start,
                                           children: [
                                             SelectableText(
-                                              'Order: ${_text(item['order'], '-')}',
+                                              'Order: ${_cleanText(item['order'], 'Belum ada order')}',
                                               style: TextStyle(
                                                   fontSize: 13.5,
                                                   fontWeight: FontWeight.w900,
@@ -11514,7 +11523,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ),
                                             SizedBox(height: 4),
                                             SelectableText(
-                                              'Resi: ${_text(item['resi'], '-')}',
+                                              'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
@@ -11534,7 +11543,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ),
                                             SizedBox(height: 4),
                                             Text(
-                                              'Status: ${_text(item['order_status'], '-')}  ·  Payout: ${_payoutStatusText(item)}',
+                                              'Status: ${_cleanText(item['order_status'], 'Belum ada status')}  ·  Payout: ${_payoutStatusText(item)}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
@@ -11565,7 +11574,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ],
                                             SizedBox(height: 4),
                                             Text(
-                                              'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  ·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  ·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                              'SKU lokal: ${_cleanText(item['local_sku'], _cleanText(detailRow['local_sku'] ?? detailRow['sku'], 'Belum mapping'))}  ·  SKU marketplace: ${_cleanText(item['marketplace_sku'] ?? item['marketplace_seller_sku'], 'Belum ada SKU marketplace')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
@@ -11588,18 +11597,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         'gross_per_item']))),
                                                 _miniMetric(
                                                     'Payout/item',
-                                                    _moneyNullable(item[
-                                                        'payout_per_item'])),
+                                                    _skuDetailPayoutItemText(
+                                                        item)),
                                                 _miniMetric(
                                                     'HPP/item',
-                                                    _money(_num(
-                                                        item['hpp_per_item'] ??
-                                                            item['hpp']))),
+                                                    _skuDetailHppItemText(
+                                                        item)),
                                               ],
                                             ),
                                             SizedBox(height: 6),
                                             Text(
-                                              'Statement: ${_text(item['statement_id'], '-')}  ·   ${_text(item['source'], '-')}',
+                                              'Settlement: ${_skuDetailSettlementText(item)}  ·   ${_cleanText(item['source'], 'Sumber tidak tersimpan')}',
                                               style: TextStyle(
                                                   fontSize: 10.5,
                                                   color: Theme.of(context)
@@ -11614,22 +11622,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                         tooltip: 'Salin',
                                         onPressed: () {
                                           final text = [
-                                            'Order: ${_text(item['order'], '-')}',
-                                            'Resi: ${_text(item['resi'], '-')}',
+                                            'Order: ${_cleanText(item['order'], 'Belum ada order')}',
+                                            'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                             'Tanggal pesanan: ${_dateTime(item['order_date'])}',
-                                            'Status: ${_text(item['order_status'], '-')}',
+                                            'Status: ${_cleanText(item['order_status'], 'Belum ada status')}',
                                             'Payout status: ${_payoutStatusText(item)}',
-                                            'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? '-' : _payoutExplainText(item)}',
-                                            'Catatan resi: ${_text(item['resi_reason'], '-')}',
-                                            'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}',
-                                            'SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}',
-                                            'Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                            'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? 'Tidak ada catatan payout' : _payoutExplainText(item)}',
+                                            'Catatan resi: ${_cleanText(item['resi_reason'], 'Tidak ada catatan resi')}',
+                                            'SKU lokal: ${_cleanText(item['local_sku'], _cleanText(detailRow['local_sku'] ?? detailRow['sku'], 'Belum mapping'))}',
+                                            'SKU marketplace: ${_cleanText(item['marketplace_sku'] ?? item['marketplace_seller_sku'], 'Belum ada SKU marketplace')}',
+                                            'Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                             'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
                                             'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
-                                            'Payout/item: ${_moneyNullable(item['payout_per_item'])}',
-                                            'HPP/item: ${_money(_num(item['hpp_per_item'] ?? item['hpp']))}',
-                                            'Statement: ${_text(item['statement_id'], '-')}',
-                                            ' ${_text(item['source'], '-')}',
+                                            'Payout/item: ${_skuDetailPayoutItemText(item)}',
+                                            'HPP/item: ${_skuDetailHppItemText(item)}',
+                                            'Settlement: ${_skuDetailSettlementText(item)}',
+                                            'Sumber: ${_cleanText(item['source'], 'Sumber tidak tersimpan')}',
                                           ].join('\n');
                                           Clipboard.setData(
                                               ClipboardData(text: text));
@@ -12547,6 +12555,50 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return false;
   }
 
+  Map<String, double> _positivePayoutRangeForSku({
+    required Map<String, dynamic> row,
+    required List<Map<String, dynamic>> detailRows,
+    required int settledQty,
+  }) {
+    final values = <double>[];
+    for (final detail in detailRows) {
+      final qty = _num(detail['qty'] ?? detail['quantity']);
+      final safeQty = qty > 0 ? qty : 1.0;
+      final linePayout = _linePayoutAmount(detail, defaultQty: safeQty);
+      if (linePayout <= 0) continue;
+      final explicitPerItem = _numFirstNonZero([
+        detail['payout_per_item'],
+        detail['payout_item'],
+        detail['settlement_per_item'],
+      ]);
+      final perItem =
+          explicitPerItem > 0 ? explicitPerItem : linePayout / safeQty;
+      if (perItem > 0) values.add(perItem.toDouble());
+    }
+
+    if (values.isEmpty) {
+      final positiveTotal = _num(row['positive_payout_total']);
+      final positiveQty = _numFirstNonZero([
+        row['positive_payout_qty'],
+        row['settled_qty'],
+        row['paid_qty'],
+        settledQty,
+      ]);
+      if (positiveTotal > 0 && positiveQty > 0) {
+        values.add((positiveTotal / positiveQty).toDouble());
+      }
+    }
+
+    if (values.isEmpty) return const {'highest': 0.0, 'lowest': 0.0};
+    var highest = values.first;
+    var lowest = values.first;
+    for (final value in values.skip(1)) {
+      if (value > highest) highest = value;
+      if (value < lowest) lowest = value;
+    }
+    return {'highest': highest, 'lowest': lowest};
+  }
+
   double _linePayoutAmount(Map<String, dynamic> detail,
       {double defaultQty = 1.0}) {
     const directKeys = [
@@ -12607,11 +12659,46 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _text(detail['payout_status'] ?? detail['settlement_status'], '')
             .trim();
     final payout = _linePayoutAmount(detail);
+    final explicitUpper = explicit.toUpperCase();
+    if (explicitUpper.contains('PENDING') ||
+        explicitUpper.contains('WAIT') ||
+        explicitUpper.contains('NO_PAYOUT')) {
+      return 'Menunggu settlement';
+    }
     if (explicit.isNotEmpty && explicit != '-') return explicit;
     if (payout < 0) return 'payout minus/koreksi';
     if (payout > 0) return 'sudah release';
     if (_hasReleasedPayout(detail)) return 'sudah release Rp 0';
-    return 'belum ada payout';
+    return 'Menunggu settlement';
+  }
+
+  String _cleanText(dynamic value, String fallback) {
+    final text = _text(value, '').trim();
+    if (text.isEmpty || text == '-') return fallback;
+    return text;
+  }
+
+  String _skuDetailPayoutItemText(Map<String, dynamic> detail) {
+    if (!_hasReleasedPayout(detail)) return 'Belum ada payout';
+    return _money(_num(detail['payout_per_item']));
+  }
+
+  String _skuDetailHppItemText(Map<String, dynamic> detail) {
+    final hpp = _num(detail['hpp_per_item'] ?? detail['hpp']);
+    if (hpp <= 0) return 'HPP belum mapping';
+    return _money(hpp);
+  }
+
+  String _skuDetailSettlementText(Map<String, dynamic> detail) {
+    if (!_hasReleasedPayout(detail)) return 'Belum ada settlement';
+    final statement = _cleanText(
+      detail['statement_id'] ??
+          detail['settlement_id'] ??
+          detail['statement_ref'] ??
+          detail['settlement_ref'],
+      '',
+    );
+    return statement.isEmpty ? 'Ref settlement belum tersimpan' : statement;
   }
 
   String _payoutExplainText(Map<String, dynamic> detail) {
@@ -12694,7 +12781,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String _dateTime(dynamic value) {
     final date = _parseDate(value);
     if (date == null) return '-';
-    return '${_date(date)} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    return '${_date(date)} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} WIB';
   }
 
   DateTime? _parseDate(dynamic value) {

@@ -372,7 +372,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
 
     final updatedLabel = digest.latestUpdatedAt == null
         ? '-'
-        : '${_dateTimeWib(digest.latestUpdatedAt)} WIB';
+        : _dateTimeWib(digest.latestUpdatedAt);
     final active = digest.hasActive;
     final header =
         active ? 'Pembaruan order masih berjalan' : 'Riwayat pembaruan order';
@@ -558,7 +558,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     final m = wib.month.toString().padLeft(2, '0');
     final h = wib.hour.toString().padLeft(2, '0');
     final minute = wib.minute.toString().padLeft(2, '0');
-    return '$d/$m/${wib.year} $h:$minute';
+    return '$d/$m/${wib.year} $h:$minute WIB';
   }
 
   Future<void> _pickPullDateRange() async {
@@ -1417,7 +1417,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
             : settingUpdatedAt);
     final updatedText = latestUpdatedAt == null
         ? 'Last order pull: -'
-        : 'Last order pull: ${_dateTimeWib(latestUpdatedAt)} WIB';
+        : 'Last order pull: ${_dateTimeWib(latestUpdatedAt)}';
     final jobSummary = jobDigest == null
         ? null
         : 'Antrean: menunggu ${jobDigest.pending}, berjalan ${jobDigest.running}, selesai ${jobDigest.done}, gagal ${jobDigest.failed}';

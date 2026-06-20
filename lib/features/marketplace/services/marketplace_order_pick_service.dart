@@ -287,6 +287,11 @@ class MarketplaceOrderPickService {
   Future<List<MarketplaceReturnReviewItem>> listReturnReviews({
     required String tenantId,
     String? marketplaceAccountId,
+    String? marketplace,
+    String? startDate,
+    String? endDate,
+    String? search,
+    int page = 1,
     String status = 'all',
     int limit = 150,
   }) async {
@@ -308,15 +313,52 @@ class MarketplaceOrderPickService {
       query = query.eq('marketplace_account_id', accountId);
     }
 
+    final cleanMarketplace = marketplace?.trim();
+    if (cleanMarketplace != null &&
+        cleanMarketplace.isNotEmpty &&
+        cleanMarketplace != 'all') {
+      query = query.eq('marketplace', cleanMarketplace);
+    }
+
     final cleanStatus = status.trim();
     if (cleanStatus.isNotEmpty && cleanStatus != 'all') {
       query = query.eq('review_status', cleanStatus);
     }
 
-    final safeLimit = limit.clamp(1, 150).toInt();
+    final cleanStartDate = startDate?.trim();
+    if (cleanStartDate != null &&
+        RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(cleanStartDate)) {
+      final parts = cleanStartDate.split('-').map(int.parse).toList();
+      final startUtc = DateTime.utc(parts[0], parts[1], parts[2])
+          .subtract(const Duration(hours: 7));
+      query = query.gte('order_created_at', startUtc.toIso8601String());
+    }
+
+    final cleanEndDate = endDate?.trim();
+    if (cleanEndDate != null &&
+        RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(cleanEndDate)) {
+      final parts = cleanEndDate.split('-').map(int.parse).toList();
+      final endUtc = DateTime.utc(parts[0], parts[1], parts[2] + 1)
+          .subtract(const Duration(hours: 7));
+      query = query.lt('order_created_at', endUtc.toIso8601String());
+    }
+
+    final keyword = search?.trim();
+    if (keyword != null && keyword.isNotEmpty) {
+      final safeKeyword = keyword.replaceAll(',', ' ').trim();
+      if (safeKeyword.isNotEmpty) {
+        query = query.or(
+          'external_order_id.ilike.%$safeKeyword%,order_sn.ilike.%$safeKeyword%,tracking_number.ilike.%$safeKeyword%,return_tracking_number.ilike.%$safeKeyword%,marketplace_product_name.ilike.%$safeKeyword%,marketplace_variant_name.ilike.%$safeKeyword%,seller_sku.ilike.%$safeKeyword%,marketplace_sku_id.ilike.%$safeKeyword%,mapped_local_sku.ilike.%$safeKeyword%,local_product_name.ilike.%$safeKeyword%,local_barcode.ilike.%$safeKeyword%',
+        );
+      }
+    }
+
+    final safePage = page < 1 ? 1 : page;
+    final safeLimit = limit.clamp(1, 50).toInt();
+    final offset = (safePage - 1) * safeLimit;
     final data = await query
         .order('order_updated_at', ascending: false)
-        .range(0, safeLimit - 1);
+        .range(offset, offset + safeLimit - 1);
 
     return (data as List<dynamic>)
         .map((item) => MarketplaceReturnReviewItem.fromMap(
