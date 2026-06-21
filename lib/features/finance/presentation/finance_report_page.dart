@@ -70,6 +70,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String _lastSnapshotStats = '';
   static const bool _enableSkuDebugLogs = false;
   String _lastSkuDebugProof = '';
+  String _marketplaceFinanceGapMessage = '';
   int _lastSkuRpcRowCount = 0;
   int _lastSkuParsedRowCount = 0;
   int _lastSkuMergedRowCount = 0;
@@ -1000,14 +1001,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       out['hpp_total'],
       out['total_hpp']
     ]);
-    final manual = manualExpenses.isEmpty
+    final productionExpenses = manualExpenses
+        .where(_isProductionPaymentExpenseRow)
+        .toList(growable: false);
+    final operationalExpenses = manualExpenses
+        .where((row) => !_isProductionPaymentExpenseRow(row))
+        .toList(growable: false);
+    final manual = operationalExpenses.isEmpty
         ? _numFirstNonZero([
             out['manual_expense_total'],
+            out['manual_operational_expense'],
             out['operational_expense'],
             out['operational_cost_total'],
             out['expense_total'],
           ])
-        : _sumAmountRows(manualExpenses);
+        : _sumAmountRows(operationalExpenses);
+    final production = productionExpenses.isEmpty
+        ? _numFirstNonZero([
+            out['production_paid_total'],
+            out['paid_production_total'],
+            out['production_tailor_paid_total'],
+          ])
+        : _sumAmountRows(productionExpenses);
     final purchases = approvedPurchases.isEmpty
         ? _numFirstNonZero([
             out['approved_purchase_total'],
@@ -1015,13 +1030,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             out['approved_purchase_cashout'],
           ])
         : _sumAmountRows(approvedPurchases);
-    final expenseTotal = manual + purchases;
+    final expenseTotal = manual + production + purchases;
     final grossProfit = payout - hpp;
     final profit = grossProfit - expenseTotal;
     final margin = payout > 0
         ? (profit / payout) * 100
         : _numFirstNonZero([out['net_margin_percent'], out['margin_percent']]);
     out['manual_expense_total'] = manual;
+    out['manual_operational_expense'] = manual;
+    out['production_paid_total'] = production;
+    out['paid_production_total'] = production;
+    out['production_tailor_paid_total'] = production;
     out['approved_purchase_total'] = purchases;
     out['purchase_cashout'] = purchases;
     out['operational_expense'] = expenseTotal;
@@ -2130,6 +2149,69 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
       _expenseCategoryOptions = _mergeExpenseCategories(normalizedExpenses);
     });
+    unawaited(_loadMarketplaceFinanceGapHint());
+  }
+
+  Future<void> _loadMarketplaceFinanceGapHint() async {
+    final startKey = _toDateParam(_start);
+    final endKey = _toDateParam(_end);
+    final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final accKey = _accountFilter;
+    if (mktKey != 'all' && !mktKey.contains('tiktok')) {
+      if (mounted && _marketplaceFinanceGapMessage.isNotEmpty) {
+        setState(() => _marketplaceFinanceGapMessage = '');
+      }
+      return;
+    }
+
+    final cacheKey = 'marketplace_gap:$startKey:$endKey:$mktKey:$accKey';
+    if (_financeLoadCache.containsKey(cacheKey)) {
+      final cached = _text(_financeLoadCache[cacheKey], '');
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _marketplaceFinanceGapMessage = cached);
+      }
+      return;
+    }
+
+    try {
+      final nextDate =
+          _toDateParam(_dateOnly(_end).add(const Duration(days: 1)));
+      final accountId = _accountUuidParam();
+
+      dynamic orderQuery = _client
+          .from('marketplace_orders')
+          .select('marketplace_order_id')
+          .gte('order_created_at', startKey)
+          .lt('order_created_at', nextDate)
+          .or('marketplace.eq.tiktok_shop,marketplace.eq.tiktok');
+      if (accountId != null) {
+        orderQuery = orderQuery.eq('marketplace_account_id', accountId);
+      }
+      orderQuery = orderQuery.limit(1);
+      final orderRows = _asList(await orderQuery);
+
+      dynamic financeQuery = _client
+          .from('marketplace_finance_reports')
+          .select('finance_report_id')
+          .gte('period_start', startKey)
+          .lte('period_start', endKey)
+          .or('marketplace.eq.tiktok_shop,marketplace.eq.tiktok');
+      if (accountId != null) {
+        financeQuery = financeQuery.eq('marketplace_account_id', accountId);
+      }
+      financeQuery = financeQuery.limit(1);
+      final financeRows = _asList(await financeQuery);
+
+      final message = orderRows.isNotEmpty && financeRows.isEmpty
+          ? 'TikTok: order ada, settlement finance belum masuk'
+          : '';
+      _financeLoadCache[cacheKey] = message;
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _marketplaceFinanceGapMessage = message);
+      }
+    } catch (error) {
+      debugPrint('Finance marketplace gap hint failed: $error');
+    }
   }
 
   Future<void> _load({bool ignoreLocalCache = false}) async {
@@ -2166,6 +2248,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _lastSkuParsedRowCount = 0;
       _lastSkuMergedRowCount = 0;
       _lastSkuRenderedRowCount = 0;
+      _marketplaceFinanceGapMessage = '';
       _sampleFreeLoaded = false;
       _sampleFreeLoading = false;
       _sampleFreeError = null;
@@ -4136,12 +4219,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       summary['manual_expense_total'],
       summary['manual_operational_expense']
     ]);
+    final production = _numFirstNonZero([
+      summary['production_paid_total'],
+      summary['paid_production_total'],
+      summary['production_tailor_paid_total']
+    ]);
     final purchases = _numFirstNonZero([
       summary['approved_purchase_total'],
       summary['purchase_cashout'],
       summary['approved_purchase_cashout']
     ]);
-    final netCash = payout - manual - purchases;
+    final netCash = payout - manual - production - purchases;
     final today = _toDateParam(_end);
     final rows = <Map<String, dynamic>>[];
     if (payout > 0 || gross > 0)
@@ -4171,7 +4259,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'amount': -purchases.abs(),
         'date': today
       });
-    if (payout > 0 || manual > 0 || purchases > 0)
+    if (production > 0)
+      rows.add({
+        'source': 'Produksi paid',
+        'category': 'Produksi paid',
+        'type': 'out',
+        'cash_type': 'out',
+        'amount': -production.abs(),
+        'date': today
+      });
+    if (payout > 0 || manual > 0 || production > 0 || purchases > 0)
       rows.add({
         'source': 'Arus kas bersih',
         'category': 'Arus kas bersih',
@@ -4196,12 +4293,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       summary['manual_expense_total'],
       summary['manual_operational_expense']
     ]);
+    final production = _numFirstNonZero([
+      summary['production_paid_total'],
+      summary['paid_production_total'],
+      summary['production_tailor_paid_total']
+    ]);
     final purchases = _numFirstNonZero([
       summary['approved_purchase_total'],
       summary['purchase_cashout'],
       summary['approved_purchase_cashout']
     ]);
-    final ops = manual + purchases;
+    final ops = manual + production + purchases;
     // Gross-vs-payout gap is reconciliation diagnostic, not P&L expense.
     final marketplaceCut = 0.0;
     final profit = payout - hpp - ops;
@@ -4277,9 +4379,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'amount': -purchases.abs(),
           'format': 'money'
         },
+      if (production > 0)
+        {
+          'name': 'Produksi paid',
+          'description': 'Pembayaran produksi/tailor yang sudah dibayar',
+          'amount': -production.abs(),
+          'format': 'money'
+        },
       {
         'name': 'Laba bersih',
-        'description': 'Payout - HPP - biaya operasional - pembelian disetujui',
+        'description':
+            'Payout - HPP - biaya operasional - pembelian disetujui - produksi paid',
         'amount': profit,
         'format': 'money'
       },
@@ -8983,6 +9093,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _summary['sample_finance_flag_count'],
       _summary['confirmed_sample_finance_flag_count'],
     ]);
+    final sampleRawTikTokCount =
+        _num(_summary['sample_raw_tiktok_order_count']);
+    final sampleRawTikTokItems =
+        _num(_summary['sample_raw_tiktok_item_row_count']);
+    final sampleRawTikTokApiFlag =
+        _num(_summary['sample_raw_tiktok_api_flag_count']);
+    final sampleRawTikTokImport =
+        _num(_summary['sample_raw_tiktok_import_count']);
+    final sampleStatusBreakdown =
+        _summaryBreakdownText(_summary['sample_status_breakdown']);
+    final sampleSubstatusBreakdown =
+        _summaryBreakdownText(_summary['sample_substatus_breakdown']);
     final classificationCancelledCount = _num(_summary['cancelled_count']);
     final classificationPendingCount = _num(_summary['pending_count']);
     final classificationNoPayoutCount =
@@ -9022,6 +9144,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 130),
         children: [
+          if (_marketplaceFinanceGapMessage.trim().isNotEmpty) ...[
+            _emptyCard(_marketplaceFinanceGapMessage),
+            const SizedBox(height: 12),
+          ],
           if (isEmpty) ...[
             _heroCard(
               title: 'DATA KOSONG',
@@ -9132,6 +9258,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         'Diskon 100%', sampleDiscountCount.toStringAsFixed(0)),
                     _miniMetric('Flag finance',
                         sampleFinanceFlagCount.toStringAsFixed(0)),
+                    if (sampleRawTikTokCount > 0)
+                      _miniMetric('Raw TikTok',
+                          sampleRawTikTokCount.toStringAsFixed(0)),
+                    if (sampleRawTikTokItems > 0)
+                      _miniMetric('Item raw TikTok',
+                          sampleRawTikTokItems.toStringAsFixed(0)),
+                    if (sampleRawTikTokApiFlag > 0)
+                      _miniMetric('Flag sample TikTok',
+                          sampleRawTikTokApiFlag.toStringAsFixed(0)),
+                    if (sampleRawTikTokImport > 0)
+                      _miniMetric('Export TikTok',
+                          sampleRawTikTokImport.toStringAsFixed(0)),
                     _miniMetric('Batal dipisah',
                         classificationCancelledCount.toStringAsFixed(0)),
                     _miniMetric('Pending dipisah',
@@ -9173,6 +9311,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     _miniMetric('HPP Sample', _money(sampleHppTotal)),
                     _miniMetric('Estimasi Dampak', _money(sampleLossEstimate),
                         warning: sampleLossEstimate > 0),
+                    if (sampleStatusBreakdown.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      _emptyCard(
+                          'Status Sample/Gratis: $sampleStatusBreakdown'),
+                    ],
+                    if (sampleSubstatusBreakdown.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      _emptyCard(
+                          'Substatus Sample/Gratis: $sampleSubstatusBreakdown'),
+                    ],
                     const SizedBox(height: 10),
                     const Text(
                       'Rumus: Estimasi Dampak = HPP Sample + Payout Minus confirmed only',
@@ -9227,6 +9375,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         'Diskon 100%', sampleDiscountCount.toStringAsFixed(0)),
                     _miniMetric('Flag finance',
                         sampleFinanceFlagCount.toStringAsFixed(0)),
+                    if (sampleRawTikTokCount > 0)
+                      _miniMetric('Raw TikTok',
+                          sampleRawTikTokCount.toStringAsFixed(0)),
+                    if (sampleRawTikTokItems > 0)
+                      _miniMetric('Item raw TikTok',
+                          sampleRawTikTokItems.toStringAsFixed(0)),
                     _miniMetric('Batal dipisah',
                         classificationCancelledCount.toStringAsFixed(0)),
                     _miniMetric('Pending dipisah',
@@ -9702,14 +9856,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _summary['manual_expense_total'],
       _summary['manual_operational_expense']
     ]);
+    final production = _numFirstNonZero([
+      _summary['production_paid_total'],
+      _summary['paid_production_total'],
+      _summary['production_tailor_paid_total']
+    ]);
     final purchases = _numFirstNonZero([
       _summary['approved_purchase_total'],
       _summary['purchase_cashout'],
       _summary['approved_purchase_cashout']
     ]);
-    final netCash = summaryPayout - manual - purchases;
-    if (summaryPayout == 0 && manual == 0 && purchases == 0 && netCash == 0)
-      return <Map<String, dynamic>>[];
+    final netCash = summaryPayout - manual - production - purchases;
+    if (summaryPayout == 0 &&
+        manual == 0 &&
+        production == 0 &&
+        purchases == 0 &&
+        netCash == 0) return <Map<String, dynamic>>[];
     return <Map<String, dynamic>>[
       {
         'category': 'Marketplace',
@@ -9731,11 +9893,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'amount': -purchases.abs(),
           'description': 'Pembelian yang sudah disetujui finance'
         },
+      if (production > 0)
+        {
+          'category': 'Produksi Paid',
+          'type': 'out',
+          'amount': -production.abs(),
+          'description': 'Pembayaran produksi/tailor yang sudah dibayar'
+        },
       {
         'category': 'Jumlah Arus Kas',
         'type': netCash >= 0 ? 'in' : 'out',
         'amount': netCash,
-        'description': 'Payout - biaya manual - pembelian disetujui'
+        'description':
+            'Payout - biaya manual - pembelian disetujui - produksi paid'
       },
     ];
   }
@@ -9763,16 +9933,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _summary['manual_expense_total'],
       _summary['manual_operational_expense']
     ]);
+    final production = _numFirstNonZero([
+      _summary['production_paid_total'],
+      _summary['paid_production_total'],
+      _summary['production_tailor_paid_total']
+    ]);
     final purchases = _numFirstNonZero([
       _summary['approved_purchase_total'],
       _summary['purchase_cashout'],
       _summary['approved_purchase_cashout']
     ]);
-    final profit = payout - hpp - manual - purchases;
+    final profit = payout - hpp - manual - production - purchases;
     if (gross == 0 &&
         payout == 0 &&
         hpp == 0 &&
         manual == 0 &&
+        production == 0 &&
         purchases == 0 &&
         profit == 0) return <Map<String, dynamic>>[];
     return <Map<String, dynamic>>[
@@ -9803,10 +9979,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'amount': -purchases.abs(),
           'description': 'Pembelian yang sudah disetujui finance'
         },
+      if (production > 0)
+        {
+          'label': 'Produksi Paid',
+          'amount': -production.abs(),
+          'description': 'Pembayaran produksi/tailor yang sudah dibayar'
+        },
       {
         'label': 'Laba Bersih',
         'amount': profit,
-        'description': 'Payout - HPP - biaya manual - pembelian disetujui'
+        'description':
+            'Payout - HPP - biaya manual - pembelian disetujui - produksi paid'
       },
     ];
   }
@@ -12982,6 +13165,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                               _money(_num(item[
                                                                   'gross_per_item']))),
                                                           _miniMetric(
+                                                              'Payout order',
+                                                              _skuDetailOrderPayoutText(
+                                                                  item)),
+                                                          _miniMetric(
                                                               _skuDetailPayoutItemLabel(
                                                                   item),
                                                               _skuDetailPayoutItemText(
@@ -13351,6 +13538,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                     'Harga jual/item',
                                                     _money(_num(item[
                                                         'gross_per_item']))),
+                                                _miniMetric(
+                                                    'Payout order',
+                                                    _skuDetailOrderPayoutText(
+                                                        item)),
                                                 _miniMetric(
                                                     _skuDetailPayoutItemLabel(
                                                         item),
@@ -13863,7 +14054,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'order_id',
     ]);
     final externalLineId = firstPart(const [
-      'marketplace_order_item_id',
       'external_order_item_id',
       'platform_order_item_id',
       'remote_order_item_id',
@@ -13986,6 +14176,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
     }
     return out;
+  }
+
+  String _summaryBreakdownText(dynamic value, {int limit = 8}) {
+    final map = _asMap(value);
+    if (map.isEmpty) return '';
+    final entries = map.entries
+        .map(
+            (entry) => MapEntry(_text(entry.key, '').trim(), _num(entry.value)))
+        .where((entry) => entry.key.isNotEmpty && entry.value > 0)
+        .toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    if (entries.isEmpty) return '';
+    return entries
+        .take(limit)
+        .map((entry) =>
+            '${entry.key}: ${entry.value.toStringAsFixed(entry.value % 1 == 0 ? 0 : 2)}')
+        .join('  ·  ');
   }
 
   Future<void> _refreshExpenseCategories() async {
@@ -14798,6 +15005,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return perItem > 0 ? _money(perItem) : 'Payout item belum tersimpan';
   }
 
+  double _skuDetailOrderPayoutAmount(Map<String, dynamic> detail) {
+    return _numFirstNonZero([
+      detail['order_payout'],
+      detail['order_payout_total'],
+      detail['order_settlement_total'],
+      detail['order_net_settlement'],
+      detail['settlement_total'],
+      detail['net_settlement'],
+      detail['received_amount'],
+      if (_skuDetailSingleItemOrderIsExact(detail))
+        detail['payout'] ?? detail['payout_amount'],
+    ]);
+  }
+
+  String _skuDetailOrderPayoutText(Map<String, dynamic> detail) {
+    if (!_hasReleasedPayout(detail)) return 'Belum ada payout';
+    final orderPayout = _skuDetailOrderPayoutAmount(detail);
+    if (orderPayout != 0) return _money(orderPayout);
+    final fallback = _linePayoutAmount(detail);
+    return fallback != 0 ? _money(fallback) : 'Payout order belum tersimpan';
+  }
+
   String _skuDetailAllocationText(Map<String, dynamic> detail) {
     if (!_hasReleasedPayout(detail)) return '';
     final source = _text(detail['payout_source'] ?? detail['source'], '')
@@ -14839,13 +15068,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (_skuDetailSingleItemOrderIsExact(detail)) {
         return 'Payout exact dari settlement order single-item: ${_money(orderPayout)}.';
       } else {
-        final gap = (orderPayout - linePayout).abs();
-        final gapText =
-            gap > 0.01 ? ' Gap pembulatan/order: ${_money(gap)}.' : '';
-        return 'Estimasi payout/item dari alokasi settlement order: ${_money(linePayout)}. Nilai ini bukan settlement exact per item.$gapText';
+        return 'Payout/item adalah Rata-rata/Estimasi dari settlement order ${_money(orderPayout)}; bukan settlement exact per item.';
       }
     }
-    return 'Rata-rata payout/item dari settlement order: ${_money(linePayout)}.';
+    return 'Payout/item adalah Rata-rata/Estimasi dari settlement order.';
   }
 
   String _skuDetailHppItemText(Map<String, dynamic> detail) {
