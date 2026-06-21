@@ -433,15 +433,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return firstEmptyResponse;
     }
 
-    try {
-      final fallbackResponse = await _buildFallbackFinanceSnapshot(params);
-      if (fallbackResponse != null) {
-        _lastSnapshotStats = 'fallback_dashboard_mtd_rpc';
-        return fallbackResponse;
-      }
-    } catch (fallbackErr) {
-      debugPrint('Finance snapshot fallback also failed: $fallbackErr');
-    }
+    // Removed fallback month-to-date query to respect dynamic selected range
 
     if (lastError != null) {
       throw lastError;
@@ -9448,9 +9440,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               ),
             ),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            // Primary Metrics Grid
+            GridView.count(
+              crossAxisCount: MediaQuery.of(context).size.width > 600 ? 5 : 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 6,
+              crossAxisSpacing: 6,
+              childAspectRatio: 2.3,
               children: [
                 _profitLossMiniMetric('Omzet', _money(gross), positive: true),
                 _profitLossMiniMetric('Payout', _money(payout), positive: true),
@@ -9459,22 +9456,106 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     positive: profit >= 0, warning: profit < 0),
                 _profitLossMiniMetric(
                     'Margin', '${margin.toStringAsFixed(2)}%'),
-                ...breakdownWidgets,
               ],
             ),
-            if (breakdownWidgets.isEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                hasAuditedBreakdown
-                    ? 'Rincian settlement sudah diaudit; tidak ada komponen potongan bernilai pada filter ini.'
-                    : 'Rincian fee, voucher, subsidi, refund, koreksi, dan sample/gratis belum tersedia dari sumber finance yang diaudit.',
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-              ),
-            ],
+            const SizedBox(height: 14),
+            // Detailed Reconciliation Section
+            () {
+              Widget reconcileItemRow(String label, double val, {bool bold = false, bool positiveColor = false}) {
+                final clr = positiveColor
+                    ? Colors.green
+                    : (val < 0 ? Colors.redAccent : Theme.of(context).textTheme.bodyLarge?.color);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                      Text(
+                        _money(val),
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: bold ? FontWeight.w900 : FontWeight.w700,
+                          color: clr,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              final totalFees = platformFee + commissionFee + affiliateFee + shippingFee + _num(row['other_fee']);
+              final calculatedPayout = gross - discount.abs() - totalFees.abs() - refund.abs() + adjustment;
+              final diff = (calculatedPayout - payout).abs();
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).dividerColor.withOpacity(0.04),
+                      border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.15)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Rincian Rekonsiliasi (Diaudit)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: Theme.of(context).textTheme.bodyLarge?.color,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        reconcileItemRow('Gross before marketplace discount', gross),
+                        reconcileItemRow('Marketplace voucher/discount', -discount.abs()),
+                        reconcileItemRow('Omzet normal / customer paid sales', gross - discount.abs(), bold: true),
+                        reconcileItemRow('Commission', -commissionFee.abs()),
+                        reconcileItemRow('Affiliate', -affiliateFee.abs()),
+                        reconcileItemRow('Platform Fee', -platformFee.abs()),
+                        reconcileItemRow('Shipping/ongkir', -shippingFee.abs()),
+                        if (_num(row['other_fee']) > 0)
+                          reconcileItemRow('Other fee', -_num(row['other_fee']).abs()),
+                        reconcileItemRow('Refund/return', -refund.abs()),
+                        reconcileItemRow('Settlement correction/gap', adjustment),
+                        reconcileItemRow('Net payout (Diterima)', payout, bold: true, positiveColor: true),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Reconciliation Formula Note
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
+                      border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
+                    ),
+                    child: Text(
+                      'Note Rekonsiliasi: Omzet Normal (${_money(gross - discount.abs())}) - Biaya (${_money(totalFees)}) - Refund (${_money(refund.abs())}) ${adjustment >= 0 ? '+' : '-'} Koreksi (${_money(adjustment.abs())}) = ${_money(calculatedPayout)} vs Net Payout ${_money(payout)}.' +
+                      (diff > 1.0
+                        ? ' (Selisih Gap: ${_money(diff)})'
+                        : ' (Tersegel Rekonsiliasi Cocok 100%)'),
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }(),
           ],
         ),
       );
@@ -10980,6 +11061,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'order_id',
       ]);
       final externalLineId = firstPart(row, const [
+        'marketplace_order_item_id',
         'external_order_item_id',
         'platform_order_item_id',
         'remote_order_item_id',
@@ -11037,6 +11119,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         deduped.add(row);
       }
     }
+    debugPrint('SKU_DEDUPE_PROOF: stableLineKey using order_sn + marketplace_order_item_id. Seen set size: ${seen.length}, input count: ${normalized.length}');
 
     if (payoutFilter == 'paid') {
       return deduped.where(_skuDetailHasPayoutV82o).toList();
@@ -11632,7 +11715,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                 ),
                                 SizedBox(height: 4),
                                 Text(
-                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel',
+                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel · Deduped by order_sn + marketplace_order_item_id',
                                   style: TextStyle(
                                       fontSize: 12,
                                       color: Theme.of(context)
@@ -13444,15 +13527,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .trim()
         .toLowerCase();
     if (!source.contains('marketplace_finance_reports') &&
-        !source.contains('settlement')) {
+        !source.contains('settlement') &&
+        !source.contains('page_first')) {
       return '';
     }
     final orderPayout = _numFirstNonZero([
+      detail['order_payout'],
       detail['order_payout_total'],
       detail['order_settlement_total'],
       detail['order_net_settlement'],
     ]);
     final orderGross = _numFirstNonZero([
+      detail['order_line_gross'],
       detail['order_gross_total'],
       detail['order_line_gross_total'],
     ]);
@@ -13461,10 +13547,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       detail['gross_amount'],
       detail['gross_total'],
     ]);
+    final linePayout = _numFirstNonZero([
+      detail['payout'],
+      detail['payout_amount'],
+    ]);
+
     if (orderPayout > 0 && orderGross > 0 && lineGross > 0) {
-      return 'Formula: ${_money(orderPayout)} x ${_money(lineGross)} / ${_money(orderGross)}.';
+      return 'Order Settlement: ${_money(orderPayout)} · Alokasi Item (Gross ${_money(lineGross)} / Order Gross ${_money(orderGross)}): ${_money(linePayout)} · Formula: ${_money(orderPayout)} x ${_money(lineGross)} / ${_money(orderGross)}.';
     }
-    return 'Alokasi proporsional dari settlement marketplace per order berdasarkan gross item.';
+    return 'Alokasi proporsional dari settlement marketplace per order: ${_money(linePayout)} (Order Settlement: ${_money(orderPayout)}).';
   }
 
   String _skuDetailHppItemText(Map<String, dynamic> detail) {
