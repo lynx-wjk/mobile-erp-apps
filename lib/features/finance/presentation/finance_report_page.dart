@@ -68,6 +68,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String _currentUserName = '';
   String _currentUserEmail = '';
   String _lastSnapshotStats = '';
+  static const bool _enableSkuDebugLogs = false;
   String _lastSkuDebugProof = '';
   int _lastSkuRpcRowCount = 0;
   int _lastSkuParsedRowCount = 0;
@@ -77,6 +78,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   Map<String, dynamic> _dispatcherSnapshot = const <String, dynamic>{};
   int _financeLoadSerial = 0;
+  bool _sampleFreeDetailsLoaded = false;
+  bool _sampleFreeDetailsLoading = false;
+  String? _sampleFreeDetailsError;
+  final Set<String> _expandedReconciliations = {};
   static const String _financeCacheVersion =
       'finance_live_20260621_v36_light_snapshot_lazy_tabs';
   static const List<String> _financeCacheVersionFallbacks = <String>[
@@ -683,7 +688,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     _lastSkuParsedRowCount = parsedRowCount;
     _lastSkuMergedRowCount = mergedRowCount;
     _lastSkuRenderedRowCount = renderedRowCount;
-    debugPrint('FINANCE_SKU_RENDER_PROOF: $proof');
+    if (_enableSkuDebugLogs) {
+      debugPrint('FINANCE_SKU_RENDER_PROOF: $proof');
+    }
   }
 
   Future<void> _safeRefreshFinanceView() async {
@@ -1438,10 +1445,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         if (payoutFilter == 'all' && page == 1) {
           _lastSkuRpcRowCount = cachedRows.length;
           _lastSkuParsedRowCount = cachedRows.length;
-          debugPrint(
-              'FINANCE_SKU_RENDER_PROOF: period=${_skuDebugPeriodLabel()} '
-              'source=cache filter=$payoutFilter rpc=${cachedRows.length} '
-              'parsed=${cachedRows.length}');
+          if (_enableSkuDebugLogs) {
+            debugPrint(
+                'FINANCE_SKU_RENDER_PROOF: period=${_skuDebugPeriodLabel()} '
+                'source=cache filter=$payoutFilter rpc=${cachedRows.length} '
+                'parsed=${cachedRows.length}');
+          }
         }
         return cachedRows;
       }
@@ -2172,6 +2181,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _sampleFreeLoaded = false;
       _sampleFreeLoading = false;
       _sampleFreeError = null;
+      _sampleFreeDetailsLoaded = false;
+      _sampleFreeDetailsLoading = false;
+      _sampleFreeDetailsError = null;
+      _expandedReconciliations.clear();
       _operationalCostsLoaded = false;
       _operationalCostsLoading = false;
       _operationalCostsError = null;
@@ -2312,12 +2325,61 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'p_end': _toDateParam(_end),
           'p_marketplace': _marketplaceRpcParam(),
           'p_account_id': _accountUuidParam(),
+          'p_count_only': true,
         },
       ).timeout(const Duration(seconds: 20));
       if (!mounted) return;
       final data = _asMap(response);
       final summary = _asMap(data['summary']);
       final sourceBreakdown = _asMap(summary['source_breakdown']);
+      setState(() {
+        final nextSummary = Map<String, dynamic>.from(_summary);
+        summary.forEach((key, value) {
+          if (value != null) nextSummary[key] = value;
+        });
+        sourceBreakdown.forEach((key, value) {
+          if (value != null) nextSummary[key] = value;
+        });
+        if (summary['sample_order_count'] != null) {
+          nextSummary['abnormal_sample_count'] = summary['sample_order_count'];
+        }
+        _summary = nextSummary;
+        _sampleFreeOrders = [];
+        _sampleFreeLoaded = true;
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() => _sampleFreeError = _cleanError(error));
+      }
+      debugPrint('Finance sample/free supplemental load failed: $error');
+    } finally {
+      if (mounted) setState(() => _sampleFreeLoading = false);
+    }
+  }
+
+  Future<void> _loadSampleFreeOrdersDetails({bool force = false}) async {
+    if ((_sampleFreeDetailsLoaded || _sampleFreeDetailsLoading) && !force) return;
+    if (mounted) {
+      setState(() {
+        _sampleFreeDetailsLoading = true;
+        _sampleFreeDetailsError = null;
+      });
+    }
+    try {
+      final response = await _client.rpc(
+        'finance_sample_order_counts',
+        params: {
+          'p_start': _toDateParam(_start),
+          'p_end': _toDateParam(_end),
+          'p_marketplace': _marketplaceRpcParam(),
+          'p_account_id': _accountUuidParam(),
+          'p_count_only': false,
+          'p_page': 1,
+          'p_page_size': 200,
+        },
+      ).timeout(const Duration(seconds: 20));
+      if (!mounted) return;
+      final data = _asMap(response);
       final rows = _normalizeAbnormalRows(
         _asList(data['sample_orders'] ?? data['rows'])
             .whereType<Map>()
@@ -2335,27 +2397,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         }).toList(),
       );
       setState(() {
-        final nextSummary = Map<String, dynamic>.from(_summary);
-        summary.forEach((key, value) {
-          if (value != null) nextSummary[key] = value;
-        });
-        sourceBreakdown.forEach((key, value) {
-          if (value != null) nextSummary[key] = value;
-        });
-        if (summary['sample_order_count'] != null) {
-          nextSummary['abnormal_sample_count'] = summary['sample_order_count'];
-        }
-        _summary = nextSummary;
         _sampleFreeOrders = rows;
-        _sampleFreeLoaded = true;
+        _sampleFreeDetailsLoaded = true;
       });
     } catch (error) {
       if (mounted) {
-        setState(() => _sampleFreeError = _cleanError(error));
+        setState(() => _sampleFreeDetailsError = _cleanError(error));
       }
-      debugPrint('Finance sample/free supplemental load failed: $error');
+      debugPrint('Finance sample/free details load failed: $error');
     } finally {
-      if (mounted) setState(() => _sampleFreeLoading = false);
+      if (mounted) setState(() => _sampleFreeDetailsLoading = false);
     }
   }
 
@@ -3566,7 +3617,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     for (final table in ['purchase_requests', 'purchases']) {
       try {
-        final rows = await _client.from(table).select('*').range(0, 499);
+        final dateCol = table == 'purchase_requests' ? 'tanggal_beli' : 'tanggal';
+        dynamic query = _client.from(table).select('*');
+        if (_currentTenantId.trim().isNotEmpty) {
+          query = query.eq('tenant_id', _currentTenantId);
+        }
+        query = query
+            .gte(dateCol, _toDateParam(_start))
+            .lte(dateCol, _toDateParam(_end))
+            .order(dateCol, ascending: false);
+        final rows = await query.range(0, 499);
         merged.addAll(normalizeRows(rows, table));
       } catch (_) {}
     }
@@ -5119,8 +5179,25 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (!_abnormalServerLoaded && _shouldHideZeroCancelAbnormal(row))
         return false;
       if (filter.isEmpty || filter == 'all') {
-        return !_isSampleFreeAbnormalRow(row) ||
-            _hasPayoutMinusSettlementReason(row);
+        if (_isSampleFreeAbnormalRow(row)) return false;
+        final isPayoutMinus = _hasPayoutMinusSettlementReason(row);
+        if (isPayoutMinus) return true;
+        final orderStatus = _text(row['order_status'] ?? row['status'] ?? row['live_status'], '').toUpperCase();
+        if (_isCancelLikeStatus(orderStatus)) return false;
+        const activeStatuses = [
+          'AWAITING_SHIPMENT',
+          'READY_TO_SHIP',
+          'AWAITING_COLLECTION',
+          'IN_TRANSIT',
+          'TO_SHIP',
+          'TO_PACK',
+          'PROCESSED',
+          'UNSHIPPED',
+        ];
+        if (activeStatuses.any(orderStatus.contains)) return false;
+        final resi = _text(row['resi'] ?? row['tracking_number'] ?? row['awb'], '').trim();
+        if (resi.isEmpty || resi == '-') return false;
+        return true;
       }
       if (filter == 'sample_free') return _isSampleFreeAbnormalRow(row);
       if (filter == 'no_payout') return _isNoPayoutAbnormalRow(row);
@@ -9081,7 +9158,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           _sectionHeader('Kinerja SKU'),
           SizedBox(height: 8),
-          if (_lastSkuDebugProof.trim().isNotEmpty) ...[
+          if (_enableSkuDebugLogs && _lastSkuDebugProof.trim().isNotEmpty) ...[
             _emptyCard('Debug SKU: $_lastSkuDebugProof'),
             const SizedBox(height: 8),
           ],
@@ -10002,80 +10079,138 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   adjustment;
               final diff = (calculatedPayout - payout).abs();
 
+              if (!_profitLossLoaded) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).dividerColor.withOpacity(0.04),
+                        border: Border.all(
+                            color: Theme.of(context).dividerColor.withOpacity(0.15)),
+                      ),
+                      child: Text(
+                        _profitLossLoading
+                            ? 'Memuat rincian rekonsiliasi...'
+                            : (_profitLossError != null
+                                ? 'Gagal memuat rincian: $_profitLossError'
+                                : 'Rekonsiliasi belum selesai dimuat'),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              final key = '$marketplace|$shop';
+              final isExpanded = _expandedReconciliations.contains(key);
+
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).dividerColor.withOpacity(0.04),
-                      border: Border.all(
-                          color:
-                              Theme.of(context).dividerColor.withOpacity(0.15)),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        if (isExpanded) {
+                          _expandedReconciliations.remove(key);
+                        } else {
+                          _expandedReconciliations.add(key);
+                        }
+                      });
+                    },
+                    icon: Icon(
+                      isExpanded ? Icons.expand_less : Icons.expand_more,
+                      size: 16,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Rincian Rekonsiliasi (Diaudit)',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: Theme.of(context).textTheme.bodyLarge?.color,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        reconcileItemRow(
-                            'Gross before marketplace discount', gross),
-                        reconcileItemRow(
-                            'Marketplace voucher/discount', -discount.abs()),
-                        reconcileItemRow('Omzet normal / customer paid sales',
-                            gross - discount.abs(),
-                            bold: true),
-                        reconcileItemRow('Commission', -commissionFee.abs()),
-                        reconcileItemRow('Affiliate', -affiliateFee.abs()),
-                        reconcileItemRow('Platform Fee', -platformFee.abs()),
-                        reconcileItemRow('Shipping/ongkir', -shippingFee.abs()),
-                        if (_num(row['other_fee']) > 0)
-                          reconcileItemRow(
-                              'Other fee', -_num(row['other_fee']).abs()),
-                        reconcileItemRow('Refund/return', -refund.abs()),
-                        reconcileItemRow(
-                            'Settlement correction/gap', adjustment),
-                        reconcileItemRow('Net payout (Diterima)', payout,
-                            bold: true, positiveColor: true),
-                      ],
+                    label: Text(
+                      isExpanded
+                          ? 'Sembunyikan Rincian Rekonsiliasi'
+                          : 'Lihat Rincian Rekonsiliasi',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  // Reconciliation Formula Note
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primary
-                          .withOpacity(0.06),
-                      border: Border.all(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .primary
-                              .withOpacity(0.2)),
-                    ),
-                    child: Text(
-                      'Note Rekonsiliasi: Omzet Normal (${_money(gross - discount.abs())}) - Biaya (${_money(totalFees)}) - Refund (${_money(refund.abs())}) ${adjustment >= 0 ? '+' : '-'} Koreksi (${_money(adjustment.abs())}) = ${_money(calculatedPayout)} vs Net Payout ${_money(payout)}.' +
-                          (diff > 1.0
-                              ? ' (Selisih Gap: ${_money(diff)})'
-                              : ' (Tersegel Rekonsiliasi Cocok 100%)'),
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        height: 1.35,
-                        color: Theme.of(context).colorScheme.primary,
+                  if (isExpanded) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).dividerColor.withOpacity(0.04),
+                        border: Border.all(
+                            color:
+                                Theme.of(context).dividerColor.withOpacity(0.15)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Rincian Rekonsiliasi (Diaudit)',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Theme.of(context).textTheme.bodyLarge?.color,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          reconcileItemRow(
+                              'Gross before marketplace discount', gross),
+                          reconcileItemRow(
+                              'Marketplace voucher/discount', -discount.abs()),
+                          reconcileItemRow('Omzet normal / customer paid sales',
+                              gross - discount.abs(),
+                              bold: true),
+                          reconcileItemRow('Commission', -commissionFee.abs()),
+                          reconcileItemRow('Affiliate', -affiliateFee.abs()),
+                          reconcileItemRow('Platform Fee', -platformFee.abs()),
+                          reconcileItemRow('Shipping/ongkir', -shippingFee.abs()),
+                          if (_num(row['other_fee']) > 0)
+                            reconcileItemRow(
+                                'Other fee', -_num(row['other_fee']).abs()),
+                          reconcileItemRow('Refund/return', -refund.abs()),
+                          reconcileItemRow(
+                              'Settlement correction/gap', adjustment),
+                          reconcileItemRow('Net payout (Diterima)', payout,
+                              bold: true, positiveColor: true),
+                        ],
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    // Reconciliation Formula Note
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withOpacity(0.06),
+                        border: Border.all(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withOpacity(0.2)),
+                      ),
+                      child: Text(
+                        'Note Rekonsiliasi: Omzet Normal (${_money(gross - discount.abs())}) - Biaya (${_money(totalFees)}) - Refund (${_money(refund.abs())}) ${adjustment >= 0 ? '+' : '-'} Koreksi (${_money(adjustment.abs())}) = ${_money(calculatedPayout)} vs Net Payout ${_money(payout)}.' +
+                            (diff > 1.0
+                                ? ' (Selisih Gap: ${_money(diff)})'
+                                : ' (Tersegel Rekonsiliasi Cocok 100%)'),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          height: 1.35,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               );
             }(),
@@ -10215,6 +10350,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         if (mounted) unawaited(_refreshAbnormalTab(resetPage: true));
       });
     }
+    if (_abnormalStatusFilter == 'sample_free' && !_sampleFreeDetailsLoaded && !_sampleFreeDetailsLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadSampleFreeOrdersDetails());
+      });
+    }
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
     final visibleAbnormales = _filteredAbnormales();
@@ -10317,15 +10457,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ),
           SizedBox(height: 8),
 
-          if (_abnormalSearchBusy)
+          if (_abnormalSearchBusy || (_abnormalStatusFilter == 'sample_free' && _sampleFreeDetailsLoading))
             Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Center(
-                  child: FuturisticLoader(message: 'Mencari abnormal...')),
+                  child: FuturisticLoader(
+                      message: _abnormalSearchBusy
+                          ? 'Mencari abnormal...'
+                          : 'Memuat detail order sample...')),
             )
           else ...[
             if (_abnormalLoadError != null) ...[
               _emptyCard('Data abnormal belum termuat: $_abnormalLoadError'),
+              SizedBox(height: 8),
+            ],
+            if (_abnormalStatusFilter == 'sample_free' && _sampleFreeDetailsError != null) ...[
+              _emptyCard('Gagal memuat detail sample: $_sampleFreeDetailsError'),
               SizedBox(height: 8),
             ],
             // Info bar
@@ -10337,9 +10484,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 border: Border.all(color: Theme.of(context).dividerColor),
               ),
               child: Text(
-                _abnormalServerLoaded
-                    ? 'Hal $_abnormalPage/$pageMax · $startRow-$endRow dari $visibleTotal · $dataCount perlu cek payout'
-                    : 'Belum ada hasil pencarian.',
+                _abnormalStatusFilter == 'sample_free' && !_sampleFreeDetailsLoaded
+                    ? 'Memuat data...'
+                    : (_abnormalServerLoaded
+                        ? 'Hal $_abnormalPage/$pageMax · $startRow-$endRow dari $visibleTotal · $dataCount perlu cek payout'
+                        : 'Belum ada hasil pencarian.'),
                 style: TextStyle(
                     fontSize: 11,
                     color: Theme.of(context).colorScheme.outline,
@@ -14157,7 +14306,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final text = _text(value, '').toUpperCase();
     return text.contains('CANCEL') ||
         text.contains('CANCELED') ||
-        text.contains('CANCELLED');
+        text.contains('CANCELLED') ||
+        text.contains('BATAL') ||
+        text.contains('RETURN') ||
+        text.contains('REFUND') ||
+        text.contains('RTS') ||
+        text.contains('GAGAL') ||
+        text.contains('FAILED') ||
+        text.contains('CLOSED');
   }
 
   bool _shouldHideZeroCancelAbnormal(Map<String, dynamic> row) {
