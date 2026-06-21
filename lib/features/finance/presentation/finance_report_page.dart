@@ -32,6 +32,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   bool _processing = false;
   bool _skuLoaded = false;
   bool _skuLoadingFirstPage = false;
+  bool _sampleFreeLoaded = false;
+  bool _sampleFreeLoading = false;
+  String? _sampleFreeError;
+  bool _operationalCostsLoaded = false;
+  bool _operationalCostsLoading = false;
+  String? _operationalCostsError;
+  bool _profitLossLoaded = false;
+  bool _profitLossLoading = false;
+  String? _profitLossError;
   bool _financeAutoSyncEnabled = false;
   bool _financeAutoSyncBusy = false;
   bool _filterExpanded = false;
@@ -48,6 +57,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _serverAbnormales = [];
   bool _abnormalServerLoaded = false;
   bool _abnormalSearchBusy = false;
+  String? _abnormalLoadError;
   int _abnormalPage = 1;
   int _abnormalTotal = 0;
   static const int _abnormalPageSize = 20;
@@ -68,7 +78,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Map<String, dynamic> _dispatcherSnapshot = const <String, dynamic>{};
   int _financeLoadSerial = 0;
   static const String _financeCacheVersion =
-      'finance_live_20260621_v35_sku_render_proof';
+      'finance_live_20260621_v36_light_snapshot_lazy_tabs';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -417,8 +427,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         final response = await _client
             .rpc(safeRpcName, params: params)
             .timeout(const Duration(seconds: 15));
-        final enrichedResponse =
-            await _withMarketplaceReconciliation(response, params);
+        final enrichedResponse = response;
         _lastSnapshotStats =
             '$safeRpcName · ${_snapshotStats(enrichedResponse)}';
 
@@ -1020,8 +1029,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       out['hpp_total'],
       out['total_hpp']
     ]);
-    final manual = _sumAmountRows(manualExpenses);
-    final purchases = _sumAmountRows(approvedPurchases);
+    final manual = manualExpenses.isEmpty
+        ? _numFirstNonZero([
+            out['manual_expense_total'],
+            out['operational_expense'],
+            out['operational_cost_total'],
+            out['expense_total'],
+          ])
+        : _sumAmountRows(manualExpenses);
+    final purchases = approvedPurchases.isEmpty
+        ? _numFirstNonZero([
+            out['approved_purchase_total'],
+            out['purchase_cashout'],
+            out['approved_purchase_cashout'],
+          ])
+        : _sumAmountRows(approvedPurchases);
     final expenseTotal = manual + purchases;
     final grossProfit = payout - hpp;
     final profit = grossProfit - expenseTotal;
@@ -1515,6 +1537,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _skuHasMoreServerRows = rows.length >= _skuPageSize;
         _skuPage = _skuTotalPages;
       });
+      unawaited(_overlaySkuPayoutCountSummaryFromServer());
     } finally {
       if (mounted) setState(() => _skuLoadingMore = false);
     }
@@ -1563,6 +1586,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _skuHasMoreServerRows = rows.length >= _skuPageSize;
         _skuLoaded = true;
       });
+      unawaited(_overlaySkuPayoutCountSummaryFromServer());
     } catch (e) {
       debugPrint('Error lazy loading SKU first page: $e');
     } finally {
@@ -2145,6 +2169,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _lastSkuParsedRowCount = 0;
       _lastSkuMergedRowCount = 0;
       _lastSkuRenderedRowCount = 0;
+      _sampleFreeLoaded = false;
+      _sampleFreeLoading = false;
+      _sampleFreeError = null;
+      _operationalCostsLoaded = false;
+      _operationalCostsLoading = false;
+      _operationalCostsError = null;
+      _profitLossLoaded = false;
+      _profitLossLoading = false;
+      _profitLossError = null;
+      _abnormalLoadError = null;
 
       // Jangan tampilkan angka periode lama ketika user ganti filter.
       // Lebih baik kosong saat loading daripada laporan keuangan periode lain.
@@ -2209,9 +2243,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           includeSupplementalSku: false,
         );
         setState(() => _loading = false);
-        // Cache lokal harus langsung usable, tapi tab Abnormal tetap butuh page
-        // kecil dari server/raw agar tidak kosong saat summary bilang ada payout minus.
-        await _loadAbnormalesPage(silent: true, resetPage: true);
       }
 
       final snapshotParams = {
@@ -2231,7 +2262,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (_isFinanceSnapshotEmpty(data)) {
         if (hasLocalSnapshot) {
           await _loadPersistedFinanceProgressFromDb();
-          await _loadAbnormalesPage(silent: true, resetPage: true);
           return;
         }
         if (mounted) {
@@ -2239,7 +2269,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               'Data laporan periode ini belum siap. Auto finance sedang mengejar data periode ini di background.');
         }
         await _loadPersistedFinanceProgressFromDb();
-        await _loadAbnormalesPage(silent: true, resetPage: true);
         return;
       }
       await FinanceLocalCache.writeJson(localKey, data);
@@ -2247,17 +2276,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       await _applyFinanceSnapshotData(
         data,
         fallbackAccounts,
-        includeOperationalExpenses: true,
+        includeOperationalExpenses: false,
         includeSupplementalSku: false,
       );
-      unawaited(_lazyLoadSkuFirstPage());
-      unawaited(_loadSampleFreeOrdersSupplemental());
 
       if (!isCurrentFinanceLoad() || !mounted) return;
-      await _overlaySkuPayoutCountSummaryFromServer();
-      if (!isCurrentFinanceLoad() || !mounted) return;
       await _loadPersistedFinanceProgressFromDb();
-      await _loadAbnormalesPage(silent: true, resetPage: true);
     } catch (e) {
       if (!isCurrentFinanceLoad()) return;
       if (!mounted) return;
@@ -2273,6 +2297,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Future<void> _loadSampleFreeOrdersSupplemental() async {
+    if (_sampleFreeLoaded || _sampleFreeLoading) return;
+    if (mounted) {
+      setState(() {
+        _sampleFreeLoading = true;
+        _sampleFreeError = null;
+      });
+    }
     try {
       final response = await _client.rpc(
         'finance_sample_order_counts',
@@ -2282,7 +2313,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'p_marketplace': _marketplaceRpcParam(),
           'p_account_id': _accountUuidParam(),
         },
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 20));
       if (!mounted) return;
       final data = _asMap(response);
       final summary = _asMap(data['summary']);
@@ -2316,9 +2347,121 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         }
         _summary = nextSummary;
         _sampleFreeOrders = rows;
+        _sampleFreeLoaded = true;
       });
     } catch (error) {
+      if (mounted) {
+        setState(() => _sampleFreeError = _cleanError(error));
+      }
       debugPrint('Finance sample/free supplemental load failed: $error');
+    } finally {
+      if (mounted) setState(() => _sampleFreeLoading = false);
+    }
+  }
+
+  Future<void> _loadOperationalCostsSupplemental() async {
+    if (_operationalCostsLoaded || _operationalCostsLoading) return;
+    if (mounted) {
+      setState(() {
+        _operationalCostsLoading = true;
+        _operationalCostsError = null;
+      });
+    }
+
+    try {
+      final liveExpenses = await _fetchOperationalExpensesPeriod()
+          .timeout(const Duration(seconds: 12));
+      final livePurchases = await _fetchApprovedPurchasesPeriod()
+          .timeout(const Duration(seconds: 12));
+      if (!mounted) return;
+
+      final normalizedExpenses = _dedupeExpenseRows(liveExpenses)
+          .where((row) => !_isSyntheticExpenseRow(row))
+          .toList(growable: false);
+      final approvedPurchases = _dedupeByStableKey(livePurchases);
+      final nextSummary = _summaryWithLiveCosts(
+        _summary,
+        normalizedExpenses,
+        approvedPurchases,
+      );
+
+      setState(() {
+        _expenses = normalizedExpenses;
+        _approvedPurchases = approvedPurchases;
+        _summary = nextSummary;
+        _cashFlow = _cashFlowRowsFromSummary(nextSummary);
+        if (!_profitLossLoaded) {
+          _profitLoss = _profitLossRowsFromSummary(nextSummary, _profitLoss);
+        }
+        _expenseCategoryOptions = _mergeExpenseCategories(normalizedExpenses);
+        _operationalCostsLoaded = true;
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() => _operationalCostsError = _cleanError(error));
+      }
+      debugPrint('Finance operational costs supplemental load failed: $error');
+    } finally {
+      if (mounted) setState(() => _operationalCostsLoading = false);
+    }
+  }
+
+  Future<void> _loadProfitLossSupplemental() async {
+    if (_profitLossLoaded || _profitLossLoading) return;
+    if (mounted) {
+      setState(() {
+        _profitLossLoading = true;
+        _profitLossError = null;
+      });
+    }
+
+    try {
+      final response = await _client.rpc(
+        'finance_marketplace_reconciliation_breakdown',
+        params: {
+          'p_start': _toDateParam(_start),
+          'p_end': _toDateParam(_end),
+          'p_marketplace': _marketplaceRpcParam(),
+          'p_account_id': _accountUuidParam(),
+        },
+      ).timeout(const Duration(seconds: 20));
+      if (!mounted) return;
+
+      final data = _asMap(response);
+      final reconciliationSummary = _asMap(data['summary']);
+      final nextSummary = Map<String, dynamic>.from(_summary);
+      reconciliationSummary.forEach((key, value) {
+        if (value != null) nextSummary[key] = value;
+      });
+      final displaySummary = _summaryWithLiveCosts(
+        nextSummary,
+        _expenses,
+        _approvedPurchases,
+      );
+      final breakdown = _asList(data['profit_loss_breakdown'])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      final byMarketplace = _marketplaceRowsWithFinanceAliases(
+        _asList(data['by_marketplace'])
+            .whereType<Map>()
+            .map((row) => Map<String, dynamic>.from(row))
+            .toList(),
+      );
+
+      setState(() {
+        _summary = displaySummary;
+        _profitLoss = _profitLossRowsFromSummary(displaySummary, breakdown);
+        if (byMarketplace.isNotEmpty) {
+          _profitLossByMarketplace = byMarketplace;
+        }
+        _profitLossLoaded = true;
+      });
+    } catch (error) {
+      if (mounted) setState(() => _profitLossError = _cleanError(error));
+      debugPrint('FINANCE_RECONCILIATION_RPC_FAILED: $error');
+    } finally {
+      if (mounted) setState(() => _profitLossLoading = false);
     }
   }
 
@@ -5151,6 +5294,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _serverAbnormales = rawRows;
         _abnormalTotal = _num(map['total']).toInt();
         _abnormalPage = _num(map['page']).toInt().clamp(1, 999999).toInt();
+        _abnormalLoadError = null;
 
         if (aggregates.isNotEmpty) {
           final nextSummary = Map<String, dynamic>.from(_summary);
@@ -5178,7 +5322,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
         _abnormalServerLoaded = true;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       var fallbackRows = await _fetchRawNegativePayoutRowsPage(page: page);
       if (fallbackRows.isEmpty && _abnormals.isNotEmpty) {
@@ -5202,12 +5346,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               fallbackTotal > 0 ? fallbackTotal : fallbackRows.length;
           _abnormalPage = page;
           _abnormalServerLoaded = true;
+          _abnormalLoadError = null;
         });
       } else if (!silent) {
         setState(() {
           _serverAbnormales = [];
           _abnormalTotal = 0;
           _abnormalServerLoaded = false;
+          _abnormalLoadError = _cleanError(error);
         });
       }
     } finally {
@@ -8483,6 +8629,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   //  Tabs
   Widget _summaryTab() {
+    if (!_sampleFreeLoaded && !_sampleFreeLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadSampleFreeOrdersSupplemental());
+      });
+    }
     final paidSkuTotals = _totalsFromSkuRows(paidOnly: true);
     final summaryGross = _num(_summary['gross_sales'] ??
         _summary['gross_total'] ??
@@ -8644,6 +8795,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               positive: profit >= 0,
             ),
             const SizedBox(height: 12),
+            if (_sampleFreeLoading)
+              _emptyCard('Memuat ringkasan Sample/Gratis...')
+            else if (_sampleFreeError != null)
+              _emptyCard(
+                  'Ringkasan Sample/Gratis belum termuat: $_sampleFreeError'),
+            if (_sampleFreeLoading || _sampleFreeError != null)
+              const SizedBox(height: 12),
             if (sampleOrderCount > 0 ||
                 sampleHppTotal > 0 ||
                 sampleNegativePayout > 0) ...[
@@ -9311,6 +9469,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _cashFlowTab() {
+    if (!_operationalCostsLoaded && !_operationalCostsLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadOperationalCostsSupplemental());
+      });
+    }
     if (_loading) {
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
     }
@@ -9355,6 +9518,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           _sectionHeader('Jumlah / Total Arus Kas'),
           SizedBox(height: 8),
+          if (_operationalCostsLoading)
+            _emptyCard('Memuat rincian biaya dan pembelian...')
+          else if (_operationalCostsError != null)
+            _emptyCard('Rincian biaya belum termuat: $_operationalCostsError'),
           _metricGrid([
             _Metric('Total Masuk', _money(totalIn), Icons.south_west_rounded),
             _Metric('Total Keluar', _money(totalOut), Icons.north_east_rounded),
@@ -9514,6 +9681,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _expensesTab() {
+    if (!_operationalCostsLoaded && !_operationalCostsLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadOperationalCostsSupplemental());
+      });
+    }
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
     return RefreshIndicator(
@@ -9524,7 +9696,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           _sectionHeader('Biaya Operasional'),
           SizedBox(height: 8),
-          if (_expenses.isEmpty && _approvedPurchases.isEmpty)
+          if (_operationalCostsLoading)
+            _emptyCard('Memuat rincian biaya dan pembelian...')
+          else if (_operationalCostsError != null)
+            _emptyCard('Rincian biaya belum termuat: $_operationalCostsError')
+          else if (_expenses.isEmpty && _approvedPurchases.isEmpty)
             _emptyCard(
                 'Belum ada biaya operasional atau pembelian yang sudah disetujui.')
           else ...[
@@ -9980,6 +10156,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _profitLossTab() {
+    if (!_operationalCostsLoaded && !_operationalCostsLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadOperationalCostsSupplemental());
+      });
+    }
+    if (!_profitLossLoaded && !_profitLossLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadProfitLossSupplemental());
+      });
+    }
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
     final rawProfitRows =
@@ -9997,6 +10183,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           _sectionHeader('Laba Rugi'),
           SizedBox(height: 8),
+          if (_profitLossLoading)
+            _emptyCard('Memuat breakdown laba rugi...')
+          else if (_profitLossError != null)
+            _emptyCard('Breakdown laba rugi belum termuat: $_profitLossError'),
           if (_profitLossByMarketplace.isNotEmpty) ...[
             _profitLossByMarketplaceCard(),
             const SizedBox(height: 8),
@@ -10020,6 +10210,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _abnormalTab() {
+    if (!_abnormalServerLoaded && !_abnormalSearchBusy) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_refreshAbnormalTab(resetPage: true));
+      });
+    }
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
     final visibleAbnormales = _filteredAbnormales();
@@ -10129,6 +10324,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   child: FuturisticLoader(message: 'Mencari abnormal...')),
             )
           else ...[
+            if (_abnormalLoadError != null) ...[
+              _emptyCard('Data abnormal belum termuat: $_abnormalLoadError'),
+              SizedBox(height: 8),
+            ],
             // Info bar
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
