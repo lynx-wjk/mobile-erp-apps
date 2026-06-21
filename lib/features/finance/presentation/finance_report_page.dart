@@ -78,6 +78,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       const <String, dynamic>{};
   Map<String, dynamic> _dispatcherSnapshot = const <String, dynamic>{};
   int _financeLoadSerial = 0;
+  final Map<String, Future<dynamic>> _activeFinanceRequests = {};
+  final Map<String, dynamic> _financeLoadCache = {};
+
+  bool _isCurrentFilter(String startKey, String endKey, String mktKey, String accKey) {
+    return mounted &&
+        _toDateParam(_start) == startKey &&
+        _toDateParam(_end) == endKey &&
+        (_normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all') == mktKey &&
+        _accountFilter == accKey;
+  }
+
   bool _sampleFreeDetailsLoaded = false;
   bool _sampleFreeDetailsLoading = false;
   String? _sampleFreeDetailsError;
@@ -1089,49 +1100,29 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Future<List<Map<String, dynamic>>> _fetchOperationalExpensesPeriod() async {
-    final params = <String, dynamic>{
-      'p_start': _toDateParam(_start),
-      'p_end': _toDateParam(_end),
-      'p_marketplace': _marketplaceRpcParam(),
-      'p_account_id': _accountUuidParam(),
-    };
-
     List<Map<String, dynamic>> results = [];
     try {
-      final candidates = <String>[
-        'finance_list_manual_operational_expenses',
-        'finance_list_manual_operational_expenses',
-      ];
-      final res = await _rpcWithFallback(candidates, params);
-      final rows = _asList(_asMap(res)['rows'] ?? res);
-      if (rows.isNotEmpty) {
-        results = rows
-            .map((e) => _normalizeProductionExpenseRow(
-                Map<String, dynamic>.from(e as Map)))
-            .toList();
+      dynamic query = _client
+          .from('finance_operational_expenses')
+          .select()
+          .gte('expense_date', _toDateParam(_start))
+          .lte('expense_date', _toDateParam(_end));
+      if (_currentTenantId.trim().isNotEmpty) {
+        query = query.eq('tenant_id', _currentTenantId);
       }
+      final accountId = _accountUuidParam();
+      if (accountId != null) {
+        query = query.eq('marketplace_account_id', accountId);
+      }
+      final res = await query
+          .order('expense_date', ascending: false)
+          .order('created_at', ascending: false)
+          .range(0, 199);
+      results = _asList(res)
+          .map((e) => _normalizeProductionExpenseRow(
+              Map<String, dynamic>.from(e as Map)))
+          .toList();
     } catch (_) {}
-
-    if (results.isEmpty) {
-      try {
-        dynamic query = _client
-            .from('finance_operational_expenses')
-            .select()
-            .gte('expense_date', _toDateParam(_start))
-            .lte('expense_date', _toDateParam(_end));
-        if (_currentTenantId.trim().isNotEmpty) {
-          query = query.eq('tenant_id', _currentTenantId);
-        }
-        final res = await query
-            .order('expense_date', ascending: false)
-            .order('created_at', ascending: false)
-            .range(0, 499);
-        results = _asList(res)
-            .map((e) => _normalizeProductionExpenseRow(
-                Map<String, dynamic>.from(e as Map)))
-            .toList();
-      } catch (_) {}
-    }
 
     try {
       dynamic tailorQuery = _client
@@ -2152,6 +2143,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<void> _load({bool ignoreLocalCache = false}) async {
     if (!mounted) return;
 
+    if (ignoreLocalCache) {
+      _activeFinanceRequests.clear();
+      _financeLoadCache.clear();
+    }
+
     final loadSerial = ++_financeLoadSerial;
     final requestStartKey = _toDateParam(_start);
     final requestEndKey = _toDateParam(_end);
@@ -2310,75 +2306,166 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Future<void> _loadSampleFreeOrdersSupplemental() async {
-    if (_sampleFreeLoaded || _sampleFreeLoading) return;
+    final startKey = _toDateParam(_start);
+    final endKey = _toDateParam(_end);
+    final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final accKey = _accountFilter;
+    final cacheKey = 'sample_free_supplemental:$startKey:$endKey:$mktKey:$accKey';
+
+    if (_financeLoadCache.containsKey(cacheKey)) {
+      final cachedData = _financeLoadCache[cacheKey];
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          final nextSummary = Map<String, dynamic>.from(_summary);
+          final summary = _asMap(cachedData['summary']);
+          final sourceBreakdown = _asMap(summary['source_breakdown']);
+          summary.forEach((key, value) {
+            if (value != null) nextSummary[key] = value;
+          });
+          sourceBreakdown.forEach((key, value) {
+            if (value != null) nextSummary[key] = value;
+          });
+          if (summary['sample_order_count'] != null) {
+            nextSummary['abnormal_sample_count'] = summary['sample_order_count'];
+          }
+          _summary = nextSummary;
+          _sampleFreeOrders = [];
+          _sampleFreeLoaded = true;
+          _sampleFreeLoading = false;
+          _sampleFreeError = null;
+        });
+      }
+      return;
+    }
+
+    if (_activeFinanceRequests.containsKey(cacheKey)) {
+      await _activeFinanceRequests[cacheKey];
+      return;
+    }
+
     if (mounted) {
       setState(() {
         _sampleFreeLoading = true;
         _sampleFreeError = null;
       });
     }
+
+    final future = () async {
+      try {
+        final response = await _client.rpc(
+          'finance_sample_order_counts',
+          params: {
+            'p_start': startKey,
+            'p_end': endKey,
+            'p_marketplace': _marketplaceRpcParam(),
+            'p_account_id': _accountUuidParam(),
+            'p_count_only': true,
+          },
+        ).timeout(const Duration(seconds: 20));
+        return response;
+      } catch (e) {
+        debugPrint('finance_sample_order_counts RPC error: $e');
+        rethrow;
+      }
+    }();
+
+    _activeFinanceRequests[cacheKey] = future;
+
     try {
-      final response = await _client.rpc(
-        'finance_sample_order_counts',
-        params: {
-          'p_start': _toDateParam(_start),
-          'p_end': _toDateParam(_end),
-          'p_marketplace': _marketplaceRpcParam(),
-          'p_account_id': _accountUuidParam(),
-          'p_count_only': true,
-        },
-      ).timeout(const Duration(seconds: 20));
-      if (!mounted) return;
+      final response = await future;
       final data = _asMap(response);
-      final summary = _asMap(data['summary']);
-      final sourceBreakdown = _asMap(summary['source_breakdown']);
-      setState(() {
-        final nextSummary = Map<String, dynamic>.from(_summary);
-        summary.forEach((key, value) {
-          if (value != null) nextSummary[key] = value;
+      _financeLoadCache[cacheKey] = data;
+
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        final summary = _asMap(data['summary']);
+        final sourceBreakdown = _asMap(summary['source_breakdown']);
+        setState(() {
+          final nextSummary = Map<String, dynamic>.from(_summary);
+          summary.forEach((key, value) {
+            if (value != null) nextSummary[key] = value;
+          });
+          sourceBreakdown.forEach((key, value) {
+            if (value != null) nextSummary[key] = value;
+          });
+          if (summary['sample_order_count'] != null) {
+            nextSummary['abnormal_sample_count'] = summary['sample_order_count'];
+          }
+          _summary = nextSummary;
+          _sampleFreeOrders = [];
+          _sampleFreeLoaded = true;
+          _sampleFreeError = null;
         });
-        sourceBreakdown.forEach((key, value) {
-          if (value != null) nextSummary[key] = value;
-        });
-        if (summary['sample_order_count'] != null) {
-          nextSummary['abnormal_sample_count'] = summary['sample_order_count'];
-        }
-        _summary = nextSummary;
-        _sampleFreeOrders = [];
-        _sampleFreeLoaded = true;
-      });
+      }
     } catch (error) {
-      if (mounted) {
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
         setState(() => _sampleFreeError = _cleanError(error));
       }
       debugPrint('Finance sample/free supplemental load failed: $error');
     } finally {
-      if (mounted) setState(() => _sampleFreeLoading = false);
+      _activeFinanceRequests.remove(cacheKey);
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _sampleFreeLoading = false);
+      }
     }
   }
 
   Future<void> _loadSampleFreeOrdersDetails({bool force = false}) async {
-    if ((_sampleFreeDetailsLoaded || _sampleFreeDetailsLoading) && !force) return;
+    final startKey = _toDateParam(_start);
+    final endKey = _toDateParam(_end);
+    final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final accKey = _accountFilter;
+    final cacheKey = 'sample_free_details:$startKey:$endKey:$mktKey:$accKey';
+
+    if (!force && _financeLoadCache.containsKey(cacheKey)) {
+      final cachedRows = _financeLoadCache[cacheKey] as List<Map<String, dynamic>>;
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _sampleFreeOrders = cachedRows;
+          _sampleFreeDetailsLoaded = true;
+          _sampleFreeDetailsLoading = false;
+          _sampleFreeDetailsError = null;
+        });
+      }
+      return;
+    }
+
+    if (_activeFinanceRequests.containsKey(cacheKey)) {
+      await _activeFinanceRequests[cacheKey];
+      return;
+    }
+
     if (mounted) {
       setState(() {
         _sampleFreeDetailsLoading = true;
         _sampleFreeDetailsError = null;
       });
     }
+
+    final future = () async {
+      try {
+        final response = await _client.rpc(
+          'finance_sample_order_counts',
+          params: {
+            'p_start': startKey,
+            'p_end': endKey,
+            'p_marketplace': _marketplaceRpcParam(),
+            'p_account_id': _accountUuidParam(),
+            'p_count_only': false,
+            'p_page': 1,
+            'p_page_size': 200,
+          },
+        ).timeout(const Duration(seconds: 20));
+        return response;
+      } catch (e) {
+        debugPrint('finance_sample_order_counts details RPC error: $e');
+        rethrow;
+      }
+    }();
+
+    _activeFinanceRequests[cacheKey] = future;
+
     try {
-      final response = await _client.rpc(
-        'finance_sample_order_counts',
-        params: {
-          'p_start': _toDateParam(_start),
-          'p_end': _toDateParam(_end),
-          'p_marketplace': _marketplaceRpcParam(),
-          'p_account_id': _accountUuidParam(),
-          'p_count_only': false,
-          'p_page': 1,
-          'p_page_size': 200,
-        },
-      ).timeout(const Duration(seconds: 20));
-      if (!mounted) return;
+      final response = await future;
       final data = _asMap(response);
       final rows = _normalizeAbnormalRows(
         _asList(data['sample_orders'] ?? data['rows'])
@@ -2396,22 +2483,61 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           return row;
         }).toList(),
       );
-      setState(() {
-        _sampleFreeOrders = rows;
-        _sampleFreeDetailsLoaded = true;
-      });
+
+      _financeLoadCache[cacheKey] = rows;
+
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _sampleFreeOrders = rows;
+          _sampleFreeDetailsLoaded = true;
+          _sampleFreeDetailsError = null;
+        });
+      }
     } catch (error) {
-      if (mounted) {
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
         setState(() => _sampleFreeDetailsError = _cleanError(error));
       }
       debugPrint('Finance sample/free details load failed: $error');
     } finally {
-      if (mounted) setState(() => _sampleFreeDetailsLoading = false);
+      _activeFinanceRequests.remove(cacheKey);
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _sampleFreeDetailsLoading = false);
+      }
     }
   }
 
   Future<void> _loadOperationalCostsSupplemental() async {
-    if (_operationalCostsLoaded || _operationalCostsLoading) return;
+    final startKey = _toDateParam(_start);
+    final endKey = _toDateParam(_end);
+    final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final accKey = _accountFilter;
+    final cacheKey = 'operational_costs_supplemental:$startKey:$endKey:$mktKey:$accKey';
+
+    if (_financeLoadCache.containsKey(cacheKey)) {
+      final cached = _financeLoadCache[cacheKey] as Map<String, dynamic>;
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _expenses = cached['expenses'] as List<Map<String, dynamic>>;
+          _approvedPurchases = cached['approvedPurchases'] as List<Map<String, dynamic>>;
+          _summary = cached['summary'] as Map<String, dynamic>;
+          _cashFlow = cached['cashFlow'] as List<Map<String, dynamic>>;
+          if (!_profitLossLoaded) {
+            _profitLoss = cached['profitLoss'] as List<Map<String, dynamic>>;
+          }
+          _expenseCategoryOptions = cached['expenseCategoryOptions'] as List<String>;
+          _operationalCostsLoaded = true;
+          _operationalCostsLoading = false;
+          _operationalCostsError = null;
+        });
+      }
+      return;
+    }
+
+    if (_activeFinanceRequests.containsKey(cacheKey)) {
+      await _activeFinanceRequests[cacheKey];
+      return;
+    }
+
     if (mounted) {
       setState(() {
         _operationalCostsLoading = true;
@@ -2419,11 +2545,29 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       });
     }
 
+    final future = () async {
+      try {
+        final liveExpenses = await _fetchOperationalExpensesPeriod()
+            .timeout(const Duration(seconds: 12));
+        final livePurchases = await _fetchApprovedPurchasesPeriod()
+            .timeout(const Duration(seconds: 12));
+        return {
+          'liveExpenses': liveExpenses,
+          'livePurchases': livePurchases,
+        };
+      } catch (e) {
+        debugPrint('Fetch operational expenses / purchases failed: $e');
+        rethrow;
+      }
+    }();
+
+    _activeFinanceRequests[cacheKey] = future;
+
     try {
-      final liveExpenses = await _fetchOperationalExpensesPeriod()
-          .timeout(const Duration(seconds: 12));
-      final livePurchases = await _fetchApprovedPurchasesPeriod()
-          .timeout(const Duration(seconds: 12));
+      final results = await future;
+      final liveExpenses = results['liveExpenses'] as List<Map<String, dynamic>>;
+      final livePurchases = results['livePurchases'] as List<Map<String, dynamic>>;
+
       if (!mounted) return;
 
       final normalizedExpenses = _dedupeExpenseRows(liveExpenses)
@@ -2436,29 +2580,75 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         approvedPurchases,
       );
 
-      setState(() {
-        _expenses = normalizedExpenses;
-        _approvedPurchases = approvedPurchases;
-        _summary = nextSummary;
-        _cashFlow = _cashFlowRowsFromSummary(nextSummary);
-        if (!_profitLossLoaded) {
-          _profitLoss = _profitLossRowsFromSummary(nextSummary, _profitLoss);
-        }
-        _expenseCategoryOptions = _mergeExpenseCategories(normalizedExpenses);
-        _operationalCostsLoaded = true;
-      });
+      final cashFlowData = _cashFlowRowsFromSummary(nextSummary);
+      final profitLossData = _profitLossRowsFromSummary(nextSummary, _profitLoss);
+      final categoryOptions = _mergeExpenseCategories(normalizedExpenses);
+
+      final cacheEntry = {
+        'expenses': normalizedExpenses,
+        'approvedPurchases': approvedPurchases,
+        'summary': nextSummary,
+        'cashFlow': cashFlowData,
+        'profitLoss': profitLossData,
+        'expenseCategoryOptions': categoryOptions,
+      };
+
+      _financeLoadCache[cacheKey] = cacheEntry;
+
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _expenses = normalizedExpenses;
+          _approvedPurchases = approvedPurchases;
+          _summary = nextSummary;
+          _cashFlow = cashFlowData;
+          if (!_profitLossLoaded) {
+            _profitLoss = profitLossData;
+          }
+          _expenseCategoryOptions = categoryOptions;
+          _operationalCostsLoaded = true;
+          _operationalCostsError = null;
+        });
+      }
     } catch (error) {
-      if (mounted) {
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
         setState(() => _operationalCostsError = _cleanError(error));
       }
       debugPrint('Finance operational costs supplemental load failed: $error');
     } finally {
-      if (mounted) setState(() => _operationalCostsLoading = false);
+      _activeFinanceRequests.remove(cacheKey);
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _operationalCostsLoading = false);
+      }
     }
   }
 
   Future<void> _loadProfitLossSupplemental() async {
-    if (_profitLossLoaded || _profitLossLoading) return;
+    final startKey = _toDateParam(_start);
+    final endKey = _toDateParam(_end);
+    final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final accKey = _accountFilter;
+    final cacheKey = 'profit_loss_supplemental:$startKey:$endKey:$mktKey:$accKey';
+
+    if (_financeLoadCache.containsKey(cacheKey)) {
+      final cached = _financeLoadCache[cacheKey] as Map<String, dynamic>;
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _summary = cached['summary'] as Map<String, dynamic>;
+          _profitLoss = cached['profitLoss'] as List<Map<String, dynamic>>;
+          _profitLossByMarketplace = cached['profitLossByMarketplace'] as List<Map<String, dynamic>>;
+          _profitLossLoaded = true;
+          _profitLossLoading = false;
+          _profitLossError = null;
+        });
+      }
+      return;
+    }
+
+    if (_activeFinanceRequests.containsKey(cacheKey)) {
+      await _activeFinanceRequests[cacheKey];
+      return;
+    }
+
     if (mounted) {
       setState(() {
         _profitLossLoading = true;
@@ -2466,19 +2656,32 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       });
     }
 
+    final future = () async {
+      try {
+        final response = await _client.rpc(
+          'finance_marketplace_reconciliation_breakdown',
+          params: {
+            'p_start': startKey,
+            'p_end': endKey,
+            'p_marketplace': _marketplaceRpcParam(),
+            'p_account_id': _accountUuidParam(),
+          },
+        ).timeout(const Duration(seconds: 20));
+        return response;
+      } catch (e) {
+        debugPrint('finance_marketplace_reconciliation_breakdown RPC error: $e');
+        rethrow;
+      }
+    }();
+
+    _activeFinanceRequests[cacheKey] = future;
+
     try {
-      final response = await _client.rpc(
-        'finance_marketplace_reconciliation_breakdown',
-        params: {
-          'p_start': _toDateParam(_start),
-          'p_end': _toDateParam(_end),
-          'p_marketplace': _marketplaceRpcParam(),
-          'p_account_id': _accountUuidParam(),
-        },
-      ).timeout(const Duration(seconds: 20));
+      final response = await future;
+      final data = _asMap(response);
+
       if (!mounted) return;
 
-      final data = _asMap(response);
       final reconciliationSummary = _asMap(data['summary']);
       final nextSummary = Map<String, dynamic>.from(_summary);
       reconciliationSummary.forEach((key, value) {
@@ -2500,19 +2703,37 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             .toList(),
       );
 
-      setState(() {
-        _summary = displaySummary;
-        _profitLoss = _profitLossRowsFromSummary(displaySummary, breakdown);
-        if (byMarketplace.isNotEmpty) {
-          _profitLossByMarketplace = byMarketplace;
-        }
-        _profitLossLoaded = true;
-      });
+      final profitLossData = _profitLossRowsFromSummary(displaySummary, breakdown);
+
+      final cacheEntry = {
+        'summary': displaySummary,
+        'profitLoss': profitLossData,
+        'profitLossByMarketplace': byMarketplace,
+      };
+
+      _financeLoadCache[cacheKey] = cacheEntry;
+
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _summary = displaySummary;
+          _profitLoss = profitLossData;
+          if (byMarketplace.isNotEmpty) {
+            _profitLossByMarketplace = byMarketplace;
+          }
+          _profitLossLoaded = true;
+          _profitLossError = null;
+        });
+      }
     } catch (error) {
-      if (mounted) setState(() => _profitLossError = _cleanError(error));
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _profitLossError = _cleanError(error));
+      }
       debugPrint('FINANCE_RECONCILIATION_RPC_FAILED: $error');
     } finally {
-      if (mounted) setState(() => _profitLossLoading = false);
+      _activeFinanceRequests.remove(cacheKey);
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _profitLossLoading = false);
+      }
     }
   }
 
@@ -8706,11 +8927,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   //  Tabs
   Widget _summaryTab() {
-    if (!_sampleFreeLoaded && !_sampleFreeLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_loadSampleFreeOrdersSupplemental());
-      });
-    }
     final paidSkuTotals = _totalsFromSkuRows(paidOnly: true);
     final summaryGross = _num(_summary['gross_sales'] ??
         _summary['gross_total'] ??
@@ -8872,109 +9088,160 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               positive: profit >= 0,
             ),
             const SizedBox(height: 12),
-            if (_sampleFreeLoading)
-              _emptyCard('Memuat ringkasan Sample/Gratis...')
-            else if (_sampleFreeError != null)
-              _emptyCard(
-                  'Ringkasan Sample/Gratis belum termuat: $_sampleFreeError'),
-            if (_sampleFreeLoading || _sampleFreeError != null)
-              const SizedBox(height: 12),
-            if (sampleOrderCount > 0 ||
-                sampleHppTotal > 0 ||
-                sampleNegativePayout > 0) ...[
-              _detailCard(
-                title: 'Sample / Gratis sesuai filter',
-                subtitle:
-                    '${sampleOrderCount.toStringAsFixed(0)} order · HPP ${_money(sampleHppTotal)} · Payout minus ${_money(sampleNegativePayout)}',
-                children: [
-                  _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
-                  _miniMetric(
-                      'Teks sample/free', sampleTextCount.toStringAsFixed(0)),
-                  _miniMetric(
-                      'Label produk', sampleLabelCount.toStringAsFixed(0)),
-                  _miniMetric(
-                      'Diskon 100%', sampleDiscountCount.toStringAsFixed(0)),
-                  _miniMetric('Flag finance',
-                      sampleFinanceFlagCount.toStringAsFixed(0)),
-                  _miniMetric('Batal dipisah',
-                      classificationCancelledCount.toStringAsFixed(0)),
-                  _miniMetric('Pending dipisah',
-                      classificationPendingCount.toStringAsFixed(0)),
-                  _miniMetric('No Payout eligible',
-                      classificationNoPayoutCount.toStringAsFixed(0)),
-                  _miniMetric('Gross (Omzet)',
-                      _money(_num(_summary['sample_gross_total']))),
-                  _miniMetric(
-                      'Payout', _money(_num(_summary['sample_payout_total']))),
-                  _miniMetric('Payout Minus', _money(sampleNegativePayout),
-                      warning: sampleNegativePayout > 0),
-                  if (samplePayoutMinusSettlement > 0)
-                    _miniMetric('Payout minus dari settlement',
-                        _money(samplePayoutMinusSettlement),
-                        warning: true),
-                  if (samplePayoutMinusShipping > 0)
-                    _miniMetric('Payout minus ongkir',
-                        _money(samplePayoutMinusShipping),
-                        warning: true),
-                  if (samplePayoutMinusVoucher > 0)
-                    _miniMetric('Payout minus voucher',
-                        _money(samplePayoutMinusVoucher),
-                        warning: true),
-                  if (samplePayoutMinusPlatform > 0)
-                    _miniMetric('Payout minus fee platform',
-                        _money(samplePayoutMinusPlatform),
-                        warning: true),
-                  _miniMetric('Voucher/Diskon',
-                      _money(_num(_summary['sample_discount_total']))),
-                  _miniMetric('Ongkir (Kurir)',
-                      _money(_num(_summary['sample_shipping_total']))),
-                  _miniMetric('Biaya Platform',
-                      _money(_num(_summary['sample_fee_total']))),
-                  _miniMetric(
-                      'Refund', _money(_num(_summary['sample_refund_total']))),
-                  _miniMetric('Penyesuaian',
-                      _money(_num(_summary['sample_adjustment_total']))),
-                  _miniMetric('HPP Sample', _money(sampleHppTotal)),
-                  _miniMetric('Estimasi Dampak', _money(sampleLossEstimate),
-                      warning: sampleLossEstimate > 0),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Rumus: Estimasi Dampak = HPP Sample + Payout Minus confirmed only',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontStyle: FontStyle.italic,
-                      color: Colors.grey,
-                    ),
+            if (!_sampleFreeLoaded) ...[
+              if (_sampleFreeLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Center(child: FuturisticLoader(message: 'Memuat Ringkasan Sample/Gratis...')),
+                )
+              else ...[
+                if (_sampleFreeError != null) ...[
+                  _emptyCard('Gagal memuat sample/gratis: $_sampleFreeError'),
+                  const SizedBox(height: 8),
+                ],
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor.withOpacity(0.74),
+                    border: Border.all(color: Theme.of(context).dividerColor),
                   ),
-                  if (sampleNegativePayout > 0) ...[
-                    const SizedBox(height: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Audit Sample & Gratis',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                          color: Theme.of(context).textTheme.bodyLarge?.color,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Audit data order sample, giveaway, tester, gratis dengan payout Rp 0 atau minus.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _loadSampleFreeOrdersSupplemental,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.cyan,
+                            foregroundColor: Colors.black,
+                            side: const BorderSide(color: Colors.black, width: 2),
+                            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                          ),
+                          icon: const Icon(Icons.card_giftcard_rounded),
+                          label: const Text('MUAT AUDIT SAMPLE/GRATIS'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ] else ...[
+              if (sampleOrderCount > 0 ||
+                  sampleHppTotal > 0 ||
+                  sampleNegativePayout > 0) ...[
+                _detailCard(
+                  title: 'Sample / Gratis sesuai filter',
+                  subtitle:
+                      '${sampleOrderCount.toStringAsFixed(0)} order · HPP ${_money(sampleHppTotal)} · Payout minus ${_money(sampleNegativePayout)}',
+                  children: [
+                    _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
+                    _miniMetric(
+                        'Teks sample/free', sampleTextCount.toStringAsFixed(0)),
+                    _miniMetric(
+                        'Label produk', sampleLabelCount.toStringAsFixed(0)),
+                    _miniMetric(
+                        'Diskon 100%', sampleDiscountCount.toStringAsFixed(0)),
+                    _miniMetric('Flag finance',
+                        sampleFinanceFlagCount.toStringAsFixed(0)),
+                    _miniMetric('Batal dipisah',
+                        classificationCancelledCount.toStringAsFixed(0)),
+                    _miniMetric('Pending dipisah',
+                        classificationPendingCount.toStringAsFixed(0)),
+                    _miniMetric('No Payout eligible',
+                        classificationNoPayoutCount.toStringAsFixed(0)),
+                    _miniMetric('Gross (Omzet)',
+                        _money(_num(_summary['sample_gross_total']))),
+                    _miniMetric(
+                        'Payout', _money(_num(_summary['sample_payout_total']))),
+                    _miniMetric('Payout Minus', _money(sampleNegativePayout),
+                        warning: sampleNegativePayout > 0),
+                    if (samplePayoutMinusSettlement > 0)
+                      _miniMetric('Payout minus dari settlement',
+                          _money(samplePayoutMinusSettlement),
+                          warning: true),
+                    if (samplePayoutMinusShipping > 0)
+                      _miniMetric('Payout minus ongkir',
+                          _money(samplePayoutMinusShipping),
+                          warning: true),
+                    if (samplePayoutMinusVoucher > 0)
+                      _miniMetric('Payout minus voucher',
+                          _money(samplePayoutMinusVoucher),
+                          warning: true),
+                    if (samplePayoutMinusPlatform > 0)
+                      _miniMetric('Payout minus fee platform',
+                          _money(samplePayoutMinusPlatform),
+                          warning: true),
+                    _miniMetric('Voucher/Diskon',
+                        _money(_num(_summary['sample_discount_total']))),
+                    _miniMetric('Ongkir (Kurir)',
+                        _money(_num(_summary['sample_shipping_total']))),
+                    _miniMetric('Biaya Platform',
+                        _money(_num(_summary['sample_fee_total']))),
+                    _miniMetric(
+                        'Refund', _money(_num(_summary['sample_refund_total']))),
+                    _miniMetric('Penyesuaian',
+                        _money(_num(_summary['sample_adjustment_total']))),
+                    _miniMetric('HPP Sample', _money(sampleHppTotal)),
+                    _miniMetric('Estimasi Dampak', _money(sampleLossEstimate),
+                        warning: sampleLossEstimate > 0),
+                    const SizedBox(height: 10),
                     const Text(
-                      '* Payout minus dilabeli sesuai sumber yang terbukti: settlement, ongkir, voucher, atau fee platform.',
+                      'Rumus: Estimasi Dampak = HPP Sample + Payout Minus confirmed only',
                       style: TextStyle(
                         fontSize: 11,
-                        color: Colors.redAccent,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    if (sampleNegativePayout > 0) ...[
+                      const SizedBox(height: 4),
+                      const Text(
+                        '* Payout minus dilabeli sesuai sumber yang terbukti: settlement, ongkir, voucher, atau fee platform.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.redAccent,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _navigateToSampleFreeAbnormal(context),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(
+                              color: Theme.of(context).colorScheme.primary,
+                              width: 2),
+                          shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.zero),
+                        ),
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                        label: const Text('LIHAT DAFTAR ORDER SAMPLE'),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => _navigateToSampleFreeAbnormal(context),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(
-                            color: Theme.of(context).colorScheme.primary,
-                            width: 2),
-                        shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.zero),
-                      ),
-                      icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                      label: const Text('LIHAT DAFTAR ORDER SAMPLE'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
+                ),
+                const SizedBox(height: 12),
+              ],
             ],
             _metricGrid([
               _Metric('Omzet', _money(gross), Icons.sell_rounded),
@@ -8982,7 +9249,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               _Metric('HPP', _money(hpp), Icons.inventory_2_rounded),
               _Metric(
                   'Biaya Ops', _money(operational), Icons.receipt_long_rounded),
-              _Metric('Sample/Gratis', sampleOrderCount.toStringAsFixed(0),
+              _Metric('Sample/Gratis', _sampleFreeLoaded ? sampleOrderCount.toStringAsFixed(0) : 'Belum dimuat',
                   Icons.card_giftcard_rounded),
               _Metric('No Payout', noPayoutCount.toStringAsFixed(0),
                   Icons.hourglass_empty_rounded),
@@ -9546,11 +9813,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _cashFlowTab() {
-    if (!_operationalCostsLoaded && !_operationalCostsLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_loadOperationalCostsSupplemental());
-      });
-    }
     if (_loading) {
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
     }
@@ -9595,10 +9857,29 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           _sectionHeader('Jumlah / Total Arus Kas'),
           SizedBox(height: 8),
-          if (_operationalCostsLoading)
-            _emptyCard('Memuat rincian biaya dan pembelian...')
-          else if (_operationalCostsError != null)
-            _emptyCard('Rincian biaya belum termuat: $_operationalCostsError'),
+          if (!_operationalCostsLoaded) ...[
+            if (_operationalCostsLoading)
+              _emptyCard('Memuat rincian biaya dan pembelian...')
+            else ...[
+              if (_operationalCostsError != null)
+                _emptyCard('Rincian biaya belum termuat: $_operationalCostsError'),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _loadOperationalCostsSupplemental,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.cyan,
+                    foregroundColor: Colors.black,
+                    side: const BorderSide(color: Colors.black, width: 2),
+                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                  ),
+                  icon: const Icon(Icons.receipt_long_rounded),
+                  label: const Text('MUAT DETAIL BIAYA & PEMBELIAN'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ],
           _metricGrid([
             _Metric('Total Masuk', _money(totalIn), Icons.south_west_rounded),
             _Metric('Total Keluar', _money(totalOut), Icons.north_east_rounded),
@@ -9758,11 +10039,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _expensesTab() {
-    if (!_operationalCostsLoaded && !_operationalCostsLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_loadOperationalCostsSupplemental());
-      });
-    }
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
     return RefreshIndicator(
@@ -9772,15 +10048,33 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 130),
         children: [
           _sectionHeader('Biaya Operasional'),
-          SizedBox(height: 8),
-          if (_operationalCostsLoading)
-            _emptyCard('Memuat rincian biaya dan pembelian...')
-          else if (_operationalCostsError != null)
-            _emptyCard('Rincian biaya belum termuat: $_operationalCostsError')
-          else if (_expenses.isEmpty && _approvedPurchases.isEmpty)
-            _emptyCard(
-                'Belum ada biaya operasional atau pembelian yang sudah disetujui.')
-          else ...[
+          const SizedBox(height: 8),
+          if (!_operationalCostsLoaded) ...[
+            if (_operationalCostsLoading)
+              _emptyCard('Memuat rincian biaya dan pembelian...')
+            else ...[
+              if (_operationalCostsError != null)
+                _emptyCard('Rincian biaya belum termuat: $_operationalCostsError'),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _loadOperationalCostsSupplemental,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.cyan,
+                    foregroundColor: Colors.black,
+                    side: const BorderSide(color: Colors.black, width: 2),
+                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                  ),
+                  icon: const Icon(Icons.receipt_long_rounded),
+                  label: const Text('MUAT DETAIL BIAYA & PEMBELIAN'),
+                ),
+              ),
+            ],
+          ] else ...[
+            if (_expenses.isEmpty && _approvedPurchases.isEmpty)
+              _emptyCard(
+                  'Belum ada biaya operasional atau pembelian yang sudah disetujui.')
+            else ...[
             ..._expenses.map(_manualExpenseRowCard),
             if (_approvedPurchases.isNotEmpty) ...[
               SizedBox(height: 14),
@@ -9816,6 +10110,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ],
           ],
         ],
+      ],
       ),
     );
   }
@@ -10291,18 +10586,29 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _profitLossTab() {
-    if (!_operationalCostsLoaded && !_operationalCostsLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_loadOperationalCostsSupplemental());
-      });
-    }
-    if (!_profitLossLoaded && !_profitLossLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_loadProfitLossSupplemental());
-      });
-    }
-    if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data...'));
+    final paidSkuTotals = _totalsFromSkuRows(paidOnly: true);
+    final summaryGross = _num(_summary['gross_sales'] ??
+        _summary['gross_total'] ??
+        _summary['gross'] ??
+        _summary['omzet_total'] ??
+        _summary['omzet']);
+    final summaryPayout = _num(_summary['payout_total'] ??
+        _summary['payout_amount'] ??
+        _summary['payout'] ??
+        _summary['received_amount'] ??
+        _summary['net_received']);
+    final summaryHpp =
+        _num(_summary['hpp_total'] ?? _summary['hpp'] ?? _summary['total_hpp']);
+    final operational = _num(_summary['operational_cost_total'] ??
+        _summary['operational_expense'] ??
+        _summary['expense_total']);
+
+    final gross = summaryGross > 0 ? summaryGross : paidSkuTotals['gross']!;
+    final payout = summaryPayout > 0 ? summaryPayout : paidSkuTotals['payout']!;
+    final hpp = summaryHpp > 0 ? summaryHpp : paidSkuTotals['hpp']!;
+    final profit = payout - hpp - operational;
+    final margin = payout > 0 ? (profit / payout) * 100 : 0.0;
+
     final rawProfitRows =
         _profitLoss.isNotEmpty ? _profitLoss : _fallbackProfitLossRows();
     final profitRows = _profitLossByMarketplace.isNotEmpty
@@ -10310,6 +10616,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             .where((row) => !_isGenericSettlementProfitLossRow(row))
             .toList()
         : rawProfitRows;
+
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -10317,28 +10624,92 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         padding: const EdgeInsets.all(14),
         children: [
           _sectionHeader('Laba Rugi'),
-          SizedBox(height: 8),
-          if (_profitLossLoading)
-            _emptyCard('Memuat breakdown laba rugi...')
-          else if (_profitLossError != null)
-            _emptyCard('Breakdown laba rugi belum termuat: $_profitLossError'),
-          if (_profitLossByMarketplace.isNotEmpty) ...[
-            _profitLossByMarketplaceCard(),
-            const SizedBox(height: 8),
+          const SizedBox(height: 8),
+
+          // Show Card Summary First
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor.withOpacity(0.74),
+              border: Border.all(color: Theme.of(context).dividerColor),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Ringkasan Laba Rugi',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: Theme.of(context).textTheme.bodyLarge?.color,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _profitLossMiniMetric('Total Omzet', _money(gross), positive: true),
+                    _profitLossMiniMetric('Total Payout', _money(payout), positive: true),
+                    _profitLossMiniMetric('Total HPP', _money(hpp), warning: true),
+                    _profitLossMiniMetric('Biaya Ops', _money(operational), warning: true),
+                    _profitLossMiniMetric('Estimasi Laba', _money(profit),
+                        positive: profit >= 0, warning: profit < 0),
+                    _profitLossMiniMetric('Margin Laba', '${margin.toStringAsFixed(2)}%'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          if (!_profitLossLoaded) ...[
+            if (_profitLossLoading)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: FuturisticLoader(message: 'Memuat Rincian Rekonsiliasi...'),
+                ),
+              )
+            else ...[
+              if (_profitLossError != null) ...[
+                _emptyCard('Gagal memuat rincian rekonsiliasi: $_profitLossError'),
+                const SizedBox(height: 8),
+              ],
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _loadProfitLossSupplemental,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.cyan,
+                    foregroundColor: Colors.black,
+                    side: const BorderSide(color: Colors.black, width: 2),
+                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                  ),
+                  icon: const Icon(Icons.analytics_rounded),
+                  label: const Text('MUAT RINCIAN REKONSILIASI'),
+                ),
+              ),
+            ],
+          ] else ...[
+            if (_profitLossByMarketplace.isNotEmpty) ...[
+              _profitLossByMarketplaceCard(),
+              const SizedBox(height: 8),
+            ],
+            if (profitRows.isEmpty)
+              _emptyCard('Belum ada rincian laba rugi pada periode ini.')
+            else
+              ...profitRows.map((row) {
+                final amount = _num(row['amount']);
+                return _simpleRowCard(
+                  title: _sourceLabel(
+                      _text(row['name'] ?? row['label'] ?? row['category'])),
+                  subtitle: _text(row['description'], 'Komponen laporan'),
+                  trailing: _profitLossValue(row),
+                  positive: amount >= 0,
+                );
+              }),
           ],
-          if (profitRows.isEmpty)
-            _emptyCard('Belum ada data laba rugi pada periode ini.')
-          else
-            ...profitRows.map((row) {
-              final amount = _num(row['amount']);
-              return _simpleRowCard(
-                title: _sourceLabel(
-                    _text(row['name'] ?? row['label'] ?? row['category'])),
-                subtitle: _text(row['description'], 'Komponen laporan'),
-                trailing: _profitLossValue(row),
-                positive: amount >= 0,
-              );
-            }),
         ],
       ),
     );
@@ -11814,8 +12185,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         deduped.add(row);
       }
     }
-    debugPrint(
-        'SKU_DEDUPE_PROOF: stableLineKey using order_sn + marketplace_order_item_id. Seen set size: ${seen.length}, input count: ${normalized.length}');
+    if (_enableSkuDebugLogs) {
+      debugPrint(
+          'SKU_DEDUPE_PROOF: stableLineKey using order_sn + marketplace_order_item_id. Seen set size: ${seen.length}, input count: ${normalized.length}');
+    }
 
     if (payoutFilter == 'paid') {
       return deduped.where(_skuDetailHasPayoutV82o).toList();
