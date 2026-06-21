@@ -37,6 +37,8 @@ class MarketplaceResiOrderResult {
   final String? externalOrderId;
   final String? trackingNumber;
   final String? marketplaceNote;
+  final String? buyerNote;
+  final String? sellerNote;
   final bool orderReadyToFinalize;
   final int processed;
   final int failed;
@@ -50,6 +52,8 @@ class MarketplaceResiOrderResult {
     this.externalOrderId,
     this.trackingNumber,
     this.marketplaceNote,
+    this.buyerNote,
+    this.sellerNote,
     this.orderReadyToFinalize = false,
     this.processed = 0,
     this.failed = 0,
@@ -66,6 +70,8 @@ class MarketplaceResiOrderResult {
       trackingNumber: map['tracking_number']?.toString(),
       marketplaceNote:
           (map['marketplace_note'] ?? map['seller_note'])?.toString(),
+      buyerNote: map['buyer_note']?.toString(),
+      sellerNote: map['seller_note']?.toString(),
       orderReadyToFinalize: map['order_ready_to_finalize'] == true,
       processed: _asInt(map['processed'] ?? map['scanned_qty']),
       failed: _asInt(map['failed']),

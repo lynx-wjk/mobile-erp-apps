@@ -411,7 +411,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       try {
         final response = await _client
             .rpc(safeRpcName, params: params)
-            .timeout(const Duration(seconds: 5));
+            .timeout(const Duration(seconds: 15));
         final enrichedResponse =
             await _withMarketplaceReconciliation(response, params);
         _lastSnapshotStats =
@@ -1387,11 +1387,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'finance_sku_order_details',
         params: params,
       );
-      final map = _asMap(response);
-      final rows = _asList(map['rows'] ?? map['by_sku'] ?? map['sku'])
+      List<dynamic> rawRowsList = [];
+      if (response is List) {
+        if (response.isNotEmpty && response.first is Map && (response.first as Map).containsKey('rows')) {
+          rawRowsList = _asList((response.first as Map)['rows']);
+        } else {
+          rawRowsList = response;
+        }
+      } else if (response is Map) {
+        rawRowsList = _asList(response['rows'] ?? response['by_sku'] ?? response['sku']);
+      }
+      final rows = rawRowsList
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
+      debugPrint('finance_sku_order_details (${payoutFilter}): response type = ${response.runtimeType}, raw rows length = ${rawRowsList.length}, parsed rows length = ${rows.length}');
       await FinanceLocalCache.writeRows(cacheKey, rows);
       return rows;
     } catch (error) {
@@ -2164,7 +2174,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'p_marketplace': _marketplaceRpcParam(),
           'p_account_id': _accountUuidParam(),
         },
-      ).timeout(const Duration(seconds: 4));
+      ).timeout(const Duration(seconds: 10));
       if (!mounted) return;
       final data = _asMap(response);
       final summary = _asMap(data['summary']);
@@ -2186,19 +2196,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       );
       setState(() {
         final nextSummary = Map<String, dynamic>.from(_summary);
-        for (final key in const [
-          'sample_order_count',
-          'sample_free_count',
-        ]) {
-          final value = summary[key];
+        summary.forEach((key, value) {
           if (value != null) nextSummary[key] = value;
-        }
+        });
         _summary = nextSummary;
         _sampleFreeOrders = rows;
       });
     } catch (error) {
       debugPrint('Finance sample/free supplemental load failed: $error');
     }
+  }
+
+  void _navigateToSampleFreeAbnormal(BuildContext context) {
+    setState(() {
+      _abnormalStatusFilter = 'sample_free';
+      _abnormalPage = 1;
+    });
+    _refreshAbnormalTab(resetPage: true);
+    DefaultTabController.maybeOf(context)?.animateTo(6);
   }
 
   String _skuPayoutCountCleanKey(dynamic value) {
@@ -4390,8 +4405,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         return;
       }
 
-      final detailOnly = _text(row['detail_source'], '').contains('detail') ||
-          _text(row['source'], '').contains('detail');
+      final detailOnly = _text(row['detail_source'], '').contains('_detail') ||
+          _text(row['source'], '').contains('_detail');
       if (!detailOnly) {
         existing['qty'] = _num(existing['qty']) + _num(row['qty']);
         existing['qty_total'] =
@@ -4984,9 +4999,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ? 'marketplace_finance_reports_raw_negative_payout'
             : selectedRpc;
         _serverAbnormales = rawRows;
-        _abnormalTotal = _selectedScopeIsSpecific()
-            ? rawRows.length
-            : _num(map['total']).toInt();
+        _abnormalTotal = _num(map['total']).toInt();
         _abnormalPage = _num(map['page']).toInt().clamp(1, 999999).toInt();
 
         if (aggregates.isNotEmpty) {
@@ -5850,6 +5863,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
       _rememberFilters();
     });
+    await _clearFinanceLocalCacheForSelectedPeriod();
     await _load();
   }
 
@@ -6171,6 +6185,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _end = end;
       _rememberFilters();
     });
+    await _clearFinanceLocalCacheForSelectedPeriod();
     await _load();
   }
 
@@ -8452,12 +8467,49 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 subtitle:
                     '${sampleOrderCount.toStringAsFixed(0)} order · HPP ${_money(sampleHppTotal)} · Payout minus ${_money(sampleNegativePayout)}',
                 children: [
-                  _miniMetric(
-                      'Order sample', sampleOrderCount.toStringAsFixed(0)),
-                  _miniMetric('HPP sample', _money(sampleHppTotal)),
-                  _miniMetric(
-                      'Payout minus sample', _money(sampleNegativePayout)),
-                  _miniMetric('Estimasi dampak', _money(sampleLossEstimate)),
+                  _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
+                  _miniMetric('Gross (Omzet)', _money(_num(_summary['sample_gross_total']))),
+                  _miniMetric('Payout', _money(_num(_summary['sample_payout_total']))),
+                  _miniMetric('Payout Minus', _money(_num(_summary['sample_payout_minus_total'])), warning: _num(_summary['sample_payout_minus_total']) < 0),
+                  _miniMetric('Voucher/Diskon', _money(_num(_summary['sample_discount_total']))),
+                  _miniMetric('Ongkir (Kurir)', _money(_num(_summary['sample_shipping_total']))),
+                  _miniMetric('Biaya Platform', _money(_num(_summary['sample_fee_total']))),
+                  _miniMetric('Refund', _money(_num(_summary['sample_refund_total']))),
+                  _miniMetric('Penyesuaian', _money(_num(_summary['sample_adjustment_total']))),
+                  _miniMetric('HPP Sample', _money(sampleHppTotal)),
+                  _miniMetric('Estimasi Dampak', _money(sampleLossEstimate), warning: sampleLossEstimate > 0),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Rumus: Estimasi Dampak = HPP Sample + Payout Minus',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  if (sampleNegativePayout > 0) ...[
+                    const SizedBox(height: 4),
+                    const Text(
+                      '* Payout minus berasal dari ongkir (kurir) atau voucher / diskon yang dibebankan ke penjual.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.redAccent,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _navigateToSampleFreeAbnormal(context),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Theme.of(context).colorScheme.primary, width: 2),
+                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                      ),
+                      icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                      label: const Text('LIHAT DAFTAR ORDER SAMPLE'),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -8645,8 +8697,38 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             const SizedBox(height: 10),
           ],
           if (_bySku.isEmpty)
-            _emptyCard(
-                'Belum ada data SKU finance.\nAuto finance sedang mengejar data periode ini di background. Pastikan mapping SKU lokal sudah benar agar HPP ikut terbaca.')
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.zero,
+                color: Theme.of(context).cardColor,
+                border: Border.all(color: Colors.black, width: 2.5),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black,
+                    offset: Offset(4, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.shopping_bag_outlined,
+                      size: 24, color: Theme.of(context).colorScheme.primary),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Belum ada data SKU finance.\nAuto finance sedang mengejar data periode ini di background. Pastikan mapping SKU lokal sudah benar agar HPP ikut terbaca.',
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context).colorScheme.outline,
+                          height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            )
           else
             ..._skuVisibleRows.map((row) {
               final sku = _text(row['local_sku'] ?? row['sku']);

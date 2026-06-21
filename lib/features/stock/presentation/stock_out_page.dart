@@ -85,6 +85,8 @@ class _StockOutPageState extends State<StockOutPage> {
   String? _marketplaceTrackingNumber;
   String? _marketplaceOrderMessage;
   String? _marketplaceNote;
+  String? _buyerNote;
+  String? _sellerNote;
   List<_MarketplacePickItem> _marketplacePickItems = [];
 
   final List<String> _tujuanOptions = const [
@@ -124,6 +126,8 @@ class _StockOutPageState extends State<StockOutPage> {
         _marketplaceTrackingNumber = null;
         _marketplaceOrderMessage = null;
         _marketplaceNote = null;
+        _buyerNote = null;
+        _sellerNote = null;
         _marketplacePickItems = [];
       });
     }
@@ -307,6 +311,8 @@ class _StockOutPageState extends State<StockOutPage> {
           _marketplaceTrackingNumber = null;
           _marketplaceOrderMessage = result.message;
           _marketplaceNote = null;
+          _buyerNote = null;
+          _sellerNote = null;
           _marketplacePickItems = [];
         });
         rootScaffoldMessengerKey.currentState?.showSnackBar(
@@ -326,6 +332,8 @@ class _StockOutPageState extends State<StockOutPage> {
         _marketplaceTrackingNumber = result.trackingNumber;
         _marketplaceOrderMessage = result.message;
         _marketplaceNote = result.marketplaceNote;
+        _buyerNote = result.buyerNote;
+        _sellerNote = result.sellerNote;
         _items.clear();
       });
 
@@ -436,6 +444,8 @@ class _StockOutPageState extends State<StockOutPage> {
             result.trackingNumber ?? _marketplaceTrackingNumber;
         _marketplaceOrderMessage = result.message;
         _marketplaceNote = result.marketplaceNote ?? _marketplaceNote;
+        _buyerNote = result.buyerNote ?? _buyerNote;
+        _sellerNote = result.sellerNote ?? _sellerNote;
       });
 
       await _loadMarketplacePickItems();
@@ -524,6 +534,8 @@ class _StockOutPageState extends State<StockOutPage> {
         _marketplaceTrackingNumber =
             result.trackingNumber ?? _marketplaceTrackingNumber;
         _marketplaceNote = result.marketplaceNote ?? _marketplaceNote;
+        _buyerNote = result.buyerNote ?? _buyerNote;
+        _sellerNote = result.sellerNote ?? _sellerNote;
         _verifiedResi = resi;
       });
 
@@ -881,15 +893,20 @@ class _StockOutPageState extends State<StockOutPage> {
                     Text('SKU aktual: ${actualProduct.kodeSku}'),
                     Text('Produk aktual: ${actualProduct.namaBarang}'),
                     Text('Barcode aktual: ${actualProduct.kodeBarcode}'),
-                    if ((_marketplaceNote ?? '').trim().isNotEmpty) ...[
-                      SizedBox(height: 12),
-                      Text(
-                        'Catatan Marketplace',
-                        style: TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                      SizedBox(height: 4),
-                      Text(_marketplaceNote!.trim()),
-                    ],
+                    SizedBox(height: 12),
+                    Text(
+                      'Catatan Pembeli',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    SizedBox(height: 4),
+                    Text((_buyerNote ?? '').trim().isEmpty ? 'Tidak ada catatan' : _buyerNote!.trim()),
+                    SizedBox(height: 10),
+                    Text(
+                      'Catatan Penjual',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    SizedBox(height: 4),
+                    Text((_sellerNote ?? '').trim().isEmpty ? 'Tidak ada catatan' : _sellerNote!.trim()),
                     SizedBox(height: 14),
                     TextField(
                       controller: controller,
@@ -963,6 +980,8 @@ class _StockOutPageState extends State<StockOutPage> {
         _marketplaceTrackingNumber =
             result.trackingNumber ?? _marketplaceTrackingNumber;
         _marketplaceNote = result.marketplaceNote ?? _marketplaceNote;
+        _buyerNote = result.buyerNote ?? _buyerNote;
+        _sellerNote = result.sellerNote ?? _sellerNote;
         _verifiedResi = resi;
       });
 
@@ -1365,6 +1384,8 @@ class _StockOutPageState extends State<StockOutPage> {
         _marketplaceTrackingNumber = null;
         _marketplaceOrderMessage = null;
         _marketplaceNote = null;
+        _buyerNote = null;
+        _sellerNote = null;
         _marketplacePickItems = [];
         _verifiedResi = null;
         _tujuan = 'penjualan';
@@ -1482,6 +1503,8 @@ class _StockOutPageState extends State<StockOutPage> {
                   _marketplaceOrderNumber = null;
                   _marketplaceTrackingNumber = null;
                   _marketplaceNote = null;
+                  _buyerNote = null;
+                  _sellerNote = null;
                   _verifiedResi = null;
                 });
               },
@@ -1620,7 +1643,7 @@ class _StockOutPageState extends State<StockOutPage> {
             Text('Order: $_marketplaceOrderNumber'),
           if ((_marketplaceTrackingNumber ?? '').trim().isNotEmpty)
             Text('Resi: $_marketplaceTrackingNumber'),
-          if ((_marketplaceNote ?? '').trim().isNotEmpty) ...[
+          if (ok) ...[
             SizedBox(height: 10),
             Container(
               width: double.infinity,
@@ -1633,11 +1656,18 @@ class _StockOutPageState extends State<StockOutPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Catatan Marketplace',
+                    'Catatan Pembeli',
                     style: TextStyle(fontWeight: FontWeight.w900),
                   ),
                   SizedBox(height: 4),
-                  Text(_marketplaceNote!.trim()),
+                  Text((_buyerNote ?? '').trim().isEmpty ? 'Tidak ada catatan' : _buyerNote!.trim()),
+                  SizedBox(height: 10),
+                  Text(
+                    'Catatan Penjual',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  SizedBox(height: 4),
+                  Text((_sellerNote ?? '').trim().isEmpty ? 'Tidak ada catatan' : _sellerNote!.trim()),
                 ],
               ),
             ),
