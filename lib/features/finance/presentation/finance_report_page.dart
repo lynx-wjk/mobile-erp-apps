@@ -1125,6 +1125,32 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     } catch (_) {}
 
     try {
+      dynamic manualQuery = _client
+          .from('finance_company_cash_adjustments')
+          .select()
+          .gte('adjustment_date', _toDateParam(_dateOnly(_start)))
+          .lte('adjustment_date', _toDateParam(_dateOnly(_end)));
+      if (_currentTenantId.trim().isNotEmpty) {
+        manualQuery = manualQuery.eq('tenant_id', _currentTenantId);
+      }
+      final manualRes = await manualQuery
+          .eq('direction', 'out')
+          .order('adjustment_date', ascending: false)
+          .range(0, 199);
+      final manualExpenses = _asList(manualRes).map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        return {
+          ...map,
+          'expense_date': map['adjustment_date'],
+          'amount': _num(map['amount']).abs(),
+          'description': map['category'] ?? map['note'] ?? 'Kas keluar manual',
+          'source': 'finance_company_cash_adjustments',
+        };
+      }).toList();
+      results.addAll(manualExpenses);
+    } catch (_) {}
+
+    try {
       dynamic tailorQuery = _client
           .from('production_tailor_payments')
           .select()
@@ -14600,6 +14626,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         !source.contains('page_first')) {
       return '';
     }
+    
     final orderPayout = _numFirstNonZero([
       detail['order_payout'],
       detail['order_payout_total'],
@@ -14620,9 +14647,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       detail['payout'],
       detail['payout_amount'],
     ]);
+    
+    final isExactLinePayout = detail.containsKey('exact_item_settlement') && detail['exact_item_settlement'] != null;
 
-    if (orderPayout > 0 && orderGross > 0 && lineGross > 0) {
-      return 'Order Settlement: ${_money(orderPayout)} · Alokasi Item (Gross ${_money(lineGross)} / Order Gross ${_money(orderGross)}): ${_money(linePayout)} · Formula: ${_money(orderPayout)} x ${_money(lineGross)} / ${_money(orderGross)}.';
+    if (isExactLinePayout) {
+      return 'Marketplace memberikan settlement exact per item: ${_money(linePayout)} dari Total Order Settlement: ${_money(orderPayout)}.';
+    }
+
+    if (orderGross > 0 && lineGross > 0) {
+      if (orderGross == lineGross) {
+         return 'Pesanan Single-item: Settlement = Total Order Settlement (${_money(orderPayout)}).';
+      } else {
+         final gap = (orderPayout - linePayout).abs();
+         final gapText = gap > 0.01 ? ' · Gap pembulatan: ${_money(gap)}' : '';
+         return 'Alokasi Proporsional (bukan nilai exact marketplace): ${_money(linePayout)}\nFormula: (Item Gross ${_money(lineGross)} / Order Gross ${_money(orderGross)}) x Order Settlement ${_money(orderPayout)}$gapText';
+      }
     }
     return 'Alokasi proporsional dari settlement marketplace per order: ${_money(linePayout)} (Order Settlement: ${_money(orderPayout)}).';
   }

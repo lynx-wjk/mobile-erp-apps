@@ -1,91 +1,32 @@
-# Finance Duplicate and Marketplace Gap Audit Report
-**Path**: `docs/devops/finance_duplicate_and_marketplace_gap_audit.md`
+# Finance Duplicate and Marketplace Gap Audit Plan
 
-## 1. Overview of Duplicate Entries in Finance Reports
-Duplicate entries in the `marketplace_finance_reports` and `marketplace_order_items` tables can result in double-counting of payouts, HPP, and marketplace fees, which skews profit/loss calculations. 
+This document outlines the strategy for identifying duplicate data across the finance and marketplace operational tables without executing any destructive SQL operations (no `DELETE`, `DROP`, or `TRUNCATE`).
 
-Duplicates typically arise from:
-- Concurrent backfill jobs or manual sync triggers running in parallel.
-- Overlapping webhook event deliveries without idempotent insertion guards.
-- Mismatches in order SN formats (e.g., trailing spaces or prefix differences) when joining between order tables and raw report imports.
+## Scope of Audit
 
----
+We target the following critical tables to ensure that duplicate synchronization records are identified and accurately reported.
 
-## 2. Key Audit Fields & Patterns
-The read-only audit script at [audit_finance_duplicates_readonly.sql](file:///C:/Users/budic/Downloads/android/inventory_control_apps/supabase/sql/audit_finance_duplicates_readonly.sql) tracks duplicates across the following fields:
-- `marketplace` & `marketplace_account_id`
-- `order_sn` / `order_id` (marketplace order sequence numbers)
-- `statement_id` (settlement identifier from the marketplace)
-- `payout_amount` / `received_amount`
-- `marketplace_order_item_id` (for line-level item duplication)
+### 1. `marketplace_finance_reports`
+- **Goal:** Identify cases where the same order/statement has been fetched and inserted multiple times.
+- **Criteria:** Group by `tenant_id`, `marketplace_account_id`, `order_id`, and `statement_id`.
+- **Expected Outcome:** `HAVING count(*) > 1`
 
----
+### 2. `marketplace_orders`
+- **Goal:** Identify cases where the same logical order (by `order_sn` or `order_id`) exists multiple times for a single account.
+- **Criteria:** Group by `tenant_id`, `marketplace_account_id`, and a normalized order key (using `order_sn` falling back to `order_id`).
+- **Expected Outcome:** `HAVING count(*) > 1`
 
-## 3. Marketplace Settlement Gap Examples
-Settlement gaps refer to orders that have been completed and delivered but either:
-1. Have no payout recorded in `marketplace_finance_reports`.
-2. Have a payout recorded under an unrecognized order SN (orphaned payouts).
-3. Have a mismatch between client-side computed payout and actual net settlement.
+### 3. `marketplace_order_items`
+- **Goal:** Identify duplicate item allocations within a single order.
+- **Criteria:** Group by `tenant_id`, `marketplace_order_id`, and the `marketplace_sku_id` (or `marketplace_sku`).
+- **Expected Outcome:** `HAVING count(*) > 1`
 
-Common reasons for gap occurrences:
-- **Shopee Escrow Delay**: Payout is pending escrow release, which can take up to 7-14 days.
-- **TikTok Shop Deduction**: Affiliate fees or platform vouchers deducted directly from settlement without explicit itemized lines.
+## Future Cleanup Plan (Deferred)
 
----
+Once the read-only audit (using `supabase/sql/audit_finance_duplicates_readonly.sql`) confirms the scope of duplicates, the following cleanup strategy should be implemented:
 
-## 4. Duplicate Cleanup & Safe Rollback Plan (Dry Run)
-If duplicates are proven by running the query in Section 1 of the SQL script, a separate cleanup should be performed. 
+1. **Dry-Run Validation**: Run a `SELECT` query utilizing `ctid` or primary keys to ensure that exactly $N-1$ rows are targeted for removal, keeping the most recently updated or canonical row.
+2. **Execution**: Execute the cleanup strictly inside a `BEGIN; ... COMMIT;` transaction, verifying the exact count of affected rows before committing.
+3. **Prevention**: Implement a `UNIQUE` constraint or enforce strict `ON CONFLICT` updates during data ingestion to prevent future duplicates.
 
-### SELECT Preview Query
-Before executing any deletion, preview the rows that will be removed:
-```sql
-with duplicate_ranks as (
-  select
-    finance_report_id,
-    row_number() over (
-      partition by tenant_id, marketplace, marketplace_account_id, order_id, statement_id
-      order by created_at asc, finance_report_id asc
-    ) as row_rank
-  from public.marketplace_finance_reports
-)
-select * from public.marketplace_finance_reports
-where finance_report_id in (
-  select finance_report_id from duplicate_ranks where row_rank > 1
-);
-```
-
-### Deletion Script (DO NOT RUN YET)
-```sql
-begin;
-
--- Save backup first
-create temp table backup_marketplace_finance_reports as 
-with duplicate_ranks as (
-  select
-    finance_report_id,
-    row_number() over (
-      partition by tenant_id, marketplace, marketplace_account_id, order_id, statement_id
-      order by created_at asc, finance_report_id asc
-    ) as row_rank
-  from public.marketplace_finance_reports
-)
-select * from public.marketplace_finance_reports
-where finance_report_id in (
-  select finance_report_id from duplicate_ranks where row_rank > 1
-);
-
--- Execute DELETE only for ranked duplicates
-delete from public.marketplace_finance_reports
-where finance_report_id in (
-  select finance_report_id from backup_marketplace_finance_reports
-);
-
-commit;
-```
-
-### Rollback Plan
-If the cleanup causes data discrepancies, restore the deleted records from the temporary backup table before the transaction or session ends:
-```sql
-insert into public.marketplace_finance_reports
-select * from backup_marketplace_finance_reports;
-```
+*Note: No data will be deleted during the current hotfix cycle. This document serves purely as a preparatory audit.*

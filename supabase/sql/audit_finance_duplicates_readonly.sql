@@ -1,73 +1,78 @@
--- Audit: Duplicate Keys and Settlement Gaps (Read-Only)
--- Target: C:\Users\budic\Downloads\android\inventory_control_apps\supabase\sql\audit_finance_duplicates_readonly.sql
+-- ==============================================================================
+-- URGENT STABILITY HOTFIX: SELECT-ONLY DUPLICATE FINANCE AUDIT
+-- ==============================================================================
+-- This script safely identifies potential duplicate data entries across 
+-- finance tables without executing any DELETE, DROP, or TRUNCATE operations.
+-- It strictly adheres to SELECT-only principles.
 
--- 1. Audit duplicate finance reports by order and statement
-select
-  tenant_id,
-  marketplace,
-  marketplace_account_id,
-  order_id,
-  statement_id,
-  count(*) as duplicate_count,
-  sum(coalesce(payout_amount, received_amount, net_settlement, 0)) as total_payout_amount,
-  array_agg(finance_report_id) as finance_report_ids
-from public.marketplace_finance_reports
-group by tenant_id, marketplace, marketplace_account_id, order_id, statement_id
-having count(*) > 1
-order by duplicate_count desc
-limit 100;
-
--- 2. Audit duplicate order items by marketplace item ID
-select
-  tenant_id,
-  marketplace_order_id,
-  marketplace_order_item_id,
-  count(*) as duplicate_count,
-  array_agg(marketplace_order_item_id) as order_item_ids
-from public.marketplace_order_items
-group by tenant_id, marketplace_order_id, marketplace_order_item_id
-having count(*) > 1
-order by duplicate_count desc
-limit 100;
-
--- 3. Audit orders with payout but no matching local order records (orphaned payouts)
-select
-  fr.tenant_id,
-  fr.marketplace,
-  fr.marketplace_account_id,
-  fr.order_id,
-  fr.statement_id,
-  fr.payout_amount,
-  fr.settlement_date
-from public.marketplace_finance_reports fr
-left join public.marketplace_orders o
-  on o.tenant_id = fr.tenant_id
- and o.marketplace_account_id = fr.marketplace_account_id
- and (o.marketplace_order_id = fr.marketplace_order_id or o.order_id = fr.order_id)
-where o.marketplace_order_id is null
-order by fr.settlement_date desc
-limit 100;
-
--- 4. Duplicate cleanup preparation (SELECT preview only, no DELETE)
--- This CTE generates the list of duplicate IDs to keep (the first/oldest one) and the ones to prune.
-with duplicate_ranks as (
-  select
-    finance_report_id,
-    row_number() over (
-      partition by tenant_id, marketplace, marketplace_account_id, order_id, statement_id
-      order by created_at asc, finance_report_id asc
-    ) as row_rank
-  from public.marketplace_finance_reports
+-- 1. Identify duplicates in marketplace_finance_reports
+-- Groups by tenant, marketplace account, order_id, and statement_id to find duplicates.
+WITH duplicated_finance AS (
+    SELECT 
+        tenant_id,
+        marketplace_account_id,
+        order_id,
+        statement_id,
+        COUNT(*) as occurrence_count
+    FROM public.marketplace_finance_reports
+    GROUP BY 
+        tenant_id,
+        marketplace_account_id,
+        order_id,
+        statement_id
+    HAVING COUNT(*) > 1
 )
-select
-  dr.finance_report_id,
-  fr.tenant_id,
-  fr.marketplace,
-  fr.order_id,
-  fr.statement_id,
-  fr.payout_amount,
-  fr.created_at
-from duplicate_ranks dr
-join public.marketplace_finance_reports fr on fr.finance_report_id = dr.finance_report_id
-where dr.row_rank > 1
-order by fr.created_at desc;
+SELECT * FROM duplicated_finance;
+
+-- 2. Identify duplicates in marketplace_orders
+-- Groups by tenant, marketplace account, and order_sn to find duplicates.
+WITH duplicated_orders AS (
+    SELECT
+        tenant_id,
+        marketplace_account_id,
+        coalesce(nullif(order_sn, ''), nullif(order_id::text, '')) as order_key,
+        COUNT(*) as occurrence_count
+    FROM public.marketplace_orders
+    GROUP BY 
+        tenant_id,
+        marketplace_account_id,
+        coalesce(nullif(order_sn, ''), nullif(order_id::text, ''))
+    HAVING COUNT(*) > 1
+)
+SELECT * FROM duplicated_orders;
+
+-- 3. Identify duplicates in marketplace_order_items
+-- Groups by order_id and SKU mapping.
+WITH duplicated_order_items AS (
+    SELECT 
+        tenant_id,
+        marketplace_order_id,
+        coalesce(nullif(marketplace_sku_id, ''), nullif(marketplace_sku, '')) as sku_key,
+        COUNT(*) as occurrence_count
+    FROM public.marketplace_order_items
+    GROUP BY 
+        tenant_id,
+        marketplace_order_id,
+        coalesce(nullif(marketplace_sku_id, ''), nullif(marketplace_sku, ''))
+    HAVING COUNT(*) > 1
+)
+SELECT * FROM duplicated_order_items;
+
+-- 4. Sample duplicate check query showing complete row details (Read-Only)
+-- This can be used to investigate the exact rows of a known duplicated order
+/*
+SELECT 
+    finance_report_id,
+    order_id,
+    statement_id,
+    payout_amount,
+    created_at
+FROM public.marketplace_finance_reports
+WHERE order_id IN (
+    SELECT order_id 
+    FROM public.marketplace_finance_reports 
+    GROUP BY order_id, statement_id 
+    HAVING count(*) > 1
+)
+ORDER BY order_id, created_at DESC;
+*/
