@@ -81,7 +81,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   final Map<String, Future<dynamic>> _activeFinanceRequests = {};
   final Map<String, dynamic> _financeLoadCache = {};
 
-  bool _isCurrentFilter(String startKey, String endKey, String mktKey, String accKey) {
+  bool _isCurrentFilter(
+      String startKey, String endKey, String mktKey, String accKey) {
     return mounted &&
         _toDateParam(_start) == startKey &&
         _toDateParam(_end) == endKey &&
@@ -524,59 +525,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     dynamic response,
     Map<String, dynamic> params,
   ) async {
-    if (response is! Map) return response;
-    final sourceTable = _text(response['source_table']).toLowerCase();
-    final source = _text(response['source']).toLowerCase();
-    final isCanonicalOrderSnapshot = source == 'finance_dashboard_snapshot' &&
-        (sourceTable
-                .contains('marketplace_orders+marketplace_finance_reports') ||
-            sourceTable.contains('dashboard_marketplace_order_analytics_90d'));
-    if (isCanonicalOrderSnapshot) return response;
-    try {
-      final reconciliation = await _client.rpc(
-        'finance_marketplace_reconciliation_breakdown',
-        params: {
-          'p_start': params['p_start'],
-          'p_end': params['p_end'],
-          'p_marketplace': params['p_marketplace'],
-          'p_account_id': params['p_account_id'],
-        },
-      );
-      if (reconciliation is! Map) return response;
-
-      final out = Map<String, dynamic>.from(response);
-      final summary = Map<String, dynamic>.from(_asMap(out['summary']));
-      final reconciliationSummary =
-          Map<String, dynamic>.from(_asMap(reconciliation['summary']));
-
-      for (final entry in reconciliationSummary.entries) {
-        summary[entry.key] = entry.value;
-      }
-      out['summary'] = summary;
-
-      // Jangan overwrite by_marketplace dari canonical snapshot.
-      // Snapshot sudah membawa HPP split per marketplace; reconciliation raw tidak selalu punya HPP.
-      final existingMarketplaceRows =
-          _asList(out['by_marketplace'] ?? out['marketplaces']);
-      final byMarketplace = _asList(reconciliation['by_marketplace']);
-      if (existingMarketplaceRows.isEmpty && byMarketplace.isNotEmpty) {
-        out['by_marketplace'] = byMarketplace;
-        out['marketplaces'] = byMarketplace;
-      }
-
-      // Jangan append breakdown dari reconciliation ke snapshot karena bisa double
-      // setelah refresh. Pakai breakdown snapshot jika ada; fallback ke reconciliation.
-      final existingBreakdown = _asList(out['profit_loss_breakdown']);
-      final reconciliationBreakdown =
-          _asList(reconciliation['profit_loss_breakdown']);
-      if (existingBreakdown.isEmpty && reconciliationBreakdown.isNotEmpty) {
-        out['profit_loss_breakdown'] = reconciliationBreakdown;
-      }
-      return out;
-    } catch (error) {
-      debugPrint('FINANCE_RECONCILIATION_RPC_FAILED: $error');
-      return response;
-    }
+    return response;
   }
 
   List<Map<String, dynamic>> _snapshotParamVariantsForRpc(
@@ -842,6 +791,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['payment_id'],
       row['reference_id'],
       row['source_reference_id'],
+      row['adjustment_id'],
+      row['cash_adjustment_id'],
     ]);
     if (sourceId.isNotEmpty && _isProductionPaymentExpenseRow(row)) {
       return 'source:production_tailor_payments:${sourceId.toLowerCase()}';
@@ -866,6 +817,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['operational_expense_id'],
       row['purchase_id'],
       row['request_id'],
+      row['adjustment_id'],
+      row['cash_adjustment_id'],
     ]);
     if (rawId.isNotEmpty) return 'id:${rawId.toLowerCase()}';
 
@@ -1118,10 +1071,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .order('expense_date', ascending: false)
           .order('created_at', ascending: false)
           .range(0, 199);
-      results = _asList(res)
-          .map((e) => _normalizeProductionExpenseRow(
-              Map<String, dynamic>.from(e as Map)))
-          .toList();
+      results = _asList(res).map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        map['source'] = _text(map['source'], '').trim().isEmpty ||
+                _text(map['source'], '') == '-'
+            ? 'finance_operational_expenses'
+            : map['source'];
+        map['source_label'] = 'Biaya operasional disetujui';
+        return _normalizeProductionExpenseRow(map);
+      }).toList();
     } catch (_) {}
 
     try {
@@ -1141,10 +1099,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         final map = Map<String, dynamic>.from(e as Map);
         return {
           ...map,
+          'adjustment_id': map['cash_adjustment_id'],
           'expense_date': map['adjustment_date'],
           'amount': _num(map['amount']).abs(),
           'description': map['category'] ?? map['note'] ?? 'Kas keluar manual',
           'source': 'finance_company_cash_adjustments',
+          'source_label': 'Kas keluar manual',
         };
       }).toList();
       results.addAll(manualExpenses);
@@ -1173,8 +1133,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       final tailorPayments = _asList(tailorRes).map((e) {
         final map = Map<String, dynamic>.from(e as Map);
-        return _productionPaymentExpenseFromRow(map);
+        final normalized = _productionPaymentExpenseFromRow(map);
+        normalized['source_label'] = 'Ongkos produksi terbayar';
+        return normalized;
       }).where((row) {
+        if (row['is_voided'] == true) return false;
         final aliases = _productionExpenseAliases(row);
         return aliases.every((alias) => !mirroredProductionIds.contains(alias));
       }).toList();
@@ -2124,6 +2087,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           : cashWalletData['allocations'] ?? <Map<String, dynamic>>[];
       _expenses = normalizedExpenses;
       _profitLoss = normalizedProfitLoss;
+      _profitLossLoaded = true;
+      _profitLossLoading = false;
+      _profitLossError = null;
       final rawProfitLossMarketplace = _asList(
         data['profit_loss_by_marketplace'] ??
             data['by_marketplace'] ??
@@ -2336,7 +2302,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final endKey = _toDateParam(_end);
     final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
     final accKey = _accountFilter;
-    final cacheKey = 'sample_free_supplemental:$startKey:$endKey:$mktKey:$accKey';
+    final cacheKey =
+        'sample_free_supplemental:$startKey:$endKey:$mktKey:$accKey';
 
     if (_financeLoadCache.containsKey(cacheKey)) {
       final cachedData = _financeLoadCache[cacheKey];
@@ -2352,7 +2319,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             if (value != null) nextSummary[key] = value;
           });
           if (summary['sample_order_count'] != null) {
-            nextSummary['abnormal_sample_count'] = summary['sample_order_count'];
+            nextSummary['abnormal_sample_count'] =
+                summary['sample_order_count'];
           }
           _summary = nextSummary;
           _sampleFreeOrders = [];
@@ -2414,7 +2382,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             if (value != null) nextSummary[key] = value;
           });
           if (summary['sample_order_count'] != null) {
-            nextSummary['abnormal_sample_count'] = summary['sample_order_count'];
+            nextSummary['abnormal_sample_count'] =
+                summary['sample_order_count'];
           }
           _summary = nextSummary;
           _sampleFreeOrders = [];
@@ -2443,7 +2412,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final cacheKey = 'sample_free_details:$startKey:$endKey:$mktKey:$accKey';
 
     if (!force && _financeLoadCache.containsKey(cacheKey)) {
-      final cachedRows = _financeLoadCache[cacheKey] as List<Map<String, dynamic>>;
+      final cachedRows =
+          _financeLoadCache[cacheKey] as List<Map<String, dynamic>>;
       if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
         setState(() {
           _sampleFreeOrders = cachedRows;
@@ -2537,20 +2507,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final endKey = _toDateParam(_end);
     final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
     final accKey = _accountFilter;
-    final cacheKey = 'operational_costs_supplemental:$startKey:$endKey:$mktKey:$accKey';
+    final cacheKey =
+        'operational_costs_supplemental:$startKey:$endKey:$mktKey:$accKey';
 
     if (_financeLoadCache.containsKey(cacheKey)) {
       final cached = _financeLoadCache[cacheKey] as Map<String, dynamic>;
       if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
         setState(() {
           _expenses = cached['expenses'] as List<Map<String, dynamic>>;
-          _approvedPurchases = cached['approvedPurchases'] as List<Map<String, dynamic>>;
+          _approvedPurchases =
+              cached['approvedPurchases'] as List<Map<String, dynamic>>;
           _summary = cached['summary'] as Map<String, dynamic>;
           _cashFlow = cached['cashFlow'] as List<Map<String, dynamic>>;
-          if (!_profitLossLoaded) {
-            _profitLoss = cached['profitLoss'] as List<Map<String, dynamic>>;
-          }
-          _expenseCategoryOptions = cached['expenseCategoryOptions'] as List<String>;
+          _profitLoss = cached['profitLoss'] as List<Map<String, dynamic>>;
+          _expenseCategoryOptions =
+              cached['expenseCategoryOptions'] as List<String>;
           _operationalCostsLoaded = true;
           _operationalCostsLoading = false;
           _operationalCostsError = null;
@@ -2591,8 +2562,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     try {
       final results = await future;
-      final liveExpenses = results['liveExpenses'] as List<Map<String, dynamic>>;
-      final livePurchases = results['livePurchases'] as List<Map<String, dynamic>>;
+      final liveExpenses =
+          results['liveExpenses'] as List<Map<String, dynamic>>;
+      final livePurchases =
+          results['livePurchases'] as List<Map<String, dynamic>>;
 
       if (!mounted) return;
 
@@ -2607,7 +2580,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       );
 
       final cashFlowData = _cashFlowRowsFromSummary(nextSummary);
-      final profitLossData = _profitLossRowsFromSummary(nextSummary, _profitLoss);
+      final profitLossData =
+          _profitLossRowsFromSummary(nextSummary, _profitLoss);
       final categoryOptions = _mergeExpenseCategories(normalizedExpenses);
 
       final cacheEntry = {
@@ -2627,9 +2601,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           _approvedPurchases = approvedPurchases;
           _summary = nextSummary;
           _cashFlow = cashFlowData;
-          if (!_profitLossLoaded) {
-            _profitLoss = profitLossData;
-          }
+          _profitLoss = profitLossData;
           _expenseCategoryOptions = categoryOptions;
           _operationalCostsLoaded = true;
           _operationalCostsError = null;
@@ -2653,7 +2625,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final endKey = _toDateParam(_end);
     final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
     final accKey = _accountFilter;
-    final cacheKey = 'profit_loss_supplemental:$startKey:$endKey:$mktKey:$accKey';
+    final cacheKey =
+        'profit_loss_supplemental:$startKey:$endKey:$mktKey:$accKey';
 
     if (_financeLoadCache.containsKey(cacheKey)) {
       final cached = _financeLoadCache[cacheKey] as Map<String, dynamic>;
@@ -2661,17 +2634,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         setState(() {
           _summary = cached['summary'] as Map<String, dynamic>;
           _profitLoss = cached['profitLoss'] as List<Map<String, dynamic>>;
-          _profitLossByMarketplace = cached['profitLossByMarketplace'] as List<Map<String, dynamic>>;
+          _profitLossByMarketplace =
+              cached['profitLossByMarketplace'] as List<Map<String, dynamic>>;
           _profitLossLoaded = true;
           _profitLossLoading = false;
           _profitLossError = null;
         });
       }
-      return;
-    }
-
-    if (_activeFinanceRequests.containsKey(cacheKey)) {
-      await _activeFinanceRequests[cacheKey];
       return;
     }
 
@@ -2682,54 +2651,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       });
     }
 
-    final future = () async {
-      try {
-        final response = await _client.rpc(
-          'finance_marketplace_reconciliation_breakdown',
-          params: {
-            'p_start': startKey,
-            'p_end': endKey,
-            'p_marketplace': _marketplaceRpcParam(),
-            'p_account_id': _accountUuidParam(),
-          },
-        ).timeout(const Duration(seconds: 20));
-        return response;
-      } catch (e) {
-        debugPrint('finance_marketplace_reconciliation_breakdown RPC error: $e');
-        rethrow;
-      }
-    }();
-
-    _activeFinanceRequests[cacheKey] = future;
-
     try {
-      final response = await future;
-      final data = _asMap(response);
-
       if (!mounted) return;
-
-      final reconciliationSummary = _asMap(data['summary']);
-      final nextSummary = Map<String, dynamic>.from(_summary);
-      reconciliationSummary.forEach((key, value) {
-        if (value != null) nextSummary[key] = value;
-      });
       final displaySummary = _summaryWithLiveCosts(
-        nextSummary,
+        _summary,
         _expenses,
         _approvedPurchases,
       );
-      final breakdown = _asList(data['profit_loss_breakdown'])
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
       final byMarketplace = _marketplaceRowsWithFinanceAliases(
-        _asList(data['by_marketplace'])
-            .whereType<Map>()
-            .map((row) => Map<String, dynamic>.from(row))
-            .toList(),
+        _profitLossByMarketplace.isNotEmpty
+            ? _profitLossByMarketplace
+            : _byMarketplace,
       );
-
-      final profitLossData = _profitLossRowsFromSummary(displaySummary, breakdown);
+      final profitLossData = _profitLossRowsFromSummary(displaySummary);
 
       final cacheEntry = {
         'summary': displaySummary,
@@ -2754,9 +2688,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
         setState(() => _profitLossError = _cleanError(error));
       }
-      debugPrint('FINANCE_RECONCILIATION_RPC_FAILED: $error');
+      debugPrint('FINANCE_PROFIT_LOSS_SUMMARY_REFRESH_FAILED: $error');
     } finally {
-      _activeFinanceRequests.remove(cacheKey);
       if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
         setState(() => _profitLossLoading = false);
       }
@@ -3850,6 +3783,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               'type': 'purchase_approved',
               'flow': 'OUT',
               'source': source,
+              'source_label': 'Pembelian disetujui',
             };
           })
           .where((row) => _num(row['amount']) > 0)
@@ -3864,7 +3798,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     for (final table in ['purchase_requests', 'purchases']) {
       try {
-        final dateCol = table == 'purchase_requests' ? 'tanggal_beli' : 'tanggal';
+        final dateCol =
+            table == 'purchase_requests' ? 'tanggal_beli' : 'tanggal';
         dynamic query = _client.from(table).select('*');
         if (_currentTenantId.trim().isNotEmpty) {
           query = query.eq('tenant_id', _currentTenantId);
@@ -3928,6 +3863,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   _isoDate(DateTime.now()),
               'created_at': row['created_at'],
               'source': row['source'] ?? 'purchase_requests',
+              'source_label': row['source_label'] ?? 'Pembelian disetujui',
             })
         .toList();
   }
@@ -5429,7 +5365,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         if (_isSampleFreeAbnormalRow(row)) return false;
         final isPayoutMinus = _hasPayoutMinusSettlementReason(row);
         if (isPayoutMinus) return true;
-        final orderStatus = _text(row['order_status'] ?? row['status'] ?? row['live_status'], '').toUpperCase();
+        final orderStatus = _text(
+                row['order_status'] ?? row['status'] ?? row['live_status'], '')
+            .toUpperCase();
         if (_isCancelLikeStatus(orderStatus)) return false;
         const activeStatuses = [
           'AWAITING_SHIPMENT',
@@ -5442,7 +5380,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'UNSHIPPED',
         ];
         if (activeStatuses.any(orderStatus.contains)) return false;
-        final resi = _text(row['resi'] ?? row['tracking_number'] ?? row['awb'], '').trim();
+        final resi =
+            _text(row['resi'] ?? row['tracking_number'] ?? row['awb'], '')
+                .trim();
         if (resi.isEmpty || resi == '-') return false;
         return true;
       }
@@ -9118,7 +9058,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               if (_sampleFreeLoading)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Center(child: FuturisticLoader(message: 'Memuat Ringkasan Sample/Gratis...')),
+                  child: Center(
+                      child: FuturisticLoader(
+                          message: 'Memuat Ringkasan Sample/Gratis...')),
                 )
               else ...[
                 if (_sampleFreeError != null) ...[
@@ -9158,8 +9100,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.cyan,
                             foregroundColor: Colors.black,
-                            side: const BorderSide(color: Colors.black, width: 2),
-                            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                            side:
+                                const BorderSide(color: Colors.black, width: 2),
+                            shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.zero),
                           ),
                           icon: const Icon(Icons.card_giftcard_rounded),
                           label: const Text('MUAT AUDIT SAMPLE/GRATIS'),
@@ -9196,8 +9140,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         classificationNoPayoutCount.toStringAsFixed(0)),
                     _miniMetric('Gross (Omzet)',
                         _money(_num(_summary['sample_gross_total']))),
-                    _miniMetric(
-                        'Payout', _money(_num(_summary['sample_payout_total']))),
+                    _miniMetric('Payout',
+                        _money(_num(_summary['sample_payout_total']))),
                     _miniMetric('Payout Minus', _money(sampleNegativePayout),
                         warning: sampleNegativePayout > 0),
                     if (samplePayoutMinusSettlement > 0)
@@ -9222,8 +9166,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         _money(_num(_summary['sample_shipping_total']))),
                     _miniMetric('Biaya Platform',
                         _money(_num(_summary['sample_fee_total']))),
-                    _miniMetric(
-                        'Refund', _money(_num(_summary['sample_refund_total']))),
+                    _miniMetric('Refund',
+                        _money(_num(_summary['sample_refund_total']))),
                     _miniMetric('Penyesuaian',
                         _money(_num(_summary['sample_adjustment_total']))),
                     _miniMetric('HPP Sample', _money(sampleHppTotal)),
@@ -9267,6 +9211,31 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   ],
                 ),
                 const SizedBox(height: 12),
+              ] else ...[
+                _detailCard(
+                  title: 'Sample / Gratis sesuai filter',
+                  subtitle: '0 order terkonfirmasi',
+                  children: [
+                    _emptyOkCard(
+                        'Tidak ada Sample/Gratis terkonfirmasi untuk filter ini.'),
+                    _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
+                    _miniMetric(
+                        'Teks sample/free', sampleTextCount.toStringAsFixed(0)),
+                    _miniMetric(
+                        'Label produk', sampleLabelCount.toStringAsFixed(0)),
+                    _miniMetric(
+                        'Diskon 100%', sampleDiscountCount.toStringAsFixed(0)),
+                    _miniMetric('Flag finance',
+                        sampleFinanceFlagCount.toStringAsFixed(0)),
+                    _miniMetric('Batal dipisah',
+                        classificationCancelledCount.toStringAsFixed(0)),
+                    _miniMetric('Pending dipisah',
+                        classificationPendingCount.toStringAsFixed(0)),
+                    _miniMetric('No Payout eligible',
+                        classificationNoPayoutCount.toStringAsFixed(0)),
+                  ],
+                ),
+                const SizedBox(height: 12),
               ],
             ],
             _metricGrid([
@@ -9275,7 +9244,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               _Metric('HPP', _money(hpp), Icons.inventory_2_rounded),
               _Metric(
                   'Biaya Ops', _money(operational), Icons.receipt_long_rounded),
-              _Metric('Sample/Gratis', _sampleFreeLoaded ? sampleOrderCount.toStringAsFixed(0) : 'Belum dimuat',
+              _Metric(
+                  'Sample/Gratis',
+                  _sampleFreeLoaded
+                      ? sampleOrderCount.toStringAsFixed(0)
+                      : 'Belum dimuat',
                   Icons.card_giftcard_rounded),
               _Metric('No Payout', noPayoutCount.toStringAsFixed(0),
                   Icons.hourglass_empty_rounded),
@@ -9842,6 +9815,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (_loading) {
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
     }
+    if (!_operationalCostsLoaded &&
+        !_operationalCostsLoading &&
+        _operationalCostsError == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadOperationalCostsSupplemental());
+      });
+    }
     final cashRows = _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
     final walletRows = _cashWalletRowsForDisplay(
       opening: _cashOpeningBalances,
@@ -9888,21 +9868,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               _emptyCard('Memuat rincian biaya dan pembelian...')
             else ...[
               if (_operationalCostsError != null)
-                _emptyCard('Rincian biaya belum termuat: $_operationalCostsError'),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _loadOperationalCostsSupplemental,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.cyan,
-                    foregroundColor: Colors.black,
-                    side: const BorderSide(color: Colors.black, width: 2),
-                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                  ),
-                  icon: const Icon(Icons.receipt_long_rounded),
-                  label: const Text('MUAT DETAIL BIAYA & PEMBELIAN'),
-                ),
-              ),
+                _emptyCard(
+                    'Rincian biaya belum termuat: $_operationalCostsError'),
+              _emptyCard('Rincian biaya akan dimuat otomatis.'),
               const SizedBox(height: 12),
             ],
           ],
@@ -9988,10 +9956,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final amount = _numFirstNonZero(
       [row['amount'], row['total_amount'], row['expense_total']],
     );
-    final editable = !_isDemoSuperAdmin &&
-        !_isSyntheticExpenseRow(row) &&
-        !_isPurchaseExpenseRow(row) &&
-        _isUuid(_expenseId(row));
+    final editable =
+        !_isDemoSuperAdmin && _isEditableOperationalExpenseRow(row);
+    final sourceLabel = _expenseSourceLabel(row);
 
     return Container(
       width: double.infinity,
@@ -10010,7 +9977,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _text(row['category'], 'Operasional'),
+                  _text(row['category'] ?? row['title'], 'Operasional'),
                   style: TextStyle(
                     fontWeight: FontWeight.w900,
                     fontSize: 13,
@@ -10023,6 +9990,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     _date(row['expense_date'] ??
                         row['paid_at'] ??
                         row['created_at']),
+                    sourceLabel,
                     _text(row['note'] ?? row['description'], '-'),
                   ]
                       .where((item) =>
@@ -10067,6 +10035,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Widget _expensesTab() {
     if (_loading)
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
+    if (!_operationalCostsLoaded &&
+        !_operationalCostsLoading &&
+        _operationalCostsError == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadOperationalCostsSupplemental());
+      });
+    }
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -10080,63 +10055,52 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               _emptyCard('Memuat rincian biaya dan pembelian...')
             else ...[
               if (_operationalCostsError != null)
-                _emptyCard('Rincian biaya belum termuat: $_operationalCostsError'),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _loadOperationalCostsSupplemental,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.cyan,
-                    foregroundColor: Colors.black,
-                    side: const BorderSide(color: Colors.black, width: 2),
-                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                  ),
-                  icon: const Icon(Icons.receipt_long_rounded),
-                  label: const Text('MUAT DETAIL BIAYA & PEMBELIAN'),
-                ),
-              ),
+                _emptyCard(
+                    'Rincian biaya belum termuat: $_operationalCostsError'),
+              _emptyCard('Rincian biaya akan dimuat otomatis.'),
             ],
           ] else ...[
             if (_expenses.isEmpty && _approvedPurchases.isEmpty)
               _emptyCard(
                   'Belum ada biaya operasional atau pembelian yang sudah disetujui.')
             else ...[
-            ..._expenses.map(_manualExpenseRowCard),
-            if (_approvedPurchases.isNotEmpty) ...[
-              SizedBox(height: 14),
-              _sectionHeader('Pembelian Disetujui'),
-              SizedBox(height: 8),
-              ..._approvedPurchases.map((row) => _simpleRowCard(
-                    title: _text(
-                        row['title'] ??
-                            row['item'] ??
-                            row['item_name'] ??
-                            row['nama_barang'] ??
-                            row['category'],
-                        'Pembelian'),
-                    subtitle: <String>[
-                      _date(row['expense_date'] ??
-                          row['date'] ??
-                          row['tanggal'] ??
-                          row['approved_at'] ??
-                          row['created_at']),
-                      _text(
-                          row['supplier_name'] ??
-                              row['description'] ??
-                              row['source'],
-                          ''),
-                      if (_purchaseQty(row) > 0) 'Qty ${_purchaseQty(row)}',
-                    ]
-                        .where((item) =>
-                            item.trim().isNotEmpty && item.trim() != '-')
-                        .join('  ·  '),
-                    trailing: _money(_purchaseAmount(row)),
-                    positive: false,
-                  )),
+              ..._expenses.map(_manualExpenseRowCard),
+              if (_approvedPurchases.isNotEmpty) ...[
+                SizedBox(height: 14),
+                _sectionHeader('Pembelian Disetujui'),
+                SizedBox(height: 8),
+                ..._approvedPurchases.map((row) => _simpleRowCard(
+                      title: _text(
+                          row['title'] ??
+                              row['item'] ??
+                              row['item_name'] ??
+                              row['nama_barang'] ??
+                              row['category'],
+                          'Pembelian'),
+                      subtitle: <String>[
+                        _date(row['expense_date'] ??
+                            row['date'] ??
+                            row['tanggal'] ??
+                            row['approved_at'] ??
+                            row['created_at']),
+                        _expenseSourceLabel(row),
+                        _text(
+                            row['supplier_name'] ??
+                                row['description'] ??
+                                row['source'],
+                            ''),
+                        if (_purchaseQty(row) > 0) 'Qty ${_purchaseQty(row)}',
+                      ]
+                          .where((item) =>
+                              item.trim().isNotEmpty && item.trim() != '-')
+                          .join('  ·  '),
+                      trailing: _money(_purchaseAmount(row)),
+                      positive: false,
+                    )),
+              ],
             ],
           ],
         ],
-      ],
       ),
     );
   }
@@ -10411,7 +10375,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       decoration: BoxDecoration(
                         color: Theme.of(context).dividerColor.withOpacity(0.04),
                         border: Border.all(
-                            color: Theme.of(context).dividerColor.withOpacity(0.15)),
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withOpacity(0.15)),
                       ),
                       child: Text(
                         _profitLossLoading
@@ -10455,7 +10421,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       isExpanded
                           ? 'Sembunyikan Rincian Rekonsiliasi'
                           : 'Lihat Rincian Rekonsiliasi',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.bold),
                     ),
                   ),
                   if (isExpanded) ...[
@@ -10465,8 +10432,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       decoration: BoxDecoration(
                         color: Theme.of(context).dividerColor.withOpacity(0.04),
                         border: Border.all(
-                            color:
-                                Theme.of(context).dividerColor.withOpacity(0.15)),
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withOpacity(0.15)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -10476,7 +10444,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w800,
-                              color: Theme.of(context).textTheme.bodyLarge?.color,
+                              color:
+                                  Theme.of(context).textTheme.bodyLarge?.color,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -10490,7 +10459,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           reconcileItemRow('Commission', -commissionFee.abs()),
                           reconcileItemRow('Affiliate', -affiliateFee.abs()),
                           reconcileItemRow('Platform Fee', -platformFee.abs()),
-                          reconcileItemRow('Shipping/ongkir', -shippingFee.abs()),
+                          reconcileItemRow(
+                              'Shipping/ongkir', -shippingFee.abs()),
                           if (_num(row['other_fee']) > 0)
                             reconcileItemRow(
                                 'Other fee', -_num(row['other_fee']).abs()),
@@ -10675,13 +10645,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _profitLossMiniMetric('Total Omzet', _money(gross), positive: true),
-                    _profitLossMiniMetric('Total Payout', _money(payout), positive: true),
-                    _profitLossMiniMetric('Total HPP', _money(hpp), warning: true),
-                    _profitLossMiniMetric('Biaya Ops', _money(operational), warning: true),
+                    _profitLossMiniMetric('Total Omzet', _money(gross),
+                        positive: true),
+                    _profitLossMiniMetric('Total Payout', _money(payout),
+                        positive: true),
+                    _profitLossMiniMetric('Total HPP', _money(hpp),
+                        warning: true),
+                    _profitLossMiniMetric('Biaya Ops', _money(operational),
+                        warning: true),
                     _profitLossMiniMetric('Estimasi Laba', _money(profit),
                         positive: profit >= 0, warning: profit < 0),
-                    _profitLossMiniMetric('Margin Laba', '${margin.toStringAsFixed(2)}%'),
+                    _profitLossMiniMetric(
+                        'Margin Laba', '${margin.toStringAsFixed(2)}%'),
                   ],
                 ),
               ],
@@ -10694,28 +10669,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24),
                 child: Center(
-                  child: FuturisticLoader(message: 'Memuat Rincian Rekonsiliasi...'),
+                  child: FuturisticLoader(
+                      message: 'Memuat Rincian Rekonsiliasi...'),
                 ),
               )
             else ...[
               if (_profitLossError != null) ...[
-                _emptyCard('Gagal memuat rincian rekonsiliasi: $_profitLossError'),
+                _emptyCard(
+                    'Gagal memuat rincian rekonsiliasi: $_profitLossError'),
                 const SizedBox(height: 8),
               ],
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _loadProfitLossSupplemental,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.cyan,
-                    foregroundColor: Colors.black,
-                    side: const BorderSide(color: Colors.black, width: 2),
-                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                  ),
-                  icon: const Icon(Icons.analytics_rounded),
-                  label: const Text('MUAT RINCIAN REKONSILIASI'),
-                ),
-              ),
+              _emptyCard(
+                  'Ringkasan laba rugi belum tersedia untuk filter ini.'),
             ],
           ] else ...[
             if (_profitLossByMarketplace.isNotEmpty) ...[
@@ -10747,7 +10712,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         if (mounted) unawaited(_refreshAbnormalTab(resetPage: true));
       });
     }
-    if (_abnormalStatusFilter == 'sample_free' && !_sampleFreeDetailsLoaded && !_sampleFreeDetailsLoading) {
+    if (_abnormalStatusFilter == 'sample_free' &&
+        !_sampleFreeDetailsLoaded &&
+        !_sampleFreeDetailsLoading) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_loadSampleFreeOrdersDetails());
       });
@@ -10854,7 +10821,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ),
           SizedBox(height: 8),
 
-          if (_abnormalSearchBusy || (_abnormalStatusFilter == 'sample_free' && _sampleFreeDetailsLoading))
+          if (_abnormalSearchBusy ||
+              (_abnormalStatusFilter == 'sample_free' &&
+                  _sampleFreeDetailsLoading))
             Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Center(
@@ -10868,8 +10837,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               _emptyCard('Data abnormal belum termuat: $_abnormalLoadError'),
               SizedBox(height: 8),
             ],
-            if (_abnormalStatusFilter == 'sample_free' && _sampleFreeDetailsError != null) ...[
-              _emptyCard('Gagal memuat detail sample: $_sampleFreeDetailsError'),
+            if (_abnormalStatusFilter == 'sample_free' &&
+                _sampleFreeDetailsError != null) ...[
+              _emptyCard(
+                  'Gagal memuat detail sample: $_sampleFreeDetailsError'),
               SizedBox(height: 8),
             ],
             // Info bar
@@ -10881,7 +10852,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 border: Border.all(color: Theme.of(context).dividerColor),
               ),
               child: Text(
-                _abnormalStatusFilter == 'sample_free' && !_sampleFreeDetailsLoaded
+                _abnormalStatusFilter == 'sample_free' &&
+                        !_sampleFreeDetailsLoaded
                     ? 'Memuat data...'
                     : (_abnormalServerLoaded
                         ? 'Hal $_abnormalPage/$pageMax · $startRow-$endRow dari $visibleTotal · $dataCount perlu cek payout'
@@ -12000,11 +11972,47 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       copy['order_status'] = orderStatus;
     }
 
-    final payout = _skuOrderDetailPayoutValueV82o(copy);
+    var payout = _skuOrderDetailPayoutValueV82o(copy);
+    final exactItemPayout = _numFirstNonZero([
+      copy['exact_item_settlement'],
+      copy['exact_item_payout'],
+      copy['exact_line_settlement'],
+      copy['exact_line_payout'],
+    ]);
+    final orderPayout = _numFirstNonZero([
+      copy['order_payout'],
+      copy['order_payout_total'],
+      copy['order_settlement_total'],
+      copy['order_net_settlement'],
+    ]);
+    final orderGross = _numFirstNonZero([
+      copy['order_line_gross'],
+      copy['order_gross_total'],
+      copy['order_line_gross_total'],
+    ]);
+    final lineGross = _numFirstNonZero([
+      copy['gross'],
+      copy['gross_amount'],
+      copy['gross_total'],
+    ]);
+    if (exactItemPayout != 0) {
+      payout = exactItemPayout;
+      copy['exact_item_settlement'] = exactItemPayout;
+    } else if (orderPayout != 0 &&
+        orderGross > 0 &&
+        lineGross > 0 &&
+        (orderGross - lineGross).abs() <= 0.01) {
+      payout = orderPayout;
+      copy['single_item_order_payout_exact'] = true;
+    }
     copy['payout'] = payout;
     copy['payout_amount'] = payout;
 
-    final payoutPerItem = _skuOrderDetailPayoutPerItemValueV82o(copy);
+    var payoutPerItem = _skuOrderDetailPayoutPerItemValueV82o(copy);
+    final qty = _num(copy['qty'] ?? copy['quantity']);
+    if (payoutPerItem == 0 && payout != 0) {
+      payoutPerItem = payout / (qty > 0 ? qty : 1.0);
+    }
     if (payoutPerItem != 0) {
       copy['payout_per_item'] = payoutPerItem;
     }
@@ -12130,90 +12138,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final normalized = rows
         .map(_normalizeSkuOrderDetailDisplayRowV82o)
         .toList(growable: false);
-
-    String cleanPart(dynamic value) {
-      final text = _cleanText(value, '').trim();
-      if (text == '-' || text.toLowerCase() == 'null') return '';
-      return text.toLowerCase();
-    }
-
-    String firstPart(Map<String, dynamic> row, List<String> keys) {
-      for (final key in keys) {
-        final value = cleanPart(row[key]);
-        if (value.isNotEmpty) return value;
-      }
-      return '';
-    }
-
-    String stableLineKey(Map<String, dynamic> row) {
-      final orderId = firstPart(row, const [
-        'order',
-        'order_sn',
-        'external_order_id',
-        'order_id',
-      ]);
-      final externalLineId = firstPart(row, const [
-        'marketplace_order_item_id',
-        'external_order_item_id',
-        'platform_order_item_id',
-        'remote_order_item_id',
-        'line_item_id',
-        'line_id',
-      ]);
-      if (orderId.isNotEmpty && externalLineId.isNotEmpty) {
-        return 'line|$orderId|$externalLineId';
-      }
-
-      final resi = firstPart(row, const ['resi', 'tracking_number']);
-      final settlement = firstPart(row, const [
-        'statement_id',
-        'settlement_ref',
-        'settlement_id',
-        'statement_ref',
-      ]);
-      final sku = firstPart(row, const [
-        'local_sku',
-        'sku',
-        'marketplace_sku',
-        'marketplace_seller_sku',
-      ]);
-      final variant = firstPart(row, const [
-        'variant_name',
-        'marketplace_variation_name',
-        'product_name',
-        'title',
-      ]);
-      final qty = _num(row['qty']).toStringAsFixed(4);
-      final gross = _num(row['gross']).toStringAsFixed(2);
-      final payout =
-          _num(row['payout'] ?? row['payout_amount']).toStringAsFixed(2);
-      final hpp = _num(row['hpp_item'] ?? row['hpp']).toStringAsFixed(2);
-      return [
-        'facts',
-        orderId,
-        resi,
-        settlement,
-        sku,
-        variant,
-        qty,
-        gross,
-        payout,
-        hpp,
-      ].join('|');
-    }
-
-    final Set<String> seen = {};
-    final List<Map<String, dynamic>> deduped = [];
-    for (final row in normalized) {
-      final key = stableLineKey(row);
-      if (!seen.contains(key)) {
-        seen.add(key);
-        deduped.add(row);
-      }
-    }
+    final deduped = _dedupeSkuDetailRows(normalized);
     if (_enableSkuDebugLogs) {
       debugPrint(
-          'SKU_DEDUPE_PROOF: stableLineKey using order_sn + marketplace_order_item_id. Seen set size: ${seen.length}, input count: ${normalized.length}');
+          'SKU_DEDUPE_PROOF: stableLineKey uses order line id, fallback facts. '
+          'Deduped size: ${deduped.length}, input count: ${normalized.length}');
     }
 
     if (payoutFilter == 'paid') {
@@ -12810,7 +12739,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                 ),
                                 SizedBox(height: 4),
                                 Text(
-                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel · Deduped by order_sn + marketplace_order_item_id',
+                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel · Deduped by order line/facts',
                                   style: TextStyle(
                                       fontSize: 12,
                                       color: Theme.of(context)
@@ -13838,6 +13767,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String _expenseId(Map<String, dynamic> row) {
     final datas = [
       row['expense_id'],
+      row['adjustment_id'],
+      row['cash_adjustment_id'],
       row['finance_operational_expense_id'],
       row['operational_expense_id'],
       row['finance_expense_id'],
@@ -13849,6 +13780,212 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (_isUuid(text)) return text;
     }
     return '';
+  }
+
+  bool _isCashAdjustmentExpenseRow(Map<String, dynamic> row) {
+    final haystack = [
+      row['source'],
+      row['source_table'],
+      row['source_module'],
+      row['type'],
+    ].map((value) => _text(value, '').toLowerCase()).join(' ');
+    return haystack.contains('finance_company_cash_adjustments') ||
+        haystack.contains('cash_adjustment') ||
+        row.containsKey('cash_adjustment_id') ||
+        row.containsKey('adjustment_id');
+  }
+
+  bool _isEditableOperationalExpenseRow(Map<String, dynamic> row) {
+    if (_isSyntheticExpenseRow(row) ||
+        _isPurchaseExpenseRow(row) ||
+        _isCashAdjustmentExpenseRow(row) ||
+        _isProductionTailorFallbackExpense(row)) {
+      return false;
+    }
+    return _isUuid(_firstStableText([
+      row['expense_id'],
+      row['finance_operational_expense_id'],
+      row['operational_expense_id'],
+      row['finance_expense_id'],
+      row['manual_expense_id'],
+    ]));
+  }
+
+  String _expenseSourceLabel(Map<String, dynamic> row) {
+    final explicit = _text(row['source_label'], '').trim();
+    if (explicit.isNotEmpty && explicit != '-') return explicit;
+    final haystack = [
+      row['source'],
+      row['source_table'],
+      row['source_module'],
+      row['type'],
+      row['category'],
+      row['title'],
+      row['label'],
+    ].map((value) => _text(value, '').toLowerCase()).join(' ');
+    if (_isCashAdjustmentExpenseRow(row) || haystack.contains('kas keluar')) {
+      return 'Kas keluar manual';
+    }
+    if (_isProductionPaymentExpenseRow(row)) {
+      return 'Ongkos produksi terbayar';
+    }
+    if (haystack.contains('purchase') || haystack.contains('pembelian')) {
+      return 'Pembelian disetujui';
+    }
+    if (haystack.contains('finance_operational_expenses') ||
+        haystack.contains('operational') ||
+        haystack.contains('operasional')) {
+      return 'Biaya operasional disetujui';
+    }
+    return _sourceLabel(_text(row['source'] ?? row['category'], 'Data'));
+  }
+
+  String _skuDetailStableLineKey(Map<String, dynamic> row) {
+    String cleanPart(dynamic value) {
+      final text = _cleanText(value, '').trim();
+      if (text == '-' || text.toLowerCase() == 'null') return '';
+      return text.toLowerCase();
+    }
+
+    String firstPart(List<String> keys) {
+      for (final key in keys) {
+        final value = cleanPart(row[key]);
+        if (value.isNotEmpty) return value;
+      }
+      return '';
+    }
+
+    final orderId = firstPart(const [
+      'order',
+      'order_sn',
+      'external_order_id',
+      'remote_order_id',
+      'order_id',
+    ]);
+    final externalLineId = firstPart(const [
+      'marketplace_order_item_id',
+      'external_order_item_id',
+      'platform_order_item_id',
+      'remote_order_item_id',
+      'line_item_id',
+      'line_id',
+    ]);
+    if (orderId.isNotEmpty && externalLineId.isNotEmpty) {
+      return 'line|$orderId|$externalLineId';
+    }
+
+    final resi = firstPart(const [
+      'resi',
+      'tracking_number',
+      'tracking_no',
+      'logistics_tracking_number',
+      'awb',
+      'waybill_no',
+    ]);
+    final settlement = firstPart(const [
+      'statement_id',
+      'settlement_ref',
+      'settlement_id',
+      'statement_ref',
+    ]);
+    final sku = firstPart(const [
+      'local_sku',
+      'sku',
+      'marketplace_sku_id',
+      'marketplace_sku',
+      'marketplace_seller_sku',
+    ]);
+    final variant = firstPart(const [
+      'variant_name',
+      'marketplace_variation_name',
+      'product_name',
+      'title',
+    ]);
+    final qty = _num(row['qty'] ?? row['quantity']).toStringAsFixed(4);
+    final gross = _num(row['gross'] ?? row['gross_amount']).toStringAsFixed(2);
+    final payout =
+        _num(row['payout'] ?? row['payout_amount']).toStringAsFixed(2);
+    final hpp = _num(row['hpp_item'] ?? row['hpp']).toStringAsFixed(2);
+    final facts = [
+      'facts',
+      orderId,
+      resi,
+      settlement,
+      sku,
+      variant,
+      qty,
+      gross,
+      payout,
+      hpp,
+    ].join('|');
+    if ('$orderId$resi$settlement$sku$variant'.isNotEmpty) return facts;
+    return 'row|${identityHashCode(row)}';
+  }
+
+  Map<String, dynamic> _preferSkuDetailRow(
+    Map<String, dynamic> existing,
+    Map<String, dynamic> incoming,
+  ) {
+    final copy = Map<String, dynamic>.from(existing);
+    final existingHasPayout =
+        _hasReleasedPayout(copy) || _skuDetailHasPayoutV82o(copy);
+    final incomingHasPayout =
+        _hasReleasedPayout(incoming) || _skuDetailHasPayoutV82o(incoming);
+    if (!existingHasPayout && incomingHasPayout) {
+      copy.addAll(incoming);
+      return copy;
+    }
+
+    for (final entry in incoming.entries) {
+      final currentText = _text(copy[entry.key], '').trim();
+      final nextText = _text(entry.value, '').trim();
+      if ((currentText.isEmpty || currentText == '-') &&
+          nextText.isNotEmpty &&
+          nextText != '-') {
+        copy[entry.key] = entry.value;
+      }
+    }
+
+    for (final key in const [
+      'qty',
+      'quantity',
+      'gross',
+      'gross_amount',
+      'payout',
+      'payout_amount',
+      'hpp',
+      'hpp_amount',
+      'hpp_item',
+      'platform_fee_item',
+      'commission_fee_item',
+      'affiliate_fee_item',
+      'shipping_fee_item',
+      'discount_amount_item',
+      'refund_amount_item',
+      'adjustment_amount_item',
+    ]) {
+      if (_num(copy[key]) == 0 && _num(incoming[key]) != 0) {
+        copy[key] = incoming[key];
+      }
+    }
+    return copy;
+  }
+
+  List<Map<String, dynamic>> _dedupeSkuDetailRows(
+      List<Map<String, dynamic>> rows) {
+    final out = <Map<String, dynamic>>[];
+    final byKey = <String, int>{};
+    for (final row in rows) {
+      final key = _skuDetailStableLineKey(row);
+      final index = byKey[key];
+      if (index == null) {
+        byKey[key] = out.length;
+        out.add(Map<String, dynamic>.from(row));
+      } else {
+        out[index] = _preferSkuDetailRow(out[index], row);
+      }
+    }
+    return out;
   }
 
   Future<void> _refreshExpenseCategories() async {
@@ -13923,21 +14060,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           status.contains('RETURN');
     }
 
+    final deduped = _dedupeSkuDetailRows(rows);
+
     if (payoutFilter == 'paid') {
-      return rows
+      return deduped
           .where(
               (item) => !isCancelRefundReturn(item) && _hasReleasedPayout(item))
           .toList();
     }
 
     if (payoutFilter == 'unpaid') {
-      return rows
+      return deduped
           .where((item) =>
               !isCancelRefundReturn(item) && !_hasReleasedPayout(item))
           .toList();
     }
 
-    return rows;
+    return deduped;
   }
 
   String _orderRefLine(Map<String, dynamic> item) {
@@ -14585,15 +14724,58 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _skuDetailPayoutItemLabel(Map<String, dynamic> detail) {
+    if (!_hasReleasedPayout(detail)) return 'Payout/item';
+    if (_skuDetailHasExactItemPayout(detail) ||
+        _skuDetailSingleItemOrderIsExact(detail)) {
+      return 'Payout exact/item';
+    }
     final source = _text(detail['payout_source'] ?? detail['source'], '')
         .trim()
         .toLowerCase();
     if (source.contains('marketplace_finance_reports') ||
         source.contains('net_settlement') ||
         source.contains('settlement')) {
-      return 'Alokasi settlement/item';
+      return 'Estimasi payout/item';
     }
-    return 'Alokasi payout/item';
+    return 'Rata-rata payout/item';
+  }
+
+  bool _skuDetailHasExactItemPayout(Map<String, dynamic> detail) {
+    final exact = _numFirstNonZero([
+      detail['exact_item_settlement'],
+      detail['exact_item_payout'],
+      detail['exact_line_settlement'],
+      detail['exact_line_payout'],
+    ]);
+    if (exact != 0) return true;
+    final source = _text(detail['payout_source'] ?? detail['source'], '')
+        .trim()
+        .toLowerCase();
+    return source.contains('exact_item') || source.contains('exact_line');
+  }
+
+  bool _skuDetailSingleItemOrderIsExact(Map<String, dynamic> detail) {
+    if (detail['single_item_order_payout_exact'] == true) return true;
+    final orderPayout = _numFirstNonZero([
+      detail['order_payout'],
+      detail['order_payout_total'],
+      detail['order_settlement_total'],
+      detail['order_net_settlement'],
+    ]);
+    final orderGross = _numFirstNonZero([
+      detail['order_line_gross'],
+      detail['order_gross_total'],
+      detail['order_line_gross_total'],
+    ]);
+    final lineGross = _numFirstNonZero([
+      detail['gross'],
+      detail['gross_amount'],
+      detail['gross_total'],
+    ]);
+    return orderPayout != 0 &&
+        orderGross > 0 &&
+        lineGross > 0 &&
+        (orderGross - lineGross).abs() <= 0.01;
   }
 
   String _skuDetailSourceText(Map<String, dynamic> detail) {
@@ -14623,10 +14805,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .toLowerCase();
     if (!source.contains('marketplace_finance_reports') &&
         !source.contains('settlement') &&
-        !source.contains('page_first')) {
+        !source.contains('page_first') &&
+        !_skuDetailHasExactItemPayout(detail)) {
       return '';
     }
-    
+
     final orderPayout = _numFirstNonZero([
       detail['order_payout'],
       detail['order_payout_total'],
@@ -14647,23 +14830,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       detail['payout'],
       detail['payout_amount'],
     ]);
-    
-    final isExactLinePayout = detail.containsKey('exact_item_settlement') && detail['exact_item_settlement'] != null;
 
-    if (isExactLinePayout) {
-      return 'Marketplace memberikan settlement exact per item: ${_money(linePayout)} dari Total Order Settlement: ${_money(orderPayout)}.';
+    if (_skuDetailHasExactItemPayout(detail)) {
+      return 'Payout exact dari settlement marketplace per item: ${_money(linePayout)}.';
     }
 
     if (orderGross > 0 && lineGross > 0) {
-      if (orderGross == lineGross) {
-         return 'Pesanan Single-item: Settlement = Total Order Settlement (${_money(orderPayout)}).';
+      if (_skuDetailSingleItemOrderIsExact(detail)) {
+        return 'Payout exact dari settlement order single-item: ${_money(orderPayout)}.';
       } else {
-         final gap = (orderPayout - linePayout).abs();
-         final gapText = gap > 0.01 ? ' · Gap pembulatan: ${_money(gap)}' : '';
-         return 'Alokasi Proporsional (bukan nilai exact marketplace): ${_money(linePayout)}\nFormula: (Item Gross ${_money(lineGross)} / Order Gross ${_money(orderGross)}) x Order Settlement ${_money(orderPayout)}$gapText';
+        final gap = (orderPayout - linePayout).abs();
+        final gapText =
+            gap > 0.01 ? ' Gap pembulatan/order: ${_money(gap)}.' : '';
+        return 'Estimasi payout/item dari alokasi settlement order: ${_money(linePayout)}. Nilai ini bukan settlement exact per item.$gapText';
       }
     }
-    return 'Alokasi proporsional dari settlement marketplace per order: ${_money(linePayout)} (Order Settlement: ${_money(orderPayout)}).';
+    return 'Rata-rata payout/item dari settlement order: ${_money(linePayout)}.';
   }
 
   String _skuDetailHppItemText(Map<String, dynamic> detail) {
