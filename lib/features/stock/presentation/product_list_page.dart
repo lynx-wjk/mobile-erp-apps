@@ -174,9 +174,8 @@ class _ProductListPageState extends State<ProductListPage> {
                 return;
               }
 
-              if (sku.isEmpty && barcode.isEmpty) {
-                AppUi.safeSnack(
-                    sheetContext, 'Kode SKU atau Barcode wajib diisi');
+              if (barcode.isEmpty) {
+                AppUi.safeSnack(sheetContext, 'Barcode wajib diisi');
                 return;
               }
 
@@ -188,7 +187,7 @@ class _ProductListPageState extends State<ProductListPage> {
                   if (product != null) 'product_id': product['product_id'],
                   'nama_barang': name,
                   'kode_sku': sku.isEmpty ? barcode : sku,
-                  'kode_barcode': barcode.isEmpty ? sku : barcode,
+                  'kode_barcode': barcode,
                   'kategori': categoryController.text.trim(),
                   'satuan': unitController.text.trim().isEmpty
                       ? 'pcs'

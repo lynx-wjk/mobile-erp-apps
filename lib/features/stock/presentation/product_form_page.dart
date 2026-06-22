@@ -117,9 +117,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
     }
 
     final kodeSku = _kodeSkuController.text.trim();
-    final kodeBarcode = _kodeBarcodeController.text.trim().isEmpty
-        ? kodeSku
-        : _kodeBarcodeController.text.trim();
+    final kodeBarcode = _kodeBarcodeController.text.trim();
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -283,7 +281,6 @@ class _ProductFormPageState extends State<ProductFormPage> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      
                       TextFormField(
                         controller: _stockAwalController,
                         enabled: !_isEdit,

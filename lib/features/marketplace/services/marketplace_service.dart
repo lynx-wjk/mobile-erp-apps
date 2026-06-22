@@ -1556,6 +1556,10 @@ class MarketplaceService {
       throw Exception('Marketplace SKU ID kosong.');
     if (product.productId.trim().isEmpty)
       throw Exception('Varian/SKU lokal belum dipilih.');
+    final localBarcode = product.kodeBarcode?.trim() ?? '';
+    if (localBarcode.isEmpty) {
+      throw Exception('Barcode produk lokal wajib ada sebelum mapping.');
+    }
 
     final sellerSku = variant.marketplaceSellerSku?.trim();
     final skuCode = variant.marketplaceSkuCode?.trim();
@@ -1612,7 +1616,10 @@ class MarketplaceService {
       'marketplace_account_id': variant.marketplaceAccountId,
       'marketplace': variant.marketplace,
       'product_id': product.productId,
+      'local_product_id': product.productId,
       'local_sku': product.kodeSku.trim(),
+      'local_barcode': localBarcode,
+      'local_product_name': product.namaBarang,
       'marketplace_product_id': variant.marketplaceProductId,
       'marketplace_sku_id': variant.marketplaceSkuId,
       'marketplace_sku': variant.marketplaceSkuCode,

@@ -624,25 +624,17 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         throw Exception(
             'File ini bukan template Update SKU / Stock. Import produk lokal hanya menerima template UPDATE_SKU_STOCK dari menu Backup Data. Template mapping/HPP marketplace tidak boleh dipakai di sini.');
       }
-      if (skuIndex < 0 && barcodeIndex < 0) {
-        throw Exception('Kolom kode_sku atau kode_barcode wajib ada.');
+      if (barcodeIndex < 0) {
+        throw Exception('Kolom kode_barcode wajib ada.');
       }
       if (nameIndex < 0 && productIdIndex < 0 && barcodeIndex < 0) {
         throw Exception(
-            'Template tidak valid. Minimal harus ada nama_barang dan kode_barcode/kode_sku.');
+            'Template tidak valid. Minimal harus ada nama_barang dan kode_barcode.');
       }
 
       String valueAt(List<Data?> row, int index) {
         if (index < 0 || index >= row.length) return '';
         return _cellText(row[index]).trim();
-      }
-
-      final skuCounts = <String, int>{};
-      for (int rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
-        final sku = valueAt(sheet.rows[rowIndex], skuIndex);
-        if (sku.isEmpty) continue;
-        final key = sku.trim().toLowerCase();
-        skuCounts[key] = (skuCounts[key] ?? 0) + 1;
       }
 
       int inserted = 0;
@@ -688,14 +680,6 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         final lowStock = _parseNumber(valueAt(row, lowStockIndex));
         final hpp = _parseNumber(valueAt(row, hppIndex));
         final margin = _parseNumber(valueAt(row, marginIndex));
-        final duplicateSkuInFile = inputSku.isNotEmpty &&
-            (skuCounts[inputSku.trim().toLowerCase()] ?? 0) > 1;
-
-        final identitySku = duplicateSkuInFile ? '' : inputSku;
-        final skuForNewProduct = duplicateSkuInFile && inputBarcode.isNotEmpty
-            ? inputBarcode
-            : (inputSku.isNotEmpty ? inputSku : inputBarcode);
-        final barcode = inputBarcode.isNotEmpty ? inputBarcode : inputSku;
 
         if (productId.isEmpty &&
             inputSku.isEmpty &&
@@ -704,15 +688,14 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
           skipped++;
           continue;
         }
-        if (productId.isEmpty && inputSku.isEmpty && inputBarcode.isEmpty) {
+        if (productId.isEmpty && inputBarcode.isEmpty) {
           skipped++;
-          errors.add('Baris ${rowIndex + 1}: kode_sku/kode_barcode kosong');
+          errors.add('Baris ${rowIndex + 1}: kode_barcode wajib diisi');
           continue;
         }
 
         final update = <String, dynamic>{};
-        if (inputSku.isNotEmpty && !duplicateSkuInFile)
-          update['kode_sku'] = inputSku;
+        if (inputSku.isNotEmpty) update['kode_sku'] = inputSku;
         if (inputBarcode.isNotEmpty) update['kode_barcode'] = inputBarcode;
         if (name.isNotEmpty) update['nama_barang'] = name;
         if (category.isNotEmpty) update['kategori'] = category;
@@ -725,11 +708,6 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         if (margin != null) update['target_margin_percent'] = margin;
         update['updated_at'] = DateTime.now().toIso8601String();
 
-        if (duplicateSkuInFile && notes.length < 3) {
-          notes.add(
-              'Baris ${rowIndex + 1}: kode_sku "$inputSku" duplikat di file, jadi kolom kode_sku tidak diubah. Update tetap dicari lewat product_id/barcode.');
-        }
-
         Map<String, dynamic>? existing;
         try {
           existing = productId.isNotEmpty
@@ -737,9 +715,6 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
               : null;
           existing ??= inputBarcode.isNotEmpty
               ? await findProduct('kode_barcode', inputBarcode)
-              : null;
-          existing ??= identitySku.isNotEmpty
-              ? await findProduct('kode_sku', identitySku)
               : null;
 
           if (existing != null) {
@@ -751,42 +726,27 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
             try {
               await updateByProductId(id, update);
             } on PostgrestException catch (error) {
-              if (error.code == '23505' && update.containsKey('kode_sku')) {
-                final retry = Map<String, dynamic>.from(update)
-                  ..remove('kode_sku');
-                await updateByProductId(id, retry);
-                if (notes.length < 6) {
-                  notes.add(
-                      'Baris ${rowIndex + 1}: kode_sku bentrok dengan produk lain, data lain tetap diupdate.');
-                }
+              if (error.code == '23505' && update.containsKey('kode_barcode')) {
+                errors.add(
+                    'Baris ${rowIndex + 1}: kode_barcode "$inputBarcode" sudah dipakai produk lain.');
+                skipped++;
+                continue;
               } else {
                 rethrow;
               }
             }
             updated++;
           } else {
-            if (duplicateSkuInFile && inputBarcode.isEmpty) {
+            if (inputBarcode.isEmpty || name.isEmpty) {
               skipped++;
               errors.add(
-                  'Baris ${rowIndex + 1}: kode_sku "$inputSku" duplikat di file. Produk baru wajib punya kode_barcode unik agar bisa dibuat.');
-              continue;
-            }
-            if (duplicateSkuInFile &&
-                inputBarcode.isNotEmpty &&
-                notes.length < 8) {
-              notes.add(
-                  'Baris ${rowIndex + 1}: produk baru dibuat memakai kode_barcode "$inputBarcode" sebagai kode_sku internal karena kode_sku "$inputSku" duplikat di file.');
-            }
-            if (skuForNewProduct.isEmpty || name.isEmpty) {
-              skipped++;
-              errors.add(
-                  'Baris ${rowIndex + 1}: produk baru wajib punya kode_sku/kode_barcode dan nama_barang');
+                  'Baris ${rowIndex + 1}: produk baru wajib punya kode_barcode dan nama_barang');
               continue;
             }
             final insert = <String, dynamic>{
               'tenant_id': tenantId,
-              'kode_sku': skuForNewProduct,
-              'kode_barcode': barcode,
+              'kode_sku': inputSku.isNotEmpty ? inputSku : inputBarcode,
+              'kode_barcode': inputBarcode,
               'nama_barang': name,
               'kategori': category.isNotEmpty ? category : '-',
               'satuan': unit.isNotEmpty ? unit : 'pcs',
@@ -804,12 +764,10 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
               inserted++;
             } on PostgrestException catch (error) {
               if (error.code == '23505') {
-                final fallback = inputBarcode.isNotEmpty
-                    ? await findProduct('kode_barcode', inputBarcode)
-                    : await findProduct('kode_sku', skuForNewProduct);
+                final fallback =
+                    await findProduct('kode_barcode', inputBarcode);
                 if (fallback != null) {
-                  final retry = Map<String, dynamic>.from(update)
-                    ..remove('kode_sku');
+                  final retry = Map<String, dynamic>.from(update);
                   if (retry.length > 1) {
                     await updateByProductId('${fallback['product_id']}', retry);
                     updated++;

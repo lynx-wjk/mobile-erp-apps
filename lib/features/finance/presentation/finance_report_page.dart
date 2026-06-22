@@ -1219,6 +1219,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .order('created_at', ascending: false)
           .range(0, 499);
     });
+    for (final row in adjustments) {
+      row['source_table'] = 'finance_company_cash_adjustments';
+    }
 
     final withdrawals = await safeRows(() {
       dynamic query = _client
@@ -1286,6 +1289,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       rows.add({
         ...row,
         '_cash_wallet_kind': 'adjustment',
+        'source_table': 'finance_company_cash_adjustments',
         'source': direction == 'out' ? 'Kas keluar manual' : 'Kas masuk manual',
         'category': row['category'],
         'cash_type': direction,
@@ -1917,6 +1921,34 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }).toList(growable: false);
   }
 
+  Future<List<Map<String, dynamic>>> _fetchCashAdjustmentsPeriod() async {
+    final start = _toDateParam(_start);
+    final end = _toDateParam(_end);
+    final tenantId = _currentTenantId.trim();
+
+    try {
+      var query = _client
+          .from('finance_company_cash_adjustments')
+          .select('*')
+          .gte('adjustment_date', start)
+          .lte('adjustment_date', end);
+
+      if (tenantId.isNotEmpty && _isUuid(tenantId)) {
+        query = query.eq('tenant_id', tenantId);
+      }
+
+      final response = await query.order('adjustment_date', ascending: false);
+      return _asList(response)
+          .map((row) => {
+                ...Map<String, dynamic>.from(row),
+                'source_table': 'finance_company_cash_adjustments',
+              })
+          .toList();
+    } catch (_) {
+      return <Map<String, dynamic>>[];
+    }
+  }
+
   Future<void> _applyFinanceSnapshotData(
     Map<String, dynamic> data,
     List<Map<String, dynamic>> fallbackAccounts, {
@@ -1975,17 +2007,34 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final livePurchases = includeOperationalExpenses
         ? await _fetchApprovedPurchasesPeriod()
         : <Map<String, dynamic>>[];
-    final filteredBackendExpenses = liveExpenses.isNotEmpty
-        ? <Map<String, dynamic>>[]
-        : backendExpenses.where((row) => !_isPurchaseExpenseRow(row)).toList();
     final normalizedExpenses = _dedupeExpenseRows(<Map<String, dynamic>>[
-      ...filteredBackendExpenses,
+      ...backendExpenses.where((row) => !_isPurchaseExpenseRow(row)),
       ...liveExpenses,
     ]).where((row) => !_isSyntheticExpenseRow(row)).toList(growable: false);
     final approvedPurchases = _dedupeByStableKey(<Map<String, dynamic>>[
       ...backendPurchases,
       ...backendExpenses.where(_isPurchaseExpenseRow),
       ...livePurchases,
+    ]);
+
+    final backendCashAdjustments = _asList(data['cash_adjustments'] ??
+            data['company_cash_adjustments'] ??
+            data['cash_in_out'] ??
+            data['cash_adjustment_rows'])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+
+    final liveCashAdjustments = includeOperationalExpenses
+        ? await _fetchCashAdjustmentsPeriod()
+        : <Map<String, dynamic>>[];
+
+    final normalizedCashAdjustments = _dedupeByStableKey(<Map<String, dynamic>>[
+      ...backendCashAdjustments.map((row) => {
+            ...row,
+            'source_table': 'finance_company_cash_adjustments',
+          }),
+      ...liveCashAdjustments,
     ]);
 
     final snapshotSkuRows = _skuRowsFromSnapshot(data);
@@ -2058,12 +2107,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final normalizedCashFlow = useBackendCashFlow
         ? _dedupeCashFlowRows(backendCashFlow)
         : _cashFlowRowsFromSummary(displaySummary);
+    final walletCashAdjustments =
+        cashWalletData['adjustments'] ?? <Map<String, dynamic>>[];
+    final cashAdjustmentsForState = _dedupeByStableKey(<Map<String, dynamic>>[
+      ...normalizedCashAdjustments,
+      ...walletCashAdjustments.map((row) => {
+            ...row,
+            'source_table': 'finance_company_cash_adjustments',
+          }),
+    ]);
     final breakdown = _asList(data['profit_loss_breakdown'])
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
-    final normalizedProfitLoss =
-        _profitLossRowsFromSummary(displaySummary, breakdown);
+    final normalizedProfitLoss = <Map<String, dynamic>>[
+      ..._profitLossRowsFromSummary(displaySummary, breakdown)
+          .where((row) => !_isBackendGeneratedProfitLossBreakdownRow(row)),
+      ..._profitLossExpenseDetailRows(normalizedExpenses),
+    ];
     final normalizedMarketplaceForDisplay =
         _marketplaceRowsWithFinanceAliases(normalizedMarketplace);
     setState(() {
@@ -2079,13 +2140,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _skuServerPageLoaded = 1;
       _skuHasMoreServerRows = hasMoreLiveSkuRows;
       _skuLoadingMore = false;
-      _cashFlow = normalizedCashFlow;
+      _cashFlow = <Map<String, dynamic>>[
+        ...normalizedCashFlow,
+        ...normalizedCashAdjustments,
+      ];
       _cashOpeningBalances = useBackendCashFlow
           ? <Map<String, dynamic>>[]
           : cashWalletData['opening'] ?? <Map<String, dynamic>>[];
-      _cashAdjustments = useBackendCashFlow
-          ? <Map<String, dynamic>>[]
-          : cashWalletData['adjustments'] ?? <Map<String, dynamic>>[];
+      _cashAdjustments = cashAdjustmentsForState;
       _marketplaceWithdrawals = useBackendCashFlow
           ? <Map<String, dynamic>>[]
           : cashWalletData['withdrawals'] ?? <Map<String, dynamic>>[];
@@ -2093,6 +2155,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ? <Map<String, dynamic>>[]
           : cashWalletData['allocations'] ?? <Map<String, dynamic>>[];
       _expenses = normalizedExpenses;
+      _operationalCostsLoaded = true;
+      _operationalCostsLoading = false;
+      _operationalCostsError = null;
       _profitLoss = normalizedProfitLoss;
       _profitLossLoaded = true;
       _profitLossLoading = false;
@@ -2644,9 +2709,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       if (!mounted) return;
 
-      final normalizedExpenses = _dedupeExpenseRows(liveExpenses)
-          .where((row) => !_isSyntheticExpenseRow(row))
-          .toList(growable: false);
+      final normalizedExpenses = _dedupeExpenseRows(<Map<String, dynamic>>[
+        ..._expenses,
+        ...liveExpenses,
+      ]).where((row) => !_isSyntheticExpenseRow(row)).toList(growable: false);
       final approvedPurchases = _dedupeByStableKey(livePurchases);
       final nextSummary = _summaryWithLiveCosts(
         _summary,
@@ -2655,8 +2721,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       );
 
       final cashFlowData = _cashFlowRowsFromSummary(nextSummary);
-      final profitLossData =
-          _profitLossRowsFromSummary(nextSummary, _profitLoss);
+      final profitLossData = <Map<String, dynamic>>[
+        ..._profitLossRowsFromSummary(nextSummary, _profitLoss)
+            .where((row) => !_isBackendGeneratedProfitLossBreakdownRow(row)),
+        ..._profitLossExpenseDetailRows(normalizedExpenses),
+      ];
       final categoryOptions = _mergeExpenseCategories(normalizedExpenses);
 
       final cacheEntry = {
@@ -2754,7 +2823,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ? _profitLossByMarketplace
             : _byMarketplace,
       );
-      final profitLossData = _profitLossRowsFromSummary(displaySummary);
+      final profitLossData = <Map<String, dynamic>>[
+        ..._profitLossRowsFromSummary(displaySummary)
+            .where((row) => !_isBackendGeneratedProfitLossBreakdownRow(row)),
+        ..._profitLossExpenseDetailRows(_expenses),
+      ];
 
       final cacheEntry = {
         'summary': displaySummary,
@@ -4288,6 +4361,75 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'date': today
       });
     return rows;
+  }
+
+  bool _isSettlementDetailProfitLossRow(Map<String, dynamic> row) {
+    final type = _text(row['type']).toLowerCase();
+    final key = _text(row['key']).toLowerCase();
+    final label = _text(row['label'] ?? row['name']).toLowerCase();
+
+    const settlementKeys = <String>{
+      'total_fees',
+      'platform_fee',
+      'commission_fee',
+      'affiliate_fee',
+      'shipping_fee',
+      'discount_amount',
+      'refund_amount',
+      'adjustment_amount',
+      'fee_amount',
+    };
+
+    if (type == 'settlement_detail') return true;
+    if (settlementKeys.contains(key)) return true;
+
+    return label == 'marketplace' ||
+        label.contains('fee marketplace') ||
+        label.contains('platform fee') ||
+        label.contains('commission fee') ||
+        label.contains('affiliate fee') ||
+        label.contains('shipping fee') ||
+        label.contains('diskon / voucher') ||
+        label.contains('refund') ||
+        label.contains('adjustment') ||
+        label.contains('fee amount');
+  }
+
+  bool _isBackendGeneratedProfitLossBreakdownRow(Map<String, dynamic> row) {
+    if (_isSettlementDetailProfitLossRow(row)) return true;
+
+    final description =
+        _text(row['description'] ?? row['subtitle'] ?? row['note'])
+            .toLowerCase();
+    final type = _text(row['type']).toLowerCase();
+    final key = _text(row['key']).toLowerCase();
+
+    const backendKeys = <String>{
+      'gross_sales',
+      'payout_total',
+      'hpp_total',
+      'manual_expense_total',
+      'purchase_cashout',
+      'net_profit',
+    };
+
+    if (description.contains('rincian dari data settlement marketplace')) {
+      return true;
+    }
+
+    if (backendKeys.contains(key) &&
+        (type == 'income' || type == 'cost' || type == 'profit')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  List<Map<String, dynamic>> _profitLossExpenseDetailRows(
+      List<Map<String, dynamic>> expenses) {
+    // Detail biaya sudah tampil di tab Biaya. Jangan render ulang di Laba Rugi
+    // karena akan menduplikasi total Biaya Operasional / Pembelian Disetujui.
+    return const <Map<String, dynamic>>[];
   }
 
   List<Map<String, dynamic>> _profitLossRowsFromSummary(
@@ -7713,7 +7855,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       final id = _text(row?['cash_adjustment_id'], '');
       final payload = {
-        'tenant_id': _currentTenantId,
         'adjustment_date': _toDateParam(adjustmentDate),
         'direction': selectedDirection,
         'amount': parsed,
@@ -7729,6 +7870,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             .eq('cash_adjustment_id', id);
       } else {
         await _client.from('finance_company_cash_adjustments').insert({
+          'tenant_id': _currentTenantId,
           ...payload,
           ..._cashWalletActorPayload(),
         });
@@ -10050,6 +10192,401 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     ];
   }
 
+  bool _cashFlowRowIsOut(Map<String, dynamic> row) {
+    final direction =
+        _text(row['direction'] ?? row['cash_type'] ?? row['type'], '')
+            .trim()
+            .toLowerCase()
+            .replaceAll('_', ' ');
+
+    final source = _text(row['source'] ?? row['source_module'], '')
+        .trim()
+        .toLowerCase()
+        .replaceAll('_', ' ');
+    final category = _text(row['category'] ?? row['label'] ?? row['title'], '')
+        .trim()
+        .toLowerCase()
+        .replaceAll('_', ' ');
+    final description =
+        _text(row['description'] ?? row['note'] ?? row['items'], '')
+            .trim()
+            .toLowerCase()
+            .replaceAll('_', ' ');
+
+    final text = '$direction $source $category $description';
+
+    // Payout marketplace dan kas masuk manual adalah inflow.
+    // Jangan pakai contains("out") karena kata "payout" mengandung "out".
+    if (direction == 'in' ||
+        direction == 'cash in' ||
+        direction == 'masuk' ||
+        category.contains('kas masuk') ||
+        source.contains('marketplace payout') ||
+        source.contains('marketplace payout') ||
+        source.contains('marketplacepayout') ||
+        source.contains('payout') ||
+        category.contains('payout') ||
+        description.contains('payout marketplace') ||
+        description.contains('payout diterima')) {
+      return false;
+    }
+
+    if (direction == 'out' ||
+        direction == 'cash out' ||
+        direction == 'keluar' ||
+        direction == 'expense' ||
+        direction == 'withdrawal') {
+      return true;
+    }
+
+    return text.contains('biaya') ||
+        text.contains('expense') ||
+        text.contains('operasional') ||
+        text.contains('pembelian') ||
+        text.contains('purchase') ||
+        text.contains('cashout') ||
+        text.contains('cash out') ||
+        text.contains('penarikan') ||
+        text.contains('withdrawal');
+  }
+
+  num _cashFlowSignedAmount(Map<String, dynamic> row) {
+    final raw = _num(row['amount'] ??
+        row['value'] ??
+        row['total'] ??
+        row['nominal'] ??
+        row['expense_amount'] ??
+        row['purchase_amount']);
+
+    if (raw == 0) return 0;
+    return _cashFlowRowIsOut(row) ? -raw.abs() : raw.abs();
+  }
+
+  bool _isManualCashAdjustmentRow(Map<String, dynamic> row) {
+    if (_isUuid(_text(row['cash_adjustment_id'], ''))) return true;
+
+    final sourceText = [
+      row['source_table'],
+      row['source_module'],
+      row['source'],
+      row['table'],
+      row['_cash_wallet_kind'],
+    ].map((value) => _text(value, '').toLowerCase()).join(' ');
+
+    return sourceText.contains('finance_company_cash_adjustments') ||
+        sourceText.contains('cash_adjustment') ||
+        sourceText.contains('cash adjustment') ||
+        sourceText.contains('adjustment');
+  }
+
+  Map<String, dynamic>? _editableManualCashAdjustmentRow(
+      Map<String, dynamic> row) {
+    if (_isDemoSuperAdmin || !_canWriteFinance) return null;
+    if (!_isManualCashAdjustmentRow(row)) return null;
+    final id = _text(row['cash_adjustment_id'], '').trim();
+    if (!_isUuid(id)) return null;
+    return {
+      ...row,
+      'cash_adjustment_id': id,
+      'source_table': 'finance_company_cash_adjustments',
+    };
+  }
+
+  bool _financeSkuHasRealLocalMapping(
+    Map<String, dynamic> row, [
+    Map<String, dynamic>? detailRow,
+  ]) {
+    final local = _text(
+      row['mapped_local_sku'] ??
+          detailRow?['mapped_local_sku'] ??
+          row['local_sku'] ??
+          detailRow?['local_sku'],
+      '',
+    ).trim();
+
+    if (local.isEmpty ||
+        local == '-' ||
+        local.toLowerCase() == 'null' ||
+        local.toLowerCase() == 'unmapped' ||
+        local.toLowerCase().contains('belum mapping')) {
+      return false;
+    }
+
+    final mappingText = [
+      row['mapping_status'],
+      detailRow?['mapping_status'],
+      row['hpp_status'],
+      detailRow?['hpp_status'],
+      row['hpp_label'],
+      detailRow?['hpp_label'],
+    ].map((value) => _text(value, '').toLowerCase()).join(' ');
+
+    if (mappingText.contains('unmapped') ||
+        mappingText.contains('not mapped') ||
+        mappingText.contains('missing') ||
+        mappingText.contains('pending') ||
+        mappingText.contains('belum mapping') ||
+        mappingText.contains('hpp belum mapping')) {
+      return false;
+    }
+
+    final marketplaceValues = <String>[
+      _text(row['sku'], ''),
+      _text(row['marketplace_sku'], ''),
+      _text(row['marketplace_sku_id'], ''),
+      _text(row['marketplace_seller_sku'], ''),
+      _text(row['seller_sku'], ''),
+      _text(detailRow?['sku'], ''),
+      _text(detailRow?['marketplace_sku'], ''),
+      _text(detailRow?['marketplace_sku_id'], ''),
+      _text(detailRow?['marketplace_seller_sku'], ''),
+      _text(detailRow?['seller_sku'], ''),
+    ]
+        .map((value) => value.trim().toLowerCase())
+        .where((value) => value.isNotEmpty && value != '-' && value != 'null')
+        .toSet();
+
+    final localLower = local.toLowerCase();
+    final hppValue = _num(row['hpp_per_item'] ??
+        row['unit_hpp'] ??
+        row['hpp'] ??
+        detailRow?['hpp_per_item'] ??
+        detailRow?['unit_hpp'] ??
+        detailRow?['hpp']);
+
+    // Kalau local_sku sama dengan marketplace/seller SKU dan HPP belum ada,
+    // itu fallback marketplace, bukan mapping SKU lokal.
+    if (marketplaceValues.contains(localLower) && hppValue <= 0) return false;
+
+    return true;
+  }
+
+  String _financeSkuLocalMappingLabel(
+    Map<String, dynamic> item,
+    Map<String, dynamic> detailRow,
+  ) {
+    if (!_financeSkuHasRealLocalMapping(item, detailRow)) {
+      return 'Belum mapping';
+    }
+    return _cleanText(
+      item['mapped_local_sku'] ??
+          detailRow['mapped_local_sku'] ??
+          item['local_sku'] ??
+          detailRow['local_sku'] ??
+          detailRow['sku'],
+      'Belum mapping',
+    );
+  }
+
+  List<Map<String, dynamic>> _normalizedCashFlowRows() {
+    final out = <Map<String, dynamic>>[];
+    final seen = <String>{};
+
+    void addRow(Map<String, dynamic> row) {
+      final amount = _cashFlowSignedAmount(row);
+      if (amount == 0) return;
+
+      final normalized = Map<String, dynamic>.from(row);
+      normalized['amount'] = amount;
+      normalized['type'] = amount < 0 ? 'out' : 'in';
+      normalized['cash_type'] = normalized['type'];
+
+      final key = _text(
+          normalized['cash_adjustment_id'] ??
+              normalized['marketplace_cashflow_key'] ??
+              normalized['source_ref'] ??
+              normalized['id'] ??
+              '${normalized['source']}|${normalized['category']}|${normalized['date']}|${normalized['amount']}',
+          '');
+      if (seen.add(key)) out.add(normalized);
+    }
+
+    String marketplaceName(Map<String, dynamic> row) {
+      final raw = _text(
+          row['marketplace'] ??
+              row['marketplace_group'] ??
+              row['account_name'] ??
+              row['shop_name'] ??
+              row['store_alias'],
+          '');
+      final lower = raw.toLowerCase();
+      if (lower.contains('tiktok')) return 'TikTok';
+      if (lower.contains('shopee')) return 'Shopee';
+      return raw.isEmpty ? 'Marketplace' : raw;
+    }
+
+    // 1. Marketplace payout = kas masuk.
+    var hasMarketplacePayout = false;
+    for (final row in _byMarketplace) {
+      final payout = _numFirstNonZero([
+        row['payout_total'],
+        row['payout_amount'],
+        row['received_amount'],
+        row['net_received'],
+        row['net_settlement'],
+      ]);
+      if (payout <= 0) continue;
+
+      final name = marketplaceName(row);
+      final marketplace =
+          _text(row['marketplace'] ?? row['marketplace_group'], '');
+      final accountId = _text(
+        row['marketplace_account_id'] ?? row['account_id'] ?? row['id'],
+        '',
+      );
+
+      addRow({
+        'marketplace_cashflow_key':
+            'marketplace_payout|$marketplace|$accountId',
+        'date': _end,
+        'source': '${name} Payout',
+        'category': '${name} Payout',
+        'title': '${name} Payout',
+        'description':
+            '${name} payout periode ${_date(_start)} - ${_date(_end)}',
+        'type': 'in',
+        'cash_type': 'in',
+        'direction': 'in',
+        'amount': payout,
+        'marketplace': marketplace,
+        'marketplace_account_id': accountId,
+      });
+
+      hasMarketplacePayout = true;
+    }
+
+    // Fallback kalau by_marketplace belum ada.
+    if (!hasMarketplacePayout) {
+      final payout = _numFirstNonZero([
+        _summary['payout_total'],
+        _summary['payout_amount'],
+        _summary['received_amount'],
+        _summary['net_received'],
+        _summary['net_settlement'],
+      ]);
+      if (payout > 0) {
+        addRow({
+          'marketplace_cashflow_key': 'marketplace_payout|all',
+          'date': _end,
+          'source': 'Marketplace Payout',
+          'category': 'Marketplace Payout',
+          'title': 'Marketplace Payout',
+          'description':
+              'Marketplace payout periode ${_date(_start)} - ${_date(_end)}',
+          'type': 'in',
+          'cash_type': 'in',
+          'direction': 'in',
+          'amount': payout,
+        });
+      }
+    }
+
+    // 2. Kas masuk/keluar manual. HAR membuktikan data ini ada di
+    // finance_company_cash_adjustments, jadi harus ikut.
+    for (final row in _cashAdjustments) {
+      addRow({
+        ...row,
+        'source_table': 'finance_company_cash_adjustments',
+        'source': _text(row['category'], 'Kas manual'),
+        'category': _text(row['category'], 'Kas manual'),
+        'title': _text(row['category'], 'Kas manual'),
+        'date': row['adjustment_date'] ?? row['date'] ?? row['created_at'],
+      });
+    }
+
+    // Fallback manual cash dari _cashFlow, untuk case state _cashFlow sudah berisi
+    // finance_company_cash_adjustments tapi _cashAdjustments belum keisi.
+    for (final row in _cashFlow) {
+      final hasCashAdjustmentId =
+          _text(row['cash_adjustment_id'], '').trim().isNotEmpty;
+      final category =
+          _text(row['category'] ?? row['title'] ?? row['source'], '')
+              .toLowerCase();
+      final direction =
+          _text(row['direction'] ?? row['cash_type'] ?? row['type'], '')
+              .toLowerCase();
+
+      if (hasCashAdjustmentId ||
+          category.contains('kas masuk') ||
+          category.contains('kas manual') ||
+          direction == 'in') {
+        addRow({
+          ...row,
+          if (hasCashAdjustmentId)
+            'source_table': 'finance_company_cash_adjustments',
+          'source': _text(row['category'] ?? row['source'], 'Kas manual'),
+          'category': _text(row['category'] ?? row['source'], 'Kas manual'),
+          'title': _text(row['category'] ?? row['source'], 'Kas manual'),
+          'date': row['adjustment_date'] ?? row['date'] ?? row['created_at'],
+        });
+      }
+    }
+
+    // 3. Saldo awal kalau ada.
+    for (final row in _cashOpeningBalances) {
+      addRow({
+        ...row,
+        'source': 'Saldo awal',
+        'category': 'Saldo awal',
+        'title': 'Saldo awal',
+        'type': 'in',
+        'cash_type': 'in',
+        'direction': 'in',
+        'date': row['balance_date'] ?? row['date'] ?? row['created_at'],
+      });
+    }
+
+    // 4. Biaya + pembelian cukup satu card ringkas.
+    final expenseTotal = _numFirstNonZero([
+      _summary['operational_cost_total'],
+      _summary['expense_total'],
+    ]);
+    final manualExpense = _numFirstNonZero([
+      _summary['manual_expense_total'],
+      _summary['manual_operational_expense'],
+      _summary['operational_expense'],
+    ]);
+    final purchaseCashout = _numFirstNonZero([
+      _summary['purchase_cashout'],
+      _summary['approved_purchase_cashout'],
+      _summary['approved_purchase_total'],
+    ]);
+
+    final mergedOut =
+        expenseTotal > 0 ? expenseTotal : (manualExpense + purchaseCashout);
+
+    if (mergedOut > 0) {
+      addRow({
+        'marketplace_cashflow_key': 'expense_purchase_merged',
+        'date': _end,
+        'source': 'Biaya & Pembelian',
+        'category': 'Biaya & Pembelian',
+        'title': 'Biaya & Pembelian',
+        'description': 'Detail lihat tab Biaya',
+        'type': 'out',
+        'cash_type': 'out',
+        'direction': 'out',
+        'amount': -mergedOut.abs(),
+      });
+    }
+
+    out.sort((a, b) {
+      final ad = _parseDate(a['date'] ??
+              a['adjustment_date'] ??
+              a['balance_date'] ??
+              a['created_at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = _parseDate(b['date'] ??
+              b['adjustment_date'] ??
+              b['balance_date'] ??
+              b['created_at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return bd.compareTo(ad);
+    });
+
+    return out;
+  }
+
   Widget _cashFlowTab() {
     if (_loading) {
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
@@ -10061,7 +10598,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         if (mounted) unawaited(_loadOperationalCostsSupplemental());
       });
     }
-    final cashRows = _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
+    final cashRows = _normalizedCashFlowRows();
     final walletRows = _cashWalletRowsForDisplay(
       opening: _cashOpeningBalances,
       adjustments: _cashAdjustments,
@@ -10083,10 +10620,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       ...cashRows.where((row) => !isNetRow(row)),
       ...walletRows,
     ]) {
-      if (row['_cash_wallet_kind'] == 'withdrawal') {
+      if (row['_cash_wallet_kind'] == 'withdrawal' ||
+          row['_cash_wallet_kind'] == 'adjustment') {
         continue;
       }
-      final amount = _num(row['amount']);
+      final amount = _cashFlowSignedAmount(row);
       if (amount >= 0) {
         totalIn += amount;
       } else {
@@ -10162,14 +10700,32 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           else
             ...detailCashRows.map((row) {
               final type = _text(row['cash_type'] ?? row['type']);
-              final amount = _num(row['amount']);
+              final amount = _cashFlowSignedAmount(row);
+              final editableCashAdjustment =
+                  _editableManualCashAdjustmentRow(row);
               return _simpleRowCard(
-                title: _sourceLabel(
-                    _text(row['source'] ?? row['category'] ?? type)),
+                title: _sourceLabel(_text(
+                    row['title'] ?? row['category'] ?? row['source'] ?? type)),
                 subtitle:
                     '${_date(row['date'] ?? row['created_at'])} - ${type.toUpperCase()}',
                 trailing: (amount >= 0 ? '+ ' : '- ') + _money(amount.abs()),
                 positive: amount >= 0,
+                actions: editableCashAdjustment == null
+                    ? const <Widget>[]
+                    : [
+                        _tinyActionButton(
+                            Icons.edit_rounded,
+                            'Edit',
+                            () => _editCashAdjustment(
+                                  row: editableCashAdjustment,
+                                )),
+                        _tinyActionButton(
+                          Icons.delete_outline_rounded,
+                          'Hapus',
+                          () => _deleteCashAdjustment(editableCashAdjustment),
+                          danger: true,
+                        ),
+                      ],
               );
             }),
           if (_cashOpeningBalances.isNotEmpty ||
@@ -11651,6 +12207,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required String subtitle,
     required String trailing,
     bool positive = true,
+    List<Widget> actions = const <Widget>[],
   }) {
     final color = positive
         ? Theme.of(context).colorScheme.primary
@@ -11693,14 +12250,29 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ),
           SizedBox(width: 10),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 140),
-            child: Text(
-              trailing,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                  fontWeight: FontWeight.w800, fontSize: 13, color: color),
+            constraints: const BoxConstraints(maxWidth: 148),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  trailing,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w800, fontSize: 13, color: color),
+                ),
+                if (actions.isNotEmpty) ...[
+                  SizedBox(height: 4),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.end,
+                    children: actions,
+                  ),
+                ],
+              ],
             ),
           ),
         ],
@@ -12723,77 +13295,123 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Map<String, String> _skuOrderLookupParamsV82o(Map<String, dynamic> row) {
-    bool usableSkuText(String value) {
-      final clean = value.trim().toLowerCase();
+    String valueOf(dynamic value) => _text(value, '').trim();
+
+    bool isPseudoUnmapped(String value) {
+      final clean = value.trim().toLowerCase().replaceAll('_', ' ');
       if (clean.isEmpty || clean == '-' || clean == 'null') return false;
-      if (clean.contains('belum mapping') ||
-          clean.contains('belum ada') ||
-          clean == 'unmapped') return false;
-      return true;
+      return clean == 'unmapped' ||
+          clean == '__unmapped__' ||
+          clean == 'belum mapping' ||
+          clean == 'belum ada sku marketplace' ||
+          clean == 'produk belum diberi nama' ||
+          clean.contains('unmapped') ||
+          clean.contains('belum mapping');
     }
 
-    final productSearch = _text(
-      row['product_name'] ??
-          row['nama_barang'] ??
-          row['title'] ??
-          row['marketplace_product_name'] ??
-          row['product_title'],
-      '',
-    ).trim();
+    bool sameText(String a, String b) {
+      final left = a.trim().toLowerCase();
+      final right = b.trim().toLowerCase();
+      return left.isNotEmpty && left != '-' && left == right;
+    }
 
-    final variantSearch = _text(
-      row['variant_name'] ??
-          row['marketplace_variation_name'] ??
-          row['variation_name'],
-      '',
-    ).trim();
-
-    final rowSku = _text(row['sku'], '').trim();
-    final marketplaceSku = _text(
-      row['marketplace_sku_id'] ??
-          row['marketplace_sku'] ??
-          row['marketplace_seller_sku'] ??
-          row['seller_sku'] ??
-          row['sku_marketplace'] ??
-          row['external_sku_id'] ??
-          row['sku_id'] ??
-          row['sku'],
-      '',
-    ).trim();
-    final cleanMarketplaceSku =
-        usableSkuText(marketplaceSku) ? marketplaceSku : '';
-
-    final explicitLocalSku = _text(
-      row['local_sku'] ??
-          row['product_sku'] ??
-          row['local_product_sku'] ??
-          row['mapped_local_sku'],
-      '',
-    ).trim();
-
-    final rawLocalSku = explicitLocalSku.isNotEmpty
-        ? explicitLocalSku
-        : (rowSku.isNotEmpty &&
-                rowSku != '-' &&
-                rowSku.toLowerCase() != productSearch.toLowerCase()
-            ? rowSku
-            : '');
-    final localSku = usableSkuText(rawLocalSku) ? rawLocalSku : '';
-
-    final fallbackSearch = [
-      productSearch,
-      variantSearch,
-      rowSku,
-      marketplaceSku,
-    ].firstWhere(
-      (value) => usableSkuText(value),
-      orElse: () => '',
+    final rowSku = valueOf(row['sku']);
+    final title = valueOf(row['title']);
+    final localSkuRaw = valueOf(row['local_sku'] ??
+        row['product_sku'] ??
+        row['local_product_sku'] ??
+        row['mapped_local_sku']);
+    final marketplaceSkuRaw = valueOf(row['marketplace_sku_id'] ??
+        row['marketplace_sku'] ??
+        row['marketplace_seller_sku'] ??
+        row['seller_sku'] ??
+        row['sku_marketplace'] ??
+        row['external_sku_id'] ??
+        row['remote_sku_id'] ??
+        row['sku_id']);
+    final marketplaceProductId = valueOf(row['marketplace_product_id']);
+    final marketplaceSellerSku = valueOf(
+      row['marketplace_seller_sku'] ?? row['seller_sku'],
     );
+    final mappingStatus =
+        valueOf(row['mapping_status'] ?? row['mapping_label']);
+    final rowType = valueOf(row['row_type']);
+    final hppStatus = valueOf(row['hpp_status'] ?? row['hpp_label']);
+    final productName = valueOf(row['product_name'] ??
+        row['marketplace_product_name'] ??
+        row['nama_barang']);
+    final variantName = valueOf(row['variant_name'] ??
+        row['marketplace_variant_name'] ??
+        row['marketplace_variation_name']);
+
+    final marketplaceSku =
+        isPseudoUnmapped(marketplaceSkuRaw) ? '' : marketplaceSkuRaw;
+
+    final localLooksLikeMarketplaceFallback =
+        sameText(localSkuRaw, marketplaceSkuRaw) ||
+            sameText(localSkuRaw, marketplaceSellerSku) ||
+            sameText(localSkuRaw, rowSku);
+
+    final hppNotMapped = hppStatus.toLowerCase().contains('belum mapping') ||
+        hppStatus.toLowerCase().contains('belum map') ||
+        (_num(row['hpp_per_item'] ?? row['unit_hpp'] ?? row['hpp']) <= 0 &&
+            _num(row['hpp_total'] ?? row['total_hpp'] ?? row['hpp_amount']) <=
+                0);
+
+    final missingMarketplaceIdentity = marketplaceProductId.isEmpty &&
+        productName.isEmpty &&
+        variantName.isEmpty;
+
+    final isUnmappedBucket = rowType == 'unmapped_marketplace_sku' ||
+        isPseudoUnmapped(rowSku) ||
+        isPseudoUnmapped(title) ||
+        isPseudoUnmapped(localSkuRaw) ||
+        isPseudoUnmapped(mappingStatus) ||
+        hppStatus.toLowerCase().contains('belum mapping') ||
+        (localLooksLikeMarketplaceFallback && hppNotMapped) ||
+        (localLooksLikeMarketplaceFallback && missingMarketplaceIdentity);
+
+    if (isUnmappedBucket) {
+      final specificMarketplaceKey = marketplaceSku.isNotEmpty
+          ? marketplaceSku
+          : marketplaceSellerSku.isNotEmpty
+              ? marketplaceSellerSku
+              : marketplaceProductId;
+
+      return {
+        'marketplace_sku': specificMarketplaceKey,
+        'local_sku': 'unmapped',
+        'fallback_search': [
+          'unmapped',
+          marketplaceProductId,
+          marketplaceSku,
+          marketplaceSellerSku,
+          productName,
+          variantName,
+        ].where((part) => part.isNotEmpty && part != '-').join(' '),
+      };
+    }
+
+    var localSku = isPseudoUnmapped(localSkuRaw) ? '' : localSkuRaw;
+    if (localSku.isEmpty &&
+        rowSku.isNotEmpty &&
+        !isPseudoUnmapped(rowSku) &&
+        rowSku != marketplaceSku) {
+      localSku = rowSku;
+    }
+
+    final fallbackParts = <String>[
+      productName,
+      variantName,
+      marketplaceProductId,
+      valueOf(row['marketplace_sku_id']),
+      marketplaceSellerSku,
+    ].where((part) => part.isNotEmpty && part != '-').toList();
 
     return {
-      'marketplace_sku': cleanMarketplaceSku,
+      'marketplace_sku': marketplaceSku,
       'local_sku': localSku,
-      'fallback_search': fallbackSearch,
+      'fallback_search': fallbackParts.join(' ').trim(),
     };
   }
 
@@ -13335,7 +13953,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ],
                                                       SizedBox(height: 4),
                                                       Text(
-                                                        'SKU lokal: ${_cleanText(item['local_sku'], _cleanText(detailRow['local_sku'] ?? detailRow['sku'], 'Belum mapping'))}  ·  SKU marketplace: ${_cleanText(item['marketplace_sku'] ?? item['marketplace_seller_sku'], 'Belum ada SKU marketplace')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
+                                                        'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  ·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  ·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  ·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
                                                             color: Theme.of(
@@ -13711,7 +14329,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ],
                                             SizedBox(height: 4),
                                             Text(
-                                              'SKU lokal: ${_cleanText(item['local_sku'], _cleanText(detailRow['local_sku'] ?? detailRow['sku'], 'Belum mapping'))}  ·  SKU marketplace: ${_cleanText(item['marketplace_sku'] ?? item['marketplace_seller_sku'], 'Belum ada SKU marketplace')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
+                                              'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  ·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  ·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  ·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
