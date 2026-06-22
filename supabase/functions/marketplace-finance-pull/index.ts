@@ -73,16 +73,16 @@ Deno.serve(async (req) => {
     for (const account of accounts) {
       try {
         if (account.marketplace === "tiktok_shop") {
-          details.push({
-            account_id: account.marketplace_account_id,
-            store_alias: account.store_alias,
-            checked: 0,
-            synced: 0,
-            failed: 0,
-            ok: false,
-            error_code: "finance_unavailable_for_tiktok",
-            message: "Finance pull tidak didukung untuk TikTok Shop di edge function ini.",
+          const result = await pullTikTokFinanceForAccount(supabaseUrl, incomingSecret, account, {
+            daysBack,
+            maxOrders,
+            startDate,
+            endDate,
           });
+          details.push(result);
+          totalChecked += result.checked;
+          totalSynced += result.synced;
+          totalFailed += result.failed;
           continue;
         }
 
@@ -119,6 +119,121 @@ Deno.serve(async (req) => {
     return json({ ok: false, version: FUNCTION_VERSION, message: String(err) }, 500);
   }
 });
+
+async function pullTikTokFinanceForAccount(
+  supabaseUrl: string,
+  cronSecret: string,
+  account: any,
+  args: { daysBack: number; maxOrders: number; startDate?: string; endDate?: string },
+) {
+  const params = {
+    source: FUNCTION_VERSION,
+    mode: args.startDate || args.endDate ? "period" : "recent_unpaid",
+    tenant_id: account.tenant_id,
+    account_id: account.marketplace_account_id,
+    marketplace_account_id: account.marketplace_account_id,
+    start_date: args.startDate || undefined,
+    end_date: args.endDate || undefined,
+    days_back: args.daysBack,
+    unpaid_backlog_days: args.daysBack,
+    max_accounts: 1,
+    max_jobs: 1,
+    max_orders: Math.min(Math.max(args.maxOrders, 1), 20),
+    max_batches_per_job: Math.max(1, Math.ceil(Math.min(Math.max(args.maxOrders, 1), 60) / 20)),
+    enqueue: true,
+    process: true,
+    force_requeue: true,
+    missing_only: true,
+    only_missing_payout: true,
+    include_recent_orders: true,
+    include_pending_payout: true,
+    include_all_missing_payout: true,
+    skip_settled_with_payout: true,
+  };
+
+  const response = await invokeTikTokService(supabaseUrl, cronSecret, {
+    action: "process_finance_sync_jobs",
+    params,
+  });
+
+  const body = response.body || {};
+  const checked = numberValue(body.checked ?? body.transactions);
+  const synced = numberValue(body.payout_success ?? body.items ?? body.success);
+  const failed = numberValue(body.failed);
+  const jobs = numberValue(body.jobs);
+  const waitingSettlement = body.waiting_settlement === true;
+  const details = Array.isArray(body.details) ? body.details : [];
+  const detailErrors = details
+    .map((item: any) => text(item?.error || item?.message))
+    .filter(Boolean);
+  const serviceMessage = text(body.message) || detailErrors.slice(0, 2).join(" | ");
+  const notSynced = synced <= 0;
+  const blocked = !waitingSettlement && (
+    response.status < 200 ||
+    response.status >= 300 ||
+    body.ok === false ||
+    (notSynced && (checked > 0 || failed > 0 || jobs > 0 || detailErrors.length > 0))
+  );
+  const message = blocked
+    ? serviceMessage || "TikTok finance belum tersinkron: service tidak mengembalikan payout baru."
+    : (waitingSettlement
+      ? serviceMessage || "TikTok finance waiting settlement: belum ada payout settled."
+      : serviceMessage || `TikTok finance selesai: checked ${checked}, synced ${synced}, failed ${failed}.`);
+
+  await logSync(createClient(supabaseUrl, requiredEnv("SUPABASE_SERVICE_ROLE_KEY")), {
+    tenant_id: account.tenant_id,
+    marketplace_account_id: account.marketplace_account_id,
+    marketplace: "tiktok_shop",
+    action: "finance_pull_tiktok_service",
+    status: blocked ? "blocked" : (waitingSettlement ? "waiting_settlement" : "success"),
+    message,
+    request_payload: params,
+    response_payload: {
+      http_status: response.status,
+      body,
+    },
+  });
+
+  return {
+    account_id: account.marketplace_account_id,
+    store_alias: account.store_alias,
+    checked,
+    synced,
+    failed,
+    ok: !blocked,
+    blocked,
+    waiting_settlement: waitingSettlement,
+    error_code: blocked ? "tiktok_finance_not_synced" : undefined,
+    message,
+    service_status: response.status,
+    service_response: body,
+  };
+}
+
+async function invokeTikTokService(supabaseUrl: string, cronSecret: string, body: Record<string, unknown>) {
+  const res = await fetch(`${supabaseUrl}/functions/v1/marketplace-tiktok-service`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-marketplace-cron-secret": cronSecret,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const raw = await res.text();
+  let parsed: any = null;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    parsed = { raw };
+  }
+
+  return {
+    status: res.status,
+    body: parsed,
+    raw,
+  };
+}
 
 async function pullShopeeFinanceForAccount(admin: any, account: any, args: { daysBack: number; maxOrders: number; startDate?: string; endDate?: string }) {
   const tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, account);
@@ -707,6 +822,11 @@ function clampInt(value: unknown, min: number, max: number, fallback: number) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+function numberValue(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function dateOnly(value: unknown) {

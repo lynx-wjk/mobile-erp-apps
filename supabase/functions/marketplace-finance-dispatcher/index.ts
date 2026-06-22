@@ -67,22 +67,12 @@ Deno.serve(async (req) => {
     for (const claim of rows) {
       processed += 1;
 
-      if (claim.marketplace !== "shopee") {
-        results.push({
-          account_id: claim.marketplace_account_id,
-          marketplace: claim.marketplace,
-          mode: claim.mode,
-          skipped: true,
-          message: "Finance dispatcher hanya menjalankan Shopee untuk saat ini.",
-        });
-        continue;
-      }
-
       const childBody = {
         source: FUNCTION_VERSION,
         tenant_id: claim.tenant_id,
         account_id: claim.marketplace_account_id,
         marketplace_account_id: claim.marketplace_account_id,
+        marketplace: claim.marketplace,
         start_date: claim.period_start,
         end_date: claim.period_end,
         max_accounts: 1,
@@ -91,16 +81,27 @@ Deno.serve(async (req) => {
       };
 
       const child = await callFinancePull(supabaseUrl, incomingSecret, childBody, childTimeoutMs);
-      const childOk = child.status === 200 && child.body?.ok === true;
+      const rawChildOk = child.status === 200 && child.body?.ok === true;
 
       const checked = numberValue(child.body?.checked);
       const synced = numberValue(child.body?.synced);
       const childFailed = numberValue(child.body?.failed);
       const message = child.message || child.body?.message || `child_status=${child.status}`;
+      const falseSuccess =
+        rawChildOk &&
+        synced <= 0 &&
+        child.body?.blocked === true &&
+        text(child.body?.error_code || "").trim().length > 0;
+      const childOk = rawChildOk && !falseSuccess;
+
+      const tiktokDetail = Array.isArray(child.body?.details)
+        ? child.body.details.find((d: any) => d.account_id === claim.marketplace_account_id)
+        : null;
+      const isWaitingSettlement = claim.marketplace === "tiktok_shop" && tiktokDetail?.waiting_settlement === true;
 
       const finish = await admin.rpc("marketplace_finance_sync_finish", {
         p_finance_sync_state_id: claim.finance_sync_state_id,
-        p_ok: childOk,
+        p_ok: childOk || isWaitingSettlement,
         p_mode: claim.mode,
         p_period_start: claim.period_start,
         p_period_end: claim.period_end,
@@ -113,7 +114,24 @@ Deno.serve(async (req) => {
 
       if (finish.error) throw new Error(`Finish finance state gagal: ${finish.error.message}`);
 
-      if (!childOk) failed += 1;
+      if (isWaitingSettlement) {
+        const { error: updateErr } = await admin
+          .from("marketplace_finance_sync_state")
+          .update({
+            finance_status: "pending",
+            last_error: null,
+            failure_count: claim.failure_count ?? 0,
+            next_run_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("finance_sync_state_id", claim.finance_sync_state_id);
+
+        if (updateErr) {
+          console.error("Manual update to marketplace_finance_sync_state failed:", updateErr);
+        }
+      }
+
+      if (!childOk && !isWaitingSettlement) failed += 1;
 
       results.push({
         account_id: claim.marketplace_account_id,
@@ -121,11 +139,12 @@ Deno.serve(async (req) => {
         mode: claim.mode,
         period_start: claim.period_start,
         period_end: claim.period_end,
-        ok: childOk,
+        ok: childOk || isWaitingSettlement,
         child_status: child.status,
         checked,
         synced,
         failed: childFailed,
+        waiting_settlement: isWaitingSettlement,
         message,
         finish: finish.data,
       });

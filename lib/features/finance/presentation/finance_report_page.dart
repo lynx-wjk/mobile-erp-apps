@@ -96,7 +96,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String? _sampleFreeDetailsError;
   final Set<String> _expandedReconciliations = {};
   static const String _financeCacheVersion =
-      'finance_live_20260621_v36_light_snapshot_lazy_tabs';
+      'finance_live_20260622_v37_mapping_sources';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -161,15 +161,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     _savedAccountFilter = _accountFilter;
   }
 
+  void _normalizeCurrentFinanceFilters() {
+    _marketplaceFilter =
+        _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    if (_accountFilter != 'all' && !_isUuid(_accountFilter)) {
+      _accountFilter = 'all';
+    }
+    _rememberFilters();
+  }
+
   @override
   void initState() {
     super.initState();
-    _marketplaceFilter =
-        _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
-    _accountFilter = _accountFilter == 'all' || _isUuid(_accountFilter)
-        ? _accountFilter
-        : 'all';
-    _rememberFilters();
+    _normalizeCurrentFinanceFilters();
     _load();
   }
 
@@ -649,9 +653,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     _lastSkuParsedRowCount = parsedRowCount;
     _lastSkuMergedRowCount = mergedRowCount;
     _lastSkuRenderedRowCount = renderedRowCount;
-    if (_enableSkuDebugLogs) {
-      debugPrint('FINANCE_SKU_RENDER_PROOF: $proof');
-    }
   }
 
   Future<void> _safeRefreshFinanceView() async {
@@ -1082,10 +1083,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (_currentTenantId.trim().isNotEmpty) {
         query = query.eq('tenant_id', _currentTenantId);
       }
-      final accountId = _accountUuidParam();
-      if (accountId != null) {
-        query = query.eq('marketplace_account_id', accountId);
-      }
       final res = await query
           .order('expense_date', ascending: false)
           .order('created_at', ascending: false)
@@ -1444,12 +1441,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         if (payoutFilter == 'all' && page == 1) {
           _lastSkuRpcRowCount = cachedRows.length;
           _lastSkuParsedRowCount = cachedRows.length;
-          if (_enableSkuDebugLogs) {
-            debugPrint(
-                'FINANCE_SKU_RENDER_PROOF: period=${_skuDebugPeriodLabel()} '
-                'source=cache filter=$payoutFilter rpc=${cachedRows.length} '
-                'parsed=${cachedRows.length}');
-          }
         }
         return cachedRows;
       }
@@ -1492,9 +1483,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _lastSkuRpcRowCount = rawRowsList.length;
         _lastSkuParsedRowCount = rows.length;
       }
-      debugPrint('finance_sku_order_details ($payoutFilter): response type = '
-          '${response.runtimeType}, raw rows length = ${rawRowsList.length}, '
-          'parsed rows length = ${rows.length}');
       await FinanceLocalCache.writeRows(cacheKey, rows);
       return rows;
     } catch (error) {
@@ -2018,7 +2006,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       ...liveUnpaidSkuRows,
     ]);
 
-    // Live finance_sku_order_details is the row-level source of truth for
+    // Live finance SKU order details is the row-level source of truth for
     // settled/unpaid SKU metrics and HPP. Snapshot SKU rows are fallback only.
     // Mixing snapshot rows first can keep old HPP 0 rows visible on page 1.
     var rawSkuRows = liveSkuRows.isNotEmpty
@@ -2176,13 +2164,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       final nextDate =
           _toDateParam(_dateOnly(_end).add(const Duration(days: 1)));
+      final startWib = '${_toDateParam(_dateOnly(_start))}T00:00:00+07:00';
+      final nextWib = '${nextDate}T00:00:00+07:00';
       final accountId = _accountUuidParam();
 
       dynamic orderQuery = _client
           .from('marketplace_orders')
           .select('marketplace_order_id')
-          .gte('order_created_at', startKey)
-          .lt('order_created_at', nextDate)
+          .gte('order_created_at', startWib)
+          .lt('order_created_at', nextWib)
           .or('marketplace.eq.tiktok_shop,marketplace.eq.tiktok');
       if (accountId != null) {
         orderQuery = orderQuery.eq('marketplace_account_id', accountId);
@@ -2216,6 +2206,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Future<void> _load({bool ignoreLocalCache = false}) async {
     if (!mounted) return;
+    _normalizeCurrentFinanceFilters();
 
     if (ignoreLocalCache) {
       _activeFinanceRequests.clear();
@@ -2335,6 +2326,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'p_marketplace': _marketplaceRpcParam(accounts: fallbackAccounts),
         'p_account_id': _accountUuidParam(),
       };
+      unawaited(_loadMarketplaceFinanceGapHint());
 
       var response = await _loadFinanceSnapshot(snapshotParams);
       var data = _asMap(response);
@@ -2736,10 +2728,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     try {
       if (!mounted) return;
+      var expenseRows = List<Map<String, dynamic>>.from(_expenses);
+      var purchaseRows = List<Map<String, dynamic>>.from(_approvedPurchases);
+      if (!_operationalCostsLoaded) {
+        try {
+          final liveExpenses = await _fetchOperationalExpensesPeriod()
+              .timeout(const Duration(seconds: 12));
+          final livePurchases = await _fetchApprovedPurchasesPeriod()
+              .timeout(const Duration(seconds: 12));
+          expenseRows = _dedupeExpenseRows(liveExpenses)
+              .where((row) => !_isSyntheticExpenseRow(row))
+              .toList(growable: false);
+          purchaseRows = _dedupeByStableKey(livePurchases);
+        } catch (error) {
+          debugPrint('Profit/Loss live cost refresh skipped: $error');
+        }
+      }
       final displaySummary = _summaryWithLiveCosts(
         _summary,
-        _expenses,
-        _approvedPurchases,
+        expenseRows,
+        purchaseRows,
       );
       final byMarketplace = _marketplaceRowsWithFinanceAliases(
         _profitLossByMarketplace.isNotEmpty
@@ -2759,6 +2767,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
         setState(() {
           _summary = displaySummary;
+          if (expenseRows.isNotEmpty) _expenses = expenseRows;
+          if (purchaseRows.isNotEmpty) _approvedPurchases = purchaseRows;
           _profitLoss = profitLossData;
           if (byMarketplace.isNotEmpty) {
             _profitLossByMarketplace = byMarketplace;
@@ -9060,12 +9070,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         abnormalSummarySource.where(_isNoPayoutAbnormalRow).length;
     final localPayoutMinusCount =
         abnormalSummarySource.where(_hasPayoutMinusSettlementReason).length;
+
     final sampleOrderCount = _numFirstNonZero([
       _summary['sample_order_count'],
       _summary['sample_free_count'],
       _summary['confirmed_sample_count'],
       localSampleCount,
     ]);
+
     final sampleHppTotal = _num(_summary['sample_hpp_total']);
     final samplePayoutMinusSigned = _num(_summary['sample_payout_minus_total']);
     final sampleNegativePayout = _numFirstNonZero([
@@ -9249,15 +9261,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   subtitle:
                       '${sampleOrderCount.toStringAsFixed(0)} order · HPP ${_money(sampleHppTotal)} · Payout minus ${_money(sampleNegativePayout)}',
                   children: [
-                    _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
-                    _miniMetric(
-                        'Teks sample/free', sampleTextCount.toStringAsFixed(0)),
-                    _miniMetric(
-                        'Label produk', sampleLabelCount.toStringAsFixed(0)),
-                    _miniMetric(
-                        'Diskon 100%', sampleDiscountCount.toStringAsFixed(0)),
-                    _miniMetric('Flag finance',
-                        sampleFinanceFlagCount.toStringAsFixed(0)),
+                    if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
+                        'shopee')
+                      _emptyOkCard(
+                          'Shopee tidak ada Sample/Gratis terkonfirmasi')
+                    else if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
+                        'all')
+                      _emptyOkCard(
+                          'Shopee tidak ada Sample/Gratis terkonfirmasi'),
+                    if (sampleOrderCount > 0)
+                      _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
+                    if (sampleTextCount > 0)
+                      _miniMetric('Teks sample/free',
+                          sampleTextCount.toStringAsFixed(0)),
+                    if (sampleLabelCount > 0)
+                      _miniMetric(
+                          'Label produk', sampleLabelCount.toStringAsFixed(0)),
+                    if (sampleDiscountCount > 0)
+                      _miniMetric('Diskon 100%',
+                          sampleDiscountCount.toStringAsFixed(0)),
+                    if (sampleFinanceFlagCount > 0)
+                      _miniMetric('Flag finance',
+                          sampleFinanceFlagCount.toStringAsFixed(0)),
                     if (sampleRawTikTokCount > 0)
                       _miniMetric('Raw TikTok',
                           sampleRawTikTokCount.toStringAsFixed(0)),
@@ -9270,18 +9295,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     if (sampleRawTikTokImport > 0)
                       _miniMetric('Export TikTok',
                           sampleRawTikTokImport.toStringAsFixed(0)),
-                    _miniMetric('Batal dipisah',
-                        classificationCancelledCount.toStringAsFixed(0)),
-                    _miniMetric('Pending dipisah',
-                        classificationPendingCount.toStringAsFixed(0)),
-                    _miniMetric('No Payout eligible',
-                        classificationNoPayoutCount.toStringAsFixed(0)),
-                    _miniMetric('Gross (Omzet)',
-                        _money(_num(_summary['sample_gross_total']))),
-                    _miniMetric('Payout',
-                        _money(_num(_summary['sample_payout_total']))),
-                    _miniMetric('Payout Minus', _money(sampleNegativePayout),
-                        warning: sampleNegativePayout > 0),
+                    if (classificationCancelledCount > 0)
+                      _miniMetric('Batal dipisah',
+                          classificationCancelledCount.toStringAsFixed(0)),
+                    if (classificationPendingCount > 0)
+                      _miniMetric('Pending dipisah',
+                          classificationPendingCount.toStringAsFixed(0)),
+                    if (classificationNoPayoutCount > 0)
+                      _miniMetric('No Payout eligible',
+                          classificationNoPayoutCount.toStringAsFixed(0)),
+                    if (_num(_summary['sample_gross_total']) > 0)
+                      _miniMetric('Gross (Omzet)',
+                          _money(_num(_summary['sample_gross_total']))),
+                    if (_num(_summary['sample_payout_total']) > 0)
+                      _miniMetric('Payout',
+                          _money(_num(_summary['sample_payout_total']))),
+                    if (sampleNegativePayout > 0)
+                      _miniMetric('Payout Minus', _money(sampleNegativePayout),
+                          warning: true),
                     if (samplePayoutMinusSettlement > 0)
                       _miniMetric('Payout minus dari settlement',
                           _money(samplePayoutMinusSettlement),
@@ -9298,19 +9329,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       _miniMetric('Payout minus fee platform',
                           _money(samplePayoutMinusPlatform),
                           warning: true),
-                    _miniMetric('Voucher/Diskon',
-                        _money(_num(_summary['sample_discount_total']))),
-                    _miniMetric('Ongkir (Kurir)',
-                        _money(_num(_summary['sample_shipping_total']))),
-                    _miniMetric('Biaya Platform',
-                        _money(_num(_summary['sample_fee_total']))),
-                    _miniMetric('Refund',
-                        _money(_num(_summary['sample_refund_total']))),
-                    _miniMetric('Penyesuaian',
-                        _money(_num(_summary['sample_adjustment_total']))),
-                    _miniMetric('HPP Sample', _money(sampleHppTotal)),
-                    _miniMetric('Estimasi Dampak', _money(sampleLossEstimate),
-                        warning: sampleLossEstimate > 0),
+                    if (_num(_summary['sample_discount_total']) > 0)
+                      _miniMetric('Voucher/Diskon',
+                          _money(_num(_summary['sample_discount_total']))),
+                    if (_num(_summary['sample_shipping_total']) > 0)
+                      _miniMetric('Ongkir (Kurir)',
+                          _money(_num(_summary['sample_shipping_total']))),
+                    if (_num(_summary['sample_fee_total']) > 0)
+                      _miniMetric('Biaya Platform',
+                          _money(_num(_summary['sample_fee_total']))),
+                    if (_num(_summary['sample_refund_total']) > 0)
+                      _miniMetric('Refund',
+                          _money(_num(_summary['sample_refund_total']))),
+                    if (_num(_summary['sample_adjustment_total']) > 0)
+                      _miniMetric('Penyesuaian',
+                          _money(_num(_summary['sample_adjustment_total']))),
+                    if (sampleHppTotal > 0)
+                      _miniMetric('HPP Sample', _money(sampleHppTotal)),
+                    if (sampleLossEstimate > 0)
+                      _miniMetric('Estimasi Dampak', _money(sampleLossEstimate),
+                          warning: true),
                     if (sampleStatusBreakdown.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       _emptyCard(
@@ -9364,29 +9402,47 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   title: 'Sample / Gratis sesuai filter',
                   subtitle: '0 order terkonfirmasi',
                   children: [
-                    _emptyOkCard(
-                        'Tidak ada Sample/Gratis terkonfirmasi untuk filter ini.'),
-                    _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
-                    _miniMetric(
-                        'Teks sample/free', sampleTextCount.toStringAsFixed(0)),
-                    _miniMetric(
-                        'Label produk', sampleLabelCount.toStringAsFixed(0)),
-                    _miniMetric(
-                        'Diskon 100%', sampleDiscountCount.toStringAsFixed(0)),
-                    _miniMetric('Flag finance',
-                        sampleFinanceFlagCount.toStringAsFixed(0)),
+                    if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
+                        'shopee')
+                      _emptyOkCard(
+                          'Shopee tidak ada Sample/Gratis terkonfirmasi')
+                    else ...[
+                      _emptyOkCard(
+                          'Tidak ada Sample/Gratis terkonfirmasi untuk filter ini.'),
+                      if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
+                          'all')
+                        _emptyOkCard(
+                            'Shopee tidak ada Sample/Gratis terkonfirmasi'),
+                    ],
+                    if (sampleOrderCount > 0)
+                      _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
+                    if (sampleTextCount > 0)
+                      _miniMetric('Teks sample/free',
+                          sampleTextCount.toStringAsFixed(0)),
+                    if (sampleLabelCount > 0)
+                      _miniMetric(
+                          'Label produk', sampleLabelCount.toStringAsFixed(0)),
+                    if (sampleDiscountCount > 0)
+                      _miniMetric('Diskon 100%',
+                          sampleDiscountCount.toStringAsFixed(0)),
+                    if (sampleFinanceFlagCount > 0)
+                      _miniMetric('Flag finance',
+                          sampleFinanceFlagCount.toStringAsFixed(0)),
                     if (sampleRawTikTokCount > 0)
                       _miniMetric('Raw TikTok',
                           sampleRawTikTokCount.toStringAsFixed(0)),
                     if (sampleRawTikTokItems > 0)
                       _miniMetric('Item raw TikTok',
                           sampleRawTikTokItems.toStringAsFixed(0)),
-                    _miniMetric('Batal dipisah',
-                        classificationCancelledCount.toStringAsFixed(0)),
-                    _miniMetric('Pending dipisah',
-                        classificationPendingCount.toStringAsFixed(0)),
-                    _miniMetric('No Payout eligible',
-                        classificationNoPayoutCount.toStringAsFixed(0)),
+                    if (classificationCancelledCount > 0)
+                      _miniMetric('Batal dipisah',
+                          classificationCancelledCount.toStringAsFixed(0)),
+                    if (classificationPendingCount > 0)
+                      _miniMetric('Pending dipisah',
+                          classificationPendingCount.toStringAsFixed(0)),
+                    if (classificationNoPayoutCount > 0)
+                      _miniMetric('No Payout eligible',
+                          classificationNoPayoutCount.toStringAsFixed(0)),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -10225,6 +10281,34 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         if (mounted) unawaited(_loadOperationalCostsSupplemental());
       });
     }
+
+    final summaryManualExpense = _num(_summary['manual_expense_total']);
+    final summaryProductionPaid = _num(_summary['production_paid_total']);
+    final summaryApprovedPurchase = _num(_summary['approved_purchase_total']);
+
+    bool isNetRow(Map<String, dynamic> row) {
+      final label = _text(row['source'] ?? row['category']).toLowerCase();
+      return label.contains('arus kas bersih') ||
+          label.contains('total arus kas') ||
+          label.contains('jumlah arus kas');
+    }
+
+    final hasCashFlowOutflow = () {
+      final cashRows =
+          _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
+      for (final row in cashRows) {
+        if (isNetRow(row)) continue;
+        final amount = _num(row['amount']);
+        if (amount < 0) return true;
+      }
+      return false;
+    }();
+
+    final hasBiayaSummaryOrCashFlow = summaryManualExpense > 0 ||
+        summaryProductionPaid > 0 ||
+        summaryApprovedPurchase > 0 ||
+        hasCashFlowOutflow;
+
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -10243,10 +10327,68 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               _emptyCard('Rincian biaya akan dimuat otomatis.'),
             ],
           ] else ...[
-            if (_expenses.isEmpty && _approvedPurchases.isEmpty)
-              _emptyCard(
-                  'Belum ada biaya operasional atau pembelian yang sudah disetujui.')
-            else ...[
+            if (_expenses.isEmpty && _approvedPurchases.isEmpty) ...[
+              if (hasBiayaSummaryOrCashFlow) ...[
+                if (summaryManualExpense > 0)
+                  _simpleRowCard(
+                    title: 'Total Biaya Operasional',
+                    subtitle: 'Berdasarkan data Ringkasan/Snapshot',
+                    trailing: _money(summaryManualExpense),
+                    positive: false,
+                  ),
+                if (summaryProductionPaid > 0)
+                  _simpleRowCard(
+                    title: 'Total Ongkos Produksi',
+                    subtitle: 'Berdasarkan data Ringkasan/Snapshot',
+                    trailing: _money(summaryProductionPaid),
+                    positive: false,
+                  ),
+                if (summaryApprovedPurchase > 0)
+                  _simpleRowCard(
+                    title: 'Total Pembelian Disetujui',
+                    subtitle: 'Berdasarkan data Ringkasan/Snapshot',
+                    trailing: _money(summaryApprovedPurchase),
+                    positive: false,
+                  ),
+                if (hasCashFlowOutflow &&
+                    summaryManualExpense == 0 &&
+                    summaryProductionPaid == 0 &&
+                    summaryApprovedPurchase == 0)
+                  _simpleRowCard(
+                    title: 'Total Biaya (Arus Kas Keluar)',
+                    subtitle: 'Berdasarkan data Arus Kas',
+                    trailing: _money(
+                      () {
+                        num totalOut = 0;
+                        final cashRows = _cashFlow.isNotEmpty
+                            ? _cashFlow
+                            : _fallbackCashFlowRows();
+                        final walletRows = _cashWalletRowsForDisplay(
+                          opening: _cashOpeningBalances,
+                          adjustments: _cashAdjustments,
+                          withdrawals: _marketplaceWithdrawals,
+                        );
+                        for (final row in [
+                          ...cashRows.where((row) => !isNetRow(row)),
+                          ...walletRows,
+                        ]) {
+                          if (row['_cash_wallet_kind'] == 'withdrawal') {
+                            continue;
+                          }
+                          final amount = _num(row['amount']);
+                          if (amount < 0) {
+                            totalOut += amount.abs();
+                          }
+                        }
+                        return totalOut;
+                      }(),
+                    ),
+                    positive: false,
+                  ),
+              ] else
+                _emptyCard(
+                    'Belum ada biaya operasional atau pembelian yang sudah disetujui.')
+            ] else ...[
               ..._expenses.map(_manualExpenseRowCard),
               if (_approvedPurchases.isNotEmpty) ...[
                 SizedBox(height: 14),
@@ -10504,6 +10646,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             () {
               Widget reconcileItemRow(String label, double val,
                   {bool bold = false, bool positiveColor = false}) {
+                if (val == 0 &&
+                    !bold &&
+                    label != 'Gross before marketplace discount') {
+                  return const SizedBox.shrink();
+                }
                 final clr = positiveColor
                     ? Colors.green
                     : (val < 0
@@ -10765,6 +10912,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _profitLossTab() {
+    if (!_profitLossLoaded && !_profitLossLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadProfitLossSupplemental());
+      });
+    }
+
     final paidSkuTotals = _totalsFromSkuRows(paidOnly: true);
     final summaryGross = _num(_summary['gross_sales'] ??
         _summary['gross_total'] ??
@@ -12322,11 +12475,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .map(_normalizeSkuOrderDetailDisplayRowV82o)
         .toList(growable: false);
     final deduped = _dedupeSkuDetailRows(normalized);
-    if (_enableSkuDebugLogs) {
-      debugPrint(
-          'SKU_DEDUPE_PROOF: stableLineKey uses order line id, fallback facts. '
-          'Deduped size: ${deduped.length}, input count: ${normalized.length}');
-    }
 
     if (payoutFilter == 'paid') {
       return deduped.where(_skuDetailHasPayoutV82o).toList();
@@ -12575,6 +12723,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Map<String, String> _skuOrderLookupParamsV82o(Map<String, dynamic> row) {
+    bool usableSkuText(String value) {
+      final clean = value.trim().toLowerCase();
+      if (clean.isEmpty || clean == '-' || clean == 'null') return false;
+      if (clean.contains('belum mapping') ||
+          clean.contains('belum ada') ||
+          clean == 'unmapped') return false;
+      return true;
+    }
+
     final productSearch = _text(
       row['product_name'] ??
           row['nama_barang'] ??
@@ -12591,6 +12748,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       '',
     ).trim();
 
+    final rowSku = _text(row['sku'], '').trim();
     final marketplaceSku = _text(
       row['marketplace_sku_id'] ??
           row['marketplace_sku'] ??
@@ -12598,9 +12756,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           row['seller_sku'] ??
           row['sku_marketplace'] ??
           row['external_sku_id'] ??
-          row['sku_id'],
+          row['sku_id'] ??
+          row['sku'],
       '',
     ).trim();
+    final cleanMarketplaceSku =
+        usableSkuText(marketplaceSku) ? marketplaceSku : '';
 
     final explicitLocalSku = _text(
       row['local_sku'] ??
@@ -12610,21 +12771,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       '',
     ).trim();
 
-    final rowSku = _text(row['sku'], '').trim();
-    final localSku = explicitLocalSku.isNotEmpty
+    final rawLocalSku = explicitLocalSku.isNotEmpty
         ? explicitLocalSku
         : (rowSku.isNotEmpty &&
                 rowSku != '-' &&
                 rowSku.toLowerCase() != productSearch.toLowerCase()
             ? rowSku
             : '');
+    final localSku = usableSkuText(rawLocalSku) ? rawLocalSku : '';
 
-    final fallbackSearch = productSearch.isNotEmpty
-        ? productSearch
-        : (variantSearch.isNotEmpty ? variantSearch : '');
+    final fallbackSearch = [
+      productSearch,
+      variantSearch,
+      rowSku,
+      marketplaceSku,
+    ].firstWhere(
+      (value) => usableSkuText(value),
+      orElse: () => '',
+    );
 
     return {
-      'marketplace_sku': marketplaceSku,
+      'marketplace_sku': cleanMarketplaceSku,
       'local_sku': localSku,
       'fallback_search': fallbackSearch,
     };
@@ -12694,46 +12861,77 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final detailAccountId =
         _accountUuidParam() ?? (_isUuid(rowAccountId) ? rowAccountId : null);
 
-    final response = await _client.rpc(
-      'finance_sku_order_line_details',
-      params: {
-        'p_start': _toDateParam(_start),
-        'p_end': _toDateParam(_end),
-        'p_marketplace': detailMarketplace,
-        'p_account_id': detailAccountId,
-        'p_marketplace_sku': marketplaceSku.isEmpty ? null : marketplaceSku,
-        'p_local_sku': localSku.isEmpty || localSku == '-' ? null : localSku,
-        'p_search': searchText.isEmpty ? null : searchText,
-        'p_payout_filter': rpcPayoutFilter,
-        'p_page': page,
-        'p_page_size': pageSize,
-      },
+    Future<Map<String, dynamic>> requestDetails({
+      required String? marketplaceSkuParam,
+      required String? localSkuParam,
+      required String? searchParam,
+    }) async {
+      final response = await _client.rpc(
+        'finance_sku_order_line_details',
+        params: {
+          'p_start': _toDateParam(_start),
+          'p_end': _toDateParam(_end),
+          'p_marketplace': detailMarketplace,
+          'p_account_id': detailAccountId,
+          'p_marketplace_sku': marketplaceSkuParam,
+          'p_local_sku': localSkuParam,
+          'p_search': searchParam,
+          'p_payout_filter': rpcPayoutFilter,
+          'p_page': page,
+          'p_page_size': pageSize,
+        },
+      );
+
+      final rawRows = _extractSkuOrderDetailRowsV82o(response);
+      final filteredRows = _filteredSkuOrderRowsV82o(
+        rawRows
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList(),
+        payoutFilter,
+      );
+      final rows = _dedupeSkuDetailRows(filteredRows);
+      final resolvedPage = _skuDetailPageV82o(response, page);
+      final resolvedPageSize = _skuDetailPageSizeV82o(response, pageSize);
+      final rawTotal = _skuDetailTotalV82o(response, rows.length);
+      final total =
+          rows.length < filteredRows.length && rawTotal <= filteredRows.length
+              ? rows.length
+              : rawTotal;
+      final totalPages = _skuDetailTotalPagesV82o(
+        response,
+        total,
+        resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
+      );
+      return {
+        'rows': rows,
+        'page': resolvedPage,
+        'page_size': resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
+        'total': total,
+        'total_pages': totalPages,
+      };
+    }
+
+    var result = await requestDetails(
+      marketplaceSkuParam: marketplaceSku.isEmpty ? null : marketplaceSku,
+      localSkuParam: localSku.isEmpty || localSku == '-' ? null : localSku,
+      searchParam: searchText.isEmpty ? null : searchText,
     );
 
-    final rawRows = _extractSkuOrderDetailRowsV82o(response);
-    final rows = _filteredSkuOrderRowsV82o(
-      rawRows
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList(),
-      payoutFilter,
-    );
-    final total = _skuDetailTotalV82o(response, rows.length);
-    final resolvedPage = _skuDetailPageV82o(response, page);
-    final resolvedPageSize = _skuDetailPageSizeV82o(response, pageSize);
-    final totalPages = _skuDetailTotalPagesV82o(
-      response,
-      total,
-      resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
-    );
+    final resultRows = result['rows'];
+    if (keyword.trim().isEmpty &&
+        fallbackSearch.isNotEmpty &&
+        (marketplaceSku.isNotEmpty || localSku.isNotEmpty) &&
+        resultRows is List &&
+        resultRows.isEmpty) {
+      result = await requestDetails(
+        marketplaceSkuParam: null,
+        localSkuParam: null,
+        searchParam: fallbackSearch,
+      );
+    }
 
-    return {
-      'rows': rows,
-      'page': resolvedPage,
-      'page_size': resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
-      'total': total,
-      'total_pages': totalPages,
-    };
+    return result;
   }
 
   Future<List<Map<String, dynamic>>> _fetchSkuOrderDetailsV82oForRow(
@@ -12807,13 +13005,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var total = _intFromV82o(pageResult['total'], rows.length);
     var totalPages = _positiveIntV82o(pageResult['total_pages'], 1);
 
+    // Ensure detail modal always opens even if rows are empty
     if (rows.isEmpty && total <= 0) {
-      if (mounted && _skuDetailBusyKey == busyKey) {
-        setState(() => _skuDetailBusyKey = null);
-      }
-      _setMessage(
-          'Detail order SKU ($payoutLabel) belum ditemukan dari server.');
-      return;
+      // Keep going, do not return early so the modal sheet opens cleanly.
     }
 
     final detailRow = Map<String, dynamic>.from(row);
@@ -13165,7 +13359,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                               _money(_num(item[
                                                                   'gross_per_item']))),
                                                           _miniMetric(
-                                                              'Payout order',
+                                                              'Payout order marketplace',
                                                               _skuDetailOrderPayoutText(
                                                                   item)),
                                                           _miniMetric(
@@ -13539,13 +13733,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                     _money(_num(item[
                                                         'gross_per_item']))),
                                                 _miniMetric(
-                                                    'Payout order',
+                                                    'Payout order marketplace',
                                                     _skuDetailOrderPayoutText(
-                                                        item)),
-                                                _miniMetric(
-                                                    _skuDetailPayoutItemLabel(
-                                                        item),
-                                                    _skuDetailPayoutItemText(
                                                         item)),
                                                 _miniMetric(
                                                     'HPP/item',
@@ -14060,9 +14249,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'line_item_id',
       'line_id',
     ]);
-    if (orderId.isNotEmpty && externalLineId.isNotEmpty) {
-      return 'line|$orderId|$externalLineId';
-    }
 
     final resi = firstPart(const [
       'resi',
@@ -14109,6 +14295,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       hpp,
     ].join('|');
     if ('$orderId$resi$settlement$sku$variant'.isNotEmpty) return facts;
+    if (orderId.isNotEmpty && externalLineId.isNotEmpty) {
+      return 'line|$orderId|$externalLineId';
+    }
     return 'row|${identityHashCode(row)}';
   }
 
@@ -15068,10 +15257,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (_skuDetailSingleItemOrderIsExact(detail)) {
         return 'Payout exact dari settlement order single-item: ${_money(orderPayout)}.';
       } else {
-        return 'Payout/item adalah Rata-rata/Estimasi dari settlement order ${_money(orderPayout)}; bukan settlement exact per item.';
+        return 'Payout/item ditampilkan sebagai Rata-rata/Estimasi karena settlement exact per item belum tersedia.';
       }
     }
-    return 'Payout/item adalah Rata-rata/Estimasi dari settlement order.';
+    return 'Payout/item ditampilkan sebagai Rata-rata/Estimasi.';
   }
 
   String _skuDetailHppItemText(Map<String, dynamic> detail) {
