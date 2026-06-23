@@ -994,7 +994,7 @@ class _DashboardPageState extends State<DashboardPage> {
             child: SafeArea(
               bottom: false,
               child: _loading
-                  ? const FuturisticLoader(message: 'Memuat dashboard…')
+                  ? const FuturisticLoader(message: 'Memuat dashboardâ€¦')
                   : RefreshIndicator(
                       color: Theme.of(context).colorScheme.primary,
                       backgroundColor: Theme.of(context).cardColor,
@@ -1023,7 +1023,6 @@ class _DashboardPageState extends State<DashboardPage> {
                           const SizedBox(height: 20),
                           if (_isFinance ||
                               _isAdmin ||
-                              _isOperationalAdmin ||
                               _canAccessFinance) ...[
                             _adminAnalyticsCard(),
                             const SizedBox(height: 20),
@@ -1048,7 +1047,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // ── Top bar ─────────────────────────────────────────────────────────────────
+  // â”€â”€ Top bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Widget _sidebarNavigation() {
     final menus = _filterMenusByPlan(_roleMenus());
     return SafeArea(
@@ -1803,7 +1802,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // ── Profile card ────────────────────────────────────────────────────────────
+  // â”€â”€ Profile card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Widget _profileCard(_CurrentUser? user) {
     final roleLabel = _roleLabel(user?.role ?? '-');
     final isActive = user?.active ?? true;
@@ -2138,7 +2137,7 @@ class _DashboardPageState extends State<DashboardPage> {
     return points.length - 1;
   }
 
-  // ── Summary 2×2 grid ────────────────────────────────────────────────────────
+  // â”€â”€ Summary 2Ã—2 grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Widget _adminAnalyticsCard() {
     final points = _financeTrendForChart();
     final defaultSelectedIndex = _defaultFinanceTrendIndex(points);
@@ -2448,7 +2447,7 @@ class _DashboardPageState extends State<DashboardPage> {
       return () => _open(ProductListPage(currentUser: _requiredAppUser));
     }
     if (normalized.contains('pembelian')) {
-      if (_canAccessFinance || _isAdmin || _isOperationalAdmin) {
+      if (_canAccessFinance || _isAdmin) {
         return () => _open(const PurchaseVerificationPage());
       }
       return () => _open(const PurchaseRequestPage());
@@ -2679,7 +2678,7 @@ class _DashboardPageState extends State<DashboardPage> {
     ];
   }
 
-  // ── Menu content ─────────────────────────────────────────────────────────────
+  // â”€â”€ Menu content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   List<Widget> _menuContent() {
     final menus = _filterMenusByPlan(_roleMenus());
     if (menus.isEmpty) return [];
@@ -2921,7 +2920,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   Expanded(
                     child: Tooltip(
                       message:
-                          '${AppUi.date(point.date)} · ${_shortRupiah(point.omzet)} · ${point.orders} order',
+                          '${AppUi.date(point.date)} Â· ${_shortRupiah(point.omzet)} Â· ${point.orders} order',
                       child: Container(
                         height: (point.omzet / maxOmzet * 88)
                             .clamp(8, 88)
@@ -2941,7 +2940,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Omzet ${_shortRupiah(_financeOmzet)} · Laba ${_shortRupiah(_financeNetProfit)} · Order $_financeOrderCount',
+            'Omzet ${_shortRupiah(_financeOmzet)} Â· Laba ${_shortRupiah(_financeNetProfit)} Â· Order $_financeOrderCount',
             style: TextStyle(
               color: AppUi.mutedText(context, 0.92),
               fontSize: 12,
@@ -3372,7 +3371,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // ── Finance content ──────────────────────────────────────────────────────────
+  // â”€â”€ Finance content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   List<Widget> _financeContent() {
     return [
       _sectionHeader('Analytics Finance'),
@@ -3558,7 +3557,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // ── Bottom nav ───────────────────────────────────────────────────────────────
+  // â”€â”€ Bottom nav â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Widget _bottomQuickBar() {
     final canStockOut = _canStockOut();
     final baseMenus = _bottomMenus();
@@ -3950,7 +3949,7 @@ class _DashboardPageState extends State<DashboardPage> {
     ];
   }
 
-  // ── Role menus ───────────────────────────────────────────────────────────────
+  // â”€â”€ Role menus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   List<_DashboardMenu> _roleMenus() {
     final role = _role;
 
@@ -4454,7 +4453,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 }
 
-// ── Data classes ─────────────────────────────────────────────────────────────
+// â”€â”€ Data classes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _TenantSubscriptionInfo {
   final String status;

@@ -589,7 +589,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
   Future<void> _deleteUser(Map<String, dynamic> user) async {
     if (!_guardDemoUserManagement()) return;
     if (!_canDeleteUser(user)) {
-      AppUi.showSnack('Hapus user hanya tersedia untuk Super Admin.');
+      AppUi.showSnack('Hapus user hanya tersedia untuk Super Admin / Platform Owner.');
       return;
     }
 
@@ -615,9 +615,8 @@ class _UserManagementPageState extends State<UserManagementPage> {
     if (confirmed != true) return;
 
     try {
-      await _client.rpc('delete_record_for_super_admin', params: {
-        'p_table_name': 'users',
-        'p_record_id': user['user_id'].toString(),
+      await _client.rpc('admin_hard_delete_user', params: {
+        'p_user_id': user['user_id'],
       });
       AppUi.showSnack('User berhasil dihapus.');
       await _loadData();
@@ -809,7 +808,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
                   ),
                   subtitle: Text(
                     '${AppUi.text(user['email'])}\n'
-                    '${AppUi.text(user['role_id'])} • ${AppUi.text(user['status'])}\n'
+                    '${AppUi.text(user['role_id'])} â€¢ ${AppUi.text(user['status'])}\n'
                     'ID: ${AppUi.text(user['user_id'])}',
                   ),
                   isThreeLine: true,

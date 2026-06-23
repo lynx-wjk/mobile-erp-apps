@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../../core/constants/marketplace_providers.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../models/app_user.dart';
+import '../../../core/constants/app_roles.dart';
 import '../../stock/models/product.dart';
 import '../models/marketplace_account_public.dart';
 import '../models/marketplace_sku_map.dart';
@@ -29,6 +30,11 @@ class MarketplaceSkuMappingPage extends StatefulWidget {
 }
 
 class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
+  String get _roleId => widget.currentUser.role.roleId;
+  bool get _canManageHppMapping =>
+      AppRolePermissions.isSuperRoleId(_roleId) &&
+      !AppRolePermissions.isDemoSuperAdminId(_roleId);
+
   final MarketplaceService _service = MarketplaceService();
 
   final TextEditingController _variantCariController = TextEditingController();
@@ -336,7 +342,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
           parts.add('contoh konflik: $sku sudah dipakai mapping lain');
       }
     }
-    return parts.join(' · ');
+    return parts.join(' Â· ');
   }
 
   Product? _productBySku(String? sku) {
@@ -439,7 +445,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                         .map((product) => DropdownMenuItem<String>(
                               value: product.productId,
                               child: Text(
-                                  '${product.namaBarang} · ${product.kodeSku}',
+                                  '${product.namaBarang} Â· ${product.kodeSku}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis),
                             ))
@@ -449,7 +455,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                   ),
                   if (current != null) ...[
                     SizedBox(height: 8),
-                    Text('Dipilih: ${current.namaBarang} · ${current.kodeSku}',
+                    Text('Dipilih: ${current.namaBarang} Â· ${current.kodeSku}',
                         style: TextStyle(fontWeight: FontWeight.w700)),
                   ],
                   SizedBox(height: 12),
@@ -1019,7 +1025,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         final skipped = _resultInt(result, 'skipped_invalid');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
-                'Import SKU mapping selesai. Tersimpan: $upserted · Dilewati: $skipped')));
+                'Import SKU mapping selesai. Tersimpan: $upserted Â· Dilewati: $skipped')));
       }
     } catch (error) {
       if (mounted) {
@@ -1544,7 +1550,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
     final value = widget.currentUser.tenantId.trim();
     if (value.isEmpty) return '-';
     if (value.length <= 8) return value;
-    return '${value.substring(0, 8)}…';
+    return '${value.substring(0, 8)}â€¦';
   }
 
   int get _mappedVariantCount =>
@@ -1636,7 +1642,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                 return Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    '${account.safeStoreName} · ${account.marketplaceLabel} · ${account.shopRegion}',
+                    '${account.safeStoreName} Â· ${account.marketplaceLabel} Â· ${account.shopRegion}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1648,7 +1654,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                   (account) => DropdownMenuItem(
                     value: account.marketplaceAccountId,
                     child: Text(
-                      '${account.safeStoreName} · ${account.marketplaceLabel} · ${account.shopRegion}',
+                      '${account.safeStoreName} Â· ${account.marketplaceLabel} Â· ${account.shopRegion}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1903,6 +1909,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
   }
 
   Widget _hppMappingCard() {
+    if (!_canManageHppMapping) return const SizedBox.shrink();
     final pageMax =
         _hppTotal <= 0 ? 1 : ((_hppTotal + _hppPageSize - 1) ~/ _hppPageSize);
     return NiceCard(
@@ -1960,7 +1967,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
             ],
           ),
           SizedBox(height: 12),
-          Text('Total $_hppTotal data · halaman $_hppPage/$pageMax',
+          Text('Total $_hppTotal data Â· halaman $_hppPage/$pageMax',
               style: TextStyle(fontWeight: FontWeight.w800)),
           SizedBox(height: 10),
           if (_hppRows.isEmpty)
@@ -2182,7 +2189,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                       ),
                       SizedBox(height: 4),
                       Text(
-                        '${item.accountStoreAlias} · ${item.marketplaceLabel} · ${item.shopRegion}',
+                        '${item.accountStoreAlias} Â· ${item.marketplaceLabel} Â· ${item.shopRegion}',
                         style: TextStyle(
                           color: Theme.of(context).textTheme.bodySmall?.color,
                           fontWeight: FontWeight.w700,
@@ -2227,14 +2234,14 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                     label: 'Marketplace',
                     title: item.marketplaceProductName,
                     subtitle:
-                        'ID Produk: ${item.marketplaceProductId ?? '-'} · ID Varian: ${item.marketplaceSkuId ?? '-'}',
+                        'ID Produk: ${item.marketplaceProductId ?? '-'} Â· ID Varian: ${item.marketplaceSkuId ?? '-'}',
                   ),
                   Divider(),
                   _MappingLine(
                     label: 'Lokal',
                     title: item.localProductName,
                     subtitle:
-                        'SKU: ${item.localSku} · Stock: ${AppUi.money(item.localStock)} · ${item.localProductStatus}',
+                        'SKU: ${item.localSku} Â· Stock: ${AppUi.money(item.localStock)} Â· ${item.localProductStatus}',
                   ),
                 ],
               ),
@@ -2340,7 +2347,7 @@ class _MarketplaceProductOption {
     );
   }
 
-  String get dropdownLabel => '$productName · $variantCount varian';
+  String get dropdownLabel => '$productName Â· $variantCount varian';
 }
 
 class _BulkMappingTable extends StatelessWidget {
@@ -2456,7 +2463,7 @@ class _BulkMappingRow extends StatelessWidget {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'Stock ${variant.stockQuantity} · ${variant.isMapped ? 'mapped' : 'unmapped'}',
+                  'Stock ${variant.stockQuantity} Â· ${variant.isMapped ? 'mapped' : 'unmapped'}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -2800,7 +2807,7 @@ class _LocalProductCariSheetState extends State<_LocalProductCariSheet> {
                                       ),
                                       SizedBox(height: 3),
                                       Text(
-                                        'Barcode: ${product.barcodeValue} · Stock ${AppUi.money(product.stockSaatIni)} · ${product.status}',
+                                        'Barcode: ${product.barcodeValue} Â· Stock ${AppUi.money(product.stockSaatIni)} Â· ${product.status}',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
@@ -2911,7 +2918,7 @@ class _VariantSelectableCard extends StatelessWidget {
               ),
             SizedBox(height: 10),
             Text(
-              'ID Produk: ${variant.marketplaceProductId} · ID Varian: ${variant.marketplaceSkuId}',
+              'ID Produk: ${variant.marketplaceProductId} Â· ID Varian: ${variant.marketplaceSkuId}',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -2922,7 +2929,7 @@ class _VariantSelectableCard extends StatelessWidget {
             ),
             SizedBox(height: 4),
             Text(
-              'Stock marketplace: ${variant.stockQuantity} · ${variant.isMapped ? 'mapped' : 'unmapped'}',
+              'Stock marketplace: ${variant.stockQuantity} Â· ${variant.isMapped ? 'mapped' : 'unmapped'}',
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
             ),
           ],
@@ -2987,7 +2994,7 @@ class _VariantPreviewCard extends StatelessWidget {
             label: 'Stock',
             title: '${variant.stockQuantity}',
             subtitle:
-                'Price: ${variant.priceCurrency ?? '-'} ${AppUi.money(variant.priceAmount)} · ${variant.isMapped ? 'Sudah mapped' : 'Belum mapped'}',
+                'Price: ${variant.priceCurrency ?? '-'} ${AppUi.money(variant.priceAmount)} Â· ${variant.isMapped ? 'Sudah mapped' : 'Belum mapped'}',
           ),
         ],
       ),
