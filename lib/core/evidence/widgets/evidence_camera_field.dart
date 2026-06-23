@@ -256,7 +256,7 @@ class _EvidenceCameraFieldState extends State<EvidenceCameraField> {
             Text(
               widget.label,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                   ),
             ),
             if ((widget.helperText ?? '').trim().isNotEmpty) ...[

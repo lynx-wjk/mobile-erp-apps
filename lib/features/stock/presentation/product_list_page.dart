@@ -237,7 +237,7 @@ class _ProductListPageState extends State<ProductListPage> {
                     style: Theme.of(sheetContext)
                         .textTheme
                         .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w900),
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 14),
                   TextField(
@@ -406,7 +406,7 @@ class _ProductListPageState extends State<ProductListPage> {
                   ),
                   title: Text(
                     AppUi.text(item['nama_barang']),
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                   subtitle: Text(
                     'SKU: ${AppUi.text(item['kode_sku'])}\n'

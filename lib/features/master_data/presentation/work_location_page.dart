@@ -66,13 +66,13 @@ class _LocationTab extends StatefulWidget {
 }
 
 class _LocationTabState extends State<_LocationTab> {
-  final _repository   = MasterDataRepository();
-  final _searchCtrl   = TextEditingController();
+  final _repository = MasterDataRepository();
+  final _searchCtrl = TextEditingController();
 
-  bool _isLoading       = true;
-  bool _isSuperAdmin    = false;
+  bool _isLoading = true;
+  bool _isSuperAdmin = false;
   bool _isDemoSuperAdmin = false;
-  bool get _canManage   => _isSuperAdmin && !_isDemoSuperAdmin;
+  bool get _canManage => _isSuperAdmin && !_isDemoSuperAdmin;
   String? _error;
   List<WorkLocation> _locations = [];
 
@@ -90,7 +90,10 @@ class _LocationTabState extends State<_LocationTab> {
 
   Future<void> _load() async {
     if (!mounted) return;
-    setState(() { _isLoading = true; _error = null; });
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
       final uid = Supabase.instance.client.auth.currentUser?.id;
       if (uid != null) {
@@ -99,9 +102,10 @@ class _LocationTabState extends State<_LocationTab> {
             .select('role_id, is_demo_account, username, email')
             .eq('user_id', uid)
             .maybeSingle();
-        final role     = profile?['role_id']?.toString().toLowerCase().trim() ?? '';
-        final username = profile?['username']?.toString().toLowerCase().trim() ?? '';
-        final email    = profile?['email']?.toString().toLowerCase().trim() ?? '';
+        final role = profile?['role_id']?.toString().toLowerCase().trim() ?? '';
+        final username =
+            profile?['username']?.toString().toLowerCase().trim() ?? '';
+        final email = profile?['email']?.toString().toLowerCase().trim() ?? '';
         _isDemoSuperAdmin = role == 'demo_super_admin' ||
             profile?['is_demo_account'] == true ||
             username == 'demo_super_admin' ||
@@ -125,10 +129,13 @@ class _LocationTabState extends State<_LocationTab> {
   List<WorkLocation> get _filtered {
     final kw = _searchCtrl.text.trim().toLowerCase();
     if (kw.isEmpty) return _locations;
-    return _locations.where((loc) =>
-      loc.namaLokasi.toLowerCase().contains(kw) ||
-      (loc.alamat ?? '').toLowerCase().contains(kw),
-    ).toList();
+    return _locations
+        .where(
+          (loc) =>
+              loc.namaLokasi.toLowerCase().contains(kw) ||
+              (loc.alamat ?? '').toLowerCase().contains(kw),
+        )
+        .toList();
   }
 
   Future<void> _delete(WorkLocation loc) async {
@@ -140,19 +147,24 @@ class _LocationTabState extends State<_LocationTab> {
         title: Text('Hapus lokasi kerja?'),
         content: Text('Lokasi "${loc.namaLokasi}" akan dihapus permanen.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Batal')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Batal')),
           FilledButton.icon(
             onPressed: () => Navigator.pop(context, true),
             icon: Icon(Icons.delete_outline),
             label: Text('Hapus'),
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error, foregroundColor: Colors.white),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Colors.white),
           ),
         ],
       ),
     );
     if (ok != true) return;
     try {
-      await Supabase.instance.client.rpc('delete_record_for_super_admin', params: {
+      await Supabase.instance.client
+          .rpc('delete_record_for_super_admin', params: {
         'p_table_name': 'work_locations',
         'p_record_id': loc.locationId,
       });
@@ -166,7 +178,8 @@ class _LocationTabState extends State<_LocationTab> {
   Future<void> _openForm({WorkLocation? location}) async {
     final result = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => WorkLocationFormPage(location: location)),
+      MaterialPageRoute(
+          builder: (_) => WorkLocationFormPage(location: location)),
     );
     if (result == true) _load();
   }
@@ -192,7 +205,8 @@ class _LocationTabState extends State<_LocationTab> {
   }
 
   Widget _body() {
-    if (_isLoading) return const Center(child: FuturisticLoader(message: 'Memuat lokasi…'));
+    if (_isLoading)
+      return const Center(child: FuturisticLoader(message: 'Memuat lokasi…'));
     if (_error != null) {
       return ErrorState(message: _error!, onRetry: _load);
     }
@@ -223,11 +237,18 @@ class _LocationTabState extends State<_LocationTab> {
                       height: 44,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
-                        color: (loc.isActive ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.error).withOpacity(0.12),
+                        color: (loc.isActive
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.error)
+                            .withOpacity(0.12),
                       ),
                       child: Icon(
-                        loc.isActive ? Icons.location_on_rounded : Icons.location_off_rounded,
-                        color: loc.isActive ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.error,
+                        loc.isActive
+                            ? Icons.location_on_rounded
+                            : Icons.location_off_rounded,
+                        color: loc.isActive
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.error,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -235,11 +256,20 @@ class _LocationTabState extends State<_LocationTab> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(loc.namaLokasi, style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurface)),
+                          Text(loc.namaLokasi,
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface)),
                           const SizedBox(height: 2),
                           Text(
                             'Radius ${loc.radiusMeter.toStringAsFixed(0)} m  ·  ${loc.status}',
-                            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.5)),
                           ),
                           if ((loc.alamat ?? '').isNotEmpty) ...[
                             const SizedBox(height: 2),
@@ -247,7 +277,12 @@ class _LocationTabState extends State<_LocationTab> {
                               loc.alamat!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4)),
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withOpacity(0.4)),
                             ),
                           ],
                         ],
@@ -257,10 +292,15 @@ class _LocationTabState extends State<_LocationTab> {
                       IconButton(
                         onPressed: () => _delete(loc),
                         icon: Icon(Icons.delete_outline_rounded, size: 20),
-                        color: Theme.of(context).colorScheme.error.withOpacity(0.7),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .error
+                            .withOpacity(0.7),
                         tooltip: 'Hapus lokasi',
                       ),
-                    Icon(Icons.chevron_right_rounded, color: Theme.of(context).colorScheme.onSurfaceVariant, size: 18),
+                    Icon(Icons.chevron_right_rounded,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        size: 18),
                   ],
                 ),
               );
@@ -269,7 +309,8 @@ class _LocationTabState extends State<_LocationTab> {
         ),
         if (_canManage)
           Positioned(
-            right: 16, bottom: 16,
+            right: 16,
+            bottom: 16,
             child: FloatingActionButton.extended(
               onPressed: () => _openForm(),
               icon: Icon(Icons.add_location_alt_rounded),
@@ -294,19 +335,27 @@ class _WorkScheduleTab extends StatefulWidget {
 class _WorkScheduleTabState extends State<_WorkScheduleTab> {
   final _client = Supabase.instance.client;
 
-  bool _loadingUsers   = true;
-  bool _loadingSched   = false;
-  bool _saving         = false;
+  bool _loadingUsers = true;
+  bool _loadingSched = false;
+  bool _saving = false;
   String? _error;
 
-  List<Map<String, dynamic>> _users   = [];
+  List<Map<String, dynamic>> _users = [];
   String? _selectedUserId;
-  String  _selectedUserName = '';
+  String _selectedUserName = '';
 
   // day_of_week: 0=Minggu, 1=Senin, ..., 6=Sabtu
   final Map<int, _DaySchedule> _schedule = {};
 
-  static const _dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  static const _dayNames = [
+    'Minggu',
+    'Senin',
+    'Selasa',
+    'Rabu',
+    'Kamis',
+    'Jumat',
+    'Sabtu'
+  ];
 
   @override
   void initState() {
@@ -321,7 +370,7 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
         dayOfWeek: d,
         isActive: d >= 1 && d <= 5, // Mon–Fri default active
         startTime: const TimeOfDay(hour: 8, minute: 0),
-        endTime:   const TimeOfDay(hour: 17, minute: 0),
+        endTime: const TimeOfDay(hour: 17, minute: 0),
         lateTolerance: 15,
       );
     }
@@ -329,7 +378,10 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
 
   Future<void> _loadUsers() async {
     if (!mounted) return;
-    setState(() { _loadingUsers = true; _error = null; });
+    setState(() {
+      _loadingUsers = true;
+      _error = null;
+    });
     try {
       final data = await _client
           .from('users')
@@ -352,14 +404,18 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
 
   Future<void> _loadSchedule(String userId) async {
     if (!mounted) return;
-    setState(() { _loadingSched = true; _error = null; });
+    setState(() {
+      _loadingSched = true;
+      _error = null;
+    });
     try {
       final res = await _client.rpc(
         'user_work_schedule_list',
         params: {'p_user_id': userId},
       );
       if (!mounted) return;
-      final map  = res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{};
+      final map =
+          res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{};
       final rows = (map['rows'] as List? ?? [])
           .map((r) => Map<String, dynamic>.from(r as Map))
           .toList();
@@ -373,9 +429,9 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
         if (day < 0 || day > 6) continue;
         _schedule[day] = _DaySchedule(
           dayOfWeek: day,
-          isActive:  row['is_active'] == true,
+          isActive: row['is_active'] == true,
           startTime: _parseTime(row['start_time']?.toString() ?? '08:00'),
-          endTime:   _parseTime(row['end_time']?.toString() ?? '17:00'),
+          endTime: _parseTime(row['end_time']?.toString() ?? '17:00'),
           lateTolerance: _asInt(row['late_tolerance_minutes'], defaultVal: 15),
         );
       }
@@ -395,15 +451,17 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
     }
     setState(() => _saving = true);
     try {
-      final rows = _schedule.values.map((s) => {
-        'user_id':               _selectedUserId,
-        'day_of_week':           s.dayOfWeek,
-        'start_time':            _formatTime(s.startTime),
-        'end_time':              _formatTime(s.endTime),
-        'late_tolerance_minutes': s.lateTolerance,
-        'timezone':              'Asia/Jakarta',
-        'is_active':             s.isActive,
-      }).toList();
+      final rows = _schedule.values
+          .map((s) => {
+                'user_id': _selectedUserId,
+                'day_of_week': s.dayOfWeek,
+                'start_time': _formatTime(s.startTime),
+                'end_time': _formatTime(s.endTime),
+                'late_tolerance_minutes': s.lateTolerance,
+                'timezone': 'Asia/Jakarta',
+                'is_active': s.isActive,
+              })
+          .toList();
 
       await _client.rpc(
         'user_work_schedule_upsert_bulk',
@@ -438,12 +496,14 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
       }
     }
     setState(() {});
-    AppUi.showSnack('Jadwal diaplikasikan ke ${days.map((d) => _dayNames[d]).join(", ")}.');
+    AppUi.showSnack(
+        'Jadwal diaplikasikan ke ${days.map((d) => _dayNames[d]).join(", ")}.');
   }
 
   Future<void> _pickTime(int day, bool isStart) async {
-    final current = isStart ? _schedule[day]!.startTime : _schedule[day]!.endTime;
-    final picked  = await showTimePicker(context: context, initialTime: current);
+    final current =
+        isStart ? _schedule[day]!.startTime : _schedule[day]!.endTime;
+    final picked = await showTimePicker(context: context, initialTime: current);
     if (!mounted || picked == null) return;
     setState(() {
       if (isStart) {
@@ -458,13 +518,13 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
     final parts = raw.split(':');
     if (parts.length < 2) return const TimeOfDay(hour: 8, minute: 0);
     return TimeOfDay(
-      hour:   int.tryParse(parts[0]) ?? 8,
+      hour: int.tryParse(parts[0]) ?? 8,
       minute: int.tryParse(parts[1]) ?? 0,
     );
   }
 
   static String _formatTime(TimeOfDay t) =>
-      '${t.hour.toString().padLeft(2,'0')}:${t.minute.toString().padLeft(2,'0')}';
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
   static int _asInt(dynamic v, {int defaultVal = 0}) =>
       int.tryParse(v?.toString() ?? '') ?? defaultVal;
@@ -478,22 +538,29 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
         children: [
           // Info banner
           NiceCard(
-            borderColor: Theme.of(context).colorScheme.primary.withOpacity(0.25),
+            borderColor:
+                Theme.of(context).colorScheme.primary.withOpacity(0.25),
             child: Row(
               children: [
                 Container(
-                  width: 36, height: 36,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(10),
-                    color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                    color:
+                        Theme.of(context).colorScheme.primary.withOpacity(0.12),
                   ),
-                  child: Icon(Icons.info_outline_rounded, color: Theme.of(context).colorScheme.primary, size: 20),
+                  child: Icon(Icons.info_outline_rounded,
+                      color: Theme.of(context).colorScheme.primary, size: 20),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     'Pengaturan ini menentukan jam kerja per user yang dipakai sistem absensi ke depan. Timezone default Asia/Jakarta (WIB).',
-                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline, height: 1.4),
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.outline,
+                        height: 1.4),
                   ),
                 ),
               ],
@@ -513,30 +580,45 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                 children: [
                   Text(
                     'Pilih User',
-                    style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.outline, fontSize: 12, letterSpacing: 0.4),
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(context).colorScheme.outline,
+                        fontSize: 12,
+                        letterSpacing: 0.4),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: _selectedUserId,
                       isExpanded: true,
-                      hint: Text('Pilih user untuk edit jadwal…', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+                      hint: Text('Pilih user untuk edit jadwal…',
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.outline)),
                       dropdownColor: Theme.of(context).cardColor,
                       iconEnabledColor: Theme.of(context).colorScheme.outline,
                       items: _users.map((user) {
-                        final uid   = user['user_id']?.toString() ?? '';
-                        final nama  = user['nama']?.toString() ?? user['email']?.toString() ?? uid;
-                        final role  = user['role_id']?.toString() ?? '-';
+                        final uid = user['user_id']?.toString() ?? '';
+                        final nama = user['nama']?.toString() ??
+                            user['email']?.toString() ??
+                            uid;
+                        final role = user['role_id']?.toString() ?? '-';
                         return DropdownMenuItem<String>(
                           value: uid,
-                          child: Text('$nama  ($role)', overflow: TextOverflow.ellipsis, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 14)),
+                          child: Text('$nama  ($role)',
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface,
+                                  fontSize: 14)),
                         );
                       }).toList(),
                       onChanged: (uid) {
                         if (uid == null) return;
-                        final user = _users.firstWhere((u) => u['user_id']?.toString() == uid, orElse: () => {});
+                        final user = _users.firstWhere(
+                            (u) => u['user_id']?.toString() == uid,
+                            orElse: () => {});
                         setState(() {
-                          _selectedUserId   = uid;
+                          _selectedUserId = uid;
                           _selectedUserName = user['nama']?.toString() ?? uid;
                         });
                         _loadSchedule(uid);
@@ -546,23 +628,29 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                 ],
               ),
             ),
-
             const SizedBox(height: 12),
-
             if (_selectedUserId != null) ...[
               // Bulk apply buttons
               NiceCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Terapkan cepat', style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.outline, fontSize: 12)),
+                    Text('Terapkan cepat',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Theme.of(context).colorScheme.outline,
+                            fontSize: 12)),
                     const SizedBox(height: 8),
                     Wrap(
-                      spacing: 8, runSpacing: 8,
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        _bulkBtn('Senin–Jumat', () => _bulkApply([1, 2, 3, 4, 5])),
-                        _bulkBtn('Senin–Sabtu',  () => _bulkApply([1, 2, 3, 4, 5, 6])),
-                        _bulkBtn('Senin–Minggu', () => _bulkApply([0, 1, 2, 3, 4, 5, 6])),
+                        _bulkBtn(
+                            'Senin–Jumat', () => _bulkApply([1, 2, 3, 4, 5])),
+                        _bulkBtn('Senin–Sabtu',
+                            () => _bulkApply([1, 2, 3, 4, 5, 6])),
+                        _bulkBtn('Senin–Minggu',
+                            () => _bulkApply([0, 1, 2, 3, 4, 5, 6])),
                       ],
                     ),
                   ],
@@ -583,9 +671,16 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                 FilledButton.icon(
                   onPressed: _saving ? null : _save,
                   icon: _saving
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Theme.of(context).colorScheme.onPrimary))
                       : Icon(Icons.save_rounded),
-                  label: Text(_saving ? 'Menyimpan…' : 'Simpan Jadwal $_selectedUserName'),
+                  label: Text(_saving
+                      ? 'Menyimpan…'
+                      : 'Simpan Jadwal $_selectedUserName'),
                 ),
               ],
             ],
@@ -608,14 +703,18 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
   }
 
   Widget _dayCard(int day) {
-    final sched  = _schedule[day]!;
+    final sched = _schedule[day]!;
     final active = sched.isActive;
-    final color  = active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurfaceVariant;
+    final color = active
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.onSurfaceVariant;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: NiceCard(
-        borderColor: active ? Theme.of(context).colorScheme.primary.withOpacity(0.25) : null,
+        borderColor: active
+            ? Theme.of(context).colorScheme.primary.withOpacity(0.25)
+            : null,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -627,7 +726,9 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                     _dayNames[day],
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
-                      color: active ? Theme.of(context).colorScheme.onSurface : Theme.of(context).colorScheme.outline,
+                      color: active
+                          ? Theme.of(context).colorScheme.onSurface
+                          : Theme.of(context).colorScheme.outline,
                       fontSize: 14,
                     ),
                   ),
@@ -635,7 +736,8 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                 Switch(
                   value: active,
                   activeColor: Theme.of(context).colorScheme.primary,
-                  onChanged: (v) => setState(() => _schedule[day] = sched.copyWith(isActive: v)),
+                  onChanged: (v) => setState(
+                      () => _schedule[day] = sched.copyWith(isActive: v)),
                 ),
               ],
             ),
@@ -643,28 +745,43 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
               const Divider(height: 12),
               Row(
                 children: [
-                  Expanded(child: _timeButton('Mulai', sched.startTime, color, () => _pickTime(day, true))),
+                  Expanded(
+                      child: _timeButton('Mulai', sched.startTime, color,
+                          () => _pickTime(day, true))),
                   const SizedBox(width: 8),
-                  Expanded(child: _timeButton('Selesai', sched.endTime, color, () => _pickTime(day, false))),
+                  Expanded(
+                      child: _timeButton('Selesai', sched.endTime, color,
+                          () => _pickTime(day, false))),
                 ],
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Text('Toleransi telat:', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline)),
+                  Text('Toleransi telat:',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.outline)),
                   const Spacer(),
                   IconButton(
-                    onPressed: sched.lateTolerance <= 0 ? null : () => setState(() => _schedule[day] = sched.copyWith(lateTolerance: sched.lateTolerance - 5)),
+                    onPressed: sched.lateTolerance <= 0
+                        ? null
+                        : () => setState(() => _schedule[day] = sched.copyWith(
+                            lateTolerance: sched.lateTolerance - 5)),
                     icon: Icon(Icons.remove_circle_outline, size: 20),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                   ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text('${sched.lateTolerance} menit', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurface, fontSize: 13)),
+                    child: Text('${sched.lateTolerance} menit',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: 13)),
                   ),
                   IconButton(
-                    onPressed: () => setState(() => _schedule[day] = sched.copyWith(lateTolerance: sched.lateTolerance + 5)),
+                    onPressed: () => setState(() => _schedule[day] =
+                        sched.copyWith(lateTolerance: sched.lateTolerance + 5)),
                     icon: Icon(Icons.add_circle_outline, size: 20),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
@@ -678,7 +795,8 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
     );
   }
 
-  Widget _timeButton(String label, TimeOfDay time, Color color, VoidCallback onTap) {
+  Widget _timeButton(
+      String label, TimeOfDay time, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
@@ -687,16 +805,21 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           color: color.withOpacity(0.08),
-          border: Border.all(color: color.withOpacity(0.25)),
+          border: Border.all(color: color.withOpacity(0.20), width: 0.8),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: 10, color: color.withOpacity(0.8), fontWeight: FontWeight.w600)),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 10,
+                    color: color.withOpacity(0.8),
+                    fontWeight: FontWeight.w600)),
             const SizedBox(height: 2),
             Text(
               _formatTime(time),
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color),
+              style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w800, color: color),
             ),
           ],
         ),
@@ -723,12 +846,16 @@ class _DaySchedule {
     required this.lateTolerance,
   });
 
-  _DaySchedule copyWith({bool? isActive, TimeOfDay? startTime, TimeOfDay? endTime, int? lateTolerance}) {
+  _DaySchedule copyWith(
+      {bool? isActive,
+      TimeOfDay? startTime,
+      TimeOfDay? endTime,
+      int? lateTolerance}) {
     return _DaySchedule(
       dayOfWeek: dayOfWeek,
-      isActive:  isActive  ?? this.isActive,
+      isActive: isActive ?? this.isActive,
       startTime: startTime ?? this.startTime,
-      endTime:   endTime   ?? this.endTime,
+      endTime: endTime ?? this.endTime,
       lateTolerance: lateTolerance ?? this.lateTolerance,
     );
   }
@@ -747,19 +874,19 @@ class WorkLocationFormPage extends StatefulWidget {
 }
 
 class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
-  final _formKey    = GlobalKey<FormState>();
+  final _formKey = GlobalKey<FormState>();
   final _repository = MasterDataRepository();
 
-  final _namaCtrl      = TextEditingController();
-  final _latCtrl       = TextEditingController();
-  final _lngCtrl       = TextEditingController();
-  final _radiusCtrl    = TextEditingController(text: '100');
-  final _alamatCtrl    = TextEditingController();
-  final _catatanCtrl   = TextEditingController();
+  final _namaCtrl = TextEditingController();
+  final _latCtrl = TextEditingController();
+  final _lngCtrl = TextEditingController();
+  final _radiusCtrl = TextEditingController(text: '100');
+  final _alamatCtrl = TextEditingController();
+  final _catatanCtrl = TextEditingController();
 
-  bool _isSaving         = false;
+  bool _isSaving = false;
   bool _isDemoSuperAdmin = false;
-  String _status         = 'active';
+  String _status = 'active';
 
   bool get _isEdit => widget.location != null;
 
@@ -769,13 +896,13 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
     _loadDemoRole();
     final loc = widget.location;
     if (loc != null) {
-      _namaCtrl.text    = loc.namaLokasi;
-      _latCtrl.text     = loc.latitude.toString();
-      _lngCtrl.text     = loc.longitude.toString();
-      _radiusCtrl.text  = loc.radiusMeter.toString();
-      _alamatCtrl.text  = loc.alamat ?? '';
+      _namaCtrl.text = loc.namaLokasi;
+      _latCtrl.text = loc.latitude.toString();
+      _lngCtrl.text = loc.longitude.toString();
+      _radiusCtrl.text = loc.radiusMeter.toString();
+      _alamatCtrl.text = loc.alamat ?? '';
       _catatanCtrl.text = loc.catatan ?? '';
-      _status           = loc.status == 'inactive' ? 'inactive' : 'active';
+      _status = loc.status == 'inactive' ? 'inactive' : 'active';
     }
   }
 
@@ -788,9 +915,10 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
           .select('role_id, is_demo_account, username, email')
           .eq('user_id', uid)
           .maybeSingle();
-      final role     = profile?['role_id']?.toString().toLowerCase().trim() ?? '';
-      final username = profile?['username']?.toString().toLowerCase().trim() ?? '';
-      final email    = profile?['email']?.toString().toLowerCase().trim() ?? '';
+      final role = profile?['role_id']?.toString().toLowerCase().trim() ?? '';
+      final username =
+          profile?['username']?.toString().toLowerCase().trim() ?? '';
+      final email = profile?['email']?.toString().toLowerCase().trim() ?? '';
       if (!mounted) return;
       setState(() {
         _isDemoSuperAdmin = role == 'demo_super_admin' ||
@@ -803,14 +931,20 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
 
   @override
   void dispose() {
-    _namaCtrl.dispose(); _latCtrl.dispose(); _lngCtrl.dispose();
-    _radiusCtrl.dispose(); _alamatCtrl.dispose(); _catatanCtrl.dispose();
+    _namaCtrl.dispose();
+    _latCtrl.dispose();
+    _lngCtrl.dispose();
+    _radiusCtrl.dispose();
+    _alamatCtrl.dispose();
+    _catatanCtrl.dispose();
     super.dispose();
   }
 
-  String? _required(String? v) => (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null;
+  String? _required(String? v) =>
+      (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null;
 
-  double? _parseDouble(String v) => double.tryParse(v.trim().replaceAll(',', '.'));
+  double? _parseDouble(String v) =>
+      double.tryParse(v.trim().replaceAll(',', '.'));
 
   String? _nullable(TextEditingController ctrl) {
     final v = ctrl.text.trim();
@@ -820,8 +954,8 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
-    final lat    = _parseDouble(_latCtrl.text);
-    final lng    = _parseDouble(_lngCtrl.text);
+    final lat = _parseDouble(_latCtrl.text);
+    final lng = _parseDouble(_lngCtrl.text);
     final radius = _parseDouble(_radiusCtrl.text);
     if (lat == null || lng == null || radius == null) {
       AppUi.showSnack('Latitude, longitude, dan radius harus angka.');
@@ -835,14 +969,14 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
     var success = false;
     try {
       await _repository.upsertWorkLocation(
-        locationId:   widget.location?.locationId,
-        namaLokasi:   _namaCtrl.text.trim(),
-        latitude:     lat,
-        longitude:    lng,
-        radiusMeter:  radius,
-        alamat:       _nullable(_alamatCtrl),
-        catatan:      _nullable(_catatanCtrl),
-        status:       _status,
+        locationId: widget.location?.locationId,
+        namaLokasi: _namaCtrl.text.trim(),
+        latitude: lat,
+        longitude: lng,
+        radiusMeter: radius,
+        alamat: _nullable(_alamatCtrl),
+        catatan: _nullable(_catatanCtrl),
+        status: _status,
       );
       if (!mounted) return;
       success = true;
@@ -859,16 +993,21 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit Lokasi Kerja' : 'Tambah Lokasi Kerja')),
+      appBar: AppBar(
+          title: Text(_isEdit ? 'Edit Lokasi Kerja' : 'Tambah Lokasi Kerja')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             NiceCard(
-              borderColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+              borderColor:
+                  Theme.of(context).colorScheme.primary.withOpacity(0.2),
               child: Text(
                 'Isi latitude, longitude, dan radius untuk validasi absensi GPS. Koordinat bisa diambil dari Google Maps.',
-                style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.outline, height: 1.5),
+                style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.outline,
+                    height: 1.5),
               ),
             ),
             const SizedBox(height: 12),
@@ -877,41 +1016,72 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
                 key: _formKey,
                 child: Column(
                   children: [
-                    TextFormField(controller: _namaCtrl, validator: _required,
-                      decoration: const InputDecoration(labelText: 'Nama Lokasi', hintText: 'Contoh: Gudang Utama')),
+                    TextFormField(
+                        controller: _namaCtrl,
+                        validator: _required,
+                        decoration: const InputDecoration(
+                            labelText: 'Nama Lokasi',
+                            hintText: 'Contoh: Gudang Utama')),
                     const SizedBox(height: 12),
-                    TextFormField(controller: _latCtrl, validator: _required,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                      decoration: const InputDecoration(labelText: 'Latitude', hintText: 'Contoh: -6.200000')),
+                    TextFormField(
+                        controller: _latCtrl,
+                        validator: _required,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true, signed: true),
+                        decoration: const InputDecoration(
+                            labelText: 'Latitude',
+                            hintText: 'Contoh: -6.200000')),
                     const SizedBox(height: 12),
-                    TextFormField(controller: _lngCtrl, validator: _required,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                      decoration: const InputDecoration(labelText: 'Longitude', hintText: 'Contoh: 106.816666')),
+                    TextFormField(
+                        controller: _lngCtrl,
+                        validator: _required,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true, signed: true),
+                        decoration: const InputDecoration(
+                            labelText: 'Longitude',
+                            hintText: 'Contoh: 106.816666')),
                     const SizedBox(height: 12),
-                    TextFormField(controller: _radiusCtrl, validator: _required,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(labelText: 'Radius Meter', hintText: 'Contoh: 100')),
+                    TextFormField(
+                        controller: _radiusCtrl,
+                        validator: _required,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: const InputDecoration(
+                            labelText: 'Radius Meter',
+                            hintText: 'Contoh: 100')),
                     const SizedBox(height: 12),
-                    TextFormField(controller: _alamatCtrl, maxLines: 3,
-                      decoration: const InputDecoration(labelText: 'Alamat')),
+                    TextFormField(
+                        controller: _alamatCtrl,
+                        maxLines: 3,
+                        decoration: const InputDecoration(labelText: 'Alamat')),
                     const SizedBox(height: 12),
-                    TextFormField(controller: _catatanCtrl, maxLines: 3,
-                      decoration: const InputDecoration(labelText: 'Catatan')),
+                    TextFormField(
+                        controller: _catatanCtrl,
+                        maxLines: 3,
+                        decoration:
+                            const InputDecoration(labelText: 'Catatan')),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: _status,
                       decoration: const InputDecoration(labelText: 'Status'),
                       items: const [
-                        DropdownMenuItem(value: 'active',   child: Text('Aktif')),
-                        DropdownMenuItem(value: 'inactive', child: Text('Nonaktif')),
+                        DropdownMenuItem(value: 'active', child: Text('Aktif')),
+                        DropdownMenuItem(
+                            value: 'inactive', child: Text('Nonaktif')),
                       ],
-                      onChanged: (v) { if (v != null) setState(() => _status = v); },
+                      onChanged: (v) {
+                        if (v != null) setState(() => _status = v);
+                      },
                     ),
                     const SizedBox(height: 20),
                     FilledButton.icon(
-                      onPressed: (_isSaving || _isDemoSuperAdmin) ? null : _save,
+                      onPressed:
+                          (_isSaving || _isDemoSuperAdmin) ? null : _save,
                       icon: _isSaving
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2))
                           : Icon(Icons.save_rounded),
                       label: Text(_isSaving ? 'Menyimpan…' : 'Simpan'),
                     ),

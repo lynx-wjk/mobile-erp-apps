@@ -46,19 +46,22 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
     });
 
     try {
-      var query = _client
-          .from('stock_transactions')
-          .select('stock_transaction_id, transaction_id, product_id, kode_sku, kode_barcode, nama_barang, transaction_type, jenis_transaksi, qty, sumber_tujuan, nomor_resi, catatan, user_name, user_email, role_id, created_at');
+      var query = _client.from('stock_transactions').select(
+          'stock_transaction_id, transaction_id, product_id, kode_sku, kode_barcode, nama_barang, transaction_type, jenis_transaksi, qty, sumber_tujuan, nomor_resi, catatan, user_name, user_email, role_id, created_at');
 
       if (_selectedDate != null) {
-        final start = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day);
+        final start = DateTime(
+            _selectedDate!.year, _selectedDate!.month, _selectedDate!.day);
         final end = start.add(const Duration(days: 1));
-        query = query.gte('created_at', start.toIso8601String()).lt('created_at', end.toIso8601String());
+        query = query
+            .gte('created_at', start.toIso8601String())
+            .lt('created_at', end.toIso8601String());
       }
 
       final data = await query.order('created_at', ascending: false).limit(500);
 
-      final items = (data as List).map((e) => Map<String, dynamic>.from(e)).toList();
+      final items =
+          (data as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
       if (!mounted) return;
 
@@ -83,8 +86,9 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
     final result = _items.where((item) {
       final transactionType = _transactionType(item);
       final matchesType = _type == 'ALL' || transactionType == _type;
-      final matchesKeyword =
-          AppUi.text(item['nama_barang']).toLowerCase().contains(keyword) ||
+      final matchesKeyword = AppUi.text(item['nama_barang'])
+              .toLowerCase()
+              .contains(keyword) ||
           AppUi.text(item['kode_sku']).toLowerCase().contains(keyword) ||
           AppUi.text(item['kode_barcode']).toLowerCase().contains(keyword) ||
           _resiText(item).toLowerCase().contains(keyword) ||
@@ -100,7 +104,6 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
       _filtered = result;
     }
   }
-
 
   Future<void> _ensureDeletePermission() async {
     if (_permissionLoaded) return;
@@ -137,8 +140,14 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
     ].map((e) => e.trim().toUpperCase()).where((e) => e.isNotEmpty).toList();
 
     for (final value in values) {
-      if (value == 'IN' || value == 'MASUK' || value == 'STOCK_IN' || value == 'STOK_MASUK') return 'IN';
-      if (value == 'OUT' || value == 'KELUAR' || value == 'STOCK_OUT' || value == 'STOK_KELUAR') return 'OUT';
+      if (value == 'IN' ||
+          value == 'MASUK' ||
+          value == 'STOCK_IN' ||
+          value == 'STOK_MASUK') return 'IN';
+      if (value == 'OUT' ||
+          value == 'KELUAR' ||
+          value == 'STOCK_OUT' ||
+          value == 'STOK_KELUAR') return 'OUT';
     }
 
     return values.isEmpty ? '-' : values.first;
@@ -159,7 +168,8 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
   Future<void> _deleteOne(Map<String, dynamic> item) async {
     final transactionId = _stockTransactionId(item);
     if (transactionId.isEmpty) {
-      AppUi.showSnack('ID transaksi stok tidak ditemukan. Refresh halaman lalu coba lagi.');
+      AppUi.showSnack(
+          'ID transaksi stok tidak ditemukan. Refresh halaman lalu coba lagi.');
       return;
     }
 
@@ -192,7 +202,9 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
         'delete_stock_transaction_for_app',
         params: {'p_stock_transaction_id': transactionId},
       );
-      final message = response is Map ? AppUi.text(response['message'], 'Transaksi stok berhasil dihapus.') : 'Transaksi stok berhasil dihapus.';
+      final message = response is Map
+          ? AppUi.text(response['message'], 'Transaksi stok berhasil dihapus.')
+          : 'Transaksi stok berhasil dihapus.';
       AppUi.showSnack(message);
       await _loadData();
     } on PostgrestException catch (error) {
@@ -207,10 +219,15 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Hapus semua riwayat stok?'),
-        content: const Text('Gunakan hanya setelah data selesai direkap. Riwayat stok akan dihapus permanen.'),
+        content: const Text(
+            'Gunakan hanya setelah data selesai direkap. Riwayat stok akan dihapus permanen.'),
         actions: [
-          TextButton(onPressed: () => AppUi.safePop(context, false), child: const Text('Batal')),
-          FilledButton(onPressed: () => AppUi.safePop(context, true), child: const Text('Hapus Semua')),
+          TextButton(
+              onPressed: () => AppUi.safePop(context, false),
+              child: const Text('Batal')),
+          FilledButton(
+              onPressed: () => AppUi.safePop(context, true),
+              child: const Text('Hapus Semua')),
         ],
       ),
     );
@@ -231,28 +248,38 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(18),
         child: ListView(
           shrinkWrap: true,
           children: [
-            Text('Detail Riwayat Stok', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+            Text('Detail Riwayat Stok',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 12),
-            NiceCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              _detailRow('Transaksi', _transactionType(item)),
-              _detailRow('Produk', AppUi.text(item['nama_barang'])),
-              _detailRow('SKU', AppUi.text(item['kode_sku'])),
-              _detailRow('Barcode', AppUi.text(item['kode_barcode'])),
-              _detailRow('Qty', AppUi.toNum(item['qty']).toStringAsFixed(0)),
-              _detailRow('Sumber/Tujuan', AppUi.text(item['sumber_tujuan'])),
-              _detailRow('Resi', _resiText(item)),
-              _detailRow('Catatan', AppUi.text(item['catatan'])),
-              _detailRow('User', AppUi.text(item['user_name'])),
-              _detailRow('Email', AppUi.text(item['user_email'])),
-              _detailRow('Role', AppUi.text(item['role_id'])),
-              _detailRow('Waktu', AppUi.dateTime(item['created_at'])),
-            ])),
+            NiceCard(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  _detailRow('Transaksi', _transactionType(item)),
+                  _detailRow('Produk', AppUi.text(item['nama_barang'])),
+                  _detailRow('SKU', AppUi.text(item['kode_sku'])),
+                  _detailRow('Barcode', AppUi.text(item['kode_barcode'])),
+                  _detailRow(
+                      'Qty', AppUi.toNum(item['qty']).toStringAsFixed(0)),
+                  _detailRow(
+                      'Sumber/Tujuan', AppUi.text(item['sumber_tujuan'])),
+                  _detailRow('Resi', _resiText(item)),
+                  _detailRow('Catatan', AppUi.text(item['catatan'])),
+                  _detailRow('User', AppUi.text(item['user_name'])),
+                  _detailRow('Email', AppUi.text(item['user_email'])),
+                  _detailRow('Role', AppUi.text(item['role_id'])),
+                  _detailRow('Waktu', AppUi.dateTime(item['created_at'])),
+                ])),
             if (_canDelete) ...[
               const SizedBox(height: 14),
               FilledButton.icon(
@@ -274,7 +301,10 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SizedBox(width: 120, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w800))),
+        SizedBox(
+            width: 120,
+            child: Text(label,
+                style: const TextStyle(fontWeight: FontWeight.w800))),
         Expanded(child: SelectableText(value)),
       ]),
     );
@@ -302,12 +332,14 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
           FuturisticHeader(
             icon: Icons.receipt_long_outlined,
             title: 'Riwayat Stok',
-            subtitle: 'Pantau stok masuk, stok keluar, resi, user, dan catatan.',
+            subtitle:
+                'Pantau stok masuk, stok keluar, resi, user, dan catatan.',
             stats: [
               StatPill(label: 'Masuk', value: totalIn.toStringAsFixed(0)),
               StatPill(label: 'Keluar', value: totalOut.toStringAsFixed(0)),
               StatPill(label: 'Data', value: _items.length.toString()),
-              if (_selectedDate != null) StatPill(label: 'Tanggal', value: AppUi.date(_selectedDate)),
+              if (_selectedDate != null)
+                StatPill(label: 'Tanggal', value: AppUi.date(_selectedDate)),
             ],
           ),
           const SizedBox(height: 14),
@@ -318,8 +350,20 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
           ),
           const SizedBox(height: 10),
           Wrap(spacing: 10, runSpacing: 10, children: [
-            OutlinedButton.icon(onPressed: _pickDate, icon: const Icon(Icons.date_range), label: Text(_selectedDate == null ? 'Filter Tanggal' : AppUi.date(_selectedDate))),
-            if (_selectedDate != null) OutlinedButton.icon(onPressed: () { setState(() => _selectedDate = null); _loadData(); }, icon: const Icon(Icons.clear), label: const Text('Reset')),
+            OutlinedButton.icon(
+                onPressed: _pickDate,
+                icon: const Icon(Icons.date_range),
+                label: Text(_selectedDate == null
+                    ? 'Filter Tanggal'
+                    : AppUi.date(_selectedDate))),
+            if (_selectedDate != null)
+              OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() => _selectedDate = null);
+                    _loadData();
+                  },
+                  icon: const Icon(Icons.clear),
+                  label: const Text('Reset')),
           ]),
           const SizedBox(height: 10),
           SegmentedButton<String>(
@@ -352,11 +396,13 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
                   contentPadding: const EdgeInsets.all(14),
                   leading: CircleAvatar(
                     backgroundColor: color.withOpacity(0.13),
-                    child: Icon(type == 'IN' ? Icons.south_west : Icons.north_east, color: color),
+                    child: Icon(
+                        type == 'IN' ? Icons.south_west : Icons.north_east,
+                        color: color),
                   ),
                   title: Text(
                     '${type == 'IN' ? '+' : '-'}${AppUi.toNum(item['qty']).toStringAsFixed(0)} • ${AppUi.text(item['nama_barang'])}',
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                   subtitle: Text(
                     'SKU: ${AppUi.text(item['kode_sku'])} • Barcode: ${AppUi.text(item['kode_barcode'])}\n'

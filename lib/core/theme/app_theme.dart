@@ -1,143 +1,156 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
-  static const Color primaryColor = Color(0xFF2563EB);
-  static const Color accentColor = Color(0xFF14B8A6);
-  static const Color successColor = Color(0xFF16A34A);
-  static const Color warningColor = Color(0xFFF59E0B);
-  static const Color dangerColor = Color(0xFFDC2626);
+  static const Color primaryColor = Color(0xFF2563EB); // Royal Blue
+  static const Color accentColor =
+      Color(0xFF0D9488); // Teal 600 - High Contrast
+  static const Color successColor = Color(0xFF16A34A); // Green 600
+  static const Color warningColor =
+      Color(0xFFD97706); // Amber 600 - Rich Contrast
+  static const Color dangerColor = Color(0xFFDC2626); // Red 600
   static const Color pinkColor = Color(0xFFDB2777);
   static const Color orangeColor = Color(0xFFEA580C);
   static const Color indigoColor = Color(0xFF4F46E5);
 
-  static const Color bgDeep = Color(0xFFF4F7FB);
+  static const Color bgDeep =
+      Color(0xFFF1F5F9); // Slate 100 for premium contrast vs white cards
   static const Color bgSurface = Color(0xFFFFFFFF);
   static const Color bgCard = Color(0xFFFFFFFF);
-  static const Color bgCardBorder = Color(0xFFD7DEE8);
-  static const Color bgElevated = Color(0xFFE9EEF5);
+  static const Color bgCardBorder = Color(0xFFE2E8F0); // Slate 200 - Soft Line
+  static const Color bgElevated = Color(0xFFF1F5F9); // Slate 100
 
-  static const Color textPrimary = Color(0xFF0F172A);
-  static const Color textSecondary = Color(0xFF334155);
-  static const Color textMuted = Color(0xFF64748B);
+  static const Color textPrimary = Color(0xFF0F172A); // Slate 900
+  static const Color textSecondary = Color(0xFF334155); // Slate 700
+  static const Color textMuted =
+      Color(0xFF475569); // Slate 600 - Passes Contrast
 
-  static const Color _darkBg = Color(0xFF0B1120);
-  static const Color _darkSurface = Color(0xFF111827);
-  static const Color _darkCard = Color(0xFF182235);
-  static const Color _darkBorder = Color(0xFF334155);
-  static const Color _darkText = Color(0xFFE5E7EB);
-  static const Color _darkMuted = Color(0xFF94A3B8);
+  static const Color _darkBg = Color(0xFF0B1329); // Premium Dark Navy
+  static const Color _darkSurface = Color(0xFF161F30); // Deep Slate
+  static const Color _darkCard = Color(0xFF161F30);
+  static const Color _darkBorder = Color(0xFF1E293B); // Slate 800
+  static const Color _darkText = Color(0xFFF8FAFC); // Slate 50
+  static const Color _darkMuted = Color(0xFF94A3B8); // Slate 400
 
   static BorderRadius get radiusSm => BorderRadius.circular(8);
-  static BorderRadius get radiusMd => BorderRadius.circular(12);
-  static BorderRadius get radiusLg => BorderRadius.circular(16);
+  static BorderRadius get radiusMd => BorderRadius.circular(16);
+  static BorderRadius get radiusLg => BorderRadius.circular(24);
 
   static List<BoxShadow> softShadow(Brightness brightness) {
     final dark = brightness == Brightness.dark;
     return [
       BoxShadow(
-        color: (dark ? Colors.black : const Color(0xFF64748B))
-            .withOpacity(dark ? 0.28 : 0.10),
-        blurRadius: dark ? 24 : 22,
-        spreadRadius: -10,
-        offset: const Offset(0, 14),
+        color: dark
+            ? const Color(0xFF020617).withOpacity(0.4)
+            : const Color(0xFF0F172A).withOpacity(0.04),
+        blurRadius: dark ? 16 : 12,
+        spreadRadius: dark ? -2 : 0,
+        offset: const Offset(0, 4),
       ),
+      if (!dark)
+        BoxShadow(
+          color: const Color(0xFF0F172A).withOpacity(0.02),
+          blurRadius: 4,
+          spreadRadius: 0,
+          offset: const Offset(0, 1),
+        ),
     ];
   }
 
   static TextTheme _textTheme(TextTheme base, Color color) {
-    return base
+    final googleTextTheme = GoogleFonts.plusJakartaSansTextTheme(base);
+    return googleTextTheme
         .apply(
           bodyColor: color,
           displayColor: color,
-          fontFamily: 'Segoe UI',
         )
         .copyWith(
-          displayLarge: base.displayLarge?.copyWith(
+          displayLarge: googleTextTheme.displayLarge?.copyWith(
             fontSize: 34,
             fontWeight: FontWeight.w800,
             height: 1.08,
-            letterSpacing: 0,
+            letterSpacing: -0.5,
           ),
-          displayMedium: base.displayMedium?.copyWith(
+          displayMedium: googleTextTheme.displayMedium?.copyWith(
             fontSize: 30,
             fontWeight: FontWeight.w800,
             height: 1.1,
-            letterSpacing: 0,
+            letterSpacing: -0.5,
           ),
-          displaySmall: base.displaySmall?.copyWith(
+          displaySmall: googleTextTheme.displaySmall?.copyWith(
             fontSize: 26,
             fontWeight: FontWeight.w800,
             height: 1.12,
-            letterSpacing: 0,
+            letterSpacing: -0.5,
           ),
-          headlineLarge: base.headlineLarge?.copyWith(
+          headlineLarge: googleTextTheme.headlineLarge?.copyWith(
             fontSize: 24,
             fontWeight: FontWeight.w700,
             height: 1.14,
-            letterSpacing: 0,
+            letterSpacing: -0.3,
           ),
-          headlineMedium: base.headlineMedium?.copyWith(
+          headlineMedium: googleTextTheme.headlineMedium?.copyWith(
             fontSize: 22,
             fontWeight: FontWeight.w700,
             height: 1.16,
-            letterSpacing: 0,
+            letterSpacing: -0.3,
           ),
-          headlineSmall: base.headlineSmall?.copyWith(
+          headlineSmall: googleTextTheme.headlineSmall?.copyWith(
             fontSize: 20,
             fontWeight: FontWeight.w700,
             height: 1.18,
-            letterSpacing: 0,
+            letterSpacing: -0.2,
           ),
-          titleLarge: base.titleLarge?.copyWith(
+          titleLarge: googleTextTheme.titleLarge?.copyWith(
             fontSize: 18,
             fontWeight: FontWeight.w700,
             height: 1.22,
-            letterSpacing: 0,
+            letterSpacing: -0.1,
           ),
-          titleMedium: base.titleMedium?.copyWith(
-            fontSize: 15,
+          titleMedium: googleTextTheme.titleMedium?.copyWith(
+            fontSize: 15.5,
             fontWeight: FontWeight.w600,
             height: 1.25,
             letterSpacing: 0,
           ),
-          titleSmall: base.titleSmall?.copyWith(
-            fontSize: 13,
+          titleSmall: googleTextTheme.titleSmall?.copyWith(
+            fontSize: 14,
             fontWeight: FontWeight.w600,
             height: 1.24,
             letterSpacing: 0,
           ),
-          bodyLarge: base.bodyLarge?.copyWith(
-            fontSize: 14.5,
+          bodyLarge: googleTextTheme.bodyLarge?.copyWith(
+            fontSize: 15,
             fontWeight: FontWeight.w400,
             height: 1.42,
             letterSpacing: 0,
           ),
-          bodyMedium: base.bodyMedium?.copyWith(
+          bodyMedium: googleTextTheme.bodyMedium?.copyWith(
             fontSize: 13.5,
             fontWeight: FontWeight.w400,
             height: 1.38,
             letterSpacing: 0,
           ),
-          bodySmall: base.bodySmall?.copyWith(
-            fontSize: 12,
+          bodySmall: googleTextTheme.bodySmall?.copyWith(
+            fontSize: 12.5,
             fontWeight: FontWeight.w400,
             height: 1.34,
             letterSpacing: 0,
           ),
-          labelLarge: base.labelLarge?.copyWith(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0,
-          ),
-          labelMedium: base.labelMedium?.copyWith(
-            fontSize: 12,
+          labelLarge: googleTextTheme.labelLarge?.copyWith(
+            fontSize: 14,
             fontWeight: FontWeight.w600,
-            letterSpacing: 0,
+            letterSpacing: 0.1,
           ),
-          labelSmall: base.labelSmall?.copyWith(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0,
+          labelMedium: googleTextTheme.labelMedium?.copyWith(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.1,
+          ),
+          labelSmall: googleTextTheme.labelSmall?.copyWith(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.1,
           ),
         );
   }
@@ -189,7 +202,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: radiusMd,
-          side: const BorderSide(color: bgCardBorder),
+          side: const BorderSide(color: bgCardBorder, width: 0.8),
         ),
       ),
       popupMenuTheme: PopupMenuThemeData(
@@ -294,8 +307,8 @@ class AppTheme {
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
-        side: const BorderSide(color: bgCardBorder),
-        shape: RoundedRectangleBorder(borderRadius: radiusSm),
+        side: const BorderSide(color: bgCardBorder, width: 0.8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       ),
       dividerTheme: const DividerThemeData(
@@ -361,7 +374,7 @@ class AppTheme {
           fontWeight: FontWeight.w700,
         ),
         dataTextStyle: const TextStyle(color: textPrimary),
-        dividerThickness: 1,
+        dividerThickness: 0.6,
       ),
       switchTheme: SwitchThemeData(
         thumbColor: MaterialStateProperty.resolveWith(
@@ -425,7 +438,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: radiusMd,
-          side: const BorderSide(color: _darkBorder),
+          side: const BorderSide(color: _darkBorder, width: 0.8),
         ),
       ),
       popupMenuTheme: PopupMenuThemeData(
@@ -530,8 +543,8 @@ class AppTheme {
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
-        side: const BorderSide(color: _darkBorder),
-        shape: RoundedRectangleBorder(borderRadius: radiusSm),
+        side: const BorderSide(color: _darkBorder, width: 0.8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       ),
       dividerTheme: const DividerThemeData(

@@ -1058,10 +1058,14 @@ class _DashboardPageState extends State<DashboardPage> {
         margin: const EdgeInsets.fromLTRB(14, 14, 0, 14),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(22),
           color: Theme.of(context).cardColor,
-          border:
-              Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                  Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.48,
+                ),
+            width: 0.8,
+          ),
           boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
         ),
         child: Column(
@@ -1098,7 +1102,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
                       fontWeight: FontWeight.w800,
-                      fontSize: 16,
+                      fontSize: 17,
                     ),
                   ),
                 ),
@@ -1116,9 +1120,10 @@ class _DashboardPageState extends State<DashboardPage> {
             Text(
               'Menu',
               style: TextStyle(
-                color: Theme.of(context).colorScheme.outline,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
+                color:
+                    Theme.of(context).colorScheme.onSurface.withOpacity(0.62),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
                 letterSpacing: 0,
               ),
             ),
@@ -1150,16 +1155,9 @@ class _DashboardPageState extends State<DashboardPage> {
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
-    final accent = AppUi
-        .playfulPalette[(title.hashCode.abs()) % AppUi.playfulPalette.length];
-    final selectedBg = Color.alphaBlend(
-      theme.colorScheme.primary.withOpacity(
-        theme.brightness == Brightness.dark ? 0.18 : 0.10,
-      ),
-      theme.cardColor,
-    );
+    final selectedBg = theme.colorScheme.primary.withOpacity(0.08);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(14),
@@ -1167,21 +1165,24 @@ class _DashboardPageState extends State<DashboardPage> {
           onTap: onTap,
           borderRadius: BorderRadius.circular(14),
           child: Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
-              color: selected ? selectedBg : theme.cardColor,
+              color: selected ? selectedBg : Colors.transparent,
               border: Border.all(
                 color: selected
-                    ? theme.colorScheme.primary.withOpacity(0.28)
-                    : theme.colorScheme.outlineVariant,
+                    ? theme.colorScheme.primary.withOpacity(0.18)
+                    : Colors.transparent,
+                width: 0.8,
               ),
             ),
             child: Row(
               children: [
                 Icon(
                   icon,
-                  color: selected ? theme.colorScheme.primary : accent,
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
                   size: 20,
                 ),
                 const SizedBox(width: 12),
@@ -1198,9 +1199,8 @@ class _DashboardPageState extends State<DashboardPage> {
                               ? theme.colorScheme.primary
                               : theme.colorScheme.onSurface,
                           fontWeight:
-                              selected ? FontWeight.w800 : FontWeight.w700,
-                          fontSize: 13,
-                          letterSpacing: 0,
+                              selected ? FontWeight.w700 : FontWeight.w600,
+                          fontSize: 14.5,
                         ),
                       ),
                       if (subtitle.trim().isNotEmpty)
@@ -1210,9 +1210,9 @@ class _DashboardPageState extends State<DashboardPage> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color:
-                                theme.colorScheme.onSurface.withOpacity(0.58),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                                theme.colorScheme.onSurface.withOpacity(0.62),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                     ],
@@ -1245,8 +1245,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   fontSize: 12,
                   color:
                       Theme.of(context).colorScheme.primary.withOpacity(0.85),
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.0,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
                 ),
               ),
               const SizedBox(height: 2),
@@ -1255,8 +1255,8 @@ class _DashboardPageState extends State<DashboardPage> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
                   letterSpacing: 0,
                   color: Theme.of(context).colorScheme.onSurface,
                 ),
@@ -1344,19 +1344,7 @@ class _DashboardPageState extends State<DashboardPage> {
         return Container(
           margin: const EdgeInsets.all(12),
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
-          decoration: BoxDecoration(
-            color: (Theme.of(context).cardColor),
-            borderRadius: BorderRadius.zero,
-            border:
-                Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(context).dividerColor.withOpacity(0.16),
-                blurRadius: 0,
-                offset: const Offset(4, 4),
-              ),
-            ],
-          ),
+          decoration: AppUi.modernCardDecoration(context, radius: 22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1367,13 +1355,21 @@ class _DashboardPageState extends State<DashboardPage> {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.secondary,
-                      borderRadius: BorderRadius.zero,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .secondary
+                          .withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                          color: (Theme.of(context).dividerColor), width: 1),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .secondary
+                            .withOpacity(0.22),
+                        width: 0.8,
+                      ),
                     ),
                     child: Icon(Icons.notifications_active_rounded,
-                        color: Theme.of(context).colorScheme.onSurface),
+                        color: Theme.of(context).colorScheme.secondary),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1382,7 +1378,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 18,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
@@ -1417,9 +1413,9 @@ class _DashboardPageState extends State<DashboardPage> {
                           final isRead = item.readAt != null;
                           return Material(
                             color: Colors.transparent,
-                            borderRadius: BorderRadius.zero,
+                            borderRadius: BorderRadius.circular(14),
                             child: InkWell(
-                              borderRadius: BorderRadius.zero,
+                              borderRadius: BorderRadius.circular(14),
                               onTap: () async {
                                 Navigator.pop(context);
                                 await _markNotificationRead(item);
@@ -1442,10 +1438,14 @@ class _DashboardPageState extends State<DashboardPage> {
                                         .withOpacity(isRead ? 0.20 : 0.12),
                                     (Theme.of(context).cardColor),
                                   ),
-                                  borderRadius: BorderRadius.zero,
+                                  borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
-                                      color: (Theme.of(context).dividerColor)
-                                          .withOpacity(isRead ? 0.18 : 0.42)),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outlineVariant
+                                        .withOpacity(isRead ? 0.28 : 0.48),
+                                    width: 0.8,
+                                  ),
                                 ),
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1468,7 +1468,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                               color: Theme.of(context)
                                                   .colorScheme
                                                   .onSurface,
-                                              fontWeight: FontWeight.w900,
+                                              fontWeight: FontWeight.w800,
                                             ),
                                           ),
                                           const SizedBox(height: 3),
@@ -1527,30 +1527,29 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   BoxDecoration _pixelDecoration(Color accent) {
-    final theme = Theme.of(context);
-    return BoxDecoration(
-      color: theme.cardColor,
-      borderRadius: AppTheme.radiusMd,
-      border: Border.all(color: theme.colorScheme.outlineVariant),
-      boxShadow: AppTheme.softShadow(theme.brightness),
-    );
+    return AppUi.modernCardDecoration(context, radius: 16);
   }
 
   Widget _iconBtn(IconData icon, VoidCallback onTap) {
     final theme = Theme.of(context);
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(999),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(999),
         child: Container(
           width: 42,
           height: 42,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(999),
             color: theme.cardColor,
-            border: Border.all(color: theme.colorScheme.outlineVariant),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withOpacity(
+                theme.brightness == Brightness.dark ? 0.28 : 0.48,
+              ),
+              width: 0.8,
+            ),
           ),
           child: Icon(icon, size: 20, color: theme.colorScheme.onSurface),
         ),
@@ -1562,10 +1561,12 @@ class _DashboardPageState extends State<DashboardPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(14),
         color: Theme.of(context).colorScheme.secondary.withOpacity(0.10),
         border: Border.all(
-            color: Theme.of(context).colorScheme.secondary.withOpacity(0.28)),
+          color: Theme.of(context).colorScheme.secondary.withOpacity(0.22),
+          width: 0.8,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1607,15 +1608,16 @@ class _DashboardPageState extends State<DashboardPage> {
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
             decoration: BoxDecoration(
               color: (Theme.of(context).cardColor),
-              borderRadius: BorderRadius.zero,
-              border: Border.all(color: (Theme.of(context).dividerColor)),
-              boxShadow: [
-                BoxShadow(
-                  color: Theme.of(context).dividerColor.withOpacity(0.16),
-                  blurRadius: 0,
-                  offset: const Offset(4, -4),
-                ),
-              ],
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                      Theme.of(context).brightness == Brightness.dark
+                          ? 0.28
+                          : 0.48,
+                    ),
+                width: 0.8,
+              ),
+              boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1627,7 +1629,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.zero,
+                        borderRadius: BorderRadius.circular(12),
                         color: Theme.of(context)
                             .colorScheme
                             .primary
@@ -1636,7 +1638,8 @@ class _DashboardPageState extends State<DashboardPage> {
                             color: Theme.of(context)
                                 .colorScheme
                                 .primary
-                                .withOpacity(0.24)),
+                                .withOpacity(0.18),
+                            width: 0.8),
                       ),
                       child: Icon(Icons.settings_rounded,
                           color: Theme.of(context).colorScheme.primary,
@@ -1652,15 +1655,18 @@ class _DashboardPageState extends State<DashboardPage> {
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.onSurface,
                               fontSize: 16,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             'Kelola akses, lokasi kerja, dan backup data.',
                             style: TextStyle(
-                              color: Theme.of(context).colorScheme.outline,
-                              fontSize: 12,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.66),
+                              fontSize: 12.5,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -1741,7 +1747,7 @@ class _DashboardPageState extends State<DashboardPage> {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: _pixelDecoration(color),
@@ -1751,9 +1757,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.zero,
-                  color: color.withOpacity(0.14),
-                  border: Border.all(color: color.withOpacity(0.28)),
+                  borderRadius: BorderRadius.circular(12),
+                  color: color.withOpacity(0.10),
+                  border:
+                      Border.all(color: color.withOpacity(0.20), width: 0.8),
                 ),
                 child: Icon(icon, color: color, size: 21),
               ),
@@ -1768,7 +1775,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 14,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -1777,8 +1784,11 @@ class _DashboardPageState extends State<DashboardPage> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline,
-                        fontSize: 11.5,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.64),
+                        fontSize: 12,
                         height: 1.25,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1802,18 +1812,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Container(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 3),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black,
-            blurRadius: 0,
-            offset: Offset(6, 6),
-          ),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Row(
         children: [
           // Avatar
@@ -1821,17 +1820,18 @@ class _DashboardPageState extends State<DashboardPage> {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.zero,
-              color: Theme.of(context).colorScheme.primary,
-              border: Border.all(color: Colors.black, width: 2.5),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black,
-                  offset: Offset(4, 4),
-                ),
-              ],
+              borderRadius: BorderRadius.circular(16),
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                width: 0.8,
+              ),
             ),
-            child: Icon(Icons.person_rounded, color: Colors.black, size: 30),
+            child: Icon(
+              Icons.person_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              size: 30,
+            ),
           ),
           const SizedBox(width: 14),
           // Info
@@ -1894,12 +1894,13 @@ class _DashboardPageState extends State<DashboardPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 42,
-            height: 42,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
-              color: statusColor.withOpacity(0.18),
-              border: Border.all(color: statusColor, width: 2),
-              borderRadius: BorderRadius.zero,
+              color: statusColor.withOpacity(0.12),
+              border:
+                  Border.all(color: statusColor.withOpacity(0.24), width: 0.8),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(Icons.workspace_premium_rounded,
                 color: statusColor, size: 22),
@@ -1914,7 +1915,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.outline,
                     fontSize: 10.5,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                     letterSpacing: 0.6,
                   ),
                 ),
@@ -1925,8 +1926,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1949,18 +1950,18 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _subscriptionPill(String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        border: Border.all(color: color.withOpacity(0.55), width: 1.4),
-        borderRadius: BorderRadius.zero,
+        color: color.withOpacity(0.08),
+        border: Border.all(color: color.withOpacity(0.24), width: 0.8),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
           fontSize: 10,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w800,
           letterSpacing: 0.3,
         ),
       ),
@@ -1988,10 +1989,12 @@ class _DashboardPageState extends State<DashboardPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
-        borderRadius: BorderRadius.zero,
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
         border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.28)),
+          color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
+          width: 0.8,
+        ),
       ),
       child: Text(
         label,
@@ -1999,9 +2002,9 @@ class _DashboardPageState extends State<DashboardPage> {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: Theme.of(context).colorScheme.primary,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.3,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0,
         ),
       ),
     );
@@ -2100,21 +2103,18 @@ class _DashboardPageState extends State<DashboardPage> {
               padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
               decoration: BoxDecoration(
                 color: selected
-                    ? Theme.of(context).colorScheme.primary.withOpacity(0.18)
-                    : Colors.white.withOpacity(0.045),
-                borderRadius: BorderRadius.zero,
+                    ? Theme.of(context).colorScheme.primary.withOpacity(0.12)
+                    : Theme.of(context)
+                        .colorScheme
+                        .surfaceVariant
+                        .withOpacity(0.4),
+                borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: accent,
-                  width: selected ? 2 : 1.2,
+                  color: selected
+                      ? Theme.of(context).colorScheme.primary.withOpacity(0.26)
+                      : Theme.of(context).colorScheme.outlineVariant,
+                  width: 0.8,
                 ),
-                boxShadow: selected
-                    ? const [
-                        BoxShadow(
-                          color: Colors.black,
-                          offset: Offset(2, 2),
-                        )
-                      ]
-                    : null,
               ),
               child: Text(
                 item.label,
@@ -2122,9 +2122,9 @@ class _DashboardPageState extends State<DashboardPage> {
                   color: selected
                       ? Theme.of(context).colorScheme.primary
                       : Theme.of(context).colorScheme.onSurface,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.2,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
                 ),
               ),
             ),
@@ -2166,18 +2166,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 2.5),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black,
-            blurRadius: 0,
-            offset: Offset(5, 5),
-          ),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2188,8 +2177,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   'Analytics Finance',
                   style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800),
                 ),
               ),
               _miniBadge('Omzet ${_shortRupiah(totalOmzet)}'),
@@ -2210,9 +2199,20 @@ class _DashboardPageState extends State<DashboardPage> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.zero,
-                color: Colors.white.withOpacity(0.055),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                borderRadius: AppTheme.radiusMd,
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceVariant
+                    .withOpacity(0.3),
+                border: Border.all(
+                  color:
+                      Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                            Theme.of(context).brightness == Brightness.dark
+                                ? 0.3
+                                : 0.5,
+                          ),
+                  width: 0.8,
+                ),
               ),
               child: Row(
                 children: [
@@ -2224,8 +2224,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           'Omzet hari terpilih',
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.onSurface,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -2234,7 +2234,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.primary,
                             fontSize: 24,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w800,
                             height: 1,
                           ),
                         ),
@@ -2249,8 +2249,8 @@ class _DashboardPageState extends State<DashboardPage> {
                         AppUi.date(selected.date),
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onSurface,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -2259,7 +2259,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onSurface,
                           fontSize: 13,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
@@ -2307,18 +2307,24 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _miniBadge(String text) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color:
+              theme.colorScheme.outlineVariant.withOpacity(isDark ? 0.3 : 0.5),
+          width: 0.8,
+        ),
       ),
       child: Text(text,
           style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurface,
-              fontSize: 11,
-              fontWeight: FontWeight.w800)),
+              color: theme.colorScheme.onSurface,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600)),
     );
   }
 
@@ -2349,32 +2355,33 @@ class _DashboardPageState extends State<DashboardPage> {
       itemCount: items.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        mainAxisExtent: 88,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        mainAxisExtent: 96,
       ),
       itemBuilder: (context, index) {
         final item = items[index];
+        final theme = Theme.of(context);
         return Material(
           color: Colors.transparent,
           child: InkWell(
             onTap: item.onTap,
-            borderRadius: BorderRadius.zero,
+            borderRadius: AppTheme.radiusMd,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: _pixelDecoration(item.color),
               child: Row(
                 children: [
                   Container(
-                    width: 38,
-                    height: 38,
+                    width: 42,
+                    height: 42,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.zero,
-                      color: item.color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      color: item.color.withOpacity(0.10),
                     ),
                     child: Icon(item.icon, color: item.color, size: 20),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2383,19 +2390,21 @@ class _DashboardPageState extends State<DashboardPage> {
                         Text(
                           item.value,
                           style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w900,
-                            color: item.color,
-                            height: 1,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: theme.brightness == Brightness.dark
+                                ? Colors.white
+                                : theme.colorScheme.onSurface,
+                            height: 1.1,
                           ),
                         ),
-                        const SizedBox(height: 3),
+                        const SizedBox(height: 4),
                         Text(
                           item.label,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 10.5,
+                            fontSize: 13,
                             height: 1.2,
                             color: Theme.of(context)
                                 .colorScheme
@@ -2706,14 +2715,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 2.5),
-        boxShadow: const [
-          BoxShadow(color: Colors.black, blurRadius: 0, offset: Offset(5, 5)),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2726,7 +2728,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 16,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
@@ -2798,16 +2800,17 @@ class _DashboardPageState extends State<DashboardPage> {
       padding: const EdgeInsets.only(bottom: 10),
       child: InkWell(
         onTap: item.onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(14),
         child: Row(
           children: [
             Container(
               width: 34,
               height: 34,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.zero,
+                borderRadius: BorderRadius.circular(10),
                 color: item.color.withOpacity(0.12),
-                border: Border.all(color: item.color.withOpacity(0.30)),
+                border:
+                    Border.all(color: item.color.withOpacity(0.22), width: 0.8),
               ),
               child: Icon(item.icon, color: item.color, size: 18),
             ),
@@ -2825,8 +2828,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.onSurface,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w900,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
@@ -2835,7 +2838,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         style: TextStyle(
                           color: item.color,
                           fontSize: 13,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
@@ -2846,7 +2849,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       Container(
                         height: 9,
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.zero,
+                          borderRadius: BorderRadius.circular(999),
                           color: Theme.of(context)
                               .colorScheme
                               .onSurface
@@ -2858,7 +2861,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         child: Container(
                           height: 9,
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.zero,
+                            borderRadius: BorderRadius.circular(999),
                             color: item.color,
                           ),
                         ),
@@ -2895,14 +2898,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 2.5),
-        boxShadow: const [
-          BoxShadow(color: Colors.black, blurRadius: 0, offset: Offset(5, 5)),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2915,8 +2911,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   'Trend Finance Bulan Ini',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
@@ -2939,9 +2935,9 @@ class _DashboardPageState extends State<DashboardPage> {
                             .clamp(8, 88)
                             .toDouble(),
                         decoration: BoxDecoration(
-                          color: color.withOpacity(0.82),
-                          borderRadius: BorderRadius.zero,
-                          border: Border.all(color: Colors.black, width: 1),
+                          color: color.withOpacity(0.85),
+                          borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(4)),
                         ),
                       ),
                     ),
@@ -3252,7 +3248,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       title,
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurface,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         fontSize: 15,
                       ),
                     ),
@@ -3260,7 +3256,10 @@ class _DashboardPageState extends State<DashboardPage> {
                     Text(
                       subtitle,
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.64),
                         fontWeight: FontWeight.w600,
                         fontSize: 12,
                       ),
@@ -3301,12 +3300,17 @@ class _DashboardPageState extends State<DashboardPage> {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  border: Border.all(color: Colors.black, width: 2),
-                  borderRadius: BorderRadius.zero,
+                  color:
+                      Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                  border: Border.all(
+                    color:
+                        Theme.of(context).colorScheme.primary.withOpacity(0.20),
+                    width: 0.8,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(Icons.auto_awesome_rounded,
-                    color: Theme.of(context).colorScheme.onPrimary),
+                    color: Theme.of(context).colorScheme.primary),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -3316,13 +3320,16 @@ class _DashboardPageState extends State<DashboardPage> {
                     Text(
                       'Rekomendasi Super Admin',
                       style:
-                          TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                          TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                     ),
                     SizedBox(height: 2),
                     Text(
                       'Ide fitur berikutnya untuk kontrol sistem.',
                       style: TextStyle(
-                          color: Theme.of(context).colorScheme.outline,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.64),
                           fontWeight: FontWeight.w600),
                     ),
                   ],
@@ -3356,7 +3363,7 @@ class _DashboardPageState extends State<DashboardPage> {
           height: 14,
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.zero,
+            borderRadius: BorderRadius.circular(999),
           ),
         ),
         const SizedBox(width: 8),
@@ -3364,9 +3371,9 @@ class _DashboardPageState extends State<DashboardPage> {
           text,
           style: TextStyle(
             fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: Theme.of(context).colorScheme.outline,
-            letterSpacing: 0.5,
+            fontWeight: FontWeight.w700,
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.72),
+            letterSpacing: 0,
           ),
         ),
       ],
@@ -3434,7 +3441,7 @@ class _DashboardPageState extends State<DashboardPage> {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.all(18),
           decoration: _pixelDecoration(color),
@@ -3444,9 +3451,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 width: 52,
                 height: 52,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.zero,
-                  color: color.withOpacity(0.12),
-                  border: Border.all(color: color.withOpacity(0.25)),
+                  borderRadius: BorderRadius.circular(14),
+                  color: color.withOpacity(0.10),
+                  border:
+                      Border.all(color: color.withOpacity(0.20), width: 0.8),
                 ),
                 child: Icon(icon, color: color, size: 26),
               ),
@@ -3457,10 +3465,10 @@ class _DashboardPageState extends State<DashboardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title.toUpperCase(),
+                      title,
                       style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
@@ -3496,21 +3504,22 @@ class _DashboardPageState extends State<DashboardPage> {
       color: Colors.transparent,
       child: InkWell(
         onTap: item.onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: _pixelDecoration(color),
           child: Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.zero,
-                  color: color.withOpacity(0.14),
-                  border: Border.all(color: Colors.black, width: 2),
+                  borderRadius: BorderRadius.circular(10),
+                  color: color.withOpacity(0.10),
+                  border:
+                      Border.all(color: color.withOpacity(0.18), width: 0.8),
                 ),
-                child: Icon(item.icon, color: color, size: 24),
+                child: Icon(item.icon, color: color, size: 22),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -3519,10 +3528,10 @@ class _DashboardPageState extends State<DashboardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item.title.toUpperCase(),
+                      item.title,
                       style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
                         color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
@@ -3545,15 +3554,16 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
               Container(
-                width: 30,
-                height: 30,
+                width: 28,
+                height: 28,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.zero,
-                  color: color.withOpacity(0.10),
-                  border: Border.all(color: Colors.black, width: 1.5),
+                  borderRadius: BorderRadius.circular(8),
+                  color: color.withOpacity(0.06),
+                  border:
+                      Border.all(color: color.withOpacity(0.12), width: 0.8),
                 ),
                 child:
-                    Icon(Icons.chevron_right_rounded, color: color, size: 19),
+                    Icon(Icons.chevron_right_rounded, color: color, size: 18),
               ),
             ],
           ),
@@ -3599,23 +3609,12 @@ class _DashboardPageState extends State<DashboardPage> {
                 right: 0,
                 bottom: 0,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.zero,
+                  borderRadius: BorderRadius.circular(16),
                   child: Container(
                     height: 70,
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.zero,
-                      border: Border.all(color: Colors.black, width: 2.5),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Colors.black,
-                          blurRadius: 0,
-                          offset: Offset(4, 4),
-                        ),
-                      ],
-                    ),
+                    decoration: AppUi.modernCardDecoration(context, radius: 16),
                     child: Row(
                       children: [
                         for (final item in leftItems)
@@ -3643,11 +3642,11 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _stockOutBottomButton() {
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.zero,
+      borderRadius: BorderRadius.circular(999),
       elevation: 14,
       shadowColor: Theme.of(context).colorScheme.primary.withOpacity(0.30),
       child: InkWell(
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(999),
         onTap: () => _open(const StockOutPage()),
         child: Container(
           width: 72,
@@ -3655,12 +3654,11 @@ class _DashboardPageState extends State<DashboardPage> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: Theme.of(context).colorScheme.primary,
-            border: Border.all(color: Colors.black, width: 3),
             boxShadow: [
               BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.28),
-                blurRadius: 0,
-                offset: const Offset(0, 8),
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.24),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
@@ -3692,9 +3690,10 @@ class _DashboardPageState extends State<DashboardPage> {
                     width: 34,
                     height: 30,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.zero,
-                      color: color.withOpacity(0.14),
-                      border: Border.all(color: color.withOpacity(0.20)),
+                      borderRadius: BorderRadius.circular(8),
+                      color: color.withOpacity(0.10),
+                      border: Border.all(
+                          color: color.withOpacity(0.16), width: 0.8),
                     ),
                     child: Icon(item.icon, size: 19, color: color),
                   ),
@@ -3705,8 +3704,8 @@ class _DashboardPageState extends State<DashboardPage> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
                       letterSpacing: 0,
                     ),
                   ),
@@ -3730,19 +3729,7 @@ class _DashboardPageState extends State<DashboardPage> {
         return Container(
           margin: const EdgeInsets.all(12),
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
-          decoration: BoxDecoration(
-            color: (Theme.of(context).cardColor),
-            borderRadius: BorderRadius.zero,
-            border:
-                Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(context).dividerColor.withOpacity(0.16),
-                blurRadius: 0,
-                offset: const Offset(4, 4),
-              ),
-            ],
-          ),
+          decoration: AppUi.modernCardDecoration(context, radius: 22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3753,10 +3740,16 @@ class _DashboardPageState extends State<DashboardPage> {
                     width: 36,
                     height: 36,
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.secondary,
-                      borderRadius: BorderRadius.zero,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .secondary
+                          .withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(Icons.apps_rounded, color: Colors.white),
+                    child: Icon(
+                      Icons.apps_rounded,
+                      color: Theme.of(context).colorScheme.secondary,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -3765,7 +3758,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 18,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
@@ -3784,7 +3777,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           leading: Icon(menu.icon, color: _menuAccent(menu)),
                           title: Text(
                             menu.title,
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                            style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                           subtitle: menu.subtitle.isEmpty
                               ? null

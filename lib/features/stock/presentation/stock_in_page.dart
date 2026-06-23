@@ -298,7 +298,7 @@ class _StockInPageState extends State<StockInPage> {
       useSafeArea: true,
       backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (sheetContext) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
@@ -330,11 +330,9 @@ class _StockInPageState extends State<StockInPage> {
                   final row = rows[index];
                   return Card(
                     margin: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.zero,
-                      side: BorderSide(color: Theme.of(context).dividerColor),
-                    ),
+                    shape: AppUi.modernShape(context, radius: 14),
                     child: ListTile(
+                      contentPadding: const EdgeInsets.all(14),
                       title: Text(_returnRowTitle(row)),
                       subtitle: Text(_returnRowSubtitle(row)),
                       trailing: const Icon(Icons.chevron_right_rounded),
@@ -615,7 +613,7 @@ class _StockInPageState extends State<StockInPage> {
             children: [
               const Text(
                 'Mode Stok Masuk',
-                style: TextStyle(fontWeight: FontWeight.w900),
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
               ),
               const SizedBox(height: 10),
               Wrap(
@@ -632,8 +630,8 @@ class _StockInPageState extends State<StockInPage> {
                               _lastReturnMatch = null;
                             }),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.zero,
-                      side: BorderSide(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(999),
+                      side: AppUi.softBorderSide(context),
                     ),
                   ),
                   ChoiceChip(
@@ -648,8 +646,8 @@ class _StockInPageState extends State<StockInPage> {
                               _sumber = 'retur';
                             }),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.zero,
-                      side: BorderSide(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(999),
+                      side: AppUi.softBorderSide(context),
                     ),
                   ),
                 ],
@@ -665,7 +663,7 @@ class _StockInPageState extends State<StockInPage> {
               children: [
                 const Text(
                   'Stock In Return',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
                 ),
                 const SizedBox(height: 8),
                 const Text(
@@ -686,15 +684,25 @@ class _StockInPageState extends State<StockInPage> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.zero,
+                      border: Border.all(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outlineVariant
+                            .withOpacity(
+                              Theme.of(context).brightness == Brightness.dark
+                                  ? 0.3
+                                  : 0.5,
+                            ),
+                        width: 0.8,
+                      ),
+                      borderRadius: AppTheme.radiusMd,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           _returnRowTitle(_lastReturnMatch!),
-                          style: const TextStyle(fontWeight: FontWeight.w900),
+                          style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 4),
                         Text(_returnRowSubtitle(_lastReturnMatch!)),

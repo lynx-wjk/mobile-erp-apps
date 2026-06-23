@@ -52,7 +52,8 @@ class _SupplierPageState extends State<SupplierPage> {
 
       final data = await _client
           .from('suppliers')
-          .select('supplier_id, nama_supplier, nama, kontak, phone, alamat, catatan, status')
+          .select(
+              'supplier_id, nama_supplier, nama, kontak, phone, alamat, catatan, status')
           .order('created_at', ascending: false);
 
       final items = (data as List)
@@ -93,9 +94,12 @@ class _SupplierPageState extends State<SupplierPage> {
   }
 
   Future<void> _openForm([Supplier? supplier]) async {
-    final nameController = TextEditingController(text: supplier?.namaSupplier ?? '');
-    final contactController = TextEditingController(text: supplier?.kontak ?? '');
-    final addressController = TextEditingController(text: supplier?.alamat ?? '');
+    final nameController =
+        TextEditingController(text: supplier?.namaSupplier ?? '');
+    final contactController =
+        TextEditingController(text: supplier?.kontak ?? '');
+    final addressController =
+        TextEditingController(text: supplier?.alamat ?? '');
     final noteController = TextEditingController(text: supplier?.catatan ?? '');
     String status = supplier?.status == 'inactive' ? 'inactive' : 'active';
     bool saving = false;
@@ -133,7 +137,8 @@ class _SupplierPageState extends State<SupplierPage> {
                   'catatan': noteController.text.trim(),
                   'status': status,
                   'updated_at': DateTime.now().toIso8601String(),
-                  if (supplier == null) 'created_at': DateTime.now().toIso8601String(),
+                  if (supplier == null)
+                    'created_at': DateTime.now().toIso8601String(),
                 };
 
                 await _client.from('suppliers').upsert(payload);
@@ -163,9 +168,10 @@ class _SupplierPageState extends State<SupplierPage> {
                 children: [
                   Text(
                     supplier == null ? 'Tambah Supplier' : 'Edit Supplier',
-                    style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
+                    style:
+                        Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
                   ),
                   const SizedBox(height: 14),
                   TextField(
@@ -210,7 +216,8 @@ class _SupplierPageState extends State<SupplierPage> {
                     ),
                     items: const [
                       DropdownMenuItem(value: 'active', child: Text('Active')),
-                      DropdownMenuItem(value: 'inactive', child: Text('Inactive')),
+                      DropdownMenuItem(
+                          value: 'inactive', child: Text('Inactive')),
                     ],
                     onChanged: saving
                         ? null
@@ -223,7 +230,10 @@ class _SupplierPageState extends State<SupplierPage> {
                   FilledButton.icon(
                     onPressed: saving ? null : submit,
                     icon: saving
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.save_outlined),
                     label: Text(saving ? 'Menyimpan...' : 'Simpan'),
                   ),
@@ -251,7 +261,8 @@ class _SupplierPageState extends State<SupplierPage> {
       builder: (context) {
         return AlertDialog(
           title: const Text('Hapus Supplier?'),
-          content: Text('Supplier "${supplier.namaSupplier}" akan dihapus permanen. Pastikan data ini tidak lagi dipakai transaksi.'),
+          content: Text(
+              'Supplier "${supplier.namaSupplier}" akan dihapus permanen. Pastikan data ini tidak lagi dipakai transaksi.'),
           actions: [
             TextButton(
               onPressed: () => AppUi.safePop(context, false),
@@ -299,12 +310,14 @@ class _SupplierPageState extends State<SupplierPage> {
           FuturisticHeader(
             icon: Icons.local_shipping_outlined,
             title: 'Supplier',
-            subtitle: 'Kelola supplier untuk referensi pembelian. Pembelian tetap bisa memakai supplier manual bila belum terdaftar.',
+            subtitle:
+                'Kelola supplier untuk referensi pembelian. Pembelian tetap bisa memakai supplier manual bila belum terdaftar.',
             stats: [
               StatPill(label: 'Total', value: _items.length.toString()),
               StatPill(
                 label: 'Active',
-                value: _items.where((e) => e.status == 'active').length.toString(),
+                value:
+                    _items.where((e) => e.status == 'active').length.toString(),
               ),
             ],
           ),
@@ -334,7 +347,7 @@ class _SupplierPageState extends State<SupplierPage> {
                   ),
                   title: Text(
                     item.namaSupplier,
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                   subtitle: Text(
                     '${item.kontak.isEmpty ? '-' : item.kontak}\n'
@@ -349,7 +362,9 @@ class _SupplierPageState extends State<SupplierPage> {
                     },
                     itemBuilder: (context) => [
                       const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                      if (_isSuperAdmin) const PopupMenuItem(value: 'delete', child: Text('Hapus')),
+                      if (_isSuperAdmin)
+                        const PopupMenuItem(
+                            value: 'delete', child: Text('Hapus')),
                     ],
                   ),
                 ),

@@ -64,6 +64,79 @@ class AppUi {
         : Color.alphaBlend(base.withOpacity(0.18), AppTheme.bgCardBorder);
   }
 
+  static BorderSide softBorderSide(
+    BuildContext context, {
+    Color? color,
+    double width = 0.8,
+    double lightOpacity = 0.48,
+    double darkOpacity = 0.30,
+  }) {
+    final theme = Theme.of(context);
+    final base = color ?? theme.colorScheme.outlineVariant;
+    return BorderSide(
+      color: base.withOpacity(
+        theme.brightness == Brightness.dark ? darkOpacity : lightOpacity,
+      ),
+      width: width,
+    );
+  }
+
+  static BoxDecoration tintedDecoration(
+    BuildContext context, {
+    required Color color,
+    double radius = 12,
+    double lightOpacity = 0.08,
+    double darkOpacity = 0.12,
+    bool shadow = false,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return BoxDecoration(
+      color: Color.alphaBlend(
+        color.withOpacity(isDark ? darkOpacity : lightOpacity),
+        theme.cardColor,
+      ),
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(
+        color: color.withOpacity(isDark ? 0.24 : 0.16),
+        width: 0.8,
+      ),
+      boxShadow: shadow ? AppTheme.softShadow(theme.brightness) : null,
+    );
+  }
+
+  static BoxDecoration modernCardDecoration(
+    BuildContext context, {
+    double radius = 16,
+    Color? borderColor,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final cardBorder = borderColor ??
+        theme.colorScheme.outlineVariant.withOpacity(isDark ? 0.3 : 0.5);
+    return BoxDecoration(
+      color: theme.cardColor,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: cardBorder, width: 0.8),
+      boxShadow: AppTheme.softShadow(theme.brightness),
+    );
+  }
+
+  static RoundedRectangleBorder modernShape(
+    BuildContext context, {
+    double radius = 16,
+    Color? borderColor,
+  }) {
+    return RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(radius),
+      side: softBorderSide(context, color: borderColor),
+    );
+  }
+
+  static Color mutedText(BuildContext context, [double opacity = 0.68]) {
+    return Theme.of(context).colorScheme.onSurface.withOpacity(opacity);
+  }
+
   // ── Formatters ──────────────────────────────────────────────────────────────
   static String money(num value) {
     final sign = value < 0 ? '-' : '';
@@ -292,7 +365,7 @@ class ShimmerCard extends StatelessWidget {
   final double height;
   final double borderRadius;
 
-  const ShimmerCard({super.key, this.height = 80, this.borderRadius = 12});
+  const ShimmerCard({super.key, this.height = 80, this.borderRadius = 16});
 
   @override
   Widget build(BuildContext context) {
@@ -305,7 +378,12 @@ class ShimmerCard extends StatelessWidget {
         color: theme.colorScheme.surfaceVariant.withOpacity(
           theme.brightness == Brightness.dark ? 0.42 : 0.68,
         ),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withOpacity(
+            theme.brightness == Brightness.dark ? 0.28 : 0.46,
+          ),
+          width: 0.8,
+        ),
       ),
     );
   }
@@ -332,7 +410,7 @@ class FuturisticHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final muted = theme.colorScheme.onSurface.withOpacity(0.68);
+    final muted = theme.colorScheme.onSurface.withOpacity(0.72);
 
     return Container(
       width: double.infinity,
@@ -340,7 +418,10 @@ class FuturisticHeader extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.cardColor,
         borderRadius: AppTheme.radiusLg,
-        border: Border.all(color: theme.colorScheme.outlineVariant),
+        border: Border.all(
+            color: theme.colorScheme.outlineVariant
+                .withOpacity(isDark ? 0.3 : 0.5),
+            width: 0.8),
         boxShadow: AppTheme.softShadow(theme.brightness),
       ),
       child: Column(
@@ -353,13 +434,13 @@ class FuturisticHeader extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: Color.alphaBlend(
-                    theme.colorScheme.primary.withOpacity(isDark ? 0.18 : 0.10),
-                    theme.colorScheme.surface,
-                  ),
-                  borderRadius: BorderRadius.circular(14),
+                  color: theme.colorScheme.primary
+                      .withOpacity(isDark ? 0.12 : 0.08),
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: theme.colorScheme.primary.withOpacity(0.22),
+                    color: theme.colorScheme.primary
+                        .withOpacity(isDark ? 0.20 : 0.12),
+                    width: 0.8,
                   ),
                 ),
                 child: Icon(icon, color: theme.colorScheme.primary, size: 24),
@@ -373,7 +454,7 @@ class FuturisticHeader extends StatelessWidget {
                       title,
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
-                        letterSpacing: 0,
+                        letterSpacing: -0.2,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -420,7 +501,7 @@ class StatPill extends StatelessWidget {
     final color = accentColor ?? theme.colorScheme.secondary;
     final isDark = theme.brightness == Brightness.dark;
     final surface = Color.alphaBlend(
-      color.withOpacity(isDark ? 0.18 : 0.10),
+      color.withOpacity(isDark ? 0.12 : 0.08),
       theme.cardColor,
     );
 
@@ -429,8 +510,9 @@ class StatPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
         color: surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(isDark ? 0.30 : 0.22)),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: color.withOpacity(isDark ? 0.24 : 0.15), width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -443,13 +525,13 @@ class StatPill extends StatelessWidget {
             style: TextStyle(
               color: isDark ? color.withOpacity(0.95) : color,
               fontWeight: FontWeight.w800,
-              fontSize: 13,
+              fontSize: 13.5,
             ),
           ),
           Text(
             label,
             style: TextStyle(
-              color: theme.colorScheme.onSurface.withOpacity(0.62),
+              color: theme.colorScheme.onSurface.withOpacity(0.68),
               fontSize: 11,
               fontWeight: FontWeight.w600,
               letterSpacing: 0,
@@ -515,7 +597,7 @@ class _GlobalBackdropPainter extends CustomPainter {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: isDark
-            ? const [Color(0xFF0B1120), Color(0xFF111827)]
+            ? const [Color(0xFF0B1329), Color(0xFF161F30)]
             : const [Color(0xFFF8FAFC), Color(0xFFF1F5F9)],
       ).createShader(rect);
     canvas.drawRect(rect, wash);
@@ -523,8 +605,8 @@ class _GlobalBackdropPainter extends CustomPainter {
     final halo = Paint()
       ..shader = RadialGradient(
         colors: [
-          (isDark ? const Color(0xFF1D4ED8) : const Color(0xFFBFDBFE))
-              .withOpacity(isDark ? 0.16 : 0.34),
+          (isDark ? const Color(0xFF3B82F6) : const Color(0xFFBFDBFE))
+              .withOpacity(isDark ? 0.08 : 0.22),
           Colors.transparent,
         ],
       ).createShader(
@@ -538,14 +620,6 @@ class _GlobalBackdropPainter extends CustomPainter {
       size.shortestSide * 0.62,
       halo,
     );
-
-    final linePaint = Paint()
-      ..color = gridColor
-      ..strokeWidth = 1.0;
-    const gap = 96.0;
-    for (double y = gap; y <= size.height; y += gap) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
-    }
   }
 
   @override
@@ -578,15 +652,16 @@ class NiceCard extends StatelessWidget {
         requested == Colors.black || requested == Colors.white;
     final cardBorder = requested == null || isLegacyContrast
         ? theme.colorScheme.outlineVariant
+            .withOpacity(theme.brightness == Brightness.dark ? 0.3 : 0.5)
         : requested.withOpacity(
-            theme.brightness == Brightness.dark ? 0.48 : 0.34,
+            theme.brightness == Brightness.dark ? 0.35 : 0.22,
           );
 
     final container = DecoratedBox(
       decoration: BoxDecoration(
         color: theme.cardColor,
         borderRadius: AppTheme.radiusMd,
-        border: Border.all(color: cardBorder),
+        border: Border.all(color: cardBorder, width: 0.8),
         boxShadow: AppTheme.softShadow(theme.brightness),
       ),
       child: Padding(padding: padding, child: child),
@@ -949,7 +1024,10 @@ class StatusBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: c.withOpacity(isDark ? 0.34 : 0.24)),
+        border: Border.all(
+          color: c.withOpacity(isDark ? 0.30 : 0.20),
+          width: 0.8,
+        ),
       ),
       child: Text(
         text,

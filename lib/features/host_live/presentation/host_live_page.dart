@@ -314,7 +314,7 @@ class _HostLivePageState extends State<HostLivePage> {
                         style: Theme.of(context)
                             .textTheme
                             .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w900)),
+                            ?.copyWith(fontWeight: FontWeight.w800)),
                     const SizedBox(height: 14),
                     DropdownButtonFormField<String>(
                       value: hostId,
@@ -439,7 +439,7 @@ class _HostLivePageState extends State<HostLivePage> {
                   children: [
                     Text(item['title']?.toString() ?? 'Live Session',
                         style: const TextStyle(
-                            fontWeight: FontWeight.w900, fontSize: 16)),
+                            fontWeight: FontWeight.w800, fontSize: 16)),
                     const SizedBox(height: 4),
                     Text('Host: ${item['host_name'] ?? '-'}'),
                     Text(

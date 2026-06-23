@@ -280,7 +280,7 @@ class _TenantSubscriptionDetailPageState
         return AlertDialog(
           title: const Text(
             'NONAKTIFKAN OVERRIDE?',
-            style: TextStyle(fontWeight: FontWeight.w900),
+            style: TextStyle(fontWeight: FontWeight.w800),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -380,18 +380,6 @@ class _TenantSubscriptionDetailPageState
       initialDate: initialDate,
       firstDate: DateTime.now().subtract(const Duration(days: 365)),
       lastDate: DateTime.now().add(const Duration(days: 3650)),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            dialogTheme: const DialogThemeData(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.zero,
-                  side: BorderSide(color: Colors.black, width: 3)),
-            ),
-          ),
-          child: child!,
-        );
-      },
     );
 
     if (picked != null) {
@@ -413,7 +401,7 @@ class _TenantSubscriptionDetailPageState
     return Scaffold(
       appBar: AppBar(
         title: Text('KELOLA SUBSCRIPTION: ${widget.tenantName.toUpperCase()}',
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
         actions: [
           IconButton(
             tooltip: 'Reload',
@@ -434,7 +422,7 @@ class _TenantSubscriptionDetailPageState
                   children: [
                     // Header Card
                     NiceCard(
-                      borderColor: Colors.black,
+                      borderColor: null,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -445,7 +433,7 @@ class _TenantSubscriptionDetailPageState
                                 child: Text(
                                   widget.tenantName.toUpperCase(),
                                   style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
+                                      fontWeight: FontWeight.w800,
                                       fontSize: 18),
                                 ),
                               ),
@@ -453,15 +441,23 @@ class _TenantSubscriptionDetailPageState
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: Colors.black,
+                                  color: Theme.of(context).colorScheme.primary,
+                                  borderRadius: BorderRadius.circular(999),
                                   border: Border.all(
-                                      color: Colors.white, width: 1.5),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary
+                                        .withOpacity(0.32),
+                                    width: 0.8,
+                                  ),
                                 ),
                                 child: Text(
                                   widget.tenantCode.toUpperCase(),
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w900,
+                                  style: TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onPrimary,
+                                      fontWeight: FontWeight.w800,
                                       fontSize: 9),
                                 ),
                               ),
@@ -495,7 +491,7 @@ class _TenantSubscriptionDetailPageState
                             children: [
                               const Text('STATUS PAKET AKTIF:',
                                   style: TextStyle(
-                                      fontWeight: FontWeight.w900,
+                                      fontWeight: FontWeight.w800,
                                       fontSize: 11)),
                               if (_currentSubscription == null)
                                 Container(
@@ -510,7 +506,7 @@ class _TenantSubscriptionDetailPageState
                                     'UNASSIGNED (FALLBACK)',
                                     style: TextStyle(
                                         color: AppUi.orange,
-                                        fontWeight: FontWeight.w900,
+                                        fontWeight: FontWeight.w800,
                                         fontSize: 9),
                                   ),
                                 )
@@ -525,7 +521,7 @@ class _TenantSubscriptionDetailPageState
                                               'Unknown Plan')
                                           .toUpperCase(),
                                       style: const TextStyle(
-                                          fontWeight: FontWeight.w900,
+                                          fontWeight: FontWeight.w800,
                                           fontSize: 12),
                                     ),
                                     const SizedBox(width: 8),
@@ -555,7 +551,7 @@ class _TenantSubscriptionDetailPageState
                                                 _currentSubscription![
                                                         'status'] ??
                                                     'active'),
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight: FontWeight.w800,
                                             fontSize: 9),
                                       ),
                                     ),
@@ -570,7 +566,7 @@ class _TenantSubscriptionDetailPageState
                                 'BATAS TRIAL: ${AppUi.date(_currentSubscription!['trial_ends_at'])}'
                                     .toUpperCase(),
                                 style: const TextStyle(
-                                    fontWeight: FontWeight.w900, fontSize: 10),
+                                    fontWeight: FontWeight.w800, fontSize: 10),
                               ),
                             if (_currentSubscription!['current_period_end'] !=
                                 null)
@@ -578,7 +574,7 @@ class _TenantSubscriptionDetailPageState
                                 'AKHIR PERIODE: ${AppUi.date(_currentSubscription!['current_period_end'])}'
                                     .toUpperCase(),
                                 style: const TextStyle(
-                                    fontWeight: FontWeight.w900, fontSize: 10),
+                                    fontWeight: FontWeight.w800, fontSize: 10),
                               ),
                             if (_currentSubscription!['notes'] != null &&
                                 _currentSubscription!['notes']
@@ -606,13 +602,13 @@ class _TenantSubscriptionDetailPageState
                         title: 'PREVIEW HAK AKSES (ENTITLEMENT)'),
                     const SizedBox(height: 8),
                     NiceCard(
-                      borderColor: Colors.black,
+                      borderColor: null,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           const Text('PILIH FITUR UNTUK DIPREVIEW',
                               style: TextStyle(
-                                  fontWeight: FontWeight.w900, fontSize: 11)),
+                                  fontWeight: FontWeight.w800, fontSize: 11)),
                           const SizedBox(height: 6),
                           DropdownButtonFormField<String>(
                             value: _selectedPreviewFeatureKey,
@@ -663,7 +659,7 @@ class _TenantSubscriptionDetailPageState
                                     children: [
                                       const Text('ENABLED:',
                                           style: TextStyle(
-                                              fontWeight: FontWeight.w900,
+                                              fontWeight: FontWeight.w800,
                                               fontSize: 12)),
                                       Text(
                                         (_previewResult!['enabled'] as bool? ??
@@ -671,7 +667,7 @@ class _TenantSubscriptionDetailPageState
                                             ? 'YES'
                                             : 'NO',
                                         style: TextStyle(
-                                          fontWeight: FontWeight.w900,
+                                          fontWeight: FontWeight.w800,
                                           fontSize: 14,
                                           color: (_previewResult!['enabled']
                                                       as bool? ??
@@ -705,13 +701,13 @@ class _TenantSubscriptionDetailPageState
                         title: 'ATUR / PERBARUI PAKET SUBSCRIPTION'),
                     const SizedBox(height: 8),
                     NiceCard(
-                      borderColor: Colors.black,
+                      borderColor: null,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           const Text('PILIH PAKET',
                               style: TextStyle(
-                                  fontWeight: FontWeight.w900, fontSize: 11)),
+                                  fontWeight: FontWeight.w800, fontSize: 11)),
                           const SizedBox(height: 6),
                           DropdownButtonFormField<String>(
                             value: _selectedPlanCode,
@@ -731,7 +727,7 @@ class _TenantSubscriptionDetailPageState
                           const SizedBox(height: 14),
                           const Text('STATUS SUBSCRIPTION',
                               style: TextStyle(
-                                  fontWeight: FontWeight.w900, fontSize: 11)),
+                                  fontWeight: FontWeight.w800, fontSize: 11)),
                           const SizedBox(height: 6),
                           DropdownButtonFormField<String>(
                             value: _selectedStatus,
@@ -762,7 +758,7 @@ class _TenantSubscriptionDetailPageState
                                   children: [
                                     const Text('AKHIR TRIAL',
                                         style: TextStyle(
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight: FontWeight.w800,
                                             fontSize: 10)),
                                     const SizedBox(height: 6),
                                     OutlinedButton(
@@ -772,7 +768,7 @@ class _TenantSubscriptionDetailPageState
                                             ? 'PILIH TANGGAL'
                                             : AppUi.date(_trialEndsAt),
                                         style: const TextStyle(
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight: FontWeight.w800,
                                             fontSize: 11),
                                       ),
                                     ),
@@ -784,7 +780,7 @@ class _TenantSubscriptionDetailPageState
                                             style: TextStyle(
                                                 color: AppUi.red,
                                                 fontSize: 10,
-                                                fontWeight: FontWeight.w900)),
+                                                fontWeight: FontWeight.w800)),
                                       ),
                                   ],
                                 ),
@@ -797,7 +793,7 @@ class _TenantSubscriptionDetailPageState
                                   children: [
                                     const Text('AKHIR PERIODE',
                                         style: TextStyle(
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight: FontWeight.w800,
                                             fontSize: 10)),
                                     const SizedBox(height: 6),
                                     OutlinedButton(
@@ -808,7 +804,7 @@ class _TenantSubscriptionDetailPageState
                                             ? 'PILIH TANGGAL'
                                             : AppUi.date(_currentPeriodEnd),
                                         style: const TextStyle(
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight: FontWeight.w800,
                                             fontSize: 11),
                                       ),
                                     ),
@@ -820,7 +816,7 @@ class _TenantSubscriptionDetailPageState
                                             style: TextStyle(
                                                 color: AppUi.red,
                                                 fontSize: 10,
-                                                fontWeight: FontWeight.w900)),
+                                                fontWeight: FontWeight.w800)),
                                       ),
                                   ],
                                 ),
@@ -830,7 +826,7 @@ class _TenantSubscriptionDetailPageState
                           const SizedBox(height: 14),
                           const Text('CATATAN / NOTES',
                               style: TextStyle(
-                                  fontWeight: FontWeight.w900, fontSize: 11)),
+                                  fontWeight: FontWeight.w800, fontSize: 11)),
                           const SizedBox(height: 6),
                           TextField(
                             controller: _notesController,
@@ -854,13 +850,13 @@ class _TenantSubscriptionDetailPageState
                         title: 'TAMBAH OVERRIDE FITUR SECARA MANUAL'),
                     const SizedBox(height: 8),
                     NiceCard(
-                      borderColor: Colors.black,
+                      borderColor: null,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           const Text('PILIH FITUR UNTUK DI-OVERRIDE',
                               style: TextStyle(
-                                  fontWeight: FontWeight.w900, fontSize: 11)),
+                                  fontWeight: FontWeight.w800, fontSize: 11)),
                           const SizedBox(height: 6),
                           DropdownButtonFormField<String>(
                             value: _selectedOverrideFeatureKey,
@@ -881,13 +877,13 @@ class _TenantSubscriptionDetailPageState
                           const SizedBox(height: 14),
                           const Text('TIPE OVERRIDE: FEATURE',
                               style: TextStyle(
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w800,
                                   fontSize: 11,
                                   color: Colors.grey)),
                           const SizedBox(height: 14),
                           const Text('STATUS FITUR',
                               style: TextStyle(
-                                  fontWeight: FontWeight.w900, fontSize: 11)),
+                                  fontWeight: FontWeight.w800, fontSize: 11)),
                           const SizedBox(height: 6),
                           DropdownButtonFormField<bool>(
                             value: _overrideEnabled,
@@ -903,7 +899,7 @@ class _TenantSubscriptionDetailPageState
                           const SizedBox(height: 14),
                           const Text('ALASAN / REASON',
                               style: TextStyle(
-                                  fontWeight: FontWeight.w900, fontSize: 11)),
+                                  fontWeight: FontWeight.w800, fontSize: 11)),
                           const SizedBox(height: 6),
                           TextField(
                             controller: _overrideReasonController,
@@ -946,10 +942,8 @@ class _TenantSubscriptionDetailPageState
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.black, width: 2),
-                            color: theme.scaffoldBackgroundColor,
-                          ),
+                          decoration:
+                              AppUi.modernCardDecoration(context, radius: 8),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -960,7 +954,7 @@ class _TenantSubscriptionDetailPageState
                                   Text(
                                     fKey.toUpperCase(),
                                     style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
+                                        fontWeight: FontWeight.w800,
                                         fontSize: 12),
                                   ),
                                   Container(
@@ -975,7 +969,7 @@ class _TenantSubscriptionDetailPageState
                                           : 'REVOKED',
                                       style: const TextStyle(
                                           color: Colors.white,
-                                          fontWeight: FontWeight.w900,
+                                          fontWeight: FontWeight.w800,
                                           fontSize: 8),
                                     ),
                                   ),
@@ -1017,7 +1011,7 @@ class _TenantSubscriptionDetailPageState
                                     foregroundColor: AppUi.red,
                                     side: const BorderSide(
                                       color: AppUi.red,
-                                      width: 2,
+                                      width: 0.8,
                                     ),
                                   ),
                                   icon: const Icon(
@@ -1027,7 +1021,7 @@ class _TenantSubscriptionDetailPageState
                                   label: const Text(
                                     'NONAKTIFKAN OVERRIDE',
                                     style: TextStyle(
-                                      fontWeight: FontWeight.w900,
+                                      fontWeight: FontWeight.w800,
                                       fontSize: 10,
                                     ),
                                   ),
@@ -1052,7 +1046,7 @@ class _TenantSubscriptionDetailPageState
         children: [
           Text('$label: '.toUpperCase(),
               style: TextStyle(
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w800,
                   fontSize: 10,
                   color: Colors.grey[600])),
           Expanded(
@@ -1061,7 +1055,7 @@ class _TenantSubscriptionDetailPageState
               textAlign: TextAlign.right,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 10),
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 10),
             ),
           ),
         ],

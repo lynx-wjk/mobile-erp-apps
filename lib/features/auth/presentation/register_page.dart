@@ -227,7 +227,7 @@ class _RegisterPageState extends State<RegisterPage> {
           (acceptResponse['ok'] as bool? ?? false);
 
       if (isOk) {
-        AppUi.showSnack('PENDAFTARAN BERHASIL! SELAMAT BERGABUNG.');
+        AppUi.showSnack('Pendaftaran berhasil. Selamat bergabung.');
         if (mounted) {
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => const AuthGate()),
@@ -265,16 +265,17 @@ class _RegisterPageState extends State<RegisterPage> {
                     Column(
                       children: [
                         Container(
-                          width: 70,
-                          height: 70,
+                          width: 72,
+                          height: 72,
                           decoration: BoxDecoration(
                             color: theme.colorScheme.primary.withOpacity(
-                              isDark ? 0.18 : 0.10,
+                              isDark ? 0.12 : 0.08,
                             ),
-                            borderRadius: BorderRadius.circular(22),
+                            borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color:
-                                  theme.colorScheme.primary.withOpacity(0.24),
+                              color: theme.colorScheme.primary
+                                  .withOpacity(isDark ? 0.22 : 0.12),
+                              width: 0.8,
                             ),
                             boxShadow: AppTheme.softShadow(theme.brightness),
                           ),
@@ -389,11 +390,13 @@ class _RegisterPageState extends State<RegisterPage> {
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color:
-                                    AppUi.green.withOpacity(isDark ? 0.2 : 0.1),
+                                color: AppUi.green
+                                    .withOpacity(isDark ? 0.12 : 0.08),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                    color: AppUi.green.withOpacity(0.34)),
+                                    color: AppUi.green
+                                        .withOpacity(isDark ? 0.24 : 0.15),
+                                    width: 0.8),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -465,7 +468,9 @@ class _RegisterPageState extends State<RegisterPage> {
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                      color: theme.colorScheme.outlineVariant),
+                                      color: theme.colorScheme.outlineVariant
+                                          .withOpacity(isDark ? 0.3 : 0.5),
+                                      width: 0.8),
                                 ),
                                 child: Row(
                                   children: [
@@ -488,9 +493,9 @@ class _RegisterPageState extends State<RegisterPage> {
 
                             // Profile Fields
                             const Text(
-                              'PROFIL PENGGUNA',
+                              'Profil pengguna',
                               style: TextStyle(
-                                  fontWeight: FontWeight.w800, fontSize: 13),
+                                  fontWeight: FontWeight.w800, fontSize: 14),
                             ),
                             const SizedBox(height: 8),
                             TextField(

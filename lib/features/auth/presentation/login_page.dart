@@ -140,34 +140,35 @@ class _LoginPageState extends State<LoginPage>
   // ── Hero section ─────────────────────────────────────────────────────────────
   Widget _hero() {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Container(
-          width: 80,
-          height: 80,
+          width: 72,
+          height: 72,
           decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withOpacity(
-              theme.brightness == Brightness.dark ? 0.18 : 0.10,
-            ),
-            borderRadius: BorderRadius.circular(24),
+            color: theme.colorScheme.primary.withOpacity(isDark ? 0.12 : 0.08),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: theme.colorScheme.primary.withOpacity(0.24),
+              color:
+                  theme.colorScheme.primary.withOpacity(isDark ? 0.22 : 0.12),
+              width: 0.8,
             ),
             boxShadow: AppTheme.softShadow(theme.brightness),
           ),
           child: Icon(
             Icons.account_balance_rounded,
             color: theme.colorScheme.primary,
-            size: 42,
+            size: 38,
           ),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 24),
         Text(
           'Mobile ERP',
           textAlign: TextAlign.center,
           style: theme.textTheme.displaySmall?.copyWith(
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w800,
             height: 1.05,
           ),
         ),
@@ -203,7 +204,7 @@ class _LoginPageState extends State<LoginPage>
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final background = Color.alphaBlend(
-      color.withOpacity(isDark ? 0.16 : 0.10),
+      color.withOpacity(isDark ? 0.12 : 0.08),
       theme.cardColor,
     );
     return Container(
@@ -211,7 +212,8 @@ class _LoginPageState extends State<LoginPage>
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(isDark ? 0.34 : 0.22)),
+        border: Border.all(
+            color: color.withOpacity(isDark ? 0.24 : 0.15), width: 0.8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

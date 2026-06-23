@@ -8398,14 +8398,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Color.alphaBlend(
-          accent.withOpacity(.12),
+          accent.withOpacity(0.08),
           Theme.of(context).cardColor,
         ),
-        border: Border.all(color: accent.withOpacity(.55), width: 1.4),
-        borderRadius: BorderRadius.zero,
-        boxShadow: const [
-          BoxShadow(color: Colors.black, blurRadius: 0, offset: Offset(3, 3)),
-        ],
+        border: Border.all(color: accent.withOpacity(0.24), width: 0.8),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -8424,7 +8422,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       title.toUpperCase(),
                       style: TextStyle(
                         color: Theme.of(context).textTheme.bodyLarge?.color,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         fontSize: 12,
                         letterSpacing: .8,
                       ),
@@ -8474,18 +8472,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor.withOpacity(.62),
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
         border: Border.all(
-          color: Theme.of(context).dividerColor.withOpacity(.22),
+          color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
+          width: 0.8,
         ),
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         '$label: $value',
         style: TextStyle(
-          color: Theme.of(context).textTheme.bodyLarge?.color,
+          color: Theme.of(context).colorScheme.onSurface,
           fontSize: 11,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -8494,13 +8493,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Color _bootstrapFinanceSeverityColor(String severity) {
     switch (severity) {
       case 'error':
-        return Colors.redAccent;
+        return AppUi.red;
       case 'warning':
         return AppUi.orange;
       case 'success':
-        return Colors.greenAccent;
+        return AppUi.green;
       case 'info':
-        return Colors.cyan;
+        return Theme.of(context).colorScheme.primary;
       default:
         return Theme.of(context).colorScheme.secondary;
     }
@@ -8551,26 +8550,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               onPressed: () => Navigator.of(context).maybePop(),
             ),
             title: Text(
-              'Laporan Keuangan'.toUpperCase(),
+              'Laporan Keuangan',
               style: TextStyle(
                 fontSize: 16,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1,
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white
-                    : Colors.black,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.1,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
             actions: [
               if (_loading)
-                const Center(
+                Center(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.cyan),
+                        strokeWidth: 2,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                     ),
                   ),
                 )
@@ -8596,31 +8595,31 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(48),
               child: Container(
-                decoration: const BoxDecoration(
-                  border:
-                      Border(bottom: BorderSide(color: Colors.black, width: 3)),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .outlineVariant
+                          .withOpacity(0.4),
+                    ),
+                  ),
                 ),
                 child: TabBar(
                   isScrollable: true,
                   tabAlignment: TabAlignment.start,
                   indicatorSize: TabBarIndicatorSize.tab,
-                  indicator: const UnderlineTabIndicator(
-                    borderSide: BorderSide(color: Colors.cyan, width: 6),
-                    insets: EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  labelColor: Theme.of(context).brightness == Brightness.dark
-                      ? Colors.cyan
-                      : Colors.black,
+                  indicatorColor: Theme.of(context).colorScheme.primary,
+                  indicatorWeight: 2.5,
+                  labelColor: Theme.of(context).colorScheme.primary,
                   unselectedLabelColor:
-                      Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white54
-                          : Colors.black54,
+                      Theme.of(context).colorScheme.onSurface.withOpacity(0.55),
                   labelStyle: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0),
                   unselectedLabelStyle: const TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w700),
+                      fontSize: 12, fontWeight: FontWeight.w500),
                   tabs: tabs,
                 ),
               ),
@@ -8645,11 +8644,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     return FloatingActionButton.small(
                       onPressed: null,
                       backgroundColor: Theme.of(context).cardColor,
-                      child: const SizedBox(
+                      child: SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.cyan),
+                          strokeWidth: 2,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                       ),
                     );
                   }
@@ -8657,10 +8658,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   return FloatingActionButton.extended(
                     onPressed: _addManualExpense,
                     backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.black,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
                     icon: const Icon(Icons.add, size: 20),
-                    label: const Text('BIAYA',
-                        style: TextStyle(fontWeight: FontWeight.w900)),
+                    label: const Text('Biaya',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
                   );
                 },
               );
@@ -8726,10 +8727,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        color: Theme.of(context).cardColor,
         border: Border(
-          bottom:
-              BorderSide(color: isDark ? Colors.white : Colors.black, width: 2),
+          bottom: BorderSide(
+            color: Theme.of(context)
+                .colorScheme
+                .outlineVariant
+                .withOpacity(isDark ? 0.25 : 0.45),
+          ),
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -8761,8 +8766,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   style: OutlinedButton.styleFrom(
                     minimumSize: Size.zero,
                     padding: const EdgeInsets.symmetric(horizontal: 10),
-                    shape:
-                        RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: () =>
                       setState(() => _filterExpanded = !_filterExpanded),
@@ -8873,27 +8878,37 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: Theme.of(context).cardColor.withOpacity(0.85),
-            border: Border.all(color: Theme.of(context).dividerColor),
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
+              width: 0.8,
+            ),
           ),
           child: Text(
             'Periode data: $period',
             style: TextStyle(
-                color: Theme.of(context).textTheme.bodyLarge?.color,
-                fontSize: 11,
-                fontWeight: FontWeight.w800),
+                color: Theme.of(context).colorScheme.primary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700),
           ),
         ),
         const SizedBox(height: 8),
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Theme.of(context).cardColor.withOpacity(0.72),
-            borderRadius: BorderRadius.zero,
-            border: Border.all(color: Theme.of(context).dividerColor),
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                  Theme.of(context).brightness == Brightness.dark
+                      ? 0.25
+                      : 0.45),
+              width: 0.8,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -8902,14 +8917,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 'Terakhir sinkron: ${_syncTimestampText(latestSync)}',
                 style: TextStyle(
                     color: Theme.of(context).colorScheme.primary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 6),
               Text(
                 'Order pull: ${_syncTimestampText(orderPullAt)}',
                 style: TextStyle(
-                    color: Theme.of(context).textTheme.bodyMedium?.color,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.72),
                     fontSize: 11),
               ),
               const SizedBox(height: 2),
@@ -8918,14 +8936,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    color: Theme.of(context).textTheme.bodyMedium?.color,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.72),
                     fontSize: 11),
               ),
               const SizedBox(height: 2),
               Text(
                 'Payout update: ${_syncTimestampText(payoutUpdateAt)}',
                 style: TextStyle(
-                    color: Theme.of(context).textTheme.bodySmall?.color,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.55),
                     fontSize: 10.5),
               ),
             ],
@@ -8945,11 +8969,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _financeAutoSyncSwitch() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withOpacity(0.62),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).dividerColor),
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
       ),
       child: Row(
         children: [
@@ -8962,15 +8990,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               children: [
                 Text('Auto finance aktif',
                     style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: Theme.of(context).dividerColor)),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(context).colorScheme.onSurface)),
                 SizedBox(height: 2),
                 Text(
                     'Payout, missing payout, dan status order lama diproses otomatis di background.',
                     style: TextStyle(
-                        fontSize: 10.5,
-                        color: Theme.of(context).colorScheme.outline)),
+                        fontSize: 11,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.6))),
               ],
             ),
           ),
@@ -8993,22 +9024,29 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _periodShortcut(String label, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.zero,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor.withOpacity(0.82),
-          borderRadius: BorderRadius.zero,
-          border: Border.all(color: Theme.of(context).dividerColor),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-              color: Theme.of(context).dividerColor,
-              fontSize: 11,
-              fontWeight: FontWeight.w800),
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.07),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.22),
+              width: 0.8,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600),
+          ),
         ),
       ),
     );
@@ -9022,20 +9060,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: isDark ? const Color(0xFF1E293B) : Colors.white,
-      borderRadius: BorderRadius.zero,
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.zero,
-            border: Border.all(color: isDark ? Colors.white30 : Colors.black),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Theme.of(context)
+                  .colorScheme
+                  .outlineVariant
+                  .withOpacity(isDark ? 0.28 : 0.5),
+              width: 0.8,
+            ),
           ),
           child: Row(
             children: [
-              Icon(icon, size: 14, color: Colors.cyan),
+              Icon(icon,
+                  size: 14, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 6),
               ConstrainedBox(
                 constraints: const BoxConstraints(minWidth: 86, maxWidth: 220),
@@ -9045,16 +9090,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   children: [
                     Text(label,
                         style: TextStyle(
-                            fontSize: 10,
-                            color: isDark ? Colors.white70 : Colors.black54,
-                            fontWeight: FontWeight.w600)),
+                            fontSize: 10.5,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.55),
+                            fontWeight: FontWeight.w500)),
                     Text(value,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            color: isDark ? Colors.white : Colors.black)),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Theme.of(context).colorScheme.onSurface)),
                   ],
                 ),
               ),
@@ -9072,12 +9120,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required ValueChanged<T?> onChanged,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
-        color: (Theme.of(context).cardColor),
-        borderRadius: BorderRadius.zero,
-        border:
-            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.35)),
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<T>(
@@ -9085,16 +9136,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           isExpanded: true,
           isDense: true,
           style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: Theme.of(context).textTheme.bodyLarge?.color),
-          dropdownColor: (Theme.of(context).cardColor),
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface),
+          dropdownColor: Theme.of(context).cardColor,
           items: items,
           onChanged: onChanged,
           hint: Text(label,
               style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).textTheme.bodySmall?.color)),
+                  fontSize: 11.5,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.55))),
         ),
       ),
     );
@@ -9293,7 +9347,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final isEmpty = gross == 0 && payout == 0 && profit == 0 && orderCount == 0;
 
     return RefreshIndicator(
-      color: Colors.cyan,
+      color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 130),
@@ -9316,9 +9370,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               child: FilledButton.icon(
                 onPressed: _hardReloadFinanceView,
                 style: FilledButton.styleFrom(
-                  backgroundColor: Colors.cyan,
-                  foregroundColor: Colors.black,
-                  side: const BorderSide(color: Colors.black, width: 3),
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
                 ),
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('TARIK ULANG DATA'),
@@ -9350,8 +9403,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor.withOpacity(0.74),
-                    border: Border.all(color: Theme.of(context).dividerColor),
+                    color: Theme.of(context).cardColor,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .outlineVariant
+                          .withOpacity(
+                              Theme.of(context).brightness == Brightness.dark
+                                  ? 0.25
+                                  : 0.45),
+                      width: 0.8,
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -9360,7 +9423,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         'Audit Sample & Gratis',
                         style: TextStyle(
                           fontSize: 13,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w800,
                           color: Theme.of(context).textTheme.bodyLarge?.color,
                         ),
                       ),
@@ -9378,12 +9441,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         child: FilledButton.icon(
                           onPressed: _loadSampleFreeOrdersSupplemental,
                           style: FilledButton.styleFrom(
-                            backgroundColor: Colors.cyan,
-                            foregroundColor: Colors.black,
-                            side:
-                                const BorderSide(color: Colors.black, width: 2),
-                            shape: const RoundedRectangleBorder(
-                                borderRadius: BorderRadius.zero),
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primary,
+                            foregroundColor:
+                                Theme.of(context).colorScheme.onPrimary,
                           ),
                           icon: const Icon(Icons.card_giftcard_rounded),
                           label: const Text('MUAT AUDIT SAMPLE/GRATIS'),
@@ -9528,9 +9589,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(
                               color: Theme.of(context).colorScheme.primary,
-                              width: 2),
-                          shape: const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.zero),
+                              width: 0.8),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
                         ),
                         icon: const Icon(Icons.arrow_forward_rounded, size: 16),
                         label: const Text('LIHAT DAFTAR ORDER SAMPLE'),
@@ -9702,11 +9763,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         : page * _skuPageSize;
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: theme.cardColor,
-        border: Border.all(color: theme.dividerColor, width: 1.4),
-        borderRadius: BorderRadius.zero,
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant
+              .withOpacity(theme.brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
@@ -9716,9 +9781,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   ? 'SKU $start–$end dari ${_bySku.length}+ · Page $page/$totalPages'
                   : 'SKU $start–$end dari ${_bySku.length} · Page $page/$totalPages',
               style: TextStyle(
-                color: theme.colorScheme.onSurface,
+                color: theme.colorScheme.onSurface.withOpacity(0.75),
                 fontSize: 12,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -9788,17 +9853,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             Container(
               margin: const EdgeInsets.symmetric(vertical: 8),
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.zero,
-                color: Theme.of(context).cardColor,
-                border: Border.all(color: Colors.black, width: 2.5),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Colors.black,
-                    offset: Offset(4, 4),
-                  ),
-                ],
-              ),
+              decoration: AppUi.modernCardDecoration(context),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -10760,9 +10815,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withOpacity(0.82),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).dividerColor),
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -10774,7 +10834,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 Text(
                   _text(row['category'] ?? row['title'], 'Operasional'),
                   style: TextStyle(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                     fontSize: 13,
                     color: Theme.of(context).textTheme.bodyLarge?.color,
                   ),
@@ -10805,7 +10865,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             _money(amount),
             style: TextStyle(
               color: Theme.of(context).colorScheme.error,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
               fontSize: 13,
             ),
           ),
@@ -11015,12 +11075,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
-        borderRadius: BorderRadius.zero,
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: warning
-              ? Theme.of(context).colorScheme.error.withOpacity(0.32)
-              : Theme.of(context).colorScheme.primary.withOpacity(0.20),
+              ? Theme.of(context).colorScheme.error.withOpacity(0.25)
+              : Theme.of(context).colorScheme.primary.withOpacity(0.15),
+          width: 0.8,
         ),
       ),
       child: Column(
@@ -11040,7 +11101,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             value,
             style: TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
               color: color,
             ),
           ),
@@ -11154,9 +11215,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor.withOpacity(0.76),
-          borderRadius: BorderRadius.zero,
-          border: Border.all(color: Theme.of(context).dividerColor),
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+            width: 0.8,
+          ),
+          boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -11165,7 +11231,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               '$marketplace · $shop',
               style: TextStyle(
                 fontSize: 13,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w800,
                 color: Theme.of(context).textTheme.bodyLarge?.color,
               ),
             ),
@@ -11229,7 +11295,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         _money(val),
                         style: TextStyle(
                           fontSize: 10.5,
-                          fontWeight: bold ? FontWeight.w900 : FontWeight.w700,
+                          fontWeight: bold ? FontWeight.w800 : FontWeight.w700,
                           color: clr,
                         ),
                       ),
@@ -11419,9 +11485,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withOpacity(0.74),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).dividerColor),
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -11430,7 +11501,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             'Breakdown Laba Rugi per Marketplace',
             style: TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
               color: Theme.of(context).textTheme.bodyLarge?.color,
             ),
           ),
@@ -11518,8 +11589,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Theme.of(context).cardColor.withOpacity(0.74),
-              border: Border.all(color: Theme.of(context).dividerColor),
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                    Theme.of(context).brightness == Brightness.dark
+                        ? 0.25
+                        : 0.45),
+                width: 0.8,
+              ),
+              boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -11528,7 +11607,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   'Ringkasan Laba Rugi',
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                     color: Theme.of(context).textTheme.bodyLarge?.color,
                   ),
                 ),
@@ -11685,8 +11764,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         _refreshAbnormalTab(resetPage: true);
                       },
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.zero,
-                  side: BorderSide(color: Theme.of(context).dividerColor),
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .outlineVariant
+                        .withOpacity(0.5),
+                    width: 0.8,
+                  ),
                 ),
               );
             }).toList(),
@@ -11739,9 +11824,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: Theme.of(context).cardColor.withOpacity(0.72),
-                borderRadius: BorderRadius.zero,
-                border: Border.all(color: Theme.of(context).dividerColor),
+                color: Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .outlineVariant
+                      .withOpacity(
+                          Theme.of(context).brightness == Brightness.dark
+                              ? 0.25
+                              : 0.45),
+                  width: 0.8,
+                ),
               ),
               child: Text(
                 _abnormalStatusFilter == 'sample_free' &&
@@ -11941,9 +12035,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: color.withOpacity(0.12),
-        border: Border.all(color: color.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(16),
+        color: color.withOpacity(0.10),
+        border: Border.all(color: color.withOpacity(0.22), width: 0.8),
       ),
       child: Text(label,
           style: TextStyle(
@@ -11957,20 +12051,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       children: [
         Container(
           width: 3,
-          height: 14,
+          height: 16,
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.zero,
+            borderRadius: BorderRadius.circular(2),
           ),
         ),
         SizedBox(width: 8),
         Text(
           text,
           style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: Theme.of(context).colorScheme.outline,
-            letterSpacing: 0.3,
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.75),
+            letterSpacing: 0,
           ),
         ),
       ],
@@ -11988,21 +12082,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final color = positive
         ? Theme.of(context).colorScheme.primary
         : Theme.of(context).colorScheme.error;
-    final borderColor = isDark ? Colors.white : Colors.black;
 
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
-        border: Border.all(color: borderColor, width: 2.5),
-        boxShadow: [
-          BoxShadow(
-            color: borderColor.withOpacity(0.8),
-            blurRadius: 0,
-            offset: const Offset(5, 5),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(16),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context)
+              .colorScheme
+              .outlineVariant
+              .withOpacity(isDark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Row(
         children: [
@@ -12010,9 +12103,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.16),
-              borderRadius: BorderRadius.zero,
-              border: Border.all(color: color.withOpacity(0.32)),
+              color: color.withOpacity(isDark ? 0.12 : 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: color.withOpacity(isDark ? 0.22 : 0.14), width: 0.8),
             ),
             child: Icon(icon, color: color, size: 26),
           ),
@@ -12025,22 +12119,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   title,
                   style: TextStyle(
                       fontSize: 12,
-                      color: color.withOpacity(0.8),
-                      fontWeight: FontWeight.w700),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.6),
+                      fontWeight: FontWeight.w600),
                 ),
                 SizedBox(height: 3),
                 Text(
                   value,
                   style: TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.w900, color: color),
+                      fontSize: 22, fontWeight: FontWeight.w800, color: color),
                 ),
                 SizedBox(height: 3),
                 Text(
                   subtitle,
                   style: TextStyle(
                     fontSize: 11.5,
-                    color: Theme.of(context).textTheme.bodyMedium?.color,
-                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.6),
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -12073,14 +12173,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           itemBuilder: (context, index) {
             final metric = metrics[index];
             final isDark = Theme.of(context).brightness == Brightness.dark;
-            final borderColor = isDark ? Colors.white70 : Colors.black;
 
             return Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.zero,
-                color: isDark ? const Color(0xFF0F172A) : Colors.white,
-                border: Border.all(color: borderColor, width: 2),
+                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context).cardColor,
+                border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .outlineVariant
+                      .withOpacity(isDark ? 0.25 : 0.45),
+                  width: 0.8,
+                ),
+                boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
               ),
               child: Row(
                 children: [
@@ -12091,9 +12197,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       color: Theme.of(context)
                           .colorScheme
                           .primary
-                          .withOpacity(0.12),
-                      borderRadius: BorderRadius.zero,
-                      border: Border.all(color: borderColor, width: 1.5),
+                          .withOpacity(isDark ? 0.12 : 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withOpacity(isDark ? 0.2 : 0.12),
+                        width: 0.8,
+                      ),
                     ),
                     child: Icon(metric.icon,
                         color: Theme.of(context).colorScheme.primary, size: 19),
@@ -12109,10 +12221,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              fontSize: 10.5,
-                              color:
-                                  Theme.of(context).textTheme.bodyMedium?.color,
-                              fontWeight: FontWeight.w800),
+                              fontSize: 11,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.60),
+                              fontWeight: FontWeight.w600),
                         ),
                         SizedBox(height: 3),
                         Text(
@@ -12121,8 +12235,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            color: Theme.of(context).textTheme.bodyLarge?.color,
+                            fontWeight: FontWeight.w800,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                       ],
@@ -12141,17 +12255,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 2.5),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black,
-            offset: Offset(4, 4),
-          ),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -12177,10 +12281,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(10),
         color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
         border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
+            width: 0.8),
       ),
       child: Row(
         children: [
@@ -12216,9 +12321,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: (Theme.of(context).cardColor),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(12),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -12234,7 +12344,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
-                      color: Theme.of(context).dividerColor),
+                      color: Theme.of(context).colorScheme.onSurface),
                 ),
                 SizedBox(height: 3),
                 Text(
@@ -12302,9 +12412,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(12),
         color: Theme.of(context).cardColor,
-        border: Border.all(color: Theme.of(context).dividerColor),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -12401,9 +12516,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(12),
         color: Theme.of(context).cardColor,
-        border: Border.all(color: Theme.of(context).dividerColor),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -12419,7 +12539,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
-                      color: Theme.of(context).dividerColor),
+                      color: Theme.of(context).colorScheme.onSurface),
                 ),
                 SizedBox(height: 3),
                 Text(
@@ -12502,9 +12622,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: (Theme.of(context).cardColor),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(12),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -12520,7 +12645,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
-                      color: Theme.of(context).dividerColor),
+                      color: Theme.of(context).colorScheme.onSurface),
                 ),
                 SizedBox(height: 3),
                 Text(
@@ -12583,10 +12708,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         : Theme.of(context).colorScheme.primary;
     return Material(
       color: color.withOpacity(0.08),
-      borderRadius: BorderRadius.zero,
+      borderRadius: BorderRadius.circular(6),
       child: InkWell(
         onTap: _processing ? null : onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(6),
         child: Tooltip(
           message: tooltip,
           child: SizedBox(
@@ -12609,9 +12734,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: (Theme.of(context).cardColor),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(14),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -12625,20 +12755,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Theme.of(context).dividerColor),
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.onSurface),
                 ),
               ),
               if (trailing != null) trailing,
             ],
           ),
-          SizedBox(height: 3),
+          SizedBox(height: 4),
           Text(
             subtitle,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-                fontSize: 11.5, color: Theme.of(context).colorScheme.outline),
+                fontSize: 12,
+                color:
+                    Theme.of(context).colorScheme.onSurface.withOpacity(0.58)),
           ),
           SizedBox(height: 12),
           Wrap(spacing: 6, runSpacing: 6, children: children),
@@ -12703,7 +12835,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       useSafeArea: true,
       backgroundColor: (Theme.of(context).cardColor),
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(8))),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (sheetContext) => Padding(
         padding: EdgeInsets.only(
           left: 16,
@@ -12725,7 +12857,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       title,
                       style: TextStyle(
                           fontSize: 20,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w800,
                           color: Theme.of(context).textTheme.bodyLarge?.color),
                     ),
                   ),
@@ -12847,17 +12979,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final status = _skuDetailOrderStatusV82o(item);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.10),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Colors.orange.withOpacity(0.35)),
+        color: Colors.orange.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.withOpacity(0.28), width: 0.8),
       ),
       child: Text(
         'Payout sudah masuk, tetapi status order masih $status. Perlu refresh marketplace.',
         style: TextStyle(
           fontSize: 11.5,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w600,
           color: Colors.orange.shade800,
           height: 1.35,
         ),
@@ -13105,8 +13237,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.03),
-        border: Border.all(color: Colors.black.withOpacity(0.08)),
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.44),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.fromBorderSide(AppUi.softBorderSide(context)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -13729,7 +13862,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                       'Detail SKU'),
                                   style: TextStyle(
                                       fontSize: 20,
-                                      fontWeight: FontWeight.w900,
+                                      fontWeight: FontWeight.w800,
                                       color: Theme.of(context).dividerColor),
                                 ),
                                 SizedBox(height: 4),
@@ -13841,7 +13974,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             decoration: BoxDecoration(
                                               color:
                                                   (Theme.of(context).cardColor),
-                                              borderRadius: BorderRadius.zero,
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
                                               border: Border.all(
                                                   color: Theme.of(context)
                                                       .dividerColor
@@ -13860,7 +13994,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         .primary
                                                         .withOpacity(0.10),
                                                     borderRadius:
-                                                        BorderRadius.zero,
+                                                        BorderRadius.circular(
+                                                            12),
                                                   ),
                                                   child: Icon(
                                                       Icons
@@ -13882,7 +14017,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         style: TextStyle(
                                                             fontSize: 13.5,
                                                             fontWeight:
-                                                                FontWeight.w900,
+                                                                FontWeight.w800,
                                                             color: Theme.of(
                                                                     context)
                                                                 .dividerColor),
@@ -14190,7 +14325,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                     'Detail SKU'),
                                 style: TextStyle(
                                     fontSize: 20,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w800,
                                     color: Theme.of(context).dividerColor),
                               ),
                               SizedBox(height: 4),
@@ -14235,12 +14370,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                 return Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: (Theme.of(context).cardColor),
-                                    borderRadius: BorderRadius.zero,
+                                    color: Theme.of(context).cardColor,
+                                    borderRadius: BorderRadius.circular(10),
                                     border: Border.all(
                                         color: Theme.of(context)
-                                            .dividerColor
-                                            .withOpacity(0.75)),
+                                            .colorScheme
+                                            .outlineVariant
+                                            .withOpacity(
+                                                Theme.of(context).brightness ==
+                                                        Brightness.dark
+                                                    ? 0.25
+                                                    : 0.45),
+                                        width: 0.8),
                                   ),
                                   child: Row(
                                     crossAxisAlignment:
@@ -14253,8 +14394,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                           color: Theme.of(context)
                                               .colorScheme
                                               .primary
-                                              .withOpacity(0.10),
-                                          borderRadius: BorderRadius.zero,
+                                              .withOpacity(0.08),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
                                         ),
                                         child: Icon(Icons.receipt_long_rounded,
                                             color: Theme.of(context)
@@ -14272,7 +14414,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               'Order: ${_cleanText(item['order'], 'Belum ada order')}',
                                               style: TextStyle(
                                                   fontSize: 13.5,
-                                                  fontWeight: FontWeight.w900,
+                                                  fontWeight: FontWeight.w800,
                                                   color: Theme.of(context)
                                                       .dividerColor),
                                             ),
@@ -14448,9 +14590,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: color.withOpacity(0.18)),
+        color: color.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.15), width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -14460,16 +14602,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             label,
             style: TextStyle(
                 fontSize: 10,
-                color: Theme.of(context).colorScheme.outline,
-                fontWeight: FontWeight.w600),
+                color:
+                    Theme.of(context).colorScheme.onSurface.withOpacity(0.55),
+                fontWeight: FontWeight.w500),
           ),
           SizedBox(height: 2),
           Text(
             value,
             style: TextStyle(
               fontSize: 12.5,
-              fontWeight: FontWeight.w800,
-              color: warning ? color : Theme.of(context).dividerColor,
+              fontWeight: FontWeight.w700,
+              color: warning ? color : Theme.of(context).colorScheme.onSurface,
             ),
           ),
         ],
@@ -14500,7 +14643,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 );
               }
             : null,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(6),
         child: Container(
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -14508,13 +14651,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             color: enabled
                 ? scheme.primary.withValues(alpha: 0.08)
                 : Theme.of(targetContext).disabledColor.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.zero,
+            borderRadius: BorderRadius.circular(6),
             border: Border.all(
               color: enabled
-                  ? scheme.primary.withValues(alpha: 0.42)
+                  ? scheme.primary.withValues(alpha: 0.28)
                   : Theme.of(targetContext)
-                      .dividerColor
+                      .colorScheme
+                      .outlineVariant
                       .withValues(alpha: 0.45),
+              width: 0.8,
             ),
           ),
           child: Row(
@@ -14526,7 +14671,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 label,
                 style: TextStyle(
                   fontSize: 10.5,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   color: foreground,
                 ),
               ),
@@ -14544,10 +14689,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         child: Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.zero,
-            color: (Theme.of(context).cardColor),
+            borderRadius: BorderRadius.circular(16),
+            color: Theme.of(context).cardColor,
             border: Border.all(
-                color: Theme.of(context).colorScheme.error.withOpacity(0.3)),
+                color: Theme.of(context).colorScheme.error.withOpacity(0.25),
+                width: 0.8),
+            boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -14556,13 +14703,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 width: 56,
                 height: 56,
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.error.withOpacity(0.10),
-                  borderRadius: BorderRadius.zero,
+                  color: Theme.of(context).colorScheme.error.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .error
-                          .withOpacity(0.25)),
+                      color:
+                          Theme.of(context).colorScheme.error.withOpacity(0.18),
+                      width: 0.8),
                 ),
                 child: Icon(Icons.error_outline_rounded,
                     size: 28, color: Theme.of(context).colorScheme.error),
@@ -14571,9 +14717,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               Text(
                 'Laporan gagal dimuat',
                 style: TextStyle(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     fontSize: 15,
-                    color: Theme.of(context).dividerColor),
+                    color: Theme.of(context).colorScheme.onSurface),
               ),
               SizedBox(height: 8),
               Text(
@@ -16047,7 +16193,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         child: Text(
                           '$year',
                           style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.w900),
+                              fontSize: 18, fontWeight: FontWeight.w800),
                         ),
                       ),
                     ),
@@ -16077,7 +16223,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         backgroundColor: selected
                             ? Theme.of(context).colorScheme.primary
                             : null,
-                        foregroundColor: selected ? Colors.black : null,
+                        foregroundColor: selected
+                            ? Theme.of(context).colorScheme.onPrimary
+                            : null,
                       ),
                       onPressed: () =>
                           setDialogState(() => selectedMonth = month),

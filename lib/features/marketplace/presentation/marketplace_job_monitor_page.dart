@@ -784,8 +784,12 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
           color: theme.cardColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.dividerColor.withOpacity(0.2))),
+          borderRadius: AppTheme.radiusMd,
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant
+                .withOpacity(theme.brightness == Brightness.dark ? 0.3 : 0.5),
+            width: 0.8,
+          )),
       child: Text(
         'Refresh membaca status terbaru. Aksi lanjutkan, ulangi, atau siapkan ulang dikunci saat proses masih berjalan agar data tidak diproses dua kali.',
         style: TextStyle(color: theme.textTheme.bodySmall?.color),
@@ -798,8 +802,11 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
           color: Colors.orangeAccent.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.orangeAccent.withOpacity(0.28))),
+          borderRadius: AppTheme.radiusMd,
+          border: Border.all(
+            color: Colors.orangeAccent.withOpacity(0.22),
+            width: 0.8,
+          )),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -826,8 +833,12 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
           color: theme.cardColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.dividerColor.withOpacity(0.2))),
+          borderRadius: AppTheme.radiusMd,
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant
+                .withOpacity(theme.brightness == Brightness.dark ? 0.3 : 0.5),
+            width: 0.8,
+          )),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -857,8 +868,9 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: color.withOpacity(0.28)),
+                  borderRadius: AppTheme.radiusSm,
+                  border:
+                      Border.all(color: color.withOpacity(0.22), width: 0.8),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -903,8 +915,12 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
           color: theme.cardColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.dividerColor.withOpacity(0.2))),
+          borderRadius: AppTheme.radiusMd,
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant
+                .withOpacity(theme.brightness == Brightness.dark ? 0.3 : 0.5),
+            width: 0.8,
+          )),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -960,8 +976,12 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
           color: theme.cardColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.dividerColor.withOpacity(0.2))),
+          borderRadius: AppTheme.radiusMd,
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant
+                .withOpacity(theme.brightness == Brightness.dark ? 0.3 : 0.5),
+            width: 0.8,
+          )),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1027,7 +1047,7 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       decoration: BoxDecoration(
         color: color.withOpacity(0.10),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border: Border.all(color: color.withOpacity(0.18), width: 0.8),
       ),
       child: Text('$label: ${_txt(value, '0')}',
           style: TextStyle(color: theme.textTheme.bodyLarge?.color)
@@ -1041,8 +1061,12 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
           color: theme.cardColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.dividerColor.withOpacity(0.2))),
+          borderRadius: AppTheme.radiusMd,
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant
+                .withOpacity(theme.brightness == Brightness.dark ? 0.3 : 0.5),
+            width: 0.8,
+          )),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1074,8 +1098,12 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: theme.dividerColor.withOpacity(0.18)),
+        borderRadius: AppTheme.radiusSm,
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant
+              .withOpacity(theme.brightness == Brightness.dark ? 0.2 : 0.35),
+          width: 0.8,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1129,9 +1157,11 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: theme.dividerColor.withOpacity(.08),
-        borderRadius: BorderRadius.zero,
+        borderRadius: AppTheme.radiusSm,
         border: Border.all(
-          color: theme.dividerColor.withOpacity(.25),
+          color: theme.colorScheme.outlineVariant
+              .withOpacity(theme.brightness == Brightness.dark ? 0.3 : 0.5),
+          width: 0.8,
         ),
       ),
       child: Text(
@@ -1169,8 +1199,8 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
           accent.withOpacity(.12),
           theme.cardColor,
         ),
-        border: Border.all(color: accent.withOpacity(.55), width: 1.4),
-        borderRadius: BorderRadius.zero,
+        border: Border.all(color: accent.withOpacity(.24), width: 0.8),
+        borderRadius: AppTheme.radiusMd,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1185,7 +1215,7 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
                   'PAYOUT 90 HARI SEDANG DIRETRY',
                   style: TextStyle(
                     color: theme.textTheme.bodyLarge?.color,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                     fontSize: 12,
                     letterSpacing: .8,
                   ),

@@ -116,7 +116,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
   Widget _filterChip(String value, String label) {
     return ChoiceChip(
       label: Text(label,
-          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 10)),
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 10)),
       selected: _tenantFilter == value,
       onSelected: (_) => setState(() => _tenantFilter = value),
     );
@@ -127,13 +127,14 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        border: Border.all(color: color, width: 1.5),
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.34), width: 0.8),
       ),
       child: Text(
-        status.toUpperCase(),
+        status,
         style:
-            TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 9),
+            TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 10),
       ),
     );
   }
@@ -196,12 +197,8 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero,
-            side: BorderSide(color: Colors.black, width: 3),
-          ),
           title: Text('TAMBAH TENANT BARU'.toUpperCase(),
-              style: const TextStyle(fontWeight: FontWeight.w900)),
+              style: const TextStyle(fontWeight: FontWeight.w800)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -222,7 +219,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('BATAL',
-                  style: TextStyle(fontWeight: FontWeight.w900)),
+                  style: TextStyle(fontWeight: FontWeight.w800)),
             ),
             FilledButton(
               onPressed: () async {
@@ -294,12 +291,8 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.zero,
-                side: BorderSide(color: Colors.black, width: 3),
-              ),
               title: Text('GENERATE UNDANGAN'.toUpperCase(),
-                  style: const TextStyle(fontWeight: FontWeight.w900)),
+                  style: const TextStyle(fontWeight: FontWeight.w800)),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -375,7 +368,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                 TextButton(
                   onPressed: generating ? null : () => Navigator.pop(context),
                   child: const Text('BATAL',
-                      style: TextStyle(fontWeight: FontWeight.w900)),
+                      style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
                 FilledButton(
                   onPressed: (generating || selectedTenantId == null)
@@ -410,11 +403,13 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                           }
                         },
                   child: generating
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.black),
+                            strokeWidth: 2,
+                            color: Theme.of(context).colorScheme.onPrimary,
+                          ),
                         )
                       : const Text('GENERATE'),
                 ),
@@ -445,55 +440,51 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero,
-            side: BorderSide(color: Colors.black, width: 3),
-          ),
           title: Text('UNDANGAN DIHASILKAN'.toUpperCase(),
               style: const TextStyle(
-                  fontWeight: FontWeight.w900, color: AppUi.green)),
+                  fontWeight: FontWeight.w800, color: AppUi.green)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('LINK REGISTRASI UTAMA (HTTPS):',
                   style: TextStyle(
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                       color: Colors.grey[600],
                       fontSize: 11)),
               const SizedBox(height: 4),
               SelectableText(
                 registerUrl,
                 style: const TextStyle(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                     fontSize: 12,
                     decoration: TextDecoration.underline),
               ),
               const SizedBox(height: 16),
               Text('KODE TOKEN RAW:',
                   style: TextStyle(
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                       color: Colors.grey[600],
                       fontSize: 11)),
               const SizedBox(height: 4),
               SelectableText(
                 token,
                 style: const TextStyle(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                     fontFamily: 'monospace',
                     fontSize: 13),
               ),
               const SizedBox(height: 16),
               Text('LINK APLIKASI (DEEP LINK):',
                   style: TextStyle(
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                       color: Colors.grey[600],
                       fontSize: 11)),
               const SizedBox(height: 4),
               SelectableText(
                 appDeepLink,
                 style: const TextStyle(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                     fontSize: 11,
                     color: Colors.grey),
               ),
@@ -513,7 +504,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                   icon: const Icon(Icons.copy, size: 16),
                   label: const Text('COPY LINK',
                       style:
-                          TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                          TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 40),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -539,7 +530,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                   icon: const Icon(Icons.open_in_new, size: 16),
                   label: const Text('OPEN LINK',
                       style:
-                          TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                          TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 40),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -553,7 +544,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                   icon: const Icon(Icons.vpn_key, size: 16),
                   label: const Text('COPY TOKEN',
                       style:
-                          TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                          TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 40),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -567,7 +558,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                   icon: const Icon(Icons.phone_android, size: 16),
                   label: const Text('COPY APP LINK',
                       style:
-                          TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                          TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 40),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -576,7 +567,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                 TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: const Text('SELESAI',
-                      style: TextStyle(fontWeight: FontWeight.w900)),
+                      style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
               ],
             ),
@@ -609,24 +600,25 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
         label = 'AKSES TOKEN EXPIRED';
         break;
       case 'no_account':
-        color = Colors.grey;
+        color = Theme.of(context).colorScheme.onSurfaceVariant;
         label = 'BELUM ADA TOKO';
         break;
       default:
-        color = Colors.black;
+        color = Theme.of(context).colorScheme.onSurfaceVariant;
         label = status.toUpperCase();
     }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        border: Border.all(color: color, width: 2),
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.30), width: 0.8),
       ),
       child: Text(
         label,
         style:
-            TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 10),
+            TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 10),
       ),
     );
   }
@@ -634,8 +626,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final accent = isDark ? Colors.white : Colors.black;
+    final accent = theme.colorScheme.primary;
 
     final grouped = Map<String, List<Map<String, dynamic>>>.fromEntries(
       _groupedTenants.entries.where((entry) => _tenantMatchesFilter(entry.key)),
@@ -644,7 +635,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('PLATFORM OWNER DASHBOARD',
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
         actions: [
           IconButton(
             tooltip: 'Reload data',
@@ -719,7 +710,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                             width: itemWidth,
                             child: NiceCard(
                               onTap: onTap,
-                              borderColor: Colors.black,
+                              borderColor: null,
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -731,7 +722,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
-                                          fontWeight: FontWeight.w900,
+                                          fontWeight: FontWeight.w800,
                                           fontSize: 11),
                                     ),
                                   ),
@@ -812,7 +803,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                         return Container(
                           margin: const EdgeInsets.only(bottom: 20),
                           child: NiceCard(
-                            borderColor: Colors.black,
+                            borderColor: null,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
@@ -827,7 +818,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight: FontWeight.w800,
                                             fontSize: 15),
                                       ),
                                     ),
@@ -935,7 +926,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                                 .toUpperCase(),
                                             style: const TextStyle(
                                                 color: AppUi.orange,
-                                                fontWeight: FontWeight.w900,
+                                                fontWeight: FontWeight.w800,
                                                 fontSize: 9),
                                           ),
                                         ],
@@ -973,8 +964,10 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                         horizontal: 8, vertical: 6),
                                     decoration: BoxDecoration(
                                       color: color.withOpacity(0.12),
-                                      border:
-                                          Border.all(color: color, width: 1.5),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                          color: color.withOpacity(0.28),
+                                          width: 0.8),
                                     ),
                                     child: Column(
                                       crossAxisAlignment:
@@ -992,7 +985,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
-                                                    fontWeight: FontWeight.w900,
+                                                    fontWeight: FontWeight.w800,
                                                     fontSize: 9,
                                                     color: color),
                                               ),
@@ -1012,7 +1005,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                                       .toUpperCase(),
                                                   style: const TextStyle(
                                                       fontWeight:
-                                                          FontWeight.w900,
+                                                          FontWeight.w800,
                                                       fontSize: 9),
                                                 ),
                                               if (periodEnd != null)
@@ -1021,7 +1014,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                                       .toUpperCase(),
                                                   style: TextStyle(
                                                       fontWeight:
-                                                          FontWeight.w900,
+                                                          FontWeight.w800,
                                                       fontSize: 9,
                                                       color: expired
                                                           ? AppUi.red
@@ -1102,10 +1095,10 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                   return Container(
                                     margin: const EdgeInsets.only(bottom: 12),
                                     padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      border:
-                                          Border.all(color: accent, width: 2),
-                                      color: theme.scaffoldBackgroundColor,
+                                    decoration: AppUi.modernCardDecoration(
+                                      context,
+                                      radius: 16,
+                                      borderColor: accent.withOpacity(0.18),
                                     ),
                                     child: Column(
                                       crossAxisAlignment:
@@ -1128,7 +1121,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: const TextStyle(
-                                                    fontWeight: FontWeight.w900,
+                                                    fontWeight: FontWeight.w800,
                                                     fontSize: 12),
                                               ),
                                             ),
@@ -1194,14 +1187,14 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
           Text(
             '$label: '.toUpperCase(),
             style: TextStyle(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w800,
                 fontSize: 8.5,
                 color: alert ? AppUi.red : Colors.grey[700]),
           ),
           Text(
             value,
             style: TextStyle(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w800,
                 fontSize: 9.5,
                 color: alert ? AppUi.red : null),
           ),

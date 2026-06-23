@@ -198,7 +198,8 @@ class _HeaderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
+    return NiceCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -247,7 +248,8 @@ class _SummaryCard extends StatelessWidget {
     final financeActive = _boolValue(summary['finance_dispatcher_active']);
     final oldFinanceActive = _boolValue(summary['old_finance_pull_active']);
 
-    return Card(
+    return NiceCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Wrap(
@@ -345,7 +347,7 @@ class _MetricTile extends StatelessWidget {
       width: 150,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border: Border.all(color: color),
+        border: Border.all(color: color.withOpacity(0.24), width: 0.8),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -373,7 +375,8 @@ class _AccountAuthSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Card(
+    return NiceCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         child: Column(
@@ -405,8 +408,13 @@ class _AccountAuthSection extends StatelessWidget {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     border: Border.all(
-                        color:
-                            ok ? theme.dividerColor : theme.colorScheme.error),
+                      color: ok
+                          ? theme.colorScheme.outlineVariant.withOpacity(
+                              theme.brightness == Brightness.dark ? 0.28 : 0.44,
+                            )
+                          : theme.colorScheme.error.withOpacity(0.32),
+                      width: 0.8,
+                    ),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Column(
@@ -482,7 +490,8 @@ class _StateSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Card(
+    return NiceCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         child: Column(
@@ -530,7 +539,11 @@ class _StateTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         border: Border.all(
-          color: isOk ? theme.dividerColor : theme.colorScheme.error,
+          color: isOk
+              ? theme.colorScheme.outlineVariant
+                  .withOpacity(theme.brightness == Brightness.dark ? 0.3 : 0.5)
+              : theme.colorScheme.error.withOpacity(0.3),
+          width: 0.8,
         ),
         borderRadius: BorderRadius.circular(14),
       ),
@@ -713,7 +726,8 @@ class _CronCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Card(
+    return NiceCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         child: Column(

@@ -124,18 +124,19 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
 
   Widget _header(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Column(
       children: [
         Container(
-          width: 70,
-          height: 70,
+          width: 72,
+          height: 72,
           decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withOpacity(
-              theme.brightness == Brightness.dark ? 0.18 : 0.10,
-            ),
-            borderRadius: BorderRadius.circular(22),
+            color: theme.colorScheme.primary.withOpacity(isDark ? 0.12 : 0.08),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: theme.colorScheme.primary.withOpacity(0.24),
+              color:
+                  theme.colorScheme.primary.withOpacity(isDark ? 0.22 : 0.12),
+              width: 0.8,
             ),
             boxShadow: AppTheme.softShadow(theme.brightness),
           ),
@@ -235,6 +236,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
   }
 
   Widget _planCard(Map<String, dynamic> plan) {
+    final theme = Theme.of(context);
     final planName = plan['plan_name']?.toString() ?? '-';
     final planCode = plan['plan_code']?.toString() ?? '-';
     final description = plan['description']?.toString() ?? '';
@@ -318,8 +320,8 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
               Text(
                 'Fitur belum ditampilkan.',
                 style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.grey[600],
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurface.withOpacity(0.62),
                   fontWeight: FontWeight.w600,
                 ),
               )
@@ -336,8 +338,8 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
               Text(
                 '+${features.length - visibleFeatures.length} fitur lainnya',
                 style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: 10,
+                  color: theme.colorScheme.onSurface.withOpacity(0.62),
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -366,13 +368,13 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
       decoration: BoxDecoration(
         color: AppUi.green.withOpacity(0.08),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppUi.green.withOpacity(0.28)),
+        border: Border.all(color: AppUi.green.withOpacity(0.18), width: 0.8),
       ),
       child: Text(
         label,
         style: const TextStyle(
           fontWeight: FontWeight.w700,
-          fontSize: 11,
+          fontSize: 12,
           color: AppUi.green,
         ),
       ),
@@ -385,32 +387,37 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceVariant.withOpacity(
-          theme.brightness == Brightness.dark ? 0.30 : 0.70,
+          theme.brightness == Brightness.dark ? 0.20 : 0.50,
         ),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
+        border: Border.all(
+            color: theme.colorScheme.outlineVariant
+                .withOpacity(theme.brightness == Brightness.dark ? 0.3 : 0.5),
+            width: 0.8),
       ),
       child: Text(
         '$label: $value',
-        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
       ),
     );
   }
 
   Widget _badge(String label, Color color) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withOpacity(isDark ? 0.12 : 0.08),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.28)),
+        border: Border.all(
+            color: color.withOpacity(isDark ? 0.24 : 0.15), width: 0.8),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
           fontWeight: FontWeight.w700,
-          fontSize: 11,
+          fontSize: 12,
         ),
       ),
     );
@@ -426,6 +433,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return NiceCard(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -438,10 +446,12 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
                 height: 40,
                 decoration: BoxDecoration(
                   color: color.withOpacity(
-                    theme.brightness == Brightness.dark ? 0.18 : 0.10,
+                    theme.brightness == Brightness.dark ? 0.12 : 0.08,
                   ),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: color.withOpacity(0.28)),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: color.withOpacity(isDark ? 0.24 : 0.15),
+                      width: 0.8),
                 ),
                 child: Icon(icon, color: color, size: 20),
               ),

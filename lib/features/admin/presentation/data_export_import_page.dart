@@ -820,7 +820,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
-                    style: const TextStyle(fontWeight: FontWeight.w900)),
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
                 Text(subtitle),
               ],
@@ -913,7 +913,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
                       ),
                     if (_busy) const SizedBox(width: 10),
                     const Text('Log',
-                        style: TextStyle(fontWeight: FontWeight.w900)),
+                        style: TextStyle(fontWeight: FontWeight.w800)),
                   ],
                 ),
                 const SizedBox(height: 8),

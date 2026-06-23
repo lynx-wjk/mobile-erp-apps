@@ -297,13 +297,9 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.zero,
-                side: BorderSide(color: Colors.black, width: 3),
-              ),
               title: Text(
                 isEditing ? 'EDIT PAKET SUBSCRIPTION' : 'TAMBAH PAKET BARU',
-                style: const TextStyle(fontWeight: FontWeight.w900),
+                style: const TextStyle(fontWeight: FontWeight.w800),
               ),
               insetPadding:
                   const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
@@ -468,7 +464,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                         value: isTrial,
                         title: const Text(
                           'TRIAL PLAN',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                          style: TextStyle(fontWeight: FontWeight.w800),
                         ),
                         onChanged: saving
                             ? null
@@ -481,7 +477,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                         value: isActive,
                         title: const Text(
                           'AKTIF DI DAFTAR PAKET',
-                          style: TextStyle(fontWeight: FontWeight.w900),
+                          style: TextStyle(fontWeight: FontWeight.w800),
                         ),
                         subtitle: const Text(
                           'Nonaktif berarti paket disembunyikan dari pilihan aktif, bukan dihapus.',
@@ -499,7 +495,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                   onPressed: saving ? null : () => Navigator.pop(context),
                   child: const Text(
                     'BATAL',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
                 FilledButton(
@@ -539,12 +535,12 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                           }
                         },
                   child: saving
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.black,
+                            color: Theme.of(context).colorScheme.onPrimary,
                           ),
                         )
                       : const Text('SIMPAN'),
@@ -572,13 +568,9 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.zero,
-                side: BorderSide(color: Colors.black, width: 3),
-              ),
               title: Text(
                 'FITUR PAKET: ${planName.toUpperCase()}',
-                style: const TextStyle(fontWeight: FontWeight.w900),
+                style: const TextStyle(fontWeight: FontWeight.w800),
               ),
               content: SizedBox(
                 width: 780,
@@ -609,10 +601,8 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
 
                             return Container(
                               padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                border:
-                                    Border.all(color: Colors.black, width: 2),
-                              ),
+                              decoration: AppUi.modernCardDecoration(context,
+                                  radius: 8),
                               child: Row(
                                 children: [
                                   Expanded(
@@ -625,7 +615,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
-                                            fontWeight: FontWeight.w900,
+                                            fontWeight: FontWeight.w800,
                                             fontSize: 12,
                                           ),
                                         ),
@@ -655,7 +645,9 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                                               limitValue == null
                                                   ? 'NO LIMIT'
                                                   : 'LIMIT: $limitValue',
-                                              Colors.black,
+                                              Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
                                             ),
                                           ],
                                         ),
@@ -756,7 +748,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                       : () => Navigator.pop(context),
                   child: const Text(
                     'SELESAI',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
               ],
@@ -778,13 +770,9 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero,
-            side: BorderSide(color: Colors.black, width: 3),
-          ),
           title: Text(
             'LIMIT: ${featureLabel.toUpperCase()}',
-            style: const TextStyle(fontWeight: FontWeight.w900),
+            style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           content: TextField(
             controller: controller,
@@ -799,7 +787,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
               onPressed: () => Navigator.pop(context, _NoLimitCancel()),
               child: const Text(
                 'BATAL',
-                style: TextStyle(fontWeight: FontWeight.w900),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
             TextButton(
@@ -809,7 +797,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
               ),
               child: const Text(
                 'HAPUS LIMIT',
-                style: TextStyle(fontWeight: FontWeight.w900, color: AppUi.red),
+                style: TextStyle(fontWeight: FontWeight.w800, color: AppUi.red),
               ),
             ),
             FilledButton(
@@ -840,13 +828,9 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero,
-            side: BorderSide(color: Colors.black, width: 3),
-          ),
           title: Text(
             nextActive ? 'AKTIFKAN PAKET?' : 'NONAKTIFKAN PAKET?',
-            style: const TextStyle(fontWeight: FontWeight.w900),
+            style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           content: Text(
             nextActive
@@ -858,7 +842,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
               onPressed: () => Navigator.pop(context, false),
               child: const Text(
                 'BATAL',
-                style: TextStyle(fontWeight: FontWeight.w900),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
             FilledButton(
@@ -887,7 +871,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
       appBar: AppBar(
         title: const Text(
           'EDITOR PAKET SUBSCRIPTION',
-          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
         ),
         actions: [
           IconButton(
@@ -902,7 +886,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
         icon: const Icon(Icons.add),
         label: const Text(
           'TAMBAH PAKET',
-          style: TextStyle(fontWeight: FontWeight.w900),
+          style: TextStyle(fontWeight: FontWeight.w800),
         ),
       ),
       body: AppGlobalBackdrop(
@@ -992,8 +976,9 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
       child: NiceCard(
-        borderColor:
-            isActive ? (isTrial ? AppUi.teal : Colors.black) : AppUi.orange,
+        borderColor: isActive
+            ? (isTrial ? AppUi.teal : Theme.of(context).colorScheme.primary)
+            : AppUi.orange,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1005,7 +990,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                       fontSize: 17,
                     ),
                   ),
@@ -1032,7 +1017,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
             Text(
               displayPrice,
               style: TextStyle(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w800,
                 fontSize: 18,
                 color: price == 0 ? AppUi.green : theme.colorScheme.primary,
               ),
@@ -1049,7 +1034,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
             const SizedBox(height: 16),
             const Text(
               'BATASAN KUOTA',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -1077,7 +1062,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
             const SizedBox(height: 20),
             const Text(
               'FITUR TERMASUK',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
             ),
             const SizedBox(height: 8),
             if (enabledFeatureCount == 0)
@@ -1102,12 +1087,14 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: AppUi.green.withOpacity(0.08),
-                      border: Border.all(color: AppUi.green, width: 1.5),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                          color: AppUi.green.withOpacity(0.28), width: 0.8),
                     ),
                     child: Text(
                       _featureLabel(feature).toUpperCase(),
                       style: const TextStyle(
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         fontSize: 8.5,
                         color: AppUi.green,
                       ),
@@ -1121,7 +1108,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                 '+${enabledFeatureCount - 18} FITUR LAINNYA',
                 style: TextStyle(
                   color: Colors.grey[600],
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w800,
                   fontSize: 10,
                 ),
               ),
@@ -1239,7 +1226,8 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.grey.withOpacity(0.05),
-        border: Border.all(color: Colors.grey[400]!, width: 1.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.fromBorderSide(AppUi.softBorderSide(context)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1247,14 +1235,14 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
           Text(
             '$label: '.toUpperCase(),
             style: TextStyle(
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
               fontSize: 8.5,
               color: Colors.grey[700],
             ),
           ),
           Text(
             value,
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 9.5),
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 9.5),
           ),
         ],
       ),
@@ -1265,14 +1253,15 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        border: Border.all(color: color, width: 1.5),
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.32), width: 0.8),
       ),
       child: Text(
         label.toUpperCase(),
         style: TextStyle(
           color: color,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w800,
           fontSize: 9,
         ),
       ),
@@ -1290,7 +1279,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
         label.toUpperCase(),
         style: TextStyle(
           color: color,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w800,
           fontSize: 8,
         ),
       ),

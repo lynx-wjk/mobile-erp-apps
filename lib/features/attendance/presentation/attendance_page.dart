@@ -45,10 +45,15 @@ class _AbsensiPageState extends State<AbsensiPage> {
 
   bool get _canSeeAll {
     final role = AppUi.text(_profile?['role_id']).toLowerCase();
-    return role == 'super_admin' || role == 'superadmin' || role == 'owner' || role == 'admin' || role == 'hr';
+    return role == 'super_admin' ||
+        role == 'superadmin' ||
+        role == 'owner' ||
+        role == 'admin' ||
+        role == 'hr';
   }
 
-  bool get _isSuperAdmin => AppUi.text(_profile?['role_id']).toLowerCase() == 'super_admin';
+  bool get _isSuperAdmin =>
+      AppUi.text(_profile?['role_id']).toLowerCase() == 'super_admin';
 
   Future<Map<String, dynamic>?> _currentProfile() async {
     final authUser = _client.auth.currentUser;
@@ -81,12 +86,14 @@ class _AbsensiPageState extends State<AbsensiPage> {
 
       final locationsResponse = await _client
           .from('work_locations')
-          .select('location_id, nama_lokasi, latitude, longitude, radius_meter, status')
+          .select(
+              'location_id, nama_lokasi, latitude, longitude, radius_meter, status')
           .eq('status', 'active')
           .order('created_at', ascending: false);
 
       dynamic attendanceResponse;
-      final select = 'attendance_id, user_id, user_name, user_email, role_id, date, check_in_time, check_in_lat, check_in_lng, check_in_distance_meter, check_out_time, check_out_lat, check_out_lng, check_out_distance_meter, status, note, created_at';
+      final select =
+          'attendance_id, user_id, user_name, user_email, role_id, date, check_in_time, check_in_lat, check_in_lng, check_in_distance_meter, check_out_time, check_out_lat, check_out_lng, check_out_distance_meter, status, note, created_at';
       if (canSeeAll) {
         attendanceResponse = await _client
             .from('attendance')
@@ -115,7 +122,8 @@ class _AbsensiPageState extends State<AbsensiPage> {
       for (final item in items) {
         final sameUser = item['user_id']?.toString() == userId;
         final sameDate = item['date']?.toString() == today;
-        final isStillOpen = item['check_in_time'] != null && item['check_out_time'] == null;
+        final isStillOpen =
+            item['check_in_time'] != null && item['check_out_time'] == null;
         if (sameUser && sameDate && isStillOpen) {
           todayItem = item;
           break;
@@ -163,7 +171,8 @@ class _AbsensiPageState extends State<AbsensiPage> {
       permission = await Geolocator.requestPermission();
     }
 
-    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
       throw Exception('Izin lokasi ditolak');
     }
 
@@ -185,7 +194,8 @@ class _AbsensiPageState extends State<AbsensiPage> {
     for (final loc in _locations) {
       final lat = AppUi.toNum(loc['latitude']).toDouble();
       final lng = AppUi.toNum(loc['longitude']).toDouble();
-      final distance = Geolocator.distanceBetween(position.latitude, position.longitude, lat, lng);
+      final distance = Geolocator.distanceBetween(
+          position.latitude, position.longitude, lat, lng);
 
       if (nearestDistance == null || distance < nearestDistance) {
         nearest = loc;
@@ -244,7 +254,8 @@ class _AbsensiPageState extends State<AbsensiPage> {
         final distance = location.distanceMeter == null
             ? '-'
             : location.distanceMeter!.toStringAsFixed(0);
-        throw Exception('Di luar area ${location.locationName} ($distance meter). Check in ditolak.');
+        throw Exception(
+            'Di luar area ${location.locationName} ($distance meter). Check in ditolak.');
       }
 
       final status = schedule != null && schedule.isWorkday && schedule.isLate
@@ -279,7 +290,11 @@ class _AbsensiPageState extends State<AbsensiPage> {
         'updated_at': now,
       });
 
-      await _insertLog(profile: profile, type: 'CHECK_IN', position: position, note: finalNote);
+      await _insertLog(
+          profile: profile,
+          type: 'CHECK_IN',
+          position: position,
+          note: finalNote);
 
       if (!mounted) return;
       _noteController.clear();
@@ -289,12 +304,12 @@ class _AbsensiPageState extends State<AbsensiPage> {
       _loadData();
     } catch (error) {
       if (!mounted) return;
-      rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(content: Text('Check in gagal: $error')));
+      rootScaffoldMessengerKey.currentState
+          ?.showSnackBar(SnackBar(content: Text('Check in gagal: $error')));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
-
 
   Future<void> _deleteAbsensi(Map<String, dynamic> attendance) async {
     if (!_isSuperAdmin) return;
@@ -306,10 +321,16 @@ class _AbsensiPageState extends State<AbsensiPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('Hapus data attendance?'),
-        content: Text("Data attendance ${AppUi.text(attendance['user_name'] ?? attendance['nama_user'])} tanggal ${AppUi.date(attendance['date'])} akan dihapus."),
+        content: Text(
+            "Data attendance ${AppUi.text(attendance['user_name'] ?? attendance['nama_user'])} tanggal ${AppUi.date(attendance['date'])} akan dihapus."),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text('Batal')),
-          FilledButton.icon(onPressed: () => Navigator.pop(dialogContext, true), icon: Icon(Icons.delete_outline), label: Text('Hapus')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text('Batal')),
+          FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: Icon(Icons.delete_outline),
+              label: Text('Hapus')),
         ],
       ),
     );
@@ -349,27 +370,26 @@ class _AbsensiPageState extends State<AbsensiPage> {
         final distance = location.distanceMeter == null
             ? '-'
             : location.distanceMeter!.toStringAsFixed(0);
-        throw Exception('Di luar area ${location.locationName} ($distance meter). Check out ditolak.');
+        throw Exception(
+            'Di luar area ${location.locationName} ($distance meter). Check out ditolak.');
       }
 
-      await _client
-          .from('attendance')
-          .update({
-            'check_out_time': DateTime.now().toIso8601String(),
-            'check_out_lat': position.latitude,
-            'check_out_lng': position.longitude,
-            'check_out_distance_meter': location.distanceMeter,
-            'status': location.status == 'valid'
-                ? (AppUi.text(today['status']) == 'late' ? 'late' : 'valid')
-                : 'outside_area',
-            'note': note.isEmpty
-                ? today['note']
-                : '$note | Lokasi checkout: ${location.locationName}',
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('attendance_id', today['attendance_id']);
+      await _client.from('attendance').update({
+        'check_out_time': DateTime.now().toIso8601String(),
+        'check_out_lat': position.latitude,
+        'check_out_lng': position.longitude,
+        'check_out_distance_meter': location.distanceMeter,
+        'status': location.status == 'valid'
+            ? (AppUi.text(today['status']) == 'late' ? 'late' : 'valid')
+            : 'outside_area',
+        'note': note.isEmpty
+            ? today['note']
+            : '$note | Lokasi checkout: ${location.locationName}',
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('attendance_id', today['attendance_id']);
 
-      await _insertLog(profile: profile, type: 'CHECK_OUT', position: position, note: note);
+      await _insertLog(
+          profile: profile, type: 'CHECK_OUT', position: position, note: note);
 
       if (!mounted) return;
       _noteController.clear();
@@ -379,7 +399,8 @@ class _AbsensiPageState extends State<AbsensiPage> {
       _loadData();
     } catch (error) {
       if (!mounted) return;
-      rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(content: Text('Check out gagal: $error')));
+      rootScaffoldMessengerKey.currentState
+          ?.showSnackBar(SnackBar(content: Text('Check out gagal: $error')));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -397,7 +418,8 @@ class _AbsensiPageState extends State<AbsensiPage> {
         : schedule.isWorkday
             ? '${schedule.isLate ? 'Indikasi sekarang: telat ${schedule.lateMinutes} menit' : 'Indikasi sekarang: tepat waktu'} • toleransi ${schedule.toleranceMinutes} menit'
             : 'Check-in tetap boleh dilakukan, tetapi tidak ditandai telat.';
-    final color = schedule != null && schedule.isLate ? AppUi.orange : AppUi.teal;
+    final color =
+        schedule != null && schedule.isLate ? AppUi.orange : AppUi.teal;
 
     return NiceCard(
       child: Row(
@@ -422,9 +444,20 @@ class _AbsensiPageState extends State<AbsensiPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Theme.of(context).colorScheme.onSurface)),
+                Text(title,
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: Theme.of(context).colorScheme.onSurface)),
                 const SizedBox(height: 4),
-                Text(subtitle, style: TextStyle(fontSize: 12.5, height: 1.35, color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.85))),
+                Text(subtitle,
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.35,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant
+                            .withOpacity(0.85))),
               ],
             ),
           ),
@@ -435,9 +468,11 @@ class _AbsensiPageState extends State<AbsensiPage> {
 
   Widget _body() {
     if (_isLoading) return const LoadingState();
-    if (_errorMessage != null) return ErrorState(message: _errorMessage!, onRetry: _loadData);
+    if (_errorMessage != null)
+      return ErrorState(message: _errorMessage!, onRetry: _loadData);
 
-    final hasOpenSession = _todayAbsensi?['check_in_time'] != null && _todayAbsensi?['check_out_time'] == null;
+    final hasOpenSession = _todayAbsensi?['check_in_time'] != null &&
+        _todayAbsensi?['check_out_time'] == null;
     final checkedIn = hasOpenSession;
     final checkedOut = _todayAbsensi?['check_out_time'] != null;
 
@@ -449,12 +484,22 @@ class _AbsensiPageState extends State<AbsensiPage> {
           FuturisticHeader(
             icon: Icons.location_on_outlined,
             title: 'Absensi',
-            subtitle: 'Check-in dan check-out memakai GPS dengan validasi radius lokasi kerja.',
+            subtitle:
+                'Check-in dan check-out memakai GPS dengan validasi radius lokasi kerja.',
             stats: [
-              StatPill(label: 'Sesi Aktif', value: hasOpenSession ? 'Masuk' : 'Tidak Ada'),
+              StatPill(
+                  label: 'Sesi Aktif',
+                  value: hasOpenSession ? 'Masuk' : 'Tidak Ada'),
               StatPill(label: 'Check Out', value: checkedOut ? 'Done' : '-'),
-              StatPill(label: 'Lokasi Aktif', value: _locations.length.toString()),
-              StatPill(label: 'Jadwal', value: _todaySchedule == null ? '-' : (_todaySchedule!.isWorkday ? _todaySchedule!.startLabel : 'Libur')),
+              StatPill(
+                  label: 'Lokasi Aktif', value: _locations.length.toString()),
+              StatPill(
+                  label: 'Jadwal',
+                  value: _todaySchedule == null
+                      ? '-'
+                      : (_todaySchedule!.isWorkday
+                          ? _todaySchedule!.startLabel
+                          : 'Libur')),
             ],
           ),
           const SizedBox(height: 16),
@@ -476,7 +521,8 @@ class _AbsensiPageState extends State<AbsensiPage> {
                   children: [
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: _isSaving || hasOpenSession ? null : _checkIn,
+                        onPressed:
+                            _isSaving || hasOpenSession ? null : _checkIn,
                         icon: Icon(Icons.login),
                         label: Text('Check In'),
                       ),
@@ -484,7 +530,8 @@ class _AbsensiPageState extends State<AbsensiPage> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _isSaving || !hasOpenSession ? null : _checkOut,
+                        onPressed:
+                            _isSaving || !hasOpenSession ? null : _checkOut,
                         icon: Icon(Icons.logout),
                         label: Text('Check Out'),
                       ),
@@ -515,7 +562,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
                   ),
                   title: Text(
                     AppUi.text(item['user_name']),
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                   subtitle: Text(
                     '${AppUi.text(item['user_email'])} • ${AppUi.text(item['role_id'])}\n'

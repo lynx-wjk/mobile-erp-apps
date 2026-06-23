@@ -401,7 +401,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     style: Theme.of(sheetContext)
                         .textTheme
                         .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w900),
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 10),
                   TextField(
@@ -524,7 +524,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       style: Theme.of(sheetContext)
                           .textTheme
                           .titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w900)),
+                          ?.copyWith(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 6),
                   ...availableStages.map((stage) {
                     return _buildCreateStageTemplateTile(
@@ -578,11 +578,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             ),
                             actions: [
                               TextButton(
-                                onPressed: () => AppUi.safePop(dialogContext, false),
+                                onPressed: () =>
+                                    AppUi.safePop(dialogContext, false),
                                 child: const Text('Batal'),
                               ),
                               FilledButton.icon(
-                                onPressed: () => AppUi.safePop(dialogContext, true),
+                                onPressed: () =>
+                                    AppUi.safePop(dialogContext, true),
                                 icon: const Icon(Icons.delete_outline),
                                 label: const Text('Hapus'),
                               ),
@@ -639,7 +641,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                 if (text.isEmpty) return;
                                 final key = _normalizeStageKey(text);
                                 if (key.isEmpty) return;
-                                final existing = availableStages.firstWhereOrNull(
+                                final existing =
+                                    availableStages.firstWhereOrNull(
                                   (stage) => AppUi.text(stage['key']) == key,
                                 );
                                 if (existing != null) {
@@ -649,7 +652,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                       ..['active'] = true;
                                     customStageController.clear();
                                   });
-                                  AppUi.showSnack('Progress "$text" dipilih untuk produksi ini.');
+                                  AppUi.showSnack(
+                                      'Progress "$text" dipilih untuk produksi ini.');
                                   return;
                                 }
 
@@ -672,11 +676,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                     });
                                     customStageController.clear();
                                   });
-                                  AppUi.showSnack('Template progress "$text" ditambahkan.');
+                                  AppUi.showSnack(
+                                      'Template progress "$text" ditambahkan.');
                                 } on PostgrestException catch (e) {
                                   AppUi.showSnack(e.message);
                                 } catch (e) {
-                                  AppUi.showSnack(AppUi.userMessage(e.toString()));
+                                  AppUi.showSnack(
+                                      AppUi.userMessage(e.toString()));
                                 } finally {
                                   if (sheetContext.mounted) {
                                     setSheetState(() => saving = false);
@@ -691,7 +697,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       style: Theme.of(sheetContext)
                           .textTheme
                           .titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w900)),
+                          ?.copyWith(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
                   if (_localProducts.isEmpty)
                     const EmptyState(
@@ -828,9 +834,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
     required VoidCallback onChanged,
     required VoidCallback onRemove,
   }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: NiceCard(
         padding: const EdgeInsets.all(12),
         child: Column(
           children: [
@@ -920,10 +926,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
               final keyword = value.trim().toLowerCase();
 
               setSheetState(() {
-                 filtered = _localProducts.where((product) {
+                filtered = _localProducts.where((product) {
                   return product.namaBarang.toLowerCase().contains(keyword) ||
                       product.kodeSku.toLowerCase().contains(keyword) ||
-                      (product.kodeBarcode?.toLowerCase() ?? '').contains(keyword);
+                      (product.kodeBarcode?.toLowerCase() ?? '')
+                          .contains(keyword);
                 }).toList();
               });
             }
@@ -947,7 +954,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                 .textTheme
                                 .titleLarge
                                 ?.copyWith(
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w800,
                                 ),
                           ),
                           const SizedBox(height: 12),
@@ -986,16 +993,15 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                 final product = filtered[index];
 
                                 return Card(
-                                  shape: const RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.zero,
-                                  ),
+                                  shape: AppUi.modernShape(context, radius: 16),
                                   child: ListTile(
                                     leading: CircleAvatar(
                                       backgroundColor: Theme.of(context)
                                           .colorScheme
                                           .primary
                                           .withOpacity(0.12),
-                                      child: const Icon(Icons.inventory_2_outlined),
+                                      child: const Icon(
+                                          Icons.inventory_2_outlined),
                                     ),
                                     title: Text(
                                       product.namaBarang,
@@ -1046,18 +1052,25 @@ class _StockProgressPageState extends State<StockProgressPage> {
     final depositOnly = existingType == 'deposit' ||
         (progress == null && tailor == null && initialType == 'deposit');
 
-    final stages = progress != null ? _mapList(progress['stages']) : <Map<String, dynamic>>[];
+    final stages = progress != null
+        ? _mapList(progress['stages'])
+        : <Map<String, dynamic>>[];
     final payableStages = stages.where((stage) {
       final status = AppUi.text(stage['status']);
-      final skipped = status == 'skipped' || AppUi.text(stage['is_skipped']) == 'true';
+      final skipped =
+          status == 'skipped' || AppUi.text(stage['is_skipped']) == 'true';
       return !skipped;
     }).toList();
 
     String? selectedStageKey = payment != null
         ? AppUi.text(payment['stage_key'])
-        : (initialStageKey ?? (payableStages.isNotEmpty ? AppUi.text(payableStages.first['stage_key']) : null));
+        : (initialStageKey ??
+            (payableStages.isNotEmpty
+                ? AppUi.text(payableStages.first['stage_key'])
+                : null));
 
-    String? selectedTailorIdForPayment = tailor?['tailor_id'] ?? payment?['tailor_id'];
+    String? selectedTailorIdForPayment =
+        tailor?['tailor_id'] ?? payment?['tailor_id'];
 
     final amount = TextEditingController(
       text: payment != null
@@ -1101,20 +1114,28 @@ class _StockProgressPageState extends State<StockProgressPage> {
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
             num getStageUnpaidAmount(String stageKey) {
-              final stage = stages.firstWhere((s) => AppUi.text(s['stage_key']) == stageKey, orElse: () => <String, dynamic>{});
+              final stage = stages.firstWhere(
+                  (s) => AppUi.text(s['stage_key']) == stageKey,
+                  orElse: () => <String, dynamic>{});
               final totalAmount = AppUi.toNum(stage['total_amount']);
-              final paymentsList = progress != null ? _mapList(progress['payments']) : <Map<String, dynamic>>[];
+              final paymentsList = progress != null
+                  ? _mapList(progress['payments'])
+                  : <Map<String, dynamic>>[];
               final paidAmount = paymentsList
-                  .where((p) => AppUi.text(p['stage_key']) == stageKey && 
-                                AppUi.text(p['payment_status']) == 'sudah_bayar' && 
-                                AppUi.text(p['payment_id']) != AppUi.text(payment?['payment_id']))
+                  .where((p) =>
+                      AppUi.text(p['stage_key']) == stageKey &&
+                      AppUi.text(p['payment_status']) == 'sudah_bayar' &&
+                      AppUi.text(p['payment_id']) !=
+                          AppUi.text(payment?['payment_id']))
                   .fold<num>(0, (sum, p) => sum + AppUi.toNum(p['amount']));
               final unpaid = totalAmount - paidAmount;
               return unpaid < 0 ? 0 : unpaid;
             }
 
             void updateStageFields(String stageKey) {
-              final stage = stages.firstWhere((s) => AppUi.text(s['stage_key']) == stageKey, orElse: () => <String, dynamic>{});
+              final stage = stages.firstWhere(
+                  (s) => AppUi.text(s['stage_key']) == stageKey,
+                  orElse: () => <String, dynamic>{});
               final unpaid = getStageUnpaidAmount(stageKey);
               final stageTailorId = AppUi.text(stage['tailor_id'], '');
               setSheetState(() {
@@ -1125,11 +1146,16 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 if (stageTailorId.isNotEmpty) {
                   selectedTailorIdForPayment = stageTailorId;
                 }
-                if (note.text.isEmpty || note.text.startsWith('Bayar ') || note.text.startsWith('Kasbon ') || note.text == 'Deposit awal produksi') {
+                if (note.text.isEmpty ||
+                    note.text.startsWith('Bayar ') ||
+                    note.text.startsWith('Kasbon ') ||
+                    note.text == 'Deposit awal produksi') {
                   if (paymentType == 'sewing_payment') {
-                    note.text = 'Bayar ${_stageLabel(stageKey)} - ${AppUi.text(progress?['surat_jalan_number'])}';
+                    note.text =
+                        'Bayar ${_stageLabel(stageKey)} - ${AppUi.text(progress?['surat_jalan_number'])}';
                   } else {
-                    note.text = 'Kasbon ${_stageLabel(stageKey)} - ${AppUi.text(progress?['surat_jalan_number'])}';
+                    note.text =
+                        'Kasbon ${_stageLabel(stageKey)} - ${AppUi.text(progress?['surat_jalan_number'])}';
                   }
                 }
               });
@@ -1137,14 +1163,21 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
             if (!initialized) {
               initialized = true;
-              if (progress != null && (paymentType == 'sewing_payment' || paymentType == 'kasbon') && selectedStageKey != null) {
+              if (progress != null &&
+                  (paymentType == 'sewing_payment' ||
+                      paymentType == 'kasbon') &&
+                  selectedStageKey != null) {
                 final unpaid = getStageUnpaidAmount(selectedStageKey!);
-                final stage = stages.firstWhere((s) => AppUi.text(s['stage_key']) == selectedStageKey!, orElse: () => <String, dynamic>{});
+                final stage = stages.firstWhere(
+                    (s) => AppUi.text(s['stage_key']) == selectedStageKey!,
+                    orElse: () => <String, dynamic>{});
                 final stageTailorId = AppUi.text(stage['tailor_id'], '');
                 if (stageTailorId.isNotEmpty) {
                   selectedTailorIdForPayment = stageTailorId;
                 }
-                if (paymentType == 'kasbon' && selectedTailorIdForPayment == null && _tailors.isNotEmpty) {
+                if (paymentType == 'kasbon' &&
+                    selectedTailorIdForPayment == null &&
+                    _tailors.isNotEmpty) {
                   selectedTailorIdForPayment = progress?['tailor_id'];
                 }
                 if (payment == null && paymentType == 'sewing_payment') {
@@ -1152,9 +1185,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 }
                 if (note.text.isEmpty || note.text == 'Deposit awal produksi') {
                   if (paymentType == 'sewing_payment') {
-                    note.text = 'Bayar ${_stageLabel(selectedStageKey!)} - ${AppUi.text(progress?['surat_jalan_number'])}';
+                    note.text =
+                        'Bayar ${_stageLabel(selectedStageKey!)} - ${AppUi.text(progress?['surat_jalan_number'])}';
                   } else {
-                    note.text = 'Kasbon ${_stageLabel(selectedStageKey!)} - ${AppUi.text(progress?['surat_jalan_number'])}';
+                    note.text =
+                        'Kasbon ${_stageLabel(selectedStageKey!)} - ${AppUi.text(progress?['surat_jalan_number'])}';
                   }
                 }
               }
@@ -1168,7 +1203,6 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     : 'Nominal pembayaran wajib lebih dari 0.');
                 return;
               }
-
 
               try {
                 setSheetState(() => saving = true);
@@ -1185,7 +1219,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       'p_proof_evidence_id': proofEvidence?.evidenceId,
                       'p_proof_url':
                           proofEvidence?.publicUrl ?? initialProofUrl,
-                      'p_payment_label': paymentLabel.text.trim().isEmpty ? null : paymentLabel.text.trim(),
+                      'p_payment_label': paymentLabel.text.trim().isEmpty
+                          ? null
+                          : paymentLabel.text.trim(),
                     },
                   );
                 } else {
@@ -1193,9 +1229,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     (s) => AppUi.text(s['stage_key']) == selectedStageKey,
                     orElse: () => <String, dynamic>{},
                   );
-                  final stageTailorId = AppUi.text(stage['tailor_id'], '').isNotEmpty
-                      ? AppUi.text(stage['tailor_id'])
-                      : null;
+                  final stageTailorId =
+                      AppUi.text(stage['tailor_id'], '').isNotEmpty
+                          ? AppUi.text(stage['tailor_id'])
+                          : null;
 
                   await _client.rpc(
                     'upsert_production_tailor_payment_for_app',
@@ -1217,7 +1254,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       'p_proof_url':
                           proofEvidence?.publicUrl ?? initialProofUrl,
                       'p_stage_key': selectedStageKey,
-                      'p_payment_label': paymentLabel.text.trim().isEmpty ? null : paymentLabel.text.trim(),
+                      'p_payment_label': paymentLabel.text.trim().isEmpty
+                          ? null
+                          : paymentLabel.text.trim(),
                     },
                   );
                 }
@@ -1252,10 +1291,12 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     style: Theme.of(sheetContext)
                         .textTheme
                         .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w900),
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 12),
-                  if (progress != null && (paymentType == 'sewing_payment' || paymentType == 'kasbon')) ...[
+                  if (progress != null &&
+                      (paymentType == 'sewing_payment' ||
+                          paymentType == 'kasbon')) ...[
                     DropdownButtonFormField<String>(
                       value: selectedStageKey,
                       decoration: const InputDecoration(
@@ -1266,7 +1307,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         final key = AppUi.text(stage['stage_key']);
                         final label = _stageLabel(key);
                         final worker = AppUi.text(stage['tailor_name'], '');
-                        final displayLabel = worker.isNotEmpty ? '$label ($worker)' : label;
+                        final displayLabel =
+                            worker.isNotEmpty ? '$label ($worker)' : label;
                         return DropdownMenuItem<String>(
                           value: key,
                           child: Text(displayLabel),
@@ -1388,14 +1430,22 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       enableFilter: true,
                       enableSearch: true,
                       dropdownMenuEntries: const [
-                        DropdownMenuEntry(value: 'Ongkos Potong', label: 'Ongkos Potong'),
-                        DropdownMenuEntry(value: 'Ongkos jahit', label: 'Ongkos jahit'),
-                        DropdownMenuEntry(value: 'Ongkos Finishing', label: 'Ongkos Finishing'),
-                        DropdownMenuEntry(value: 'Ongkos Packing', label: 'Ongkos Packing'),
-                        DropdownMenuEntry(value: 'Deposit Tambahan', label: 'Deposit Tambahan'),
+                        DropdownMenuEntry(
+                            value: 'Ongkos Potong', label: 'Ongkos Potong'),
+                        DropdownMenuEntry(
+                            value: 'Ongkos jahit', label: 'Ongkos jahit'),
+                        DropdownMenuEntry(
+                            value: 'Ongkos Finishing',
+                            label: 'Ongkos Finishing'),
+                        DropdownMenuEntry(
+                            value: 'Ongkos Packing', label: 'Ongkos Packing'),
+                        DropdownMenuEntry(
+                            value: 'Deposit Tambahan',
+                            label: 'Deposit Tambahan'),
                       ],
                       onSelected: (v) {
-                        if (v != null) setSheetState(() => paymentLabel.text = v);
+                        if (v != null)
+                          setSheetState(() => paymentLabel.text = v);
                       },
                       inputDecorationTheme: const InputDecorationTheme(
                         border: OutlineInputBorder(),
@@ -1535,19 +1585,24 @@ class _StockProgressPageState extends State<StockProgressPage> {
     }
   }
 
-  Future<void> _updateStage(Map<String, dynamic> item, String stageKey, Map<String, dynamic> stage) async {
+  Future<void> _updateStage(Map<String, dynamic> item, String stageKey,
+      Map<String, dynamic> stage) async {
     if (!_ensureCanWriteProduction()) return;
     final bool isProgressLocked = false;
     String status = AppUi.text(stage['status'], 'progress');
-    bool isSkipped = (stage['is_skipped'] == true || AppUi.text(stage['is_skipped']) == 'true') || status == 'skipped';
+    bool isSkipped = (stage['is_skipped'] == true ||
+            AppUi.text(stage['is_skipped']) == 'true') ||
+        status == 'skipped';
     String selectedTailorId = AppUi.text(stage['tailor_id'], '');
-    final manualTailorController = TextEditingController(text: AppUi.text(stage['tailor_name']));
+    final manualTailorController =
+        TextEditingController(text: AppUi.text(stage['tailor_name']));
 
     final priceController = TextEditingController(
       text: AppUi.moneyInput(AppUi.toNum(stage['price_per_pcs'])),
     );
-    final noteController = TextEditingController(text: AppUi.text(stage['note']));
-    
+    final noteController =
+        TextEditingController(text: AppUi.text(stage['note']));
+
     DateTime processDate = stage['process_date'] != null
         ? DateTime.tryParse(AppUi.text(stage['process_date'])) ?? DateTime.now()
         : DateTime.now();
@@ -1557,13 +1612,16 @@ class _StockProgressPageState extends State<StockProgressPage> {
     bool saving = false;
 
     if (selectedTailorId.isNotEmpty) {
-      if (!_tailors.any((t) => AppUi.text(t['tailor_id']) == selectedTailorId)) {
+      if (!_tailors
+          .any((t) => AppUi.text(t['tailor_id']) == selectedTailorId)) {
         selectedTailorId = '';
       }
     }
     if (selectedTailorId.isEmpty && manualTailorController.text.isNotEmpty) {
       final match = _tailors.firstWhere(
-        (t) => AppUi.text(t['tailor_name']).trim().toLowerCase() == manualTailorController.text.trim().toLowerCase(),
+        (t) =>
+            AppUi.text(t['tailor_name']).trim().toLowerCase() ==
+            manualTailorController.text.trim().toLowerCase(),
         orElse: () => <String, dynamic>{},
       );
       if (match.isNotEmpty) {
@@ -1573,7 +1631,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
     final items = _mapList(item['items']);
     final existingBreakdown = _mapList(stage['size_breakdown']);
-    
+
     final List<Map<String, dynamic>> sizeInputs = [];
     for (final row in items) {
       final productId = AppUi.text(row['product_id']);
@@ -1581,22 +1639,34 @@ class _StockProgressPageState extends State<StockProgressPage> {
       final double sizeDefaultQty = AppUi.toNum(row['qty']).toDouble();
 
       final exist = existingBreakdown.firstWhere(
-        (e) => AppUi.text(e['product_id']) == productId && AppUi.text(e['size_label']) == sizeLabel,
+        (e) =>
+            AppUi.text(e['product_id']) == productId &&
+            AppUi.text(e['size_label']) == sizeLabel,
         orElse: () => <String, dynamic>{},
       );
 
-      final double sizeQtyIn = exist.isNotEmpty ? AppUi.toNum(exist['qty_in']).toDouble() : sizeDefaultQty;
-      final double sizeQtyOut = exist.isNotEmpty ? AppUi.toNum(exist['qty_out']).toDouble() : (exist.isNotEmpty ? AppUi.toNum(exist['qty_in']).toDouble() : sizeDefaultQty);
-      final double sizeQtyReject = exist.isNotEmpty ? AppUi.toNum(exist['qty_reject']).toDouble() : 0.0;
+      final double sizeQtyIn = exist.isNotEmpty
+          ? AppUi.toNum(exist['qty_in']).toDouble()
+          : sizeDefaultQty;
+      final double sizeQtyOut = exist.isNotEmpty
+          ? AppUi.toNum(exist['qty_out']).toDouble()
+          : (exist.isNotEmpty
+              ? AppUi.toNum(exist['qty_in']).toDouble()
+              : sizeDefaultQty);
+      final double sizeQtyReject =
+          exist.isNotEmpty ? AppUi.toNum(exist['qty_reject']).toDouble() : 0.0;
 
       sizeInputs.add({
         'product_id': productId,
         'size_label': sizeLabel,
         'local_sku': AppUi.text(row['local_sku']),
         'local_product_name': AppUi.text(row['local_product_name']),
-        'qty_in_controller': TextEditingController(text: sizeQtyIn.toStringAsFixed(0)),
-        'qty_out_controller': TextEditingController(text: sizeQtyOut.toStringAsFixed(0)),
-        'qty_reject_controller': TextEditingController(text: sizeQtyReject.toStringAsFixed(0)),
+        'qty_in_controller':
+            TextEditingController(text: sizeQtyIn.toStringAsFixed(0)),
+        'qty_out_controller':
+            TextEditingController(text: sizeQtyOut.toStringAsFixed(0)),
+        'qty_reject_controller':
+            TextEditingController(text: sizeQtyReject.toStringAsFixed(0)),
       });
     }
 
@@ -1611,7 +1681,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
             Future<void> submit() async {
-              final double price = AppUi.parseMoneyInput(priceController.text).toDouble();
+              final double price =
+                  AppUi.parseMoneyInput(priceController.text).toDouble();
               final String tailorName = manualTailorController.text.trim();
 
               if (!isSkipped && tailorName.isEmpty) {
@@ -1629,9 +1700,21 @@ class _StockProgressPageState extends State<StockProgressPage> {
               double totalQtyReject = 0;
 
               for (final input in sizeInputs) {
-                final qi = double.tryParse((input['qty_in_controller'] as TextEditingController).text.trim()) ?? 0;
-                final qo = double.tryParse((input['qty_out_controller'] as TextEditingController).text.trim()) ?? 0;
-                final qr = double.tryParse((input['qty_reject_controller'] as TextEditingController).text.trim()) ?? 0;
+                final qi = double.tryParse(
+                        (input['qty_in_controller'] as TextEditingController)
+                            .text
+                            .trim()) ??
+                    0;
+                final qo = double.tryParse(
+                        (input['qty_out_controller'] as TextEditingController)
+                            .text
+                            .trim()) ??
+                    0;
+                final qr = double.tryParse((input['qty_reject_controller']
+                            as TextEditingController)
+                        .text
+                        .trim()) ??
+                    0;
 
                 totalQtyIn += qi;
                 totalQtyOut += qo;
@@ -1648,8 +1731,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
               try {
                 setSheetState(() => saving = true);
-                
-                final String? finalTailorId = selectedTailorId.isNotEmpty ? selectedTailorId : null;
+
+                final String? finalTailorId =
+                    selectedTailorId.isNotEmpty ? selectedTailorId : null;
 
                 await _client.rpc(
                   'upsert_production_process_stage_for_app',
@@ -1664,8 +1748,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     'p_qty_reject': totalQtyReject,
                     'p_price_per_pcs': price,
                     'p_process_date': _dateOnly(processDate),
-                    'p_proof_url': proofEvidence?.publicUrl ?? (initialProofUrl.isNotEmpty ? initialProofUrl : null),
-                    'p_note': noteController.text.trim().isEmpty ? null : noteController.text.trim(),
+                    'p_proof_url': proofEvidence?.publicUrl ??
+                        (initialProofUrl.isNotEmpty ? initialProofUrl : null),
+                    'p_note': noteController.text.trim().isEmpty
+                        ? null
+                        : noteController.text.trim(),
                     'p_is_skipped': isSkipped,
                     'p_size_breakdown': sizeBreakdownJson,
                   },
@@ -1700,7 +1787,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           style: Theme.of(sheetContext)
                               .textTheme
                               .titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w900),
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -1718,9 +1805,12 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                       if (isSkipped) {
                                         status = 'skipped';
                                       } else {
-                                        status = AppUi.text(stage['status'], 'progress') == 'skipped' 
-                                            ? 'progress' 
-                                            : AppUi.text(stage['status'], 'progress');
+                                        status = AppUi.text(stage['status'],
+                                                    'progress') ==
+                                                'skipped'
+                                            ? 'progress'
+                                            : AppUi.text(
+                                                stage['status'], 'progress');
                                       }
                                     });
                                   },
@@ -1738,14 +1828,18 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         border: OutlineInputBorder(),
                       ),
                       items: const [
-                        DropdownMenuItem(value: 'pending', child: Text('Pending')),
-                        DropdownMenuItem(value: 'progress', child: Text('Progress')),
+                        DropdownMenuItem(
+                            value: 'pending', child: Text('Pending')),
+                        DropdownMenuItem(
+                            value: 'progress', child: Text('Progress')),
                         DropdownMenuItem(value: 'done', child: Text('Done')),
-                        DropdownMenuItem(value: 'cancelled', child: Text('Dibatalkan')),
+                        DropdownMenuItem(
+                            value: 'cancelled', child: Text('Dibatalkan')),
                       ],
                       onChanged: saving || isProgressLocked
                           ? null
-                          : (value) => setSheetState(() => status = value ?? 'progress'),
+                          : (value) =>
+                              setSheetState(() => status = value ?? 'progress'),
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
@@ -1770,8 +1864,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               setSheetState(() {
                                 selectedTailorId = value ?? '';
                                 if (selectedTailorId.isNotEmpty) {
-                                  final t = _tailors.firstWhere((element) => AppUi.text(element['tailor_id']) == selectedTailorId);
-                                  manualTailorController.text = AppUi.text(t['tailor_name']);
+                                  final t = _tailors.firstWhere((element) =>
+                                      AppUi.text(element['tailor_id']) ==
+                                      selectedTailorId);
+                                  manualTailorController.text =
+                                      AppUi.text(t['tailor_name']);
                                 }
                               });
                             },
@@ -1782,14 +1879,18 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       enabled: !saving && !isProgressLocked,
                       decoration: const InputDecoration(
                         labelText: 'Nama Pekerja',
-                        helperText: 'Bisa diisi manual jika nama tidak terdaftar di rekap.',
+                        helperText:
+                            'Bisa diisi manual jika nama tidak terdaftar di rekap.',
                         border: OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 12),
                     Text(
                       'Size Breakdown Qty:',
-                      style: Theme.of(sheetContext).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                      style: Theme.of(sheetContext)
+                          .textTheme
+                          .titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 6),
                     ...sizeInputs.map((input) {
@@ -1797,59 +1898,78 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         margin: const EdgeInsets.only(bottom: 8),
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          border: Border.all(color: Theme.of(sheetContext).dividerColor.withOpacity(0.2)),
+                          border: Border.all(
+                            color: Theme.of(sheetContext)
+                                .colorScheme
+                                .outlineVariant
+                                .withOpacity(
+                                  Theme.of(sheetContext).brightness ==
+                                          Brightness.dark
+                                      ? 0.3
+                                      : 0.5,
+                                ),
+                            width: 0.8,
+                          ),
+                          borderRadius: AppTheme.radiusSm,
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               '${input['size_label']} - ${input['local_sku']} (${input['local_product_name']})',
-                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 11),
                             ),
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                  Expanded(
-                                    child: TextField(
-                                      controller: input['qty_in_controller'] as TextEditingController,
-                                      keyboardType: TextInputType.number,
-                                      enabled: !saving && !isProgressLocked,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Qty In',
-                                        isDense: true,
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                        border: OutlineInputBorder(),
-                                      ),
+                                Expanded(
+                                  child: TextField(
+                                    controller: input['qty_in_controller']
+                                        as TextEditingController,
+                                    keyboardType: TextInputType.number,
+                                    enabled: !saving && !isProgressLocked,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Qty In',
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 8),
+                                      border: OutlineInputBorder(),
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: input['qty_out_controller'] as TextEditingController,
-                                      keyboardType: TextInputType.number,
-                                      enabled: !saving && !isProgressLocked,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Qty Out',
-                                        isDense: true,
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                        border: OutlineInputBorder(),
-                                      ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: input['qty_out_controller']
+                                        as TextEditingController,
+                                    keyboardType: TextInputType.number,
+                                    enabled: !saving && !isProgressLocked,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Qty Out',
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 8),
+                                      border: OutlineInputBorder(),
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: input['qty_reject_controller'] as TextEditingController,
-                                      keyboardType: TextInputType.number,
-                                      enabled: !saving && !isProgressLocked,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Reject',
-                                        isDense: true,
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                        border: OutlineInputBorder(),
-                                      ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: input['qty_reject_controller']
+                                        as TextEditingController,
+                                    keyboardType: TextInputType.number,
+                                    enabled: !saving && !isProgressLocked,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Reject',
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 8),
+                                      border: OutlineInputBorder(),
                                     ),
                                   ),
+                                ),
                               ],
                             ),
                           ],
@@ -1905,11 +2025,14 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     maxLines: 3,
                     enabled: !saving && !isProgressLocked,
                     decoration: InputDecoration(
-                      labelText: isSkipped ? 'Alasan dilewati (Wajib)' : 'Catatan (Opsional)',
+                      labelText: isSkipped
+                          ? 'Alasan dilewati (Wajib)'
+                          : 'Catatan (Opsional)',
                       border: const OutlineInputBorder(),
                     ),
                   ),
-                  if (!isSkipped && manualTailorController.text.trim().isNotEmpty) ...[
+                  if (!isSkipped &&
+                      manualTailorController.text.trim().isNotEmpty) ...[
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
                       onPressed: () {
@@ -1920,18 +2043,31 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           initialType: 'sewing_payment',
                         );
                       },
-                      icon: const Icon(Icons.payments_outlined, color: Colors.cyan),
+                      icon: Icon(Icons.payments_outlined,
+                          color: Theme.of(context).colorScheme.primary),
                       label: const Text('Bayar Ongkos Progress Ini'),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(44),
-                        side: const BorderSide(color: Colors.cyan),
+                        foregroundColor: Theme.of(context).colorScheme.primary,
+                        side: BorderSide(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withOpacity(0.38),
+                          width: 0.8,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
                     ),
                   ],
                   if (stage.isNotEmpty &&
                       (_currentRoleId == 'platform_owner' ||
                           _currentRoleId == 'super_admin' ||
-                          ((_currentRoleId == 'production' || _currentRoleId == 'produksi') && !isProgressLocked)) &&
+                          ((_currentRoleId == 'production' ||
+                                  _currentRoleId == 'produksi') &&
+                              !isProgressLocked)) &&
                       !saving) ...[
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
@@ -1941,15 +2077,16 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           builder: (dialogContext) => AlertDialog(
                             title: const Text('Hapus progress ini?'),
                             content: Text(
-                              'Menghapus progress "${_stageLabel(stageKey)}" akan mem-void semua rincian pembayaran terkait progress ini.\n\nApakah Anda yakin?'
-                            ),
+                                'Menghapus progress "${_stageLabel(stageKey)}" akan mem-void semua rincian pembayaran terkait progress ini.\n\nApakah Anda yakin?'),
                             actions: [
                               TextButton(
-                                onPressed: () => AppUi.safePop(dialogContext, false),
+                                onPressed: () =>
+                                    AppUi.safePop(dialogContext, false),
                                 child: const Text('Batal'),
                               ),
                               FilledButton.icon(
-                                onPressed: () => AppUi.safePop(dialogContext, true),
+                                onPressed: () =>
+                                    AppUi.safePop(dialogContext, true),
                                 icon: const Icon(Icons.delete_outline),
                                 label: const Text('Hapus'),
                               ),
@@ -1957,7 +2094,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           ),
                         );
                         if (confirmed != true) return;
-                        
+
                         try {
                           setSheetState(() => saving = true);
                           await _client.rpc(
@@ -1967,13 +2104,15 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               'p_stage_key': stageKey,
                             },
                           );
-                          if (sheetContext.mounted) AppUi.safePop(sheetContext, true);
+                          if (sheetContext.mounted)
+                            AppUi.safePop(sheetContext, true);
                         } on PostgrestException catch (e) {
                           AppUi.showSnack(e.message);
                         } catch (e) {
                           AppUi.showSnack(AppUi.userMessage(e.toString()));
                         } finally {
-                          if (sheetContext.mounted) setSheetState(() => saving = false);
+                          if (sheetContext.mounted)
+                            setSheetState(() => saving = false);
                         }
                       },
                       icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -1995,7 +2134,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.task_alt_outlined),
-                      label: Text(stageKey == 'packing' && status == 'done' && !isSkipped
+                      label: Text(stageKey == 'packing' &&
+                              status == 'done' &&
+                              !isSkipped
                           ? 'Selesaikan dan Masuk Stock'
                           : 'Simpan Progress'),
                     ),
@@ -2051,12 +2192,12 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   final itemId = AppUi.text(row['progress_item_id']);
                   final controller = controllers[itemId];
                   if (controller == null) continue;
-                  final double newQty = double.tryParse(controller.text.trim()) ?? 0.0;
-                  
+                  final double newQty =
+                      double.tryParse(controller.text.trim()) ?? 0.0;
+
                   await _client
                       .from('production_progress_items')
-                      .update({'qty': newQty})
-                      .eq('progress_item_id', itemId);
+                      .update({'qty': newQty}).eq('progress_item_id', itemId);
                 }
 
                 // 2. Call the RPC to finalize and stock in
@@ -2096,7 +2237,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     style: Theme.of(sheetContext)
                         .textTheme
                         .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w900),
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 10),
                   const Text(
@@ -2114,7 +2255,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           Expanded(
                             child: Text(
                               '${AppUi.text(row['size_label'])} - ${AppUi.text(row['local_sku'])} (${AppUi.text(row['local_product_name'])}):',
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 12),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -2126,7 +2268,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               enabled: !saving,
                               decoration: const InputDecoration(
                                 isDense: true,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 8),
                                 border: OutlineInputBorder(),
                               ),
                             ),
@@ -2140,7 +2283,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     children: [
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: saving ? null : () => AppUi.safePop(sheetContext, false),
+                          onPressed: saving
+                              ? null
+                              : () => AppUi.safePop(sheetContext, false),
                           child: const Text('Batal'),
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size(0, 44),
@@ -2155,7 +2300,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               ? const SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Icon(Icons.inventory_2_outlined),
                           label: const Text('Stock In'),
@@ -2175,7 +2321,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
     );
 
     for (final controller in controllers.values) {
-      Future.delayed(const Duration(milliseconds: 700), () => controller.dispose());
+      Future.delayed(
+          const Duration(milliseconds: 700), () => controller.dispose());
     }
     if (saved == true) _load();
   }
@@ -2192,10 +2339,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Hapus progress produksi?'),
         content: Text(
-          'Menghapus Surat Jalan ini akan menghapus semua progress proses, catatan pembayaran pekerja, '
-          'dan otomatis membatalkan penambahan stok barang di master SKU (jika sudah Done).\n\n'
-          'Apakah Anda yakin ingin menghapus "${AppUi.text(item['surat_jalan_number'])}"?'
-        ),
+            'Menghapus Surat Jalan ini akan menghapus semua progress proses, catatan pembayaran pekerja, '
+            'dan otomatis membatalkan penambahan stok barang di master SKU (jika sudah Done).\n\n'
+            'Apakah Anda yakin ingin menghapus "${AppUi.text(item['surat_jalan_number'])}"?'),
         actions: [
           TextButton(
             onPressed: () => AppUi.safePop(dialogContext, false),
@@ -2227,12 +2373,17 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
   Future<void> _editProgress(Map<String, dynamic> item) async {
     if (!_ensureCanWriteProduction()) return;
-    final suratJalanNumber = TextEditingController(text: AppUi.text(item['surat_jalan_number']));
-    final patternCode = TextEditingController(text: AppUi.text(item['pattern_code']));
+    final suratJalanNumber =
+        TextEditingController(text: AppUi.text(item['surat_jalan_number']));
+    final patternCode =
+        TextEditingController(text: AppUi.text(item['pattern_code']));
     final note = TextEditingController(text: AppUi.text(item['catatan']));
     final customStageController = TextEditingController();
-    DateTime productionDate = DateTime.tryParse(AppUi.text(item['production_date'])) ?? DateTime.now();
-    DateTime? targetDate = DateTime.tryParse(AppUi.text(item['target_finish_date']));
+    DateTime productionDate =
+        DateTime.tryParse(AppUi.text(item['production_date'])) ??
+            DateTime.now();
+    DateTime? targetDate =
+        DateTime.tryParse(AppUi.text(item['target_finish_date']));
     bool saving = false;
 
     List<Map<String, dynamic>> dbStages = [];
@@ -2260,7 +2411,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
             productId: pId,
             kodeSku: AppUi.text(itemRow['size_label']),
             kodeBarcode: null,
-            namaBarang: AppUi.text(itemRow['nama_barang'] ?? itemRow['size_label']),
+            namaBarang:
+                AppUi.text(itemRow['nama_barang'] ?? itemRow['size_label']),
             kategori: null,
             satuan: 'pcs',
             stockAwal: 0,
@@ -2322,7 +2474,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   final isActive = stage['active'] == true;
                   final persisted = stage['persisted'] == true;
                   final originalActive = stage['originalActive'] == true;
-                  final originalLabel = AppUi.text(stage['originalLabel']).trim();
+                  final originalLabel =
+                      AppUi.text(stage['originalLabel']).trim();
                   final labelChanged = label != originalLabel;
 
                   if (isActive) {
@@ -2350,7 +2503,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     stage['originalActive'] = false;
                   }
                 }
-                
+
                 final firstLine = validLines.first;
                 final firstProductId = firstLine.productId;
                 final firstProductName = firstLine.product?.namaBarang ?? '';
@@ -2360,7 +2513,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   'surat_jalan_number': manualSuratJalan,
                   'pattern_code': patternCode.text.trim(),
                   'production_date': _dateOnly(productionDate),
-                  'target_finish_date': targetDate == null ? null : _dateOnly(targetDate!),
+                  'target_finish_date':
+                      targetDate == null ? null : _dateOnly(targetDate!),
                   'catatan': note.text.trim(),
                   'product_id': firstProductId,
                   'product_name': firstProductName,
@@ -2394,7 +2548,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   };
                 }).toList();
 
-                await _client.from('production_progress_items').insert(newItems);
+                await _client
+                    .from('production_progress_items')
+                    .insert(newItems);
 
                 // Recalculate totals
                 await _client.rpc(
@@ -2429,7 +2585,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     style: Theme.of(sheetContext)
                         .textTheme
                         .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w900),
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -2515,9 +2671,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           onPressed: saving
                               ? null
                               : () async {
-                                  final picked = await _pickDate(productionDate);
+                                  final picked =
+                                      await _pickDate(productionDate);
                                   if (picked != null) {
-                                    setSheetState(() => productionDate = picked);
+                                    setSheetState(
+                                        () => productionDate = picked);
                                   }
                                 },
                           icon: const Icon(Icons.event_outlined),
@@ -2548,7 +2706,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       style: Theme.of(sheetContext)
                           .textTheme
                           .titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w900)),
+                          ?.copyWith(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
                   if (_localProducts.isEmpty)
                     const EmptyState(
@@ -2597,7 +2755,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       style: Theme.of(sheetContext)
                           .textTheme
                           .titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w900)),
+                          ?.copyWith(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 6),
                   ...availableStages.map((stage) {
                     final key = AppUi.text(stage['key']);
@@ -2607,7 +2765,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     final originalActive = stage['originalActive'] == true;
                     return Container(
                       margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 6),
                       decoration: BoxDecoration(
                         border: Border.all(
                           color: Theme.of(sheetContext)
@@ -2643,7 +2802,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                 Text(
                                   label,
                                   style: TextStyle(
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w800,
                                     decoration: active
                                         ? null
                                         : TextDecoration.lineThrough,
@@ -2725,7 +2884,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                   AppUi.showSnack('Nama progress tidak valid.');
                                   return;
                                 }
-                                final existing = availableStages.firstWhereOrNull(
+                                final existing =
+                                    availableStages.firstWhereOrNull(
                                   (stage) => AppUi.text(stage['key']) == key,
                                 );
                                 setSheetState(() {
@@ -2739,7 +2899,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                       'originalActive': false,
                                     });
                                   } else if (existing['active'] == true) {
-                                    AppUi.showSnack('Progress "$text" sudah ada.');
+                                    AppUi.showSnack(
+                                        'Progress "$text" sudah ada.');
                                   } else {
                                     existing
                                       ..['label'] = text
@@ -2853,7 +3014,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     style: Theme.of(sheetContext)
                         .textTheme
                         .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w900),
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   SizedBox(height: 12),
                   TextField(
@@ -3108,7 +3269,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     style: Theme.of(sheetContext)
                         .textTheme
                         .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w900),
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   SizedBox(height: 12),
                   TextField(
@@ -3164,7 +3325,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       style: Theme.of(sheetContext)
                           .textTheme
                           .titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w900)),
+                          ?.copyWith(fontWeight: FontWeight.w800)),
                   SizedBox(height: 8),
                   ...lines.map((line) => _materialLineEditor(
                         context: sheetContext,
@@ -3252,9 +3413,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
     required VoidCallback onChanged,
     required VoidCallback onRemove,
   }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: NiceCard(
         padding: const EdgeInsets.all(12),
         child: Column(
           children: [
@@ -3329,7 +3490,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
               alignment: Alignment.centerRight,
               child: Text(
                 'Total ${AppUi.rupiah(line.total)}',
-                style: TextStyle(fontWeight: FontWeight.w900),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
           ],
@@ -3627,7 +3788,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
           bottom: const TabBar(
             tabs: [
               Tab(icon: Icon(Icons.assignment_outlined), text: 'Progress'),
-              Tab(icon: Icon(Icons.account_balance_wallet_outlined), text: 'Keuangan'),
+              Tab(
+                  icon: Icon(Icons.account_balance_wallet_outlined),
+                  text: 'Keuangan'),
               Tab(icon: Icon(Icons.people_outline), text: 'Pekerja'),
             ],
           ),
@@ -3657,8 +3820,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               .toStringAsFixed(0)),
                       StatPill(
                           label: 'Done',
-                          value:
-                              AppUi.toNum(_summary['done_count']).toStringAsFixed(0)),
+                          value: AppUi.toNum(_summary['done_count'])
+                              .toStringAsFixed(0)),
                       StatPill(
                           label: 'Kasbon',
                           value: AppUi.rupiah(
@@ -3731,7 +3894,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       style: Theme.of(context)
                           .textTheme
                           .titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w900),
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                   ],
                 ),
@@ -3855,7 +4018,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                     .textTheme
                                     .titleMedium
                                     ?.copyWith(
-                                        fontWeight: FontWeight.w900,
+                                        fontWeight: FontWeight.w800,
                                         color: metric.$1 == 'Saldo deposit' &&
                                                 AppUi.toNum(_summary[
                                                         'deposit_remaining_total']) <
@@ -3909,8 +4072,17 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceVariant,
-                  borderRadius: BorderRadius.zero,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceVariant
+                      .withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .outlineVariant
+                          .withOpacity(0.5),
+                      width: 0.8),
                 ),
                 child: Row(
                   children: [
@@ -3918,8 +4090,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: AppUi.teal.withOpacity(0.12),
-                        border: Border.all(color: Colors.black, width: 1.5),
+                        color: AppUi.teal.withOpacity(0.08),
+                        border: Border.all(
+                            color: AppUi.teal.withOpacity(0.16), width: 0.8),
+                        borderRadius: BorderRadius.circular(8),
                       ),
                       child:
                           const Icon(Icons.savings_outlined, color: AppUi.teal),
@@ -3934,7 +4108,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                       deposit['note'], 'Deposit awal produksi')
                                   .toUpperCase(),
                               style: const TextStyle(
-                                  fontWeight: FontWeight.w900, fontSize: 12)),
+                                  fontWeight: FontWeight.w800, fontSize: 12)),
                           Text(AppUi.rupiah(AppUi.toNum(deposit['amount'])),
                               style: TextStyle(
                                   fontWeight: FontWeight.w800,
@@ -3954,8 +4128,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: statusColor.withOpacity(0.10),
-                        borderRadius: BorderRadius.zero,
-                        border: Border.all(color: statusColor.withOpacity(0.3)),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                            color: statusColor.withOpacity(0.30), width: 0.8),
                       ),
                       child: Text(statusText,
                           style: TextStyle(
@@ -4023,7 +4198,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surfaceVariant,
-                  borderRadius: BorderRadius.zero,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.fromBorderSide(AppUi.softBorderSide(context)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -4034,7 +4210,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           child: Text(
                             AppUi.text(
                                 purchase['supplier_name'], 'Supplier manual'),
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                            style: TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
                         Container(
@@ -4042,9 +4218,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: statusColor.withOpacity(0.10),
-                            borderRadius: BorderRadius.zero,
-                            border:
-                                Border.all(color: statusColor.withOpacity(0.3)),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                                color: statusColor.withOpacity(0.30),
+                                width: 0.8),
                           ),
                           child: Text(
                             paid ? 'sudah_bayar' : 'belum_bayar',
@@ -4108,7 +4285,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
             decoration: const InputDecoration(
               labelText: 'Penjahit',
               border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0), isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+              isDense: true,
             ),
             items: [
               const DropdownMenuItem(value: 'all', child: Text('Semua')),
@@ -4133,7 +4311,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
             decoration: const InputDecoration(
               labelText: 'Status',
               border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0), isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+              isDense: true,
             ),
             items: const [
               DropdownMenuItem(value: 'all', child: Text('Semua')),
@@ -4156,7 +4335,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
             decoration: const InputDecoration(
               labelText: 'Bayar',
               border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0), isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+              isDense: true,
             ),
             items: const [
               DropdownMenuItem(value: 'all', child: Text('Semua')),
@@ -4194,7 +4374,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
           .toLowerCase()
           .compareTo(AppUi.text(b['tailor_name']).toLowerCase()));
 
-    debugPrint('DEBUG TAILORS: _tailors=${_tailors.length}, _tailorCards=${_tailorCards.length}, byId=${byId.length}, visibleTailors=${visibleTailors.length}');
+    debugPrint(
+        'DEBUG TAILORS: _tailors=${_tailors.length}, _tailorCards=${_tailorCards.length}, byId=${byId.length}, visibleTailors=${visibleTailors.length}');
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -4207,13 +4388,14 @@ class _StockProgressPageState extends State<StockProgressPage> {
               style: Theme.of(context)
                   .textTheme
                   .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w900),
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             FilledButton.icon(
               onPressed: () => _showTailorSheet(),
               style: FilledButton.styleFrom(
                 minimumSize: const Size(0, 44),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               ),
               icon: const Icon(Icons.add),
               label: const Text('Tambah Pekerja'),
@@ -4238,7 +4420,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     children: [
                       Expanded(
                         child: Text(AppUi.text(tailor['tailor_name']),
-                            style: const TextStyle(fontWeight: FontWeight.w900)),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w800)),
                       ),
                       if (status == 'inactive')
                         Chip(
@@ -4279,16 +4462,18 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _miniMetric('Total jahit',
-                          AppUi.toNum(tailor['total_jahit']).toStringAsFixed(0)),
+                      _miniMetric(
+                          'Total jahit',
+                          AppUi.toNum(tailor['total_jahit'])
+                              .toStringAsFixed(0)),
                       _miniMetric('Ongkos',
                           AppUi.rupiah(AppUi.toNum(tailor['total_ongkos']))),
                       _miniMetric('Sudah',
                           AppUi.rupiah(AppUi.toNum(tailor['sudah_bayar']))),
                       _miniMetric('Belum',
                           AppUi.rupiah(AppUi.toNum(tailor['belum_bayar']))),
-                      _miniMetric(
-                          'Kasbon', AppUi.rupiah(AppUi.toNum(tailor['kasbon']))),
+                      _miniMetric('Kasbon',
+                          AppUi.rupiah(AppUi.toNum(tailor['kasbon']))),
                     ],
                   ),
                 ],
@@ -4331,12 +4516,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   children: [
                     Text(
                       AppUi.text(item['surat_jalan_number'], '-'),
-                      style: const TextStyle(fontWeight: FontWeight.w900),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'Kode Pola: ${AppUi.text(item['pattern_code'], '-')}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -4377,7 +4563,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 style: Theme.of(context)
                     .textTheme
                     .labelLarge
-                    ?.copyWith(fontWeight: FontWeight.w900)),
+                    ?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
             ...payments.map((payment) {
               final statusText = AppUi.text(payment['payment_status']);
@@ -4397,9 +4583,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: statusColor.withOpacity(0.10),
-                        borderRadius: BorderRadius.zero,
+                        borderRadius: BorderRadius.circular(999),
                         border: Border.all(
                           color: statusColor.withOpacity(0.28),
+                          width: 0.8,
                         ),
                       ),
                       child: Text(
@@ -4414,7 +4601,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     const SizedBox(width: 8),
                     Text(
                       AppUi.rupiah(AppUi.toNum(payment['amount'])),
-                      style: const TextStyle(fontWeight: FontWeight.w900),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     PopupMenuButton<String>(
                       onSelected: (value) {
@@ -4458,7 +4645,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 style: Theme.of(context)
                     .textTheme
                     .labelLarge
-                    ?.copyWith(fontWeight: FontWeight.w900)),
+                    ?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
             ...items.map((row) {
               return Padding(
@@ -4529,7 +4716,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
     final totalAmount = AppUi.toNum(stage['total_amount']);
     final tailorName = AppUi.text(stage['tailor_name']);
-    final pricePerPcs = AppUi.toNum(stage['price_per_pcs'] ?? stage['sewing_price_per_pcs']);
+    final pricePerPcs =
+        AppUi.toNum(stage['price_per_pcs'] ?? stage['sewing_price_per_pcs']);
     final qtyIn = AppUi.toNum(stage['qty_in']);
     final qtyOut = AppUi.toNum(stage['qty_out']);
     final qtyReject = AppUi.toNum(stage['qty_reject']);
@@ -4547,11 +4735,12 @@ class _StockProgressPageState extends State<StockProgressPage> {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
-      color: Theme.of(context).cardColor.withOpacity(0.4),
+      color: Theme.of(context).cardColor,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         side: BorderSide(
-          color: Theme.of(context).dividerColor.withOpacity(0.2),
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.32),
+          width: 0.8,
         ),
       ),
       child: InkWell(
@@ -4579,13 +4768,14 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   Text(
                     _stageLabel(stageKey),
                     style: TextStyle(
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                       color: color,
                     ),
                   ),
                   const Spacer(),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: color.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(4),
@@ -4595,7 +4785,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       status.toUpperCase(),
                       style: TextStyle(
                         fontSize: 9,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         color: color,
                       ),
                     ),
@@ -4622,10 +4812,12 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 children: [
                   Text(
                     'Total Ongkos: ${AppUi.rupiah(totalAmount)}',
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.bold),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 1.5),
                     decoration: BoxDecoration(
                       color: paymentStatus == 'sudah_bayar'
                           ? Colors.green.withOpacity(0.12)
@@ -4637,7 +4829,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       style: TextStyle(
                         fontSize: 8,
                         fontWeight: FontWeight.bold,
-                        color: paymentStatus == 'sudah_bayar' ? Colors.green : Colors.orange,
+                        color: paymentStatus == 'sudah_bayar'
+                            ? Colors.green
+                            : Colors.orange,
                       ),
                     ),
                   ),
@@ -4647,9 +4841,12 @@ class _StockProgressPageState extends State<StockProgressPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('In: ${qtyIn.toStringAsFixed(0)} pcs', style: const TextStyle(fontSize: 10)),
-                  Text('Out: ${qtyOut.toStringAsFixed(0)} pcs', style: const TextStyle(fontSize: 10)),
-                  Text('Reject: ${qtyReject.toStringAsFixed(0)} pcs', style: const TextStyle(fontSize: 10)),
+                  Text('In: ${qtyIn.toStringAsFixed(0)} pcs',
+                      style: const TextStyle(fontSize: 10)),
+                  Text('Out: ${qtyOut.toStringAsFixed(0)} pcs',
+                      style: const TextStyle(fontSize: 10)),
+                  Text('Reject: ${qtyReject.toStringAsFixed(0)} pcs',
+                      style: const TextStyle(fontSize: 10)),
                 ],
               ),
               if (sizeBreakdown.isNotEmpty) ...[
@@ -4663,9 +4860,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     final sbOut = AppUi.toNum(sb['qty_out']);
                     final sbReject = AppUi.toNum(sb['qty_reject']);
                     return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1.5),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceVariant
+                            .withOpacity(0.5),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -4680,7 +4881,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 const SizedBox(height: 6),
                 Text(
                   'Catatan: $catatan',
-                  style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic),
+                  style: const TextStyle(
+                      fontSize: 10, fontStyle: FontStyle.italic),
                 ),
               ],
               if (dates.isNotEmpty) ...[
@@ -4689,7 +4891,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   alignment: Alignment.bottomRight,
                   child: Text(
                     'Update terakhir: ${AppUi.dateTime(dates)}',
-                    style: TextStyle(fontSize: 8, color: Theme.of(context).hintColor),
+                    style: TextStyle(
+                        fontSize: 8, color: Theme.of(context).hintColor),
                   ),
                 ),
               ],
@@ -4705,7 +4908,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceVariant,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.fromBorderSide(AppUi.softBorderSide(context)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -4713,7 +4917,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
         children: [
           Text(label, style: Theme.of(context).textTheme.labelSmall),
           SizedBox(height: 2),
-          Text(value, style: TextStyle(fontWeight: FontWeight.w900)),
+          Text(value, style: TextStyle(fontWeight: FontWeight.w800)),
         ],
       ),
     );
@@ -4736,7 +4940,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
       decoration: BoxDecoration(
         color: active
             ? Theme.of(sheetContext).colorScheme.primary.withOpacity(0.08)
-            : Theme.of(sheetContext).colorScheme.surfaceVariant.withOpacity(0.22),
+            : Theme.of(sheetContext)
+                .colorScheme
+                .surfaceVariant
+                .withOpacity(0.22),
         border: Border.all(
           color: Theme.of(sheetContext).dividerColor.withOpacity(0.35),
         ),
@@ -4797,10 +5004,22 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
   List<Map<String, dynamic>> _defaultCreateStageTemplates() {
     return <Map<String, dynamic>>[
-      <String, dynamic>{'key': 'potong_kain', 'label': 'Potong Kain', 'active': true},
+      <String, dynamic>{
+        'key': 'potong_kain',
+        'label': 'Potong Kain',
+        'active': true
+      },
       <String, dynamic>{'key': 'jahit', 'label': 'Jahit', 'active': true},
-      <String, dynamic>{'key': 'lubang_kancing', 'label': 'Lubang Kancing', 'active': false},
-      <String, dynamic>{'key': 'finishing', 'label': 'Finishing', 'active': true},
+      <String, dynamic>{
+        'key': 'lubang_kancing',
+        'label': 'Lubang Kancing',
+        'active': false
+      },
+      <String, dynamic>{
+        'key': 'finishing',
+        'label': 'Finishing',
+        'active': true
+      },
       <String, dynamic>{'key': 'packing', 'label': 'Packing', 'active': true},
     ];
   }
@@ -4812,7 +5031,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
     if (_currentTenantId.isEmpty) return fallbackRows;
 
     try {
-      final response = await _client.rpc('list_production_stage_templates_for_app');
+      final response =
+          await _client.rpc('list_production_stage_templates_for_app');
       final templates = _mapList(response);
       if (templates.isEmpty) return fallbackRows;
 
@@ -4820,12 +5040,14 @@ class _StockProgressPageState extends State<StockProgressPage> {
           .map((row) {
             final key = AppUi.text(row['stage_key'] ?? row['key']).trim();
             if (key.isEmpty) return <String, dynamic>{};
-            final rawLabel = AppUi.text(row['stage_label'] ?? row['label']).trim();
+            final rawLabel =
+                AppUi.text(row['stage_label'] ?? row['label']).trim();
             final label = rawLabel.isEmpty ? _stageLabel(key) : rawLabel;
             return <String, dynamic>{
               'key': key,
               'label': label,
-              'active': row['default_selected'] == true || row['active'] == true,
+              'active':
+                  row['default_selected'] == true || row['active'] == true,
             };
           })
           .where((row) => AppUi.text(row['key']).isNotEmpty)
@@ -4943,7 +5165,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
       case 'packing':
         return 'Packing';
       default:
-        return stageKey.split('_').map((str) => str.isEmpty ? '' : '${str[0].toUpperCase()}${str.substring(1)}').join(' ');
+        return stageKey
+            .split('_')
+            .map((str) =>
+                str.isEmpty ? '' : '${str[0].toUpperCase()}${str.substring(1)}')
+            .join(' ');
     }
   }
 
@@ -5020,7 +5246,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
     final stages = _mapList(item['stages']);
     final payableStages = stages.where((stage) {
       final status = AppUi.text(stage['status']);
-      final skipped = status == 'skipped' || AppUi.text(stage['is_skipped']) == 'true';
+      final skipped =
+          status == 'skipped' || AppUi.text(stage['is_skipped']) == 'true';
       return !skipped;
     }).toList();
 
@@ -5044,16 +5271,18 @@ class _StockProgressPageState extends State<StockProgressPage> {
               final label = _stageLabel(key);
               final worker = AppUi.text(stage['tailor_name'], '');
               final total = AppUi.toNum(stage['total_amount']);
-              
+
               // Calculate paid amount
               final paymentsList = _mapList(item['payments']);
               final paid = paymentsList
-                  .where((p) => AppUi.text(p['stage_key']) == key && 
-                                AppUi.text(p['payment_status']) == 'sudah_bayar')
+                  .where((p) =>
+                      AppUi.text(p['stage_key']) == key &&
+                      AppUi.text(p['payment_status']) == 'sudah_bayar')
                   .fold<num>(0, (sum, p) => sum + AppUi.toNum(p['amount']));
-              
+
               final unpaid = total - paid;
-              final unpaidText = unpaid > 0 ? ' - Sisa: ${AppUi.rupiah(unpaid)}' : ' (Lunas)';
+              final unpaidText =
+                  unpaid > 0 ? ' - Sisa: ${AppUi.rupiah(unpaid)}' : ' (Lunas)';
 
               return ListTile(
                 title: Text(worker.isNotEmpty ? '$label ($worker)' : label),

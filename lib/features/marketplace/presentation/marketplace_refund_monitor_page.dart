@@ -58,6 +58,8 @@ class _MarketplaceRefundMonitorPageState
 
   Timer? _debounce;
 
+  Color get _premiumAccent => Theme.of(context).colorScheme.primary;
+
   @override
   void initState() {
     super.initState();
@@ -384,7 +386,7 @@ class _MarketplaceRefundMonitorPageState
                   'Pilih data return',
                   style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
                         color: Theme.of(context).colorScheme.onSurface,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                       ),
                 ),
                 SizedBox(height: 6),
@@ -404,7 +406,9 @@ class _MarketplaceRefundMonitorPageState
                       row['label_code']);
                   return Card(
                     color: Theme.of(context).cardColor,
+                    shape: AppUi.modernShape(context, radius: 14),
                     child: ListTile(
+                      contentPadding: const EdgeInsets.all(14),
                       title: Text(
                         _asText(row['external_order_id']),
                         style: TextStyle(
@@ -579,7 +583,8 @@ class _MarketplaceRefundMonitorPageState
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: color.withOpacity(0.45)),
+                    border:
+                        Border.all(color: color.withOpacity(0.24), width: 0.8),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -651,15 +656,15 @@ class _MarketplaceRefundMonitorPageState
         label: Text(label),
         selected: selected,
         onSelected: (_) => onTap(),
-        selectedColor: Colors.cyanAccent.withOpacity(0.22),
+        selectedColor: _premiumAccent.withOpacity(0.14),
         backgroundColor: Theme.of(context).cardColor,
         labelStyle: TextStyle(
             color: selected
-                ? Colors.cyanAccent
+                ? _premiumAccent
                 : Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
         side: BorderSide(
             color: selected
-                ? Colors.cyanAccent
+                ? _premiumAccent
                 : Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
       ),
     );
@@ -674,10 +679,7 @@ class _MarketplaceRefundMonitorPageState
 
     return Card(
       color: Theme.of(context).cardColor,
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: BorderSide(
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1))),
+      shape: AppUi.modernShape(context, radius: 18),
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -705,7 +707,8 @@ class _MarketplaceRefundMonitorPageState
                     decoration: BoxDecoration(
                       color: color.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: color.withOpacity(0.45)),
+                      border: Border.all(
+                          color: color.withOpacity(0.24), width: 0.8),
                     ),
                     child: Text(
                       _actionLabel(action),
@@ -744,8 +747,8 @@ class _MarketplaceRefundMonitorPageState
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(14),
-                  border:
-                      Border.all(color: Colors.cyanAccent.withOpacity(0.18)),
+                  border: Border.all(
+                      color: _premiumAccent.withOpacity(0.16), width: 0.8),
                 ),
                 child: Text(_asText(row['note']),
                     style: TextStyle(
@@ -882,7 +885,7 @@ class _MarketplaceRefundMonitorPageState
                               .titleLarge
                               ?.copyWith(
                                 color: Theme.of(context).colorScheme.onSurface,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w800,
                               ),
                         ),
                       ),
@@ -916,9 +919,10 @@ class _MarketplaceRefundMonitorPageState
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
                           color: (productBarcodeMatched == false
-                                  ? Colors.redAccent
-                                  : Colors.cyanAccent)
-                              .withOpacity(0.28)),
+                                  ? Theme.of(context).colorScheme.error
+                                  : _premiumAccent)
+                              .withOpacity(0.22),
+                          width: 0.8),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -932,7 +936,7 @@ class _MarketplaceRefundMonitorPageState
                           style: TextStyle(
                             color: productBarcodeMatched == false
                                 ? Colors.redAccent
-                                : Colors.cyanAccent,
+                                : _premiumAccent,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
@@ -1007,7 +1011,7 @@ class _MarketplaceRefundMonitorPageState
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     value: canRestock,
-                    activeColor: Colors.cyanAccent,
+                    activeColor: _premiumAccent,
                     title: Text('Bisa restock',
                         style: TextStyle(
                             color: Theme.of(context).colorScheme.onSurface)),
@@ -1080,7 +1084,7 @@ class _MarketplaceRefundMonitorPageState
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: Colors.cyanAccent),
+        borderSide: BorderSide(color: _premiumAccent),
       ),
     );
   }
@@ -1089,15 +1093,11 @@ class _MarketplaceRefundMonitorPageState
     final isDone = item.reviewStatus != 'pending' &&
         item.reviewStatus != 'not_required' &&
         item.reviewStatus != '-';
-    final color = isDone ? Colors.greenAccent : Colors.orangeAccent;
+    final color = isDone ? AppUi.green : AppUi.orange;
 
     return Card(
       color: Theme.of(context).cardColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(
-            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1)),
-      ),
+      shape: AppUi.modernShape(context, radius: 18),
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1111,7 +1111,7 @@ class _MarketplaceRefundMonitorPageState
                     item.externalOrderId,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
@@ -1121,7 +1121,8 @@ class _MarketplaceRefundMonitorPageState
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: color.withOpacity(0.42)),
+                    border:
+                        Border.all(color: color.withOpacity(0.24), width: 0.8),
                   ),
                   child: Text(
                     item.reviewStatus,
@@ -1172,15 +1173,15 @@ class _MarketplaceRefundMonitorPageState
     return ChoiceChip(
       label: Text(label),
       selected: selected,
-      selectedColor: Colors.cyanAccent.withOpacity(0.22),
+      selectedColor: _premiumAccent.withOpacity(0.14),
       backgroundColor: Theme.of(context).cardColor,
       labelStyle: TextStyle(
           color: selected
-              ? Colors.cyanAccent
+              ? _premiumAccent
               : Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
       side: BorderSide(
           color: selected
-              ? Colors.cyanAccent
+              ? _premiumAccent
               : Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
       onSelected: (_) {
         setState(() => _itemCheckMode = targetMode);
@@ -1195,7 +1196,7 @@ class _MarketplaceRefundMonitorPageState
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: Colors.cyanAccent.withOpacity(0.14)),
+        border: Border.all(color: _premiumAccent.withOpacity(0.16), width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1249,8 +1250,12 @@ class _MarketplaceRefundMonitorPageState
                   border: Border.all(
                       color: Theme.of(context)
                           .colorScheme
-                          .onSurface
-                          .withOpacity(0.1)),
+                          .outlineVariant
+                          .withOpacity(
+                              Theme.of(context).brightness == Brightness.dark
+                                  ? 0.3
+                                  : 0.5),
+                      width: 0.8),
                 ),
                 child: Text(
                   'Gunakan halaman ini untuk mengecek refund, cancel, return, dan status stok per pesanan. Scan resi mencari seluruh database tenant, bukan hanya data yang tampil di list.',
@@ -1312,7 +1317,7 @@ class _MarketplaceRefundMonitorPageState
                               .withOpacity(0.12))),
                   focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: Colors.cyanAccent)),
+                      borderSide: BorderSide(color: _premiumAccent)),
                 ),
                 items: <DropdownMenuItem<String>>[
                   const DropdownMenuItem<String>(
@@ -1368,7 +1373,7 @@ class _MarketplaceRefundMonitorPageState
                                 .withOpacity(0.12))),
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: Colors.cyanAccent)),
+                        borderSide: BorderSide(color: _premiumAccent)),
                   ),
                   items: <DropdownMenuItem<String>>[
                     const DropdownMenuItem<String>(
@@ -1403,7 +1408,7 @@ class _MarketplaceRefundMonitorPageState
                           .colorScheme
                           .onSurface
                           .withOpacity(0.38)),
-                  prefixIcon: Icon(Icons.search, color: Colors.cyanAccent),
+                  prefixIcon: Icon(Icons.search, color: _premiumAccent),
                   suffixIcon: _searchController.text.trim().isEmpty
                       ? null
                       : IconButton(
@@ -1435,7 +1440,7 @@ class _MarketplaceRefundMonitorPageState
                               .withOpacity(0.12))),
                   focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(color: Colors.cyanAccent)),
+                      borderSide: BorderSide(color: _premiumAccent)),
                 ),
               ),
               SizedBox(height: 10),
@@ -1522,8 +1527,12 @@ class _MarketplaceRefundMonitorPageState
                   decoration: BoxDecoration(
                     color: Colors.redAccent.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(16),
-                    border:
-                        Border.all(color: Colors.redAccent.withOpacity(0.35)),
+                    border: Border.all(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .error
+                            .withOpacity(0.24),
+                        width: 0.8),
                   ),
                   child: Text(_error!,
                       style: TextStyle(color: Colors.redAccent, height: 1.35)),
@@ -1540,8 +1549,12 @@ class _MarketplaceRefundMonitorPageState
                     border: Border.all(
                         color: Theme.of(context)
                             .colorScheme
-                            .onSurface
-                            .withOpacity(0.1)),
+                            .outlineVariant
+                            .withOpacity(
+                                Theme.of(context).brightness == Brightness.dark
+                                    ? 0.3
+                                    : 0.5),
+                        width: 0.8),
                   ),
                   child: Text(
                     'Belum ada data untuk filter ini. Ubah tanggal, toko, atau kata kunci lalu coba lagi.',

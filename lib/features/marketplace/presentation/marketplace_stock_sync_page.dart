@@ -371,7 +371,7 @@ class _MarketplaceStockSyncPageState extends State<MarketplaceStockSyncPage> {
                     Text(
                       'Auto Kirim Sinkron Stok',
                       style: TextStyle(
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         fontSize: 16,
                       ),
                     ),
@@ -645,12 +645,18 @@ class _MarketplaceStockSyncPageState extends State<MarketplaceStockSyncPage> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.zero,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(12)),
                 color: item.marketplace == 'shopee'
-                    ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
-                    : Theme.of(context).colorScheme.secondary.withOpacity(0.2),
-                border: const Border(
-                    bottom: BorderSide(color: Colors.black, width: 2)),
+                    ? Theme.of(context).colorScheme.primary.withOpacity(0.08)
+                    : Theme.of(context).colorScheme.secondary.withOpacity(0.08),
+                border: Border(
+                    bottom: BorderSide(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outlineVariant
+                            .withOpacity(0.5),
+                        width: 0.8)),
               ),
               child: Row(
                 children: [
@@ -682,7 +688,7 @@ class _MarketplaceStockSyncPageState extends State<MarketplaceStockSyncPage> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.onSurface,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w800,
                             fontSize: 18,
                           ),
                         ),
@@ -919,7 +925,7 @@ class _InfoBlock extends StatelessWidget {
               style: TextStyle(
                 color: Theme.of(context).textTheme.bodySmall?.color,
                 fontSize: 11,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w800,
                 letterSpacing: 0.6,
               ),
             ),
@@ -970,7 +976,7 @@ class _StatusPill extends StatelessWidget {
         label,
         style: TextStyle(
           color: Theme.of(context).colorScheme.onSurface,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w800,
           fontSize: 11,
           letterSpacing: 0.5,
         ),
@@ -1001,7 +1007,7 @@ class _MiniChip extends StatelessWidget {
         label,
         style: TextStyle(
           color: color,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w800,
           fontSize: 12,
         ),
       ),

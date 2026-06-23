@@ -226,7 +226,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
             Text(
               'Detail Riwayat Aktivitas',
               style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                   ),
             ),
             const SizedBox(height: 12),
@@ -255,7 +255,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
                     'Data Sebelum',
                     style:
                         Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w800,
                             ),
                   ),
                   const SizedBox(height: 8),
@@ -273,7 +273,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
                     'Data Sesudah',
                     style:
                         Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w800,
                             ),
                   ),
                   const SizedBox(height: 8),
@@ -387,7 +387,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
                   contentPadding: const EdgeInsets.all(14),
                   leading: CircleAvatar(child: Text(initial)),
                   title: Text(activity,
-                      style: const TextStyle(fontWeight: FontWeight.w900)),
+                      style: const TextStyle(fontWeight: FontWeight.w800)),
                   subtitle: Text(
                     '$module - $user\n${email.isEmpty ? AppUi.text(item['role_id']) : email}\n${AppUi.dateTime(item['created_at'])}',
                   ),

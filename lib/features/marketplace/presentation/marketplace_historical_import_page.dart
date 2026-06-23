@@ -53,7 +53,8 @@ class _MarketplaceHistoricalImportPageState
 
   MarketplaceAccountPublic? get _selectedAccount {
     final id = _selectedAccountId;
-    if (id == null) return _activeAccounts.isEmpty ? null : _activeAccounts.first;
+    if (id == null)
+      return _activeAccounts.isEmpty ? null : _activeAccounts.first;
     for (final account in _activeAccounts) {
       if (account.marketplaceAccountId == id) return account;
     }
@@ -120,7 +121,6 @@ class _MarketplaceHistoricalImportPageState
       // Status finalisasi hanya informasi peng. Error tidak perlu memblokir halaman import.
     }
   }
-
 
   Future<void> _pickOrder() async {
     final account = _selectedAccount;
@@ -300,7 +300,6 @@ class _MarketplaceHistoricalImportPageState
     return 'Rp ${buffer.toString()}';
   }
 
-
   void _setFinalizeProgress(Map<String, dynamic> status) {
     if (!mounted) return;
     setState(() {
@@ -427,8 +426,8 @@ class _MarketplaceHistoricalImportPageState
   String _buildFinalizeProgressMessage(Map<String, dynamic> status) {
     final state = status['status']?.toString() ?? '-';
     final phase = status['phase']?.toString() ?? '-';
-    final percent = ((_finalizePercent(status) * 100).clamp(0.0, 100.0))
-        .toStringAsFixed(1);
+    final percent =
+        ((_finalizePercent(status) * 100).clamp(0.0, 100.0)).toStringAsFixed(1);
 
     if (state == 'done') {
       return 'Finalisasi historical import selesai.';
@@ -480,7 +479,7 @@ class _MarketplaceHistoricalImportPageState
           const SizedBox(height: 8),
           Text(
             _phaseLabel(phase),
-            style: const TextStyle(fontWeight: FontWeight.w900),
+            style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 10),
           LinearProgressIndicator(value: value, minHeight: 10),
@@ -532,7 +531,7 @@ class _MarketplaceHistoricalImportPageState
             pending.isEmpty
                 ? 'Semua akun marketplace sudah selesai finalisasi live.'
                 : 'Belum finalisasi live: ${pending.join(', ')}.',
-            style: const TextStyle(fontWeight: FontWeight.w900),
+            style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 12),
           ..._finalizeStatus.map((row) {
@@ -540,9 +539,7 @@ class _MarketplaceHistoricalImportPageState
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.black),
-                ),
+                decoration: AppUi.modernCardDecoration(context, radius: 8),
                 child: Padding(
                   padding: const EdgeInsets.all(10),
                   child: Column(
@@ -550,7 +547,7 @@ class _MarketplaceHistoricalImportPageState
                     children: [
                       Text(
                         _accountTitle(row),
-                        style: const TextStyle(fontWeight: FontWeight.w900),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 6),
                       _MetricLine(label: 'Status', value: _statusLabel(status)),
@@ -661,7 +658,7 @@ class _MarketplaceHistoricalImportPageState
           const SizedBox(height: 8),
           Text(
             phase,
-            style: const TextStyle(fontWeight: FontWeight.w900),
+            style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 10),
           LinearProgressIndicator(value: value, minHeight: 10),
@@ -874,10 +871,11 @@ class _MarketplaceHistoricalImportPageState
             runSpacing: 8,
             children: [
               FilledButton.icon(
-                onPressed:
-                    _busy || account == null || (_orderParsed == null && _incomeParsed == null)
-                        ? null
-                        : _uploadAll,
+                onPressed: _busy ||
+                        account == null ||
+                        (_orderParsed == null && _incomeParsed == null)
+                    ? null
+                    : _uploadAll,
                 icon: _busy
                     ? const SizedBox(
                         width: 16,
@@ -885,7 +883,8 @@ class _MarketplaceHistoricalImportPageState
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.cloud_upload_outlined),
-                label: Text(_busy ? 'Upload berjalan...' : 'Upload Order + Income'),
+                label: Text(
+                    _busy ? 'Upload berjalan...' : 'Upload Order + Income'),
               ),
               FilledButton.icon(
                 onPressed: _busy || account == null ? null : _validate,
@@ -893,7 +892,9 @@ class _MarketplaceHistoricalImportPageState
                 label: const Text('Validasi Import'),
               ),
               OutlinedButton.icon(
-                onPressed: _busy || _finalizeTapLocked || account == null ? null : _finalizeBootstrap,
+                onPressed: _busy || _finalizeTapLocked || account == null
+                    ? null
+                    : _finalizeBootstrap,
                 icon: const Icon(Icons.verified_outlined),
                 label: const Text('Finalize Bootstrap'),
               ),
@@ -928,7 +929,7 @@ class _MetricLine extends StatelessWidget {
             width: 98,
             child: Text(
               label,
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
             ),
           ),
           Expanded(

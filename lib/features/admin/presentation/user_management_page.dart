@@ -460,7 +460,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
                     user == null ? 'Tambah Profile User' : 'Edit User',
                     style:
                         Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w800,
                             ),
                   ),
                   const SizedBox(height: 8),
@@ -805,7 +805,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
                   ),
                   title: Text(
                     AppUi.text(user['nama']),
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                   subtitle: Text(
                     '${AppUi.text(user['email'])}\n'

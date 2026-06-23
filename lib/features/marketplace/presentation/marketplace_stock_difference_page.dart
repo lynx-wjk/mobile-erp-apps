@@ -329,14 +329,18 @@ class _MarketplaceStockDifferencePageState
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.35),
-        border:
-            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.25)),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.44,
+              ),
+          width: 0.8,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('Selisih Stok Marketplace',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
           const SizedBox(height: 4),
           Text(
             'Bandingkan stok lokal dengan stok marketplace terbaru.',
@@ -476,61 +480,65 @@ class _MarketplaceStockDifferencePageState
 
   Widget _itemCard(MarketplaceStockDifferenceItem item) {
     final color = _statusColor(item.differenceStatus);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${item.localSku} · ${item.localProductName}',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w800),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: NiceCard(
+        padding: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${item.localSku} · ${item.localProductName}',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
                   ),
-                ),
-                _statusBadge(item.differenceLabel, color),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text('${item.marketplaceLabel} · ${item.safeAccountName}'),
-            const SizedBox(height: 4),
-            Text(
-                '${item.marketplaceProductName} · ${item.marketplaceVariantText}'),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(child: _miniMetric('Local', item.localStockText)),
-                Expanded(
-                    child:
-                        _miniMetric('Marketplace', item.marketplaceStockText)),
-                Expanded(child: _miniMetric('Diff', item.differenceText)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Product: ${item.productStatus ?? '-'} · SKU: ${item.skuStatus ?? '-'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  _statusBadge(item.differenceLabel, color),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text('${item.marketplaceLabel} · ${item.safeAccountName}'),
+              const SizedBox(height: 4),
+              Text(
+                  '${item.marketplaceProductName} · ${item.marketplaceVariantText}'),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(child: _miniMetric('Local', item.localStockText)),
+                  Expanded(
+                      child: _miniMetric(
+                          'Marketplace', item.marketplaceStockText)),
+                  Expanded(child: _miniMetric('Diff', item.differenceText)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Product: ${item.productStatus ?? '-'} · SKU: ${item.skuStatus ?? '-'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-                if (item.canSync)
-                  FilledButton.tonalIcon(
-                    onPressed: _isSinkronkaning ? null : () => _queueOne(item),
-                    icon: const Icon(Icons.sync_rounded),
-                    label: const Text('Sinkronkan'),
-                  ),
-              ],
-            ),
-          ],
+                  if (item.canSync)
+                    FilledButton.tonalIcon(
+                      onPressed:
+                          _isSinkronkaning ? null : () => _queueOne(item),
+                      icon: const Icon(Icons.sync_rounded),
+                      label: const Text('Sinkronkan'),
+                    ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -551,7 +559,7 @@ class _MarketplaceStockDifferencePageState
           const SizedBox(height: 4),
           Text(value,
               style:
-                  const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                  const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
         ],
       ),
     );
@@ -628,7 +636,12 @@ class _MarketplaceStockDifferencePageState
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.44,
+              ),
+          width: 0.8,
+        ),
       ),
       child: const Text('No data matches the current filter.'),
     );

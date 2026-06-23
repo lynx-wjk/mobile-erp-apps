@@ -133,13 +133,10 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
     }
 
     try {
-      await _client
-          .from('products')
-          .update({
+      await _client.from('products').update({
         'stock_saat_ini': newStock,
         'updated_at': DateTime.now().toIso8601String(),
-      })
-          .eq('product_id', item.productId);
+      }).eq('product_id', item.productId);
 
       if (!mounted) return;
 
@@ -165,36 +162,68 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
     final totalSku = _allItems.length;
     final totalStock = _allItems.fold<num>(
       0,
-          (sum, item) => sum + item.stockSaatIni,
+      (sum, item) => sum + item.stockSaatIni,
     );
     final lowStock = _allItems
         .where((item) => item.stockSaatIni <= item.lowStockLimit)
         .length;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Wrap(
-          spacing: 24,
-          runSpacing: 12,
-          children: [
-            _miniStat('Total SKU', totalSku.toString()),
-            _miniStat('Total Stock', totalStock.toStringAsFixed(0)),
-            _miniStat('Low Stock', lowStock.toString()),
-          ],
-        ),
+    return NiceCard(
+      padding: const EdgeInsets.all(16),
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          _miniStat(
+              'Total SKU', totalSku.toString(), Icons.inventory_2_outlined),
+          _miniStat('Total Stock', totalStock.toStringAsFixed(0),
+              Icons.warehouse_outlined),
+          _miniStat(
+              'Low Stock', lowStock.toString(), Icons.warning_amber_rounded),
+        ],
       ),
     );
   }
 
-  Widget _miniStat(String label, String value) {
-    return SizedBox(
-      width: 100,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _miniStat(String label, String value, IconData icon) {
+    final theme = Theme.of(context);
+    return Container(
+      width: 150,
+      padding: const EdgeInsets.all(12),
+      decoration: AppUi.tintedDecoration(
+        context,
+        color: theme.colorScheme.primary,
+        radius: 14,
+      ),
+      child: Row(
         children: [
-          Text(value, style: Theme.of(context).textTheme.titleLarge),
-          Text(label),
+          Icon(icon, color: theme.colorScheme.primary, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppUi.mutedText(context, 0.66),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -202,16 +231,11 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
 
   Widget _body() {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const LoadingState();
     }
 
     if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(_errorMessage!, textAlign: TextAlign.center),
-        ),
-      );
+      return ErrorState(message: _errorMessage!, onRetry: _loadData);
     }
 
     final items = _filteredItems;
@@ -223,45 +247,59 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
         children: [
           _summaryCard(),
           const SizedBox(height: 12),
-          TextField(
+          SearchBox(
             controller: _searchController,
-            decoration: const InputDecoration(
-              labelText: 'Cari SKU / Barcode / Nama Barang',
-              prefixIcon: Icon(Icons.search),
-              border: OutlineInputBorder(),
-            ),
+            onChanged: (_) => setState(() {}),
+            hint: 'Cari SKU, barcode, atau nama barang',
           ),
           const SizedBox(height: 12),
           if (items.isEmpty)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(18),
-                child: Text('Barang tidak ditemukan.'),
-              ),
+            const EmptyState(
+              icon: Icons.inventory_2_outlined,
+              title: 'Barang tidak ditemukan',
+              subtitle: 'Coba kata kunci lain atau tambahkan SKU baru.',
             )
           else
             ...items.map((item) {
               final isLow = item.stockSaatIni <= item.lowStockLimit;
+              final color =
+                  isLow ? AppUi.orange : Theme.of(context).colorScheme.primary;
 
-              return Card(
-                child: ListTile(
-                  leading: CircleAvatar(
-                    child: Icon(
-                      isLow
-                          ? Icons.warning_amber_outlined
-                          : Icons.inventory_2_outlined,
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: NiceCard(
+                  padding: EdgeInsets.zero,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(14),
+                    leading: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: AppUi.tintedDecoration(
+                        context,
+                        color: color,
+                        radius: 12,
+                      ),
+                      child: Icon(
+                        isLow
+                            ? Icons.warning_amber_outlined
+                            : Icons.inventory_2_outlined,
+                        color: color,
+                      ),
                     ),
-                  ),
-                  title: Text(item.namaBarang),
-                  subtitle: Text(
-                    'SKU: ${item.kodeSku}\n'
-                        'Barcode: ${item.kodeBarcode}\n'
-                        'Stock: ${item.stockSaatIni.toStringAsFixed(0)} | Low: ${item.lowStockLimit.toStringAsFixed(0)}',
-                  ),
-                  isThreeLine: true,
-                  trailing: IconButton(
-                    icon: const Icon(Icons.edit_outlined),
-                    onPressed: () => _editStock(item),
+                    title: Text(
+                      item.namaBarang,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(
+                      'SKU: ${item.kodeSku}\n'
+                      'Barcode: ${item.kodeBarcode}\n'
+                      'Stock: ${item.stockSaatIni.toStringAsFixed(0)} | Low: ${item.lowStockLimit.toStringAsFixed(0)}',
+                    ),
+                    isThreeLine: true,
+                    trailing: IconButton(
+                      icon: const Icon(Icons.edit_outlined),
+                      onPressed: () => _editStock(item),
+                    ),
                   ),
                 ),
               );

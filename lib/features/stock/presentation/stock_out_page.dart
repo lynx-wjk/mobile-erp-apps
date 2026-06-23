@@ -772,7 +772,7 @@ class _StockOutPageState extends State<StockOutPage> {
                       Text(
                         'Pilih Item Pesanan',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w800,
                             ),
                       ),
                       SizedBox(height: 6),
@@ -799,14 +799,13 @@ class _StockOutPageState extends State<StockOutPage> {
                     itemBuilder: (context, index) {
                       final item = selectable[index];
                       return Card(
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.zero),
+                        shape: AppUi.modernShape(context, radius: 14),
                         child: ListTile(
                           contentPadding: const EdgeInsets.all(14),
                           leading: const CircleAvatar(
                               child: Icon(Icons.playlist_add_check_rounded)),
                           title: Text(item.productName,
-                              style: TextStyle(fontWeight: FontWeight.w900)),
+                              style: TextStyle(fontWeight: FontWeight.w700)),
                           subtitle: Text(
                             'Varian: ${item.variantName}\n'
                             'Mapping order: ${item.mappedLocalSku}\n'
@@ -881,7 +880,7 @@ class _StockOutPageState extends State<StockOutPage> {
                     Text(
                       'SKU aktual berbeda dari item order/resi.',
                       style: TextStyle(
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         color: Theme.of(context).colorScheme.error,
                       ),
                     ),
@@ -896,17 +895,21 @@ class _StockOutPageState extends State<StockOutPage> {
                     SizedBox(height: 12),
                     Text(
                       'Catatan Pembeli',
-                      style: TextStyle(fontWeight: FontWeight.w900),
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                     SizedBox(height: 4),
-                    Text((_buyerNote ?? '').trim().isEmpty ? 'Tidak ada catatan' : _buyerNote!.trim()),
+                    Text((_buyerNote ?? '').trim().isEmpty
+                        ? 'Tidak ada catatan'
+                        : _buyerNote!.trim()),
                     SizedBox(height: 10),
                     Text(
                       'Catatan Penjual',
-                      style: TextStyle(fontWeight: FontWeight.w900),
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                     SizedBox(height: 4),
-                    Text((_sellerNote ?? '').trim().isEmpty ? 'Tidak ada catatan' : _sellerNote!.trim()),
+                    Text((_sellerNote ?? '').trim().isEmpty
+                        ? 'Tidak ada catatan'
+                        : _sellerNote!.trim()),
                     SizedBox(height: 14),
                     TextField(
                       controller: controller,
@@ -1049,7 +1052,7 @@ class _StockOutPageState extends State<StockOutPage> {
                                 .textTheme
                                 .titleLarge
                                 ?.copyWith(
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w800,
                                 ),
                           ),
                           SizedBox(height: 12),
@@ -1088,9 +1091,7 @@ class _StockOutPageState extends State<StockOutPage> {
                                 final product = filtered[index];
 
                                 return Card(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.zero,
-                                  ),
+                                  shape: AppUi.modernShape(context, radius: 14),
                                   child: ListTile(
                                     leading: CircleAvatar(
                                       backgroundColor: Theme.of(context)
@@ -1102,7 +1103,7 @@ class _StockOutPageState extends State<StockOutPage> {
                                     title: Text(
                                       product.namaBarang,
                                       style: TextStyle(
-                                          fontWeight: FontWeight.w800),
+                                          fontWeight: FontWeight.w700),
                                     ),
                                     subtitle: Text(
                                       'SKU: ${product.kodeSku}\n'
@@ -1445,10 +1446,11 @@ class _StockOutPageState extends State<StockOutPage> {
       width: 132,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.11),
-        borderRadius: BorderRadius.zero,
+        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06),
+        borderRadius: AppTheme.radiusMd,
         border: Border.all(
-            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.16)),
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12),
+            width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1459,7 +1461,7 @@ class _StockOutPageState extends State<StockOutPage> {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurface,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
             ),
           ),
           SizedBox(height: 4),
@@ -1477,8 +1479,8 @@ class _StockOutPageState extends State<StockOutPage> {
 
   Widget _formCard() {
     final isMarketplaceActive = _isMarketplaceVerificationActive;
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+    return NiceCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -1622,16 +1624,16 @@ class _StockOutPageState extends State<StockOutPage> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: color.withOpacity(0.10),
-        border: Border.all(color: color.withOpacity(0.35)),
+        borderRadius: AppTheme.radiusMd,
+        color: color.withOpacity(0.08),
+        border: Border.all(color: color.withOpacity(0.22), width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             ok ? 'Order marketplace ditemukan' : 'Resi belum cocok',
-            style: TextStyle(color: color, fontWeight: FontWeight.w900),
+            style: TextStyle(color: color, fontWeight: FontWeight.w800),
           ),
           SizedBox(height: 4),
           Text(_marketplaceOrderMessage ?? '-'),
@@ -1650,24 +1652,29 @@ class _StockOutPageState extends State<StockOutPage> {
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface.withOpacity(0.75),
-                border: Border.all(color: color.withOpacity(0.22)),
+                borderRadius: AppTheme.radiusSm,
+                border: Border.all(color: color.withOpacity(0.18), width: 0.8),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Catatan Pembeli',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                   SizedBox(height: 4),
-                  Text((_buyerNote ?? '').trim().isEmpty ? 'Tidak ada catatan' : _buyerNote!.trim()),
+                  Text((_buyerNote ?? '').trim().isEmpty
+                      ? 'Tidak ada catatan'
+                      : _buyerNote!.trim()),
                   SizedBox(height: 10),
                   Text(
                     'Catatan Penjual',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                   SizedBox(height: 4),
-                  Text((_sellerNote ?? '').trim().isEmpty ? 'Tidak ada catatan' : _sellerNote!.trim()),
+                  Text((_sellerNote ?? '').trim().isEmpty
+                      ? 'Tidak ada catatan'
+                      : _sellerNote!.trim()),
                 ],
               ),
             ),
@@ -1691,13 +1698,10 @@ class _StockOutPageState extends State<StockOutPage> {
     }
 
     if (_items.isEmpty) {
-      return Card(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-        child: Padding(
-          padding: EdgeInsets.all(18),
-          child: Text(
-              'Belum ada item. Scan QR/barcode produk atau pilih manual dulu.'),
-        ),
+      return const EmptyState(
+        icon: Icons.qr_code_scanner_rounded,
+        title: 'Belum ada item keluar',
+        subtitle: 'Scan QR/barcode produk atau pilih manual dulu.',
       );
     }
 
@@ -1707,7 +1711,7 @@ class _StockOutPageState extends State<StockOutPage> {
         Text(
           'Daftar Barang Keluar',
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w800,
               ),
         ),
         SizedBox(height: 8),
@@ -1715,8 +1719,8 @@ class _StockOutPageState extends State<StockOutPage> {
           final index = entry.key;
           final item = entry.value;
 
-          return Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          return NiceCard(
+            padding: EdgeInsets.zero,
             child: ListTile(
               contentPadding: const EdgeInsets.all(14),
               leading: CircleAvatar(
@@ -1724,7 +1728,7 @@ class _StockOutPageState extends State<StockOutPage> {
               ),
               title: Text(
                 item.product.namaBarang,
-                style: TextStyle(fontWeight: FontWeight.w900),
+                style: TextStyle(fontWeight: FontWeight.w700),
               ),
               subtitle: Text(
                 'SKU: ${item.product.kodeSku}\n'
@@ -1762,24 +1766,19 @@ class _StockOutPageState extends State<StockOutPage> {
 
   Widget _marketplaceItemsCard() {
     if (_marketplaceOrderId == null) {
-      return Card(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-        child: Padding(
-          padding: EdgeInsets.all(18),
-          child: Text(
-              'Scan atau cek resi marketplace dulu. Setelah resi cocok, item pesanan akan tampil di sini.'),
-        ),
+      return const EmptyState(
+        icon: Icons.fact_check_outlined,
+        title: 'Resi marketplace belum cocok',
+        subtitle:
+            'Scan atau cek resi marketplace dulu. Setelah cocok, item pesanan tampil di sini.',
       );
     }
 
     if (_marketplacePickItems.isEmpty) {
-      return Card(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-        child: Padding(
-          padding: EdgeInsets.all(18),
-          child: Text(
-              'Item pesanan belum terbaca. Ambil Order ulang jika data item belum masuk.'),
-        ),
+      return const EmptyState(
+        icon: Icons.playlist_add_check_rounded,
+        title: 'Item pesanan belum terbaca',
+        subtitle: 'Ambil order ulang jika data item belum masuk.',
       );
     }
 
@@ -1791,7 +1790,7 @@ class _StockOutPageState extends State<StockOutPage> {
           style: Theme.of(context)
               .textTheme
               .titleLarge
-              ?.copyWith(fontWeight: FontWeight.w900),
+              ?.copyWith(fontWeight: FontWeight.w800),
         ),
         SizedBox(height: 8),
         ..._marketplacePickItems.map((item) {
@@ -1799,8 +1798,8 @@ class _StockOutPageState extends State<StockOutPage> {
           final color = done
               ? Colors.green.shade700
               : Theme.of(context).colorScheme.primary;
-          return Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          return NiceCard(
+            padding: EdgeInsets.zero,
             child: ListTile(
               contentPadding: const EdgeInsets.all(14),
               leading: CircleAvatar(
@@ -1810,7 +1809,7 @@ class _StockOutPageState extends State<StockOutPage> {
                     color: color),
               ),
               title: Text(item.productName,
-                  style: TextStyle(fontWeight: FontWeight.w900)),
+                  style: TextStyle(fontWeight: FontWeight.w700)),
               subtitle: Text(
                 'Varian: ${item.variantName}\n'
                 'SKU lokal: ${item.mappedLocalSku}\n'
@@ -1828,32 +1827,11 @@ class _StockOutPageState extends State<StockOutPage> {
 
   Widget _body() {
     if (_isLoading) {
-      return Center(child: CircularProgressIndicator());
+      return const LoadingState();
     }
 
     if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.error_outline, size: 42),
-              SizedBox(height: 12),
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-              ),
-              SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _loadInitial,
-                icon: Icon(Icons.refresh),
-                label: Text('Coba Lagi'),
-              ),
-            ],
-          ),
-        ),
-      );
+      return ErrorState(message: _errorMessage!, onRetry: _loadInitial);
     }
 
     // V10 targeted render fix: keep the original Stok Keluar UI, but avoid

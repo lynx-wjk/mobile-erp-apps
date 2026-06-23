@@ -413,7 +413,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                       style: Theme.of(context)
                           .textTheme
                           .titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w900)),
+                          ?.copyWith(fontWeight: FontWeight.w800)),
                   SizedBox(height: 10),
                   Text(
                       _rowText(row,
@@ -492,7 +492,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                                       fallback: _selectedAccountId ?? ''),
                                   'marketplace': _rowText(
                                       row, const ['marketplace'],
-                                      fallback: _selectedAccount?.marketplace ?? 'tiktok_shop'),
+                                      fallback: _selectedAccount?.marketplace ??
+                                          'tiktok_shop'),
                                   'marketplace_product_id': _rowText(
                                       row, const ['marketplace_product_id']),
                                   'marketplace_sku_id': _rowText(
@@ -621,7 +622,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
             _rowDouble(row, const ['hpp', 'hpp_amount', 'hpp_per_item']);
         sheet.appendRow([
           _rowText(row, const ['marketplace_account_id']),
-          _rowText(row, const ['marketplace'], fallback: _selectedAccount?.marketplace ?? 'tiktok_shop'),
+          _rowText(row, const ['marketplace'],
+              fallback: _selectedAccount?.marketplace ?? 'tiktok_shop'),
           _rowText(row, const ['marketplace_product_id']),
           _rowText(row, const ['marketplace_sku_id']),
           _rowText(row, const ['marketplace_seller_sku', 'seller_sku']),
@@ -957,15 +959,21 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       final rows = <Map<String, dynamic>>[];
       for (final r in sheet.rows.skip(1)) {
         final marketplaceSkuId = cellFrom(r, const ['marketplace_sku_id']);
-        final sellerSku = cellFrom(r, const ['marketplace_seller_sku', 'seller_sku']);
-        final snapshotId = cellFrom(r, const ['marketplace_variant_snapshot_id']);
-        final localProductId = cellFrom(r, const ['local_product_id', 'product_id']);
+        final sellerSku =
+            cellFrom(r, const ['marketplace_seller_sku', 'seller_sku']);
+        final snapshotId =
+            cellFrom(r, const ['marketplace_variant_snapshot_id']);
+        final localProductId =
+            cellFrom(r, const ['local_product_id', 'product_id']);
         final localSku = cellFrom(r, const ['local_sku']);
-        if (marketplaceSkuId.isEmpty && sellerSku.isEmpty && snapshotId.isEmpty) {
+        if (marketplaceSkuId.isEmpty &&
+            sellerSku.isEmpty &&
+            snapshotId.isEmpty) {
           continue;
         }
         if (localProductId.isEmpty && localSku.isEmpty) continue;
-        final rowAccountId = cellFrom(r, const ['marketplace_account_id', 'account_id']);
+        final rowAccountId =
+            cellFrom(r, const ['marketplace_account_id', 'account_id']);
         final effectiveAccountId =
             rowAccountId.isNotEmpty ? rowAccountId : (selectedAccountId ?? '');
         if (effectiveAccountId.isEmpty) continue;
@@ -978,9 +986,11 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
               ? (_selectedAccount?.marketplace ?? 'tiktok_shop')
               : cellFrom(r, const ['marketplace']),
           'marketplace_variant_snapshot_id': snapshotId,
-          'marketplace_product_id': cellFrom(r, const ['marketplace_product_id']),
+          'marketplace_product_id':
+              cellFrom(r, const ['marketplace_product_id']),
           'marketplace_sku_id': marketplaceSkuId,
-          'marketplace_sku': cellFrom(r, const ['marketplace_sku', 'marketplace_sku_code']),
+          'marketplace_sku':
+              cellFrom(r, const ['marketplace_sku', 'marketplace_sku_code']),
           'marketplace_seller_sku': sellerSku,
           'marketplace_product_name':
               cellFrom(r, const ['marketplace_product_name', 'product_name']),
@@ -1000,7 +1010,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         syncEnabled: _formSyncEnabled,
       );
       if (result['ok'] != true) {
-        throw Exception(result['message']?.toString() ?? 'Import SKU mapping gagal.');
+        throw Exception(
+            result['message']?.toString() ?? 'Import SKU mapping gagal.');
       }
       await _refreshAll();
       if (mounted) {
@@ -1033,7 +1044,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       if (mounted) {
         final upserted = _resultInt(result, 'upserted');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Sync HPP dari SKU mapping selesai. Tersimpan: $upserted')));
+            content: Text(
+                'Sync HPP dari SKU mapping selesai. Tersimpan: $upserted')));
       }
     } catch (error) {
       if (mounted) {
@@ -1057,7 +1069,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(result['ok'] == true
                 ? 'Finance refresh dikirim. Buka ulang halaman Finance untuk melihat hasil terbaru.'
-                : (result['message']?.toString() ?? 'Finance refresh selesai.'))));
+                : (result['message']?.toString() ??
+                    'Finance refresh selesai.'))));
       }
     } catch (error) {
       if (mounted) {
@@ -1104,7 +1117,6 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       if (mounted) setState(() => _isPulling = false);
     }
   }
-
 
   Future<void> _syncHppFromSkuMappings({bool overwrite = false}) async {
     final accountId = _selectedAccountId;
@@ -1994,8 +2006,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                                     fallback: '-'),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w900))),
+                                style: TextStyle(fontWeight: FontWeight.w800))),
                         TextButton.icon(
                             onPressed: () => _editHppRow(row),
                             icon: Icon(Icons.edit_outlined, size: 16),
@@ -2167,7 +2178,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            fontWeight: FontWeight.w900, fontSize: 17),
+                            fontWeight: FontWeight.w800, fontSize: 17),
                       ),
                       SizedBox(height: 4),
                       Text(
@@ -2247,8 +2258,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
             if (hasError) ...[
               SizedBox(height: 10),
               Text(item.lastError!,
-                  style: TextStyle(
-                      color: AppUi.red, fontWeight: FontWeight.w800)),
+                  style:
+                      TextStyle(color: AppUi.red, fontWeight: FontWeight.w800)),
             ],
           ],
         ),
@@ -2368,14 +2379,14 @@ class _BulkMappingTable extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Varian Marketplace',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
               SizedBox(width: 10),
               Expanded(
                 child: Text(
                   'Varian Lokal',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
             ],
@@ -2441,7 +2452,7 @@ class _BulkMappingRow extends StatelessWidget {
                   variant.displayVariant,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
                 SizedBox(height: 4),
                 Text(
@@ -2556,7 +2567,7 @@ class _CariableLocalProductPicker extends StatelessWidget {
                       selected.kodeSku,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontWeight: FontWeight.w900),
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                     SizedBox(height: 2),
                     Text(
@@ -2656,7 +2667,7 @@ class _LocalProductCariSheetState extends State<_LocalProductCariSheet> {
                     child: Text(
                       'Pilih Produk Lokal',
                       style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                     ),
                   ),
                   IconButton(
@@ -2777,7 +2788,7 @@ class _LocalProductCariSheetState extends State<_LocalProductCariSheet> {
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
-                                            fontWeight: FontWeight.w900),
+                                            fontWeight: FontWeight.w800),
                                       ),
                                       SizedBox(height: 3),
                                       Text(
@@ -2874,7 +2885,7 @@ class _VariantSelectableCard extends StatelessWidget {
                     variant.marketplaceProductName,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
               ],
@@ -2956,7 +2967,7 @@ class _VariantPreviewCard extends StatelessWidget {
                   variant.marketplaceProductName,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
             ],
@@ -3006,7 +3017,7 @@ class _MappingLine extends StatelessWidget {
             label.toUpperCase(),
             style: TextStyle(
               color: Theme.of(context).textTheme.bodySmall?.color,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
               fontSize: 11,
               letterSpacing: 0.4,
             ),
@@ -3020,7 +3031,7 @@ class _MappingLine extends StatelessWidget {
                 title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontWeight: FontWeight.w900),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
               SizedBox(height: 3),
               Text(
@@ -3059,7 +3070,7 @@ class _SmallStatusChip extends StatelessWidget {
       child: Text(
         label,
         style:
-            TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 12),
+            TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 12),
       ),
     );
   }

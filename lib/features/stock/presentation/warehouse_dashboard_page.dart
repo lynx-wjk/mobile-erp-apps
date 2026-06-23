@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/ui/app_ui.dart';
 import '../../../models/app_user.dart';
 import '../models/product.dart';
 import '../models/stock_transaction_item.dart';
@@ -89,7 +90,7 @@ class _WarehouseDashboardPageState extends State<WarehouseDashboardPage> {
   double get _totalStock {
     return _products.fold<double>(
       0,
-          (total, product) => total + product.stockSaatIni,
+      (total, product) => total + product.stockSaatIni,
     );
   }
 
@@ -97,22 +98,22 @@ class _WarehouseDashboardPageState extends State<WarehouseDashboardPage> {
     return _allTransactions
         .where(
           (item) => item.transactionType == 'IN' && _isToday(item.createdAt),
-    )
+        )
         .fold<double>(
-      0,
+          0,
           (total, item) => total + item.qty,
-    );
+        );
   }
 
   double get _stockOutToday {
     return _allTransactions
         .where(
           (item) => item.transactionType == 'OUT' && _isToday(item.createdAt),
-    )
+        )
         .fold<double>(
-      0,
+          0,
           (total, item) => total + item.qty,
-    );
+        );
   }
 
   int get _transactionCountToday {
@@ -140,36 +141,53 @@ class _WarehouseDashboardPageState extends State<WarehouseDashboardPage> {
     required IconData icon,
     required VoidCallback onTap,
   }) {
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 25,
-                child: Icon(icon),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title),
-                    const SizedBox(height: 4),
-                    Text(
-                      value,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: NiceCard(
+        padding: EdgeInsets.zero,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: AppTheme.radiusMd,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: AppUi.tintedDecoration(
+                    context,
+                    color: theme.colorScheme.primary,
+                    radius: 14,
+                  ),
+                  child: Icon(icon, color: theme.colorScheme.primary),
                 ),
-              ),
-              const Icon(Icons.chevron_right),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: AppUi.mutedText(context, 0.66),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        value,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right),
+              ],
+            ),
           ),
         ),
       ),
@@ -178,30 +196,50 @@ class _WarehouseDashboardPageState extends State<WarehouseDashboardPage> {
 
   Widget _buildRecentTransactions() {
     if (_recentTransactions.isEmpty) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('Belum ada transaksi stock.'),
-        ),
+      return const EmptyState(
+        icon: Icons.receipt_long_outlined,
+        title: 'Belum ada transaksi stock',
+        subtitle:
+            'Aktivitas stock masuk dan keluar terbaru akan tampil di sini.',
       );
     }
 
     return Column(
       children: _recentTransactions.map((item) {
-        return Card(
-          child: ListTile(
-            leading: CircleAvatar(
-              child: Text(item.transactionType),
+        final color = item.transactionType == 'IN' ? AppUi.green : AppUi.red;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: NiceCard(
+            padding: EdgeInsets.zero,
+            child: ListTile(
+              contentPadding: const EdgeInsets.all(14),
+              leading: Container(
+                width: 42,
+                height: 42,
+                decoration: AppUi.tintedDecoration(
+                  context,
+                  color: color,
+                  radius: 12,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  item.transactionType,
+                  style: TextStyle(color: color, fontWeight: FontWeight.w800),
+                ),
+              ),
+              title: Text(
+                '${item.kodeSku} - ${item.namaBarang}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                'Qty: ${_formatNumber(item.qty)}\n'
+                'Stock: ${_formatNumber(item.stockBefore)} → ${_formatNumber(item.stockAfter)}\n'
+                'Sumber/Tujuan: ${item.sumberTujuan ?? '-'}\n'
+                'Resi: ${item.nomorResi ?? '-'}\n'
+                'User: ${item.userDisplay}',
+              ),
+              isThreeLine: false,
             ),
-            title: Text('${item.kodeSku} - ${item.namaBarang}'),
-            subtitle: Text(
-              'Qty: ${_formatNumber(item.qty)}\n'
-                  'Stock: ${_formatNumber(item.stockBefore)} → ${_formatNumber(item.stockAfter)}\n'
-                  'Sumber/Tujuan: ${item.sumberTujuan ?? '-'}\n'
-                  'Resi: ${item.nomorResi ?? '-'}\n'
-                  'User: ${item.userDisplay}',
-            ),
-            isThreeLine: false,
           ),
         );
       }).toList(),
@@ -210,21 +248,11 @@ class _WarehouseDashboardPageState extends State<WarehouseDashboardPage> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const LoadingState();
     }
 
     if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            _errorMessage!,
-            textAlign: TextAlign.center,
-          ),
-        ),
-      );
+      return ErrorState(message: _errorMessage!, onRetry: _loadDashboard);
     }
 
     return RefreshIndicator(
@@ -232,16 +260,31 @@ class _WarehouseDashboardPageState extends State<WarehouseDashboardPage> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Card(
+          NiceCard(
+            padding: EdgeInsets.zero,
             child: ListTile(
-              leading: const CircleAvatar(
-                child: Icon(Icons.warehouse_outlined),
+              contentPadding: const EdgeInsets.all(16),
+              leading: Container(
+                width: 50,
+                height: 50,
+                decoration: AppUi.tintedDecoration(
+                  context,
+                  color: Theme.of(context).colorScheme.primary,
+                  radius: 14,
+                ),
+                child: Icon(
+                  Icons.warehouse_outlined,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
               ),
-              title: const Text('Dashboard Warehouse'),
+              title: const Text(
+                'Dashboard Warehouse',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
               subtitle: Text(
                 '${widget.currentUser.nama}\n'
-                    '${widget.currentUser.email}\n'
-                    'Transaksi hari ini: $_transactionCountToday',
+                '${widget.currentUser.email}\n'
+                'Transaksi hari ini: $_transactionCountToday',
               ),
               isThreeLine: true,
             ),

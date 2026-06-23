@@ -1045,7 +1045,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                       style: Theme.of(context)
                           .textTheme
                           .titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w900),
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     SizedBox(height: 8),
                     _detailRow('Marketplace',
@@ -1117,7 +1117,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                         style: Theme.of(context)
                             .textTheme
                             .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w900)),
+                            ?.copyWith(fontWeight: FontWeight.w800)),
                     SizedBox(height: 8),
                     if (items.isEmpty)
                       _emptyBox('Belum ada item order.')
@@ -1416,7 +1416,12 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: (Theme.of(context).dividerColor)),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.5,
+              ),
+          width: 0.8,
+        ),
       ),
       child: Row(
         children: [
@@ -1435,7 +1440,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                     style: Theme.of(context)
                         .textTheme
                         .titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w900)),
+                        ?.copyWith(fontWeight: FontWeight.w800)),
                 SizedBox(height: 2),
                 Text(
                   _autoPullSettingWarning != null
@@ -1633,106 +1638,110 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     final color = hasPendingReview
         ? (Theme.of(context).colorScheme).error
         : _statusColor(order.stockActionStatus);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _openDetail(order),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      order.externalOrderId,
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w900),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: NiceCard(
+        padding: EdgeInsets.zero,
+        child: InkWell(
+          borderRadius: AppTheme.radiusMd,
+          onTap: () => _openDetail(order),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        order.externalOrderId,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
                     ),
-                  ),
-                  _statusBadge(
-                      hasPendingReview
-                          ? order.reviewBadgeLabel
-                          : order.stockActionLabel,
-                      color),
-                ],
-              ),
-              SizedBox(height: 8),
-              Text('${order.marketplace} · ${order.accountName}'),
-              SizedBox(height: 4),
-              Text('Order: ${order.orderStatusLabel} · ${order.orderTimeText}'),
-              if (order.hasCancelRequest) ...[
-                SizedBox(height: 6),
-                _warningBox(
-                  'Cancel request',
-                  order.cancelRequestSummary,
-                  compact: true,
+                    _statusBadge(
+                        hasPendingReview
+                            ? order.reviewBadgeLabel
+                            : order.stockActionLabel,
+                        color),
+                  ],
                 ),
-              ],
-              if (order.hasPendingReturnReview) ...[
-                SizedBox(height: 6),
-                _warningBox(
-                  'Perlu cek refund/cancel',
-                  order.pendingReturnReviewSummary,
-                  compact: true,
-                ),
-              ],
-              if (order.resiText != '-') ...[
-                SizedBox(height: 4),
-                Text('Resi: ${order.resiText}'),
-              ],
-              SizedBox(height: 4),
-              Text(
-                  'Item: ${order.itemCount} · Qty: ${order.qtyTotal.toStringAsFixed(0)} · Mapping: ${order.mappedItemCount} · Belum Mapping: ${order.unmappedItemCount}'),
-              if (order.reservedItemCount > 0 ||
-                  order.scannedDoneItemCount > 0) ...[
+                SizedBox(height: 8),
+                Text('${order.marketplace} · ${order.accountName}'),
                 SizedBox(height: 4),
                 Text(
-                    'Disiapkan item: ${order.reservedItemCount} · Selesai scan: ${order.scannedDoneItemCount}'),
-              ],
-              if ((order.lastError ?? '').trim().isNotEmpty) ...[
-                SizedBox(height: 6),
-                Text(order.lastError!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        color: (Theme.of(context).colorScheme).error)),
-              ],
-              SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  TextButton.icon(
-                      onPressed: () => _openDetail(order),
-                      icon: Icon(Icons.info_outline_rounded),
-                      label: Text('Detail')),
-                  if (order.canProcessStockOut)
-                    FilledButton.tonalIcon(
-                      onPressed:
-                          _isProcessing ? null : () => _reserveOne(order),
-                      icon: Icon(Icons.inventory_2_outlined),
-                      label: Text('Reserve'),
-                    ),
-                  if (order.canOpenPickScan || order.canFinalizeStockOut)
-                    FilledButton.tonalIcon(
-                      onPressed: _isProcessing ? null : _openStockOut,
-                      icon: Icon(Icons.output_outlined),
-                      label: Text('Stock Out'),
-                    ),
-                  if (order.needsReturnReview)
-                    OutlinedButton.icon(
-                      onPressed: _openRefundMonitor,
-                      icon: Icon(Icons.assignment_return_outlined),
-                      label: Text('Review'),
-                    ),
+                    'Order: ${order.orderStatusLabel} · ${order.orderTimeText}'),
+                if (order.hasCancelRequest) ...[
+                  SizedBox(height: 6),
+                  _warningBox(
+                    'Cancel request',
+                    order.cancelRequestSummary,
+                    compact: true,
+                  ),
                 ],
-              ),
-            ],
+                if (order.hasPendingReturnReview) ...[
+                  SizedBox(height: 6),
+                  _warningBox(
+                    'Perlu cek refund/cancel',
+                    order.pendingReturnReviewSummary,
+                    compact: true,
+                  ),
+                ],
+                if (order.resiText != '-') ...[
+                  SizedBox(height: 4),
+                  Text('Resi: ${order.resiText}'),
+                ],
+                SizedBox(height: 4),
+                Text(
+                    'Item: ${order.itemCount} · Qty: ${order.qtyTotal.toStringAsFixed(0)} · Mapping: ${order.mappedItemCount} · Belum Mapping: ${order.unmappedItemCount}'),
+                if (order.reservedItemCount > 0 ||
+                    order.scannedDoneItemCount > 0) ...[
+                  SizedBox(height: 4),
+                  Text(
+                      'Disiapkan item: ${order.reservedItemCount} · Selesai scan: ${order.scannedDoneItemCount}'),
+                ],
+                if ((order.lastError ?? '').trim().isNotEmpty) ...[
+                  SizedBox(height: 6),
+                  Text(order.lastError!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: (Theme.of(context).colorScheme).error)),
+                ],
+                SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    TextButton.icon(
+                        onPressed: () => _openDetail(order),
+                        icon: Icon(Icons.info_outline_rounded),
+                        label: Text('Detail')),
+                    if (order.canProcessStockOut)
+                      FilledButton.tonalIcon(
+                        onPressed:
+                            _isProcessing ? null : () => _reserveOne(order),
+                        icon: Icon(Icons.inventory_2_outlined),
+                        label: Text('Reserve'),
+                      ),
+                    if (order.canOpenPickScan || order.canFinalizeStockOut)
+                      FilledButton.tonalIcon(
+                        onPressed: _isProcessing ? null : _openStockOut,
+                        icon: Icon(Icons.output_outlined),
+                        label: Text('Stock Out'),
+                      ),
+                    if (order.needsReturnReview)
+                      OutlinedButton.icon(
+                        onPressed: _openRefundMonitor,
+                        icon: Icon(Icons.assignment_return_outlined),
+                        label: Text('Review'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1748,7 +1757,12 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: (Theme.of(context).dividerColor)),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.5,
+              ),
+          width: 0.8,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1808,7 +1822,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
         color: color.withOpacity(0.12),
-        border: Border.all(color: color.withOpacity(0.35)),
+        border: Border.all(color: color.withOpacity(0.22), width: 0.8),
       ),
       child: Text(text,
           style: TextStyle(
@@ -1869,7 +1883,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         color: color.withOpacity(0.10),
-        border: Border.all(color: color.withOpacity(0.35)),
+        border: Border.all(color: color.withOpacity(0.22), width: 0.8),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1883,7 +1897,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
               children: [
                 Text(title,
                     style:
-                        TextStyle(color: color, fontWeight: FontWeight.w900)),
+                        TextStyle(color: color, fontWeight: FontWeight.w800)),
                 if (message.trim().isNotEmpty) ...[
                   SizedBox(height: 3),
                   Text(
@@ -1919,7 +1933,12 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: (Theme.of(context).dividerColor))),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                  Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.5,
+                ),
+            width: 0.8,
+          )),
       child: Text(text),
     );
   }

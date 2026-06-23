@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/ui/app_ui.dart';
 import '../services/tenant_entitlement_service.dart';
 
 class FeatureGatePage extends StatefulWidget {
@@ -57,38 +58,61 @@ class _FeatureGatePageState extends State<FeatureGatePage> {
         return Scaffold(
           appBar: AppBar(title: const Text('Akses dibatasi')),
           body: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.lock_outline_rounded, size: 54),
-                    const SizedBox(height: 16),
-                    Text(
-                      '${widget.featureLabel} tidak aktif di $planName.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Hubungi owner/platform owner untuk mengubah paket atau entitlement tenant.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 20),
-                    FilledButton.icon(
-                      onPressed: () {
-                        final navigator = Navigator.of(context);
-                        if (navigator.canPop()) navigator.pop();
-                      },
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      label: const Text('Kembali'),
-                    ),
-                  ],
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: NiceCard(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 58,
+                        height: 58,
+                        decoration: AppUi.tintedDecoration(
+                          context,
+                          color: Theme.of(context).colorScheme.primary,
+                          radius: 18,
+                        ),
+                        child: Icon(
+                          Icons.lock_outline_rounded,
+                          size: 30,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        '${widget.featureLabel} tidak aktif di $planName.',
+                        textAlign: TextAlign.center,
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 18,
+                                ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Hubungi owner/platform owner untuk mengubah paket atau entitlement tenant.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.68),
+                              height: 1.4,
+                            ),
+                      ),
+                      const SizedBox(height: 20),
+                      FilledButton.icon(
+                        onPressed: () {
+                          final navigator = Navigator.of(context);
+                          if (navigator.canPop()) navigator.pop();
+                        },
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        label: const Text('Kembali'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

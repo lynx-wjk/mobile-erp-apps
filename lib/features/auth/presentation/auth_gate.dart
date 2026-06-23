@@ -83,7 +83,6 @@ class _AuthGateState extends State<AuthGate> {
       return RegisterPage(initialToken: token);
     }
 
-
     final authService = AuthService();
 
     return StreamBuilder<AuthState>(
@@ -167,42 +166,52 @@ class _ProfileLoadErrorPage extends StatelessWidget {
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.warning_amber_rounded, size: 48),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Sesi login aktif, tetapi profil pengguna belum dapat dimuat',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleLarge,
+          child: NiceCard(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Sesi login aktif, tetapi profil pengguna belum dapat dimuat',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.68),
+                    height: 1.4,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    message,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 20),
-                  FilledButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pushReplacement(
-                        MaterialPageRoute(builder: (_) => const AuthGate()),
-                      );
-                    },
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Coba Lagi'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: _logout,
-                    icon: const Icon(Icons.logout),
-                    label: const Text('Logout'),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pushReplacement(
+                      MaterialPageRoute(builder: (_) => const AuthGate()),
+                    );
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Coba Lagi'),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: _logout,
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Logout'),
+                ),
+              ],
             ),
           ),
         ),
@@ -245,30 +254,40 @@ class _AutoLogoutPageState extends State<_AutoLogoutPage> {
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.lock_outline, size: 48),
-                  const SizedBox(height: 16),
-                  Text(
-                    widget.title,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleLarge,
+          child: NiceCard(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.lock_outline,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  widget.title,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  widget.message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.68),
+                    height: 1.4,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    widget.message,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 20),
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 12),
-                  const Text('Mengakhiri sesi...'),
-                ],
-              ),
+                ),
+                const SizedBox(height: 20),
+                const CircularProgressIndicator(),
+                const SizedBox(height: 12),
+                const Text('Mengakhiri sesi...'),
+              ],
             ),
           ),
         ),

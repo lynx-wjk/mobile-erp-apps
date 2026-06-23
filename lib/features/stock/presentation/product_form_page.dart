@@ -220,160 +220,158 @@ class _ProductFormPageState extends State<ProductFormPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    children: [
-                      TextFormField(
-                        controller: _kodeSkuController,
-                        validator: _required,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Kode SKU',
-                          hintText: 'Contoh: 11ACS',
-                          border: OutlineInputBorder(),
-                        ),
+            NiceCard(
+              padding: const EdgeInsets.all(18),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: _kodeSkuController,
+                      validator: _required,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Kode SKU',
+                        hintText: 'Contoh: 11ACS',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _kodeBarcodeController,
-                        validator: _required,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Kode Barcode',
-                          hintText: 'Contoh: 11ACS',
-                          border: OutlineInputBorder(),
-                        ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _kodeBarcodeController,
+                      validator: _required,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Kode Barcode',
+                        hintText: 'Contoh: 11ACS',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _namaBarangController,
-                        validator: _required,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Nama Barang',
-                          hintText: 'Contoh: STRIPPED SHIRT MOCCA S',
-                          border: OutlineInputBorder(),
-                        ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _namaBarangController,
+                      validator: _required,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Nama Barang',
+                        hintText: 'Contoh: STRIPPED SHIRT MOCCA S',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _kategoriController,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Kategori',
-                          hintText: 'Contoh: Fashion',
-                          border: OutlineInputBorder(),
-                        ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _kategoriController,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Kategori',
+                        hintText: 'Contoh: Fashion',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _satuanController,
-                        validator: _required,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Satuan',
-                          hintText: 'Contoh: pcs',
-                          border: OutlineInputBorder(),
-                        ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _satuanController,
+                      validator: _required,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Satuan',
+                        hintText: 'Contoh: pcs',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _stockAwalController,
-                        enabled: !_isEdit,
-                        validator: _validateNumber,
-                        keyboardType: TextInputType.number,
-                        textInputAction: TextInputAction.next,
-                        decoration: InputDecoration(
-                          labelText: _isEdit
-                              ? 'Stock Awal tidak bisa diedit di sini'
-                              : 'Stock Awal',
-                          hintText: 'Contoh: 0',
-                          border: const OutlineInputBorder(),
-                        ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _stockAwalController,
+                      enabled: !_isEdit,
+                      validator: _validateNumber,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      decoration: InputDecoration(
+                        labelText: _isEdit
+                            ? 'Stock Awal tidak bisa diedit di sini'
+                            : 'Stock Awal',
+                        hintText: 'Contoh: 0',
+                        border: const OutlineInputBorder(),
                       ),
-                      if (_isEdit) ...[
-                        const SizedBox(height: 6),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'Stock diubah lewat Stok Masuk / Stok Keluar, bukan dari edit barang.',
-                            style: TextStyle(
-                              fontSize: 12,
-                            ),
+                    ),
+                    if (_isEdit) ...[
+                      const SizedBox(height: 6),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Stock diubah lewat Stok Masuk / Stok Keluar, bukan dari edit barang.',
+                          style: TextStyle(
+                            fontSize: 12,
                           ),
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _lowStockController,
-                        validator: _validateNumber,
-                        keyboardType: TextInputType.number,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Low Stock Limit',
-                          hintText: 'Contoh: 5',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _lokasiRakController,
-                        textInputAction: TextInputAction.done,
-                        decoration: const InputDecoration(
-                          labelText: 'Lokasi Rak / Gudang',
-                          hintText: 'Contoh: Rak A1',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      if (_isEdit) ...[
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: _status,
-                          decoration: const InputDecoration(
-                            labelText: 'Status',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'active',
-                              child: Text('Aktif'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'inactive',
-                              child: Text('Nonaktif'),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            if (value == null) return;
-
-                            setState(() {
-                              _status = value;
-                            });
-                          },
-                        ),
-                      ],
-                      const SizedBox(height: 20),
-                      FilledButton.icon(
-                        onPressed: _isSaving ? null : _save,
-                        icon: _isSaving
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.save_outlined),
-                        label: Text(
-                          _isSaving ? 'Menyimpan...' : 'Simpan',
                         ),
                       ),
                     ],
-                  ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _lowStockController,
+                      validator: _validateNumber,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Low Stock Limit',
+                        hintText: 'Contoh: 5',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _lokasiRakController,
+                      textInputAction: TextInputAction.done,
+                      decoration: const InputDecoration(
+                        labelText: 'Lokasi Rak / Gudang',
+                        hintText: 'Contoh: Rak A1',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (_isEdit) ...[
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _status,
+                        decoration: const InputDecoration(
+                          labelText: 'Status',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'active',
+                            child: Text('Aktif'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'inactive',
+                            child: Text('Nonaktif'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+
+                          setState(() {
+                            _status = value;
+                          });
+                        },
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: _isSaving ? null : _save,
+                      icon: _isSaving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(Icons.save_outlined),
+                      label: Text(
+                        _isSaving ? 'Menyimpan...' : 'Simpan',
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
