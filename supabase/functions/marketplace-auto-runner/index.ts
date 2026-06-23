@@ -585,29 +585,34 @@ async function runAutoOrderPull(args) {
 }
 async function runAutoFinanceStatementJobs(args) {
   if (args.cleanupStale) await resetStaleJobs(args.admin);
-  // Pull finance/payout dibuat job-based supaya tidak menahan satu request panjang.
-  // Default v81: jadwal 5 menit, maksimal 3 job, 20 order per batch, 3 batch per job.
+  // statement-first-runner-v1: TikTok payout is statement-settlement based.
+  // Pull recent statements repeatedly so newly SETTLED payouts are picked up without order-probe spam.
+  const jakartaDateString = (offsetDays = 0)=>{
+    const now = new Date();
+    const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+    const jakarta = new Date(utc + 7 * 60 * 60000 + offsetDays * 24 * 60 * 60000);
+    const y = jakarta.getFullYear();
+    const m = String(jakarta.getMonth() + 1).padStart(2, '0');
+    const d = String(jakarta.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+  const statementEndDate = jakartaDateString(0);
+  const statementStartDate = jakartaDateString(args.force ? -14 : -7);
   const body = {
-    action: "process_finance_sync_jobs",
+    action: "pull_finance_statements_period",
     params: {
-      mode: "recent_unpaid",
-      days_back: args.force ? 7 : 3,
-      enqueue: true,
-      process: true,
-      max_jobs: args.maxFinanceJobs,
-      max_accounts: args.maxAccounts,
-      max_orders: args.maxFinanceOrders,
-      max_batches_per_job: args.maxFinanceBatches,
-      max_order_details: 120,
-      include_sku_details: true,
-      only_missing_payout: true,
-      include_recent_orders: true,
-      include_pending_payout: true,
-      include_all_missing_payout: true,
-      missing_payout_limit: args.maxFinanceOrders,
-      include_negative_refund_check: true,
-      skip_settled_with_payout: true,
-      source: "marketplace-auto-runner-v24-6-82o-finance-force-7d-unpaid"
+      start_date: statementStartDate,
+      end_date: statementEndDate,
+      page_size: 10,
+      max_statements: args.force ? 20 : 10,
+      max_transactions: 30,
+      max_order_details: 0,
+      include_sku_details: false,
+      time_fields: [
+        "payment_time",
+        "statement_time"
+      ],
+      source: "marketplace-auto-runner-statement-first-v1"
     }
   };
   if (args.tenantFilter) body.params = {
@@ -650,12 +655,14 @@ async function runAutoFinanceStatementJobs(args) {
       }
     };
   }
-  const cache = await refreshFinanceCacheSafe({
-    admin: args.admin,
-    marketplace: "all",
-    accountId: args.accountFilter || null,
-    reason: "auto_finance_statement"
-  });
+  // statement-first-skip-inline-cache-v1:
+  // Finance statement pull must not be blocked by heavy cache refresh RPC.
+  // Dashboard live RPC already reads marketplace_finance_reports by settlement_date.
+  const cache = {
+    skipped: true,
+    reason: "skip_inline_cache_refresh_after_statement_pull",
+    refresh_source: "finance_dashboard_snapshot_live"
+  };
   return {
     ...response,
     cache

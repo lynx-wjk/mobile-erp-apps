@@ -1004,66 +1004,6 @@ function pickFinanceAmount(raw, names) {
   }
   return 0;
 }
-function isWorkerRequestCancelled(error) {
-  const err = error || {};
-  const message = `${getString(err.name, '')} ${getString(err.message ?? error, '')} ${String(error ?? '')}`.toLowerCase();
-  return message.includes('workerrequestcancelled') ||
-    message.includes('worker request cancelled') ||
-    message.includes('early termination');
-}
-function retryableWorkerCancelledPayload(error) {
-  const message = getString(error?.message ?? error, 'WorkerRequestCancelled');
-  return {
-    ok: false,
-    retryable: true,
-    error_code: 'worker_request_cancelled',
-    message: `TikTok finance worker dibatalkan runtime; batch harus dicoba ulang. ${message}`
-  };
-}
-function directSkuTransactionRows(data) {
-  return arrayFromAny(
-    data.sku_transactions ??
-      data.sku_statement_transactions ??
-      data.skuTransactions ??
-      data.skuStatementTransactions
-  );
-}
-function financePayloadProbe(payload, raw, computedPayout) {
-  const data = dataOf(payload);
-  const skuTransactions = directSkuTransactionRows(data);
-  const totalCount = getNumber(data.total_count ?? data.totalCount ?? data.count, 0);
-  const settlementAmount = moneyByKeys(data, [
-    'settlement',
-    'settlement_amount',
-    'total_settlement_amount'
-  ]) || moneyByKeys(raw, [
-    'settlement',
-    'settlement_amount',
-    'total_settlement_amount'
-  ]);
-  const revenueAmount = moneyByKeys(data, [
-    'revenue',
-    'revenue_amount'
-  ]) || moneyByKeys(raw, [
-    'revenue',
-    'revenue_amount'
-  ]);
-  const payoutAmount = getNumber(computedPayout, 0);
-  const hasFinanceData =
-    skuTransactions.length > 0 ||
-    totalCount > 0 ||
-    settlementAmount !== 0 ||
-    revenueAmount !== 0 ||
-    payoutAmount !== 0;
-  return {
-    has_finance_data: hasFinanceData,
-    sku_transaction_count: skuTransactions.length,
-    total_count: totalCount,
-    settlement_amount: settlementAmount,
-    revenue_amount: revenueAmount,
-    payout_amount: payoutAmount
-  };
-}
 async function actionPullFinanceByOrder(ctx, params) {
   const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const account = await getTikTokAccount(getString(params.account_id, ''));
@@ -1104,20 +1044,6 @@ async function actionPullFinanceByOrder(ctx, params) {
     'received_amount',
     'seller_income'
   ]);
-  const financeProbe = financePayloadProbe(payload, raw, receivedAmount);
-  if (!financeProbe.has_finance_data) {
-    return {
-      ok: true,
-      skipped: true,
-      synced: 0,
-      status: 'skipped_no_settlement_yet',
-      reason: 'skipped_no_settlement_yet',
-      message: 'TikTok API sukses tetapi belum mengembalikan data settlement untuk order ini.',
-      order_id: orderId,
-      finance_probe: financeProbe,
-      payload
-    };
-  }
   const platformFee = Math.abs(pickFinanceAmount(raw, [
     'platform_fee',
     'platform_service_fee',
@@ -1223,7 +1149,7 @@ async function actionPullFinancePeriod(ctx, params) {
   const marketplace = getString(params.marketplace, 'tiktok_shop') || 'tiktok_shop';
   const accountId = getString(params.account_id ?? params.marketplace_account_id, '');
   const tenantId = getString(params.tenant_id, '');
-  const maxOrders = Math.min(Math.max(getNumber(params.max_orders, 10), 1), 20);
+  const maxOrders = Math.min(Math.max(getNumber(params.max_orders, 80), 1), 150);
   const missingOnly = params.missing_only !== false;
   if (marketplace !== 'tiktok_shop') {
     return {
@@ -1298,23 +1224,10 @@ async function actionPullFinancePeriod(ctx, params) {
     }
     seenOrderKeys.add(seenKey);
     try {
-      const result = await actionPullFinanceByOrder(ctx, {
+      await actionPullFinanceByOrder(ctx, {
         account_id: rowAccountId,
         order_id: orderId
       });
-      if (result?.skipped === true || result?.status === 'skipped_no_settlement_yet') {
-        skipped += 1;
-        results.push({
-          ok: true,
-          skipped: true,
-          status: 'skipped_no_settlement_yet',
-          order_id: orderId,
-          marketplace_account_id: rowAccountId,
-          message: result?.message || 'TikTok settlement belum tersedia',
-          finance_probe: result?.finance_probe ?? null
-        });
-        continue;
-      }
       success += 1;
       results.push({
         ok: true,
@@ -1322,32 +1235,6 @@ async function actionPullFinancePeriod(ctx, params) {
         marketplace_account_id: rowAccountId
       });
     } catch (error) {
-      if (isWorkerRequestCancelled(error)) {
-        failed += 1;
-        const retryable = retryableWorkerCancelledPayload(error);
-        results.push({
-          ...retryable,
-          order_id: orderId,
-          marketplace_account_id: rowAccountId
-        });
-        return {
-          ...retryable,
-          checked: Array.isArray(candidates) ? candidates.length : results.length,
-          success,
-          failed,
-          skipped,
-          synced: success,
-          payout_success: success,
-          transaction_count: success,
-          item_count: success,
-          max_orders: maxOrders,
-          missing_only: missingOnly,
-          candidate_function: candidateFunction,
-          tenant_id: tenantId || null,
-          account_id: accountId || null,
-          results: results.slice(0, 20)
-        };
-      }
       failed += 1;
       results.push({
         ok: false,
@@ -1363,10 +1250,6 @@ async function actionPullFinancePeriod(ctx, params) {
     success,
     failed,
     skipped,
-    synced: success,
-    payout_success: success,
-    transaction_count: success,
-    item_count: success,
     max_orders: maxOrders,
     missing_only: missingOnly,
     candidate_function: candidateFunction,
@@ -1774,48 +1657,83 @@ async function actionPullFinanceStatementsPeriod(ctx, params) {
   const accessToken = refreshedToken.accessToken;
   const startDate = getString(params.start_date, new Date().toISOString().slice(0, 10));
   const endDate = getString(params.end_date, startDate);
-  const statementTimeGe = toJakartaStartSeconds(startDate);
-  const statementTimeLt = toJakartaEndExclusiveSeconds(endDate);
+  // statement-first-time-fields-v1: TikTok settlement export can be keyed by payment_time, not only statement_time.
+  // statement-first-sortfield-fallback-v1: TikTok only allows sort_field=statement_time; unsupported time-field queries fall back.
+  const rangeTimeGe = toJakartaStartSeconds(startDate);
+  const rangeTimeLt = toJakartaEndExclusiveSeconds(endDate);
+  const rawTimeFields = Array.isArray(params.time_fields) ? params.time_fields : [params.time_field];
+  const requestedTimeFields = rawTimeFields.map((v)=>getString(v, '')).filter(Boolean);
+  const timeFields = Array.from(new Set((requestedTimeFields.length > 0 ? requestedTimeFields : [
+    'payment_time',
+    'statement_time'
+  ]).filter((v)=>[
+    'payment_time',
+    'statement_time'
+  ].includes(v))));
   const pageSize = Math.min(Math.max(getNumber(params.page_size, 20), 1), 50);
   const maxStatements = Math.min(Math.max(getNumber(params.max_statements, 31), 1), 100);
   const maxTransactions = Math.min(Math.max(getNumber(params.max_transactions, 300), 1), 1000);
   const maxOrderDetails = Math.min(Math.max(getNumber(params.max_order_details, 180), 0), 1000);
   const includeSkuDetails = params.include_sku_details !== false;
-  let pageToken = '';
   const statements = [];
+  const seenStatementIds = new Set();
   let lastStatementPayload = {};
-  while(statements.length < maxStatements){
-    const query = {
-      page_size: String(pageSize),
-      statement_time_ge: String(statementTimeGe),
-      statement_time_lt: String(statementTimeLt),
-      // TikTok Get Statements 202309 requires SortField.
-      // Without this, the API returns 36009004: "SortField is a required field".
-      sort_field: 'statement_time',
-      sort_order: 'DESC'
-    };
-    if (pageToken) query.page_token = pageToken;
-    const payload = await tiktokRequestFinanceVersionFallback({
-      account: refreshed,
-      accessToken,
-      method: 'GET',
-      versions: [
-        TIKTOK_FINANCE_STATEMENTS_API_VERSION,
-        TIKTOK_FINANCE_LEGACY_API_VERSION
-      ],
-      pathForVersion: (version)=>`/finance/${version}/statements`,
-      query,
-      action: 'pull_finance_statements',
-      createdBy: ctx.userId
-    });
-    lastStatementPayload = payload;
-    const rows = collectStatementsFromPayload(payload);
-    for (const row of rows){
-      if (statements.length >= maxStatements) break;
-      statements.push(row);
+  for (const timeField of timeFields){
+    let pageToken = '';
+    while(statements.length < maxStatements){
+      const query = {
+        page_size: String(pageSize),
+        [`${timeField}_ge`]: String(rangeTimeGe),
+        [`${timeField}_lt`]: String(rangeTimeLt),
+        // TikTok Get Statements requires SortField.
+        sort_field: 'statement_time',
+        sort_order: 'DESC'
+      };
+      if (pageToken) query.page_token = pageToken;
+      let payload = {};
+      try {
+        payload = await tiktokRequestFinanceVersionFallback({
+          account: refreshed,
+          accessToken,
+          method: 'GET',
+          versions: [
+            TIKTOK_FINANCE_STATEMENTS_API_VERSION,
+            TIKTOK_FINANCE_LEGACY_API_VERSION
+          ],
+          pathForVersion: (version)=>`/finance/${version}/statements`,
+          query,
+          action: `pull_finance_statements_${timeField}`,
+          createdBy: ctx.userId
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const lower = message.toLowerCase();
+        const canFallback = timeField !== 'statement_time' && (
+          lower.includes('invalid') ||
+          lower.includes('not allowed') ||
+          lower.includes('unsupported') ||
+          lower.includes('sortfield') ||
+          lower.includes('sort_field') ||
+          lower.includes('payment_time')
+        );
+        if (canFallback) break;
+        throw error;
+      }
+      lastStatementPayload = payload;
+      const rows = collectStatementsFromPayload(payload);
+      for (const row of rows){
+        const statementId = financeStatementId(row);
+        if (!statementId || seenStatementIds.has(statementId)) continue;
+        if (statements.length >= maxStatements) break;
+        seenStatementIds.add(statementId);
+        statements.push({
+          ...row,
+          _finance_time_field: timeField
+        });
+      }
+      pageToken = extractNextToken(dataOf(payload));
+      if (!pageToken || rows.length === 0) break;
     }
-    pageToken = extractNextToken(dataOf(payload));
-    if (!pageToken || rows.length === 0) break;
   }
   let savedStatements = 0;
   let transactionCount = 0;
@@ -1912,6 +1830,7 @@ async function actionPullFinanceStatementsPeriod(ctx, params) {
     detail_calls: detailCalls,
     max_transactions: maxTransactions,
     max_order_details: maxOrderDetails,
+    time_fields: timeFields,
     message: errors.length > 0 ? `Sebagian detail SKU gagal: ${errors.slice(0, 2).join(' | ')}` : 'Finance statement berhasil dipull.'
   };
 }
@@ -2067,7 +1986,6 @@ async function actionProcessFinanceSyncJobs(ctx, params) {
   let statements = 0;
   let transactions = 0;
   let items = 0;
-  let checkedTotal = 0;
   let requeued = 0;
   for (const job of jobs || []){
     const jobId = getString(job.finance_sync_job_id ?? job.id, '');
@@ -2083,7 +2001,7 @@ async function actionProcessFinanceSyncJobs(ctx, params) {
       let jobSuccess = 0;
       let jobFailed = 0;
       let jobSkipped = 0;
-      let lastResult: any = {};
+      let lastResult = {};
       let hasMore = false;
       for(let batch = 1; batch <= maxBatchesPerJob; batch += 1){
         const result = await actionPullFinancePeriod(ctx, {
@@ -2097,69 +2015,37 @@ async function actionProcessFinanceSyncJobs(ctx, params) {
         });
         lastResult = result;
         const checked = getNumber(result.checked, 0);
-        const payoutSuccess = getNumber(result.synced ?? result.payout_success ?? result.item_count ?? result.success, 0);
+        const payoutSuccess = getNumber(result.success, 0);
         const payoutFailed = getNumber(result.failed, 0);
         const payoutSkipped = getNumber(result.skipped, 0);
         jobChecked += checked;
         jobSuccess += payoutSuccess;
         jobFailed += payoutFailed;
         jobSkipped += payoutSkipped;
-        if (result?.ok === false && result?.retryable === true) {
-          hasMore = false;
-          break;
-        }
         if (checked < maxOrders || checked <= 0) {
           hasMore = false;
           break;
         }
         hasMore = true;
       }
-      const finishedAt = new Date().toISOString();
-      const resultRows = Array.isArray(lastResult?.results) ? lastResult.results : [];
-      const firstResultError = getString(resultRows.find((row)=>getString(row?.error, ''))?.error, '');
-      const noPayoutMessage = firstResultError ||
-        getString(lastResult?.message, '') ||
-        'Tidak ada payout baru; cek akses finance/export TikTok atau status settlement.';
-      const retryableBatchError = lastResult?.ok === false && lastResult?.retryable === true;
-      const blockedNoSync = retryableBatchError || (jobSuccess <= 0 && (jobFailed > 0 || (jobChecked > 0 && jobSkipped >= jobChecked)));
-      const isNoSettlementYet = !retryableBatchError && jobSuccess === 0 && jobFailed === 0 && jobChecked > 0 && jobSkipped >= jobChecked;
-      const attempts = (blockedNoSync && !isNoSettlementYet) ? getNumber(job.attempts, 0) + 1 : getNumber(job.attempts, 0);
-      const retryMinutes = Math.min(60, 5 * Math.max(attempts, 1));
-      const nextRun = isNoSettlementYet
-        ? new Date(Date.now() + 30 * 60 * 1000).toISOString()
-        : (blockedNoSync
-          ? new Date(Date.now() + retryMinutes * 60 * 1000).toISOString()
-          : hasMore
-            ? new Date(Date.now() + 5 * 1000).toISOString()
-            : finishedAt);
-      const status = isNoSettlementYet ? 'pending' : (blockedNoSync ? (attempts >= 3 ? 'failed' : 'retry') : (hasMore ? 'pending' : 'done'));
-      if (hasMore && !blockedNoSync) requeued += 1;
-      if (blockedNoSync && !isNoSettlementYet) {
-        failed += 1;
-      } else {
-        success += 1;
-      }
       statements += 0;
-      checkedTotal += jobChecked;
-      transactions += jobSuccess;
+      transactions += jobChecked;
       items += jobSuccess;
-      const message = isNoSettlementYet
-        ? `waiting_settlement: TikTok finance belum tersinkron (no payout settled yet).`
-        : (blockedNoSync
-          ? `TikTok finance belum tersinkron: cek=${jobChecked}, berhasil=${jobSuccess}, gagal=${jobFailed}, skip=${jobSkipped}. ${noPayoutMessage}`
-          : (hasMore
-            ? `Finance belum selesai, lanjut antrean berikutnya: cek=${jobChecked}, berhasil=${jobSuccess}, gagal=${jobFailed}, skip=${jobSkipped}.`
-            : `Finance selesai: cek=${jobChecked}, berhasil=${jobSuccess}, gagal=${jobFailed}, skip=${jobSkipped}.`));
+      success += 1;
+      const finishedAt = new Date().toISOString();
+      const nextRun = hasMore ? new Date(Date.now() + 5 * 1000).toISOString() : finishedAt;
+      const status = hasMore ? 'pending' : 'done';
+      if (hasMore) requeued += 1;
+      const message = hasMore ? `Finance belum selesai, lanjut antrean berikutnya: cek=${jobChecked}, berhasil=${jobSuccess}, gagal=${jobFailed}, skip=${jobSkipped}.` : `Finance selesai: cek=${jobChecked}, berhasil=${jobSuccess}, gagal=${jobFailed}, skip=${jobSkipped}.`;
       await serviceClient.from('finance_sync_jobs').update({
         status,
-        attempts,
-        finished_at: (hasMore || blockedNoSync) ? null : finishedAt,
+        finished_at: hasMore ? null : finishedAt,
         last_run_at: finishedAt,
         next_run_at: nextRun,
         locked_at: null,
         last_message: message,
         statement_count: 0,
-        transaction_count: jobSuccess,
+        transaction_count: jobChecked,
         item_count: jobSuccess,
         last_result: {
           ...lastResult,
@@ -2167,12 +2053,7 @@ async function actionProcessFinanceSyncJobs(ctx, params) {
           success: jobSuccess,
           failed: jobFailed,
           skipped: jobSkipped,
-          transaction_count: jobSuccess,
-          item_count: jobSuccess,
           has_more: hasMore,
-          blocked_no_sync: blockedNoSync,
-          waiting_settlement: isNoSettlementYet,
-          message,
           max_orders: maxOrders,
           max_batches_per_job: maxBatchesPerJob
         },
@@ -2185,7 +2066,7 @@ async function actionProcessFinanceSyncJobs(ctx, params) {
         sync_type: 'auto_finance_order_payout_job',
         job_type: getString(job.job_type, 'auto_finance_pull'),
         status,
-        finished_at: (hasMore || blockedNoSync) ? null : finishedAt,
+        finished_at: hasMore ? null : finishedAt,
         period_start: job.period_start,
         period_end: job.period_end,
         checked_count: jobChecked,
@@ -2208,10 +2089,7 @@ async function actionProcessFinanceSyncJobs(ctx, params) {
         success: jobSuccess,
         failed: jobFailed,
         skipped: jobSkipped,
-        has_more: hasMore,
-        blocked_no_sync: blockedNoSync,
-        waiting_settlement: isNoSettlementYet,
-        message
+        has_more: hasMore
       });
     } catch (err) {
       failed += 1;
@@ -2258,9 +2136,8 @@ async function actionProcessFinanceSyncJobs(ctx, params) {
       });
     }
   }
-  const isWaitingSettlement = failed === 0 && checkedTotal > 0 && details.some(d => d.waiting_settlement === true);
   return {
-    ok: failed === 0,
+    ok: true,
     jobs: (jobs || []).length,
     success,
     failed,
@@ -2268,9 +2145,8 @@ async function actionProcessFinanceSyncJobs(ctx, params) {
     statements,
     transactions,
     items,
-    checked: checkedTotal,
+    checked: transactions,
     payout_success: items,
-    waiting_settlement: isWaitingSettlement,
     details
   };
 }
@@ -2309,9 +2185,6 @@ Deno.serve(async (req)=>{
   try {
     return await handleAction(req);
   } catch (error) {
-    if (isWorkerRequestCancelled(error)) {
-      return jsonResponse(503, retryableWorkerCancelledPayload(error));
-    }
     const message = error instanceof Error ? error.message : String(error);
     return fail(500, message);
   }
