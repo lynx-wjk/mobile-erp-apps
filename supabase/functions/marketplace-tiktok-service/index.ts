@@ -1589,12 +1589,14 @@ async function saveFinanceItemFromRow(args) {
   const orderCreatedAt = isoFromFinanceTime(detailRow.order_created_time ?? detailRow.order_create_time ?? detailRow.order_created_date ?? transactionRow.order_created_time) ?? getString(orderLite?.order_created_at ?? orderLite?.paid_at ?? orderLite?.created_time ?? orderLite?.created_at, null);
   const transactionTime = isoFromFinanceTime(detailRow.statement_time ?? detailRow.transaction_time ?? transactionRow.statement_time ?? transactionRow.transaction_time ?? statementRow.statement_time) ?? new Date().toISOString();
   const trackingNumber = getString(detailRow.tracking_number ?? detailRow.tracking_no ?? orderLite?.tracking_number ?? map.tracking_number, '');
+  // statement-item-dedupe-key-v1:
+  // Do not include volatile row index. Statement pulls can be repeated and pagination/order can change.
+  const remoteItemKey = remoteSkuId || sellerSku || variationName || productName || getString(detailRow.item_id ?? detailRow.product_id, '') || 'no_item';
   const remoteKey = [
     statementId,
     orderId || 'no_order',
-    txId || `tx_${index}`,
-    remoteSkuId || sellerSku || 'no_sku',
-    index
+    txId || 'no_tx',
+    remoteItemKey
   ].join('|');
   const payload = {
     tenant_id: account.tenant_id,
