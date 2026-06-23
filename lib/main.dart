@@ -213,8 +213,9 @@ class StartupErrorApp extends StatelessWidget {
     return MaterialApp(
       title: 'Mobile ERP Error',
       debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
       home: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: AppTheme.bgDeep,
         body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
@@ -223,14 +224,11 @@ class StartupErrorApp extends StatelessWidget {
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.zero,
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: Colors.black,
-                    width: 3,
+                    color: AppTheme.bgCardBorder,
                   ),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black, offset: Offset(5, 5)),
-                  ],
+                  boxShadow: AppTheme.softShadow(Brightness.light),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -242,20 +240,20 @@ class StartupErrorApp extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'SYSTEM CRASH'.toUpperCase(),
+                      'Aplikasi belum bisa dibuka',
                       style: const TextStyle(
                         fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.black,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      errorMessage.toUpperCase(),
+                      errorMessage,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.w800,
+                        color: AppTheme.textSecondary,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],

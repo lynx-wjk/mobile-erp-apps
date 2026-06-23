@@ -130,37 +130,40 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
           width: 70,
           height: 70,
           decoration: BoxDecoration(
-            color: theme.colorScheme.primary,
-            border: Border.all(color: Colors.black, width: 3),
-            boxShadow: const [
-              BoxShadow(color: Colors.black, offset: Offset(4, 4)),
-            ],
+            color: theme.colorScheme.primary.withOpacity(
+              theme.brightness == Brightness.dark ? 0.18 : 0.10,
+            ),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: theme.colorScheme.primary.withOpacity(0.24),
+            ),
+            boxShadow: AppTheme.softShadow(theme.brightness),
           ),
-          child: const Icon(
+          child: Icon(
             Icons.lock_person_outlined,
-            color: Colors.black,
+            color: theme.colorScheme.primary,
             size: 38,
           ),
         ),
         const SizedBox(height: 18),
         Text(
-          'Paket & Request Access'.toUpperCase(),
+          'Paket & Request Access',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: theme.colorScheme.onSurface,
             fontSize: 24,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0,
           ),
         ),
         const SizedBox(height: 4),
         Text(
-          'PILIH PAKET, LALU HUBUNGI PLATFORM OWNER'.toUpperCase(),
+          'Pilih paket, lalu hubungi Platform Owner',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: theme.colorScheme.primary,
-            fontSize: 10,
-            fontWeight: FontWeight.w900,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -170,7 +173,6 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
   Widget _infoCard(BuildContext context) {
     final theme = Theme.of(context);
     return NiceCard(
-      borderColor: Colors.black,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -181,10 +183,10 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'INFORMASI PENTING',
+                  'Informasi penting',
                   style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
                     color: theme.colorScheme.primary,
                   ),
                 ),
@@ -195,7 +197,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
           const Text(
             'Akses Mobile ERP dibuat melalui undangan Platform Owner. Pilih paket yang sesuai, lalu kirim request agar tenant dan akun owner bisa disiapkan.',
             style: TextStyle(
-                fontWeight: FontWeight.w700, fontSize: 13, height: 1.4),
+                fontWeight: FontWeight.w500, fontSize: 13, height: 1.4),
           ),
         ],
       ),
@@ -205,16 +207,15 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
   Widget _plansSection(BuildContext context) {
     if (_isLoadingPlans) {
       return const NiceCard(
-        borderColor: Colors.black,
         child: Center(
-          child: FuturisticLoader(message: 'MEMUAT PAKET PUBLIK...'),
+          child: FuturisticLoader(message: 'Memuat paket publik...'),
         ),
       );
     }
 
     if (_plans.isEmpty) {
       return const EmptyState(
-        title: 'PAKET BELUM TERSEDIA',
+        title: 'Paket belum tersedia',
         subtitle: 'Daftar paket publik belum aktif.',
         icon: Icons.card_membership_rounded,
       );
@@ -224,8 +225,8 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Text(
-          'PAKET TERSEDIA',
-          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+          'Paket tersedia',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
         ),
         const SizedBox(height: 10),
         ..._plans.map(_planCard),
@@ -244,7 +245,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: NiceCard(
-        borderColor: isTrial ? AppUi.teal : Colors.black,
+        borderColor: isTrial ? AppUi.teal : null,
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -253,11 +254,11 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
               children: [
                 Expanded(
                   child: Text(
-                    planName.toUpperCase(),
+                    planName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        fontWeight: FontWeight.w900, fontSize: 16),
+                        fontWeight: FontWeight.w800, fontSize: 16),
                   ),
                 ),
                 if (isTrial) _badge('TRIAL', AppUi.teal),
@@ -265,10 +266,10 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
             ),
             const SizedBox(height: 4),
             Text(
-              'KODE: $planCode'.toUpperCase(),
+              'Kode: $planCode',
               style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
                 color: Colors.grey[600],
               ),
             ),
@@ -276,7 +277,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
             Text(
               _planPrice(plan),
               style: const TextStyle(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w800,
                 fontSize: 18,
                 color: AppUi.green,
               ),
@@ -286,7 +287,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
               Text(
                 description,
                 style: TextStyle(
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                   fontSize: 12,
                   color: Colors.grey[700],
                   height: 1.35,
@@ -309,17 +310,17 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
             ),
             const SizedBox(height: 14),
             const Text(
-              'FITUR UTAMA',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11),
+              'Fitur utama',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
             ),
             const SizedBox(height: 8),
             if (visibleFeatures.isEmpty)
               Text(
-                'Fitur belum ditampilkan.'.toUpperCase(),
+                'Fitur belum ditampilkan.',
                 style: TextStyle(
                   fontSize: 10,
                   color: Colors.grey[600],
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w600,
                 ),
               )
             else
@@ -337,7 +338,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
                 style: TextStyle(
                   color: Colors.grey[600],
                   fontSize: 10,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -349,8 +350,8 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
               ),
               icon: const Icon(Icons.chat_rounded, size: 16),
               label: const Text(
-                'REQUEST PAKET INI',
-                style: TextStyle(fontWeight: FontWeight.w900),
+                'Request paket ini',
+                style: TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
           ],
@@ -361,16 +362,17 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
 
   Widget _featureChip(String label) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: AppUi.green.withOpacity(0.08),
-        border: Border.all(color: AppUi.green, width: 1.4),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppUi.green.withOpacity(0.28)),
       ),
       child: Text(
-        label.toUpperCase(),
+        label,
         style: const TextStyle(
-          fontWeight: FontWeight.w900,
-          fontSize: 8.5,
+          fontWeight: FontWeight.w700,
+          fontSize: 11,
           color: AppUi.green,
         ),
       ),
@@ -378,15 +380,19 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
   }
 
   Widget _quotaBadge(String label, String value) {
+    final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.grey.withOpacity(0.06),
-        border: Border.all(color: Colors.black, width: 1.2),
+        color: theme.colorScheme.surfaceVariant.withOpacity(
+          theme.brightness == Brightness.dark ? 0.30 : 0.70,
+        ),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       child: Text(
-        '$label: $value'.toUpperCase(),
-        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 8.5),
+        '$label: $value',
+        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
       ),
     );
   }
@@ -396,14 +402,15 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withOpacity(0.15),
-        border: Border.all(color: color, width: 1.5),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.28)),
       ),
       child: Text(
-        label.toUpperCase(),
+        label,
         style: TextStyle(
           color: color,
-          fontWeight: FontWeight.w900,
-          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          fontSize: 11,
         ),
       ),
     );
@@ -418,8 +425,8 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
     required Color color,
     required VoidCallback onTap,
   }) {
+    final theme = Theme.of(context);
     return NiceCard(
-      borderColor: Colors.black,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -430,10 +437,13 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: color,
-                  border: Border.all(color: Colors.black, width: 2),
+                  color: color.withOpacity(
+                    theme.brightness == Brightness.dark ? 0.18 : 0.10,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: color.withOpacity(0.28)),
                 ),
-                child: Icon(icon, color: Colors.black, size: 20),
+                child: Icon(icon, color: color, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -441,17 +451,17 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title.toUpperCase(),
+                      title,
                       style: const TextStyle(
-                          fontWeight: FontWeight.w900, fontSize: 13),
+                          fontWeight: FontWeight.w800, fontSize: 13),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
                         fontSize: 12,
-                        color: Colors.grey,
+                        color: theme.colorScheme.onSurface.withOpacity(0.62),
                       ),
                     ),
                   ],
@@ -464,13 +474,12 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
             onPressed: onTap,
             style: FilledButton.styleFrom(
               backgroundColor: color,
-              foregroundColor: Colors.black,
-              side: const BorderSide(color: Colors.black, width: 2),
+              foregroundColor: Colors.white,
             ),
             icon: const Icon(Icons.open_in_new_rounded, size: 16),
             label: Text(
-              btnLabel.toUpperCase(),
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11),
+              btnLabel,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
             ),
           ),
         ],

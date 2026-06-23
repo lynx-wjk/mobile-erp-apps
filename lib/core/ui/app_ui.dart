@@ -12,11 +12,11 @@ final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
     GlobalKey<ScaffoldMessengerState>();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// App UI helpers and brand colours -- Retro Pixel Style
+// App UI helpers and brand colours.
 // ─────────────────────────────────────────────────────────────────────────────
 class AppUi {
   static const blue = AppTheme.primaryColor;
-  static const teal = Color(0xFF00FFD1); // Vibrant Neon
+  static const teal = AppTheme.accentColor;
   static const purple = AppTheme.accentColor;
   static const pink = AppTheme.pinkColor;
   static const green = AppTheme.successColor;
@@ -25,36 +25,43 @@ class AppUi {
 
   static const List<Color> playfulPalette = [
     AppTheme.primaryColor,
-    Color(0xFF00FFD1),
     AppTheme.accentColor,
-    AppTheme.pinkColor,
-    AppTheme.orangeColor,
+    AppTheme.successColor,
+    AppTheme.warningColor,
     AppTheme.indigoColor,
-    Color(0xFF39FF14),
+    AppTheme.orangeColor,
+    AppTheme.accentColor,
   ];
 
   static BoxDecoration glassDecoration(
     BuildContext context, {
     Color accent = AppTheme.primaryColor,
-    double radius = 0,
+    double radius = 12,
     double accentOpacity = 0.15,
   }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final borderColor = isDark ? Colors.white : Colors.black;
+    final surface = isDark ? theme.cardColor : theme.colorScheme.surface;
+    final borderColor =
+        (borderColorFor(context, accent)).withOpacity(isDark ? 0.42 : 0.22);
 
     return BoxDecoration(
       borderRadius: BorderRadius.circular(radius),
-      color: theme.cardColor,
-      border: Border.all(color: borderColor, width: 2.5),
-      boxShadow: [
-        BoxShadow(
-          color: borderColor.withOpacity(0.8),
-          blurRadius: 0,
-          offset: const Offset(4, 4),
-        ),
-      ],
+      color: Color.alphaBlend(
+        accent.withOpacity(accentOpacity * (isDark ? 0.35 : 0.18)),
+        surface,
+      ),
+      border: Border.all(color: borderColor),
+      boxShadow: AppTheme.softShadow(theme.brightness),
     );
+  }
+
+  static Color borderColorFor(BuildContext context, [Color? accent]) {
+    final theme = Theme.of(context);
+    final base = accent ?? theme.colorScheme.outline;
+    return theme.brightness == Brightness.dark
+        ? Color.alphaBlend(base.withOpacity(0.22), theme.colorScheme.outline)
+        : Color.alphaBlend(base.withOpacity(0.18), AppTheme.bgCardBorder);
   }
 
   // ── Formatters ──────────────────────────────────────────────────────────────
@@ -108,7 +115,8 @@ class AppUi {
 
   static String formatWibDateTime(dynamic value) {
     if (value == null) return '-';
-    final parsed = value is DateTime ? value : DateTime.tryParse(value.toString());
+    final parsed =
+        value is DateTime ? value : DateTime.tryParse(value.toString());
     if (parsed == null) return '-';
     final wib = parsed.toUtc().add(const Duration(hours: 7));
     String two(int n) => n.toString().padLeft(2, '0');
@@ -160,16 +168,27 @@ class AppUi {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final messenger = rootScaffoldMessengerKey.currentState;
       if (messenger == null) return;
+      final context = rootScaffoldMessengerKey.currentContext;
+      final theme = context == null ? null : Theme.of(context);
+      final isDark = theme?.brightness == Brightness.dark;
       messenger.clearSnackBars();
-      messenger.showSnackBar(SnackBar(
-        content: Text(message.toUpperCase(),
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
-        backgroundColor: Colors.black,
-        behavior: SnackBarBehavior.floating,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero,
-            side: BorderSide(color: Colors.white, width: 2)),
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            message,
+            style: TextStyle(
+              color: isDark ? const Color(0xFF111827) : Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+          backgroundColor:
+              isDark ? const Color(0xFFE5E7EB) : const Color(0xFF0F172A),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
     });
   }
 
@@ -199,7 +218,7 @@ class FuturisticLoader extends StatefulWidget {
   final String? message;
   final double size;
 
-  const FuturisticLoader({super.key, this.message, this.size = 60});
+  const FuturisticLoader({super.key, this.message, this.size = 44});
 
   @override
   State<FuturisticLoader> createState() => _FuturisticLoaderState();
@@ -235,17 +254,14 @@ class _FuturisticLoaderState extends State<FuturisticLoader>
         children: [
           RotationTransition(
             turns: _rotate,
-            child: Container(
+            child: SizedBox(
               width: size,
               height: size,
-              decoration: BoxDecoration(
-                border: Border.all(color: theme.colorScheme.primary, width: 4),
-              ),
-              child: Center(
-                child: Container(
-                  width: size * 0.4,
-                  height: size * 0.4,
-                  color: theme.colorScheme.secondary,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                color: theme.colorScheme.primary,
+                backgroundColor: theme.colorScheme.outlineVariant.withOpacity(
+                  theme.brightness == Brightness.dark ? 0.28 : 0.52,
                 ),
               ),
             ),
@@ -253,12 +269,13 @@ class _FuturisticLoaderState extends State<FuturisticLoader>
           if (widget.message != null) ...[
             const SizedBox(height: 16),
             Text(
-              widget.message!.toUpperCase(),
+              widget.message!,
+              textAlign: TextAlign.center,
               style: TextStyle(
-                color: theme.colorScheme.onSurface,
-                fontWeight: FontWeight.w900,
-                fontSize: 12.5,
-                letterSpacing: 0.8,
+                color: theme.colorScheme.onSurface.withOpacity(0.68),
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                letterSpacing: 0,
               ),
             ),
           ],
@@ -275,7 +292,7 @@ class ShimmerCard extends StatelessWidget {
   final double height;
   final double borderRadius;
 
-  const ShimmerCard({super.key, this.height = 80, this.borderRadius = 0});
+  const ShimmerCard({super.key, this.height = 80, this.borderRadius = 12});
 
   @override
   Widget build(BuildContext context) {
@@ -284,8 +301,11 @@ class ShimmerCard extends StatelessWidget {
       height: height,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
-        border: Border.all(color: theme.dividerColor, width: 2),
+        borderRadius: BorderRadius.circular(borderRadius),
+        color: theme.colorScheme.surfaceVariant.withOpacity(
+          theme.brightness == Brightness.dark ? 0.42 : 0.68,
+        ),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
     );
   }
@@ -312,84 +332,67 @@ class FuturisticHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final accent = isDark ? Colors.white : Colors.black;
+    final muted = theme.colorScheme.onSurface.withOpacity(0.68);
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: theme.cardColor,
-        border: Border.all(color: accent, width: 3),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withOpacity(0.9),
-            blurRadius: 0,
-            offset: const Offset(6, 6),
-          ),
-        ],
+        borderRadius: AppTheme.radiusLg,
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        boxShadow: AppTheme.softShadow(theme.brightness),
       ),
-      child: Stack(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Column(
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary,
-                      border: Border.all(color: accent, width: 2.5),
-                    ),
-                    child: Icon(icon, color: Colors.black, size: 24),
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: Color.alphaBlend(
+                    theme.colorScheme.primary.withOpacity(isDark ? 0.18 : 0.10),
+                    theme.colorScheme.surface,
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title.toUpperCase(),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 18,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurface.withOpacity(0.7),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            height: 1.2,
-                          ),
-                        ),
-                      ],
-                    ),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: theme.colorScheme.primary.withOpacity(0.22),
                   ),
-                ],
+                ),
+                child: Icon(icon, color: theme.colorScheme.primary, size: 24),
               ),
-              if (stats.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                Divider(height: 1, thickness: 2, color: accent),
-                const SizedBox(height: 14),
-                Wrap(spacing: 8, runSpacing: 8, children: stats),
-              ],
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: muted,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
-          // Industrial indicator line
-          Positioned(
-            top: 0,
-            right: 0,
-            child: Container(
-              width: 40,
-              height: 4,
-              color: theme.colorScheme.tertiary.withOpacity(0.6),
-            ),
-          ),
+          if (stats.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Wrap(spacing: 8, runSpacing: 8, children: stats),
+          ],
         ],
       ),
     );
@@ -416,13 +419,18 @@ class StatPill extends StatelessWidget {
     final theme = Theme.of(context);
     final color = accentColor ?? theme.colorScheme.secondary;
     final isDark = theme.brightness == Brightness.dark;
-    final borderColor = isDark ? Colors.white : Colors.black;
+    final surface = Color.alphaBlend(
+      color.withOpacity(isDark ? 0.18 : 0.10),
+      theme.cardColor,
+    );
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      constraints: const BoxConstraints(minWidth: 92),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
-        color: color.withOpacity(isDark ? 0.15 : 0.28),
-        border: Border.all(color: borderColor, width: 2),
+        color: surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(isDark ? 0.30 : 0.22)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -433,18 +441,18 @@ class StatPill extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: isDark ? color : Colors.black,
-              fontWeight: FontWeight.w900,
+              color: isDark ? color.withOpacity(0.95) : color,
+              fontWeight: FontWeight.w800,
               fontSize: 13,
             ),
           ),
           Text(
-            label.toUpperCase(),
+            label,
             style: TextStyle(
-              color: isDark ? Colors.white70 : Colors.black54,
-              fontSize: 9,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.5,
+              color: theme.colorScheme.onSurface.withOpacity(0.62),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0,
             ),
           ),
         ],
@@ -479,8 +487,8 @@ class AppGlobalBackdrop extends StatelessWidget {
         painter: _GlobalBackdropPainter(
           isDark: isDark,
           gridColor: isDark
-              ? Colors.white.withOpacity(0.12)
-              : Colors.black.withOpacity(0.08),
+              ? Colors.white.withOpacity(0.045)
+              : const Color(0xFF2563EB).withOpacity(0.035),
         ),
         child: child,
       ),
@@ -501,121 +509,48 @@ class _GlobalBackdropPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
 
-    final paint = Paint()
+    final rect = Offset.zero & size;
+    final wash = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: isDark
+            ? const [Color(0xFF0B1120), Color(0xFF111827)]
+            : const [Color(0xFFF8FAFC), Color(0xFFF1F5F9)],
+      ).createShader(rect);
+    canvas.drawRect(rect, wash);
+
+    final halo = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          (isDark ? const Color(0xFF1D4ED8) : const Color(0xFFBFDBFE))
+              .withOpacity(isDark ? 0.16 : 0.34),
+          Colors.transparent,
+        ],
+      ).createShader(
+        Rect.fromCircle(
+          center: Offset(size.width * 0.18, size.height * 0.04),
+          radius: size.shortestSide * 0.62,
+        ),
+      );
+    canvas.drawCircle(
+      Offset(size.width * 0.18, size.height * 0.04),
+      size.shortestSide * 0.62,
+      halo,
+    );
+
+    final linePaint = Paint()
       ..color = gridColor
       ..strokeWidth = 1.0;
-
-    // Drawing the pixel grid
-    const gap = 32.0;
-    for (double x = 0; x <= size.width; x += gap) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (double y = 0; y <= size.height; y += gap) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-
-    // Add retro corner ornaments
-    final cornerPaint = Paint()
-      ..color = (isDark ? Colors.cyan : Colors.black).withOpacity(0.2)
-      ..strokeWidth = 4.0;
-
-    const cornerSize = 48.0;
-    const padding = 12.0;
-
-    // Top Left
-    canvas.drawLine(const Offset(padding, padding),
-        const Offset(padding + cornerSize, padding), cornerPaint);
-    canvas.drawLine(const Offset(padding, padding),
-        const Offset(padding, padding + cornerSize), cornerPaint);
-
-    // Top Right
-    canvas.drawLine(Offset(size.width - padding, padding),
-        Offset(size.width - padding - cornerSize, padding), cornerPaint);
-    canvas.drawLine(Offset(size.width - padding, padding),
-        Offset(size.width - padding, padding + cornerSize), cornerPaint);
-
-    // Bottom Left
-    canvas.drawLine(Offset(padding, size.height - padding),
-        Offset(padding + cornerSize, size.height - padding), cornerPaint);
-    canvas.drawLine(Offset(padding, size.height - padding),
-        Offset(padding, size.height - padding - cornerSize), cornerPaint);
-
-    // Bottom Right
-    canvas.drawLine(
-        Offset(size.width - padding, size.height - padding),
-        Offset(size.width - padding - cornerSize, size.height - padding),
-        cornerPaint);
-    canvas.drawLine(
-        Offset(size.width - padding, size.height - padding),
-        Offset(size.width - padding, size.height - padding - cornerSize),
-        cornerPaint);
-
-    // Industrial data ornaments (pixel style)
-    void drawPixelOrnament(Offset pos, Color color) {
-      final p = Paint()..color = color;
-      canvas.drawRect(Rect.fromLTWH(pos.dx, pos.dy, 8, 8), p);
-      canvas.drawRect(Rect.fromLTWH(pos.dx + 12, pos.dy, 4, 4), p);
-    }
-
-    drawPixelOrnament(
-        const Offset(padding + 10, padding + 10), cornerPaint.color);
-    drawPixelOrnament(
-        Offset(size.width - padding - 30, size.height - padding - 30),
-        cornerPaint.color);
-
-    // CRT Scanlines effect
-    final scanlinePaint = Paint()
-      ..color = (isDark ? Colors.white : Colors.black).withOpacity(0.015)
-      ..strokeWidth = 1.0;
-    for (double y = 0; y <= size.height; y += 6) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), scanlinePaint);
-    }
-
-    void drawLabel(String text, Offset pos) {
-      final tp = TextPainter(
-        text: TextSpan(
-          text: text,
-          style: TextStyle(
-            color: gridColor.withOpacity(isDark ? 0.3 : 0.2),
-            fontSize: 8.5,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 2.5,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, pos);
-    }
-
-    drawLabel('SYSTEM.v2.PX', const Offset(padding + 60, padding + 4));
-    drawLabel(
-        'LINK.STABLE', Offset(size.width - 160, size.height - padding - 14));
-
-    // Linear Industrial ornaments
-    final linePaint = Paint()
-      ..color = gridColor.withOpacity(isDark ? 0.15 : 0.1)
-      ..strokeWidth = 1.0;
-
-    // Vertical sidebar line
-    canvas.drawLine(const Offset(50, 0), Offset(50, size.height), linePaint);
-    // Horizontal header line
-    canvas.drawLine(const Offset(0, 100), Offset(size.width, 100), linePaint);
-
-    // Pixel glitches (tiny rectangles)
-    final rand = math.Random(1337);
-    final glitchPaint = Paint()
-      ..color = gridColor.withOpacity(isDark ? 0.08 : 0.05);
-    for (var i = 0; i < 15; i++) {
-      final w = 20.0 + rand.nextDouble() * 40.0;
-      final h = 2.0;
-      final x = rand.nextDouble() * (size.width - w);
-      final y = rand.nextDouble() * size.height;
-      canvas.drawRect(Rect.fromLTWH(x, y, w, h), glitchPaint);
+    const gap = 96.0;
+    for (double y = gap; y <= size.height; y += gap) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _GlobalBackdropPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _GlobalBackdropPainter oldDelegate) =>
+      oldDelegate.isDark != isDark || oldDelegate.gridColor != gridColor;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -638,52 +573,95 @@ class NiceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final accent = isDark ? Colors.white : Colors.black;
-    final cardBorder = borderColor ?? accent;
+    final requested = borderColor;
+    final isLegacyContrast =
+        requested == Colors.black || requested == Colors.white;
+    final cardBorder = requested == null || isLegacyContrast
+        ? theme.colorScheme.outlineVariant
+        : requested.withOpacity(
+            theme.brightness == Brightness.dark ? 0.48 : 0.34,
+          );
 
-    final container = Stack(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: isDark ? theme.cardColor : Colors.white,
-            border: Border.all(
-              color: cardBorder,
-              width: 2.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: cardBorder.withOpacity(0.8),
-                blurRadius: 0,
-                offset: const Offset(5, 5),
-              ),
-            ],
-          ),
-          child: Padding(padding: padding, child: child),
-        ),
-        // Decorative pixel dots in corners (Retro style)
-        Positioned(
-          top: 0,
-          right: 0,
-          child: Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: cardBorder, width: 2.5),
-                left: BorderSide(color: cardBorder, width: 2.5),
-              ),
-            ),
-          ),
-        ),
-      ],
+    final container = DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: AppTheme.radiusMd,
+        border: Border.all(color: cardBorder),
+        boxShadow: AppTheme.softShadow(theme.brightness),
+      ),
+      child: Padding(padding: padding, child: child),
     );
 
     if (onTap == null) return container;
 
-    return GestureDetector(
+    return Material(
+      color: Colors.transparent,
+      borderRadius: AppTheme.radiusMd,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppTheme.radiusMd,
+        child: container,
+      ),
+    );
+  }
+}
+
+class AppCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final VoidCallback? onTap;
+  final Color? borderColor;
+
+  const AppCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.onTap,
+    this.borderColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return NiceCard(
+      padding: padding,
       onTap: onTap,
-      child: container,
+      borderColor: borderColor,
+      child: child,
+    );
+  }
+}
+
+class AppResponsiveContainer extends StatelessWidget {
+  final Widget child;
+  final double maxWidth;
+  final EdgeInsetsGeometry? padding;
+
+  const AppResponsiveContainer({
+    super.key,
+    required this.child,
+    this.maxWidth = 1180,
+    this.padding,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final horizontal = width < 600 ? 16.0 : 24.0;
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Padding(
+          padding: padding ??
+              EdgeInsets.fromLTRB(
+                horizontal,
+                width < 600 ? 16 : 24,
+                horizontal,
+                24,
+              ),
+          child: child,
+        ),
+      ),
     );
   }
 }
@@ -696,8 +674,12 @@ class LoadingState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const FuturisticLoader(message: 'LOADING...');
+    return const FuturisticLoader(message: 'Memuat data...');
   }
+}
+
+class AppLoadingState extends LoadingState {
+  const AppLoadingState({super.key});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -724,23 +706,47 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 48, color: theme.colorScheme.primary),
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withOpacity(
+                  theme.brightness == Brightness.dark ? 0.18 : 0.10,
+                ),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Icon(icon, size: 30, color: theme.colorScheme.primary),
+            ),
             const SizedBox(height: 16),
             Text(
-              title.toUpperCase(),
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+              title,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               subtitle,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.68),
+              ),
             ),
           ],
         ),
       ),
     );
   }
+}
+
+class AppEmptyState extends EmptyState {
+  const AppEmptyState({
+    super.key,
+    required super.title,
+    required super.subtitle,
+    super.icon,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -764,16 +770,19 @@ class ErrorState extends StatelessWidget {
             Icon(Icons.error_outline, size: 42, color: theme.colorScheme.error),
             const SizedBox(height: 14),
             Text(
-              message.toUpperCase(),
+              message,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w900),
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.error,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             if (onRetry != null) ...[
               const SizedBox(height: 18),
               FilledButton.icon(
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh),
-                label: const Text('RETRY'),
+                label: const Text('Coba lagi'),
               ),
             ],
           ],
@@ -781,6 +790,14 @@ class ErrorState extends StatelessWidget {
       ),
     );
   }
+}
+
+class AppErrorState extends ErrorState {
+  const AppErrorState({
+    super.key,
+    required super.message,
+    super.onRetry,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -801,48 +818,41 @@ class SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final accent =
-        theme.brightness == Brightness.dark ? Colors.white : Colors.black;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
-          Container(width: 8, height: 24, color: theme.colorScheme.primary),
-          const SizedBox(width: 10),
           Expanded(
             child: Text(
-              title.toUpperCase(),
-              style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 14.5,
-                  letterSpacing: 0.5),
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
             ),
           ),
           if (actionText != null && onAction != null)
-            GestureDetector(
-              onTap: onAction,
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                child: Text(
-                  actionText!.toUpperCase(),
-                  style: TextStyle(
-                    inherit: false,
-                    color: theme.colorScheme.primary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.2,
-                    decoration: TextDecoration.underline,
-                    decorationColor: theme.colorScheme.primary,
-                  ),
-                ),
+            TextButton(
+              onPressed: onAction,
+              child: Text(
+                actionText!,
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
         ],
       ),
     );
   }
+}
+
+class AppSectionHeader extends SectionTitle {
+  const AppSectionHeader({
+    super.key,
+    required super.title,
+    super.actionText,
+    super.onAction,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -857,7 +867,7 @@ class SearchBox extends StatelessWidget {
     super.key,
     required this.controller,
     required this.onChanged,
-    this.hint = 'SEARCH...',
+    this.hint = 'Cari data',
   });
 
   @override
@@ -866,11 +876,51 @@ class SearchBox extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
-      style: const TextStyle(fontWeight: FontWeight.w800),
+      style: const TextStyle(fontWeight: FontWeight.w500),
       decoration: InputDecoration(
-        prefixIcon: Icon(Icons.search, color: theme.colorScheme.onSurface),
-        hintText: hint.toUpperCase(),
+        prefixIcon:
+            Icon(Icons.search, color: theme.colorScheme.onSurfaceVariant),
+        hintText: hint,
         isDense: true,
+      ),
+    );
+  }
+}
+
+class AppTextField extends StatelessWidget {
+  final TextEditingController? controller;
+  final ValueChanged<String>? onChanged;
+  final String? labelText;
+  final String? hintText;
+  final TextInputType? keyboardType;
+  final bool obscureText;
+  final Widget? prefixIcon;
+  final Widget? suffixIcon;
+
+  const AppTextField({
+    super.key,
+    this.controller,
+    this.onChanged,
+    this.labelText,
+    this.hintText,
+    this.keyboardType,
+    this.obscureText = false,
+    this.prefixIcon,
+    this.suffixIcon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      keyboardType: keyboardType,
+      obscureText: obscureText,
+      decoration: InputDecoration(
+        labelText: labelText,
+        hintText: hintText,
+        prefixIcon: prefixIcon,
+        suffixIcon: suffixIcon,
       ),
     );
   }
@@ -887,19 +937,26 @@ class StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final c = color ?? AppUi.statusColor(text);
+    final isDark = theme.brightness == Brightness.dark;
+    final background = Color.alphaBlend(
+      c.withOpacity(isDark ? 0.18 : 0.10),
+      theme.cardColor,
+    );
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: c,
-        border: Border.all(color: Colors.black, width: 2),
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: c.withOpacity(isDark ? 0.34 : 0.24)),
       ),
       child: Text(
-        text.toUpperCase(),
-        style: const TextStyle(
-          color: Colors.black,
-          fontSize: 9.5,
-          fontWeight: FontWeight.w900,
+        text,
+        style: TextStyle(
+          color: isDark ? c.withOpacity(0.95) : c,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -928,11 +985,11 @@ class InfoRow extends StatelessWidget {
           SizedBox(
             width: 120,
             child: Text(
-              label.toUpperCase(),
+              label,
               style: TextStyle(
                 color: theme.colorScheme.onSurface.withOpacity(0.6),
-                fontSize: 10.5,
-                fontWeight: FontWeight.w900,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -941,12 +998,177 @@ class InfoRow extends StatelessWidget {
               value,
               style: TextStyle(
                 color: valueColor ?? theme.colorScheme.onSurface,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w600,
                 fontSize: 13,
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class AppMetricCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData? icon;
+  final Color? color;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  const AppMetricCard({
+    super.key,
+    required this.label,
+    required this.value,
+    this.icon,
+    this.color,
+    this.trailing,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final accent = color ?? theme.colorScheme.primary;
+    return AppCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (icon != null) ...[
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: accent.withOpacity(
+                  theme.brightness == Brightness.dark ? 0.18 : 0.10,
+                ),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Icon(icon, color: accent, size: 22),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withOpacity(0.64),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
+            trailing!,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+enum AppButtonVariant { filled, outlined, text }
+
+class AppButton extends StatelessWidget {
+  final VoidCallback? onPressed;
+  final Widget? icon;
+  final String label;
+  final AppButtonVariant variant;
+
+  const AppButton({
+    super.key,
+    required this.onPressed,
+    required this.label,
+    this.icon,
+    this.variant = AppButtonVariant.filled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (variant == AppButtonVariant.text) {
+      return icon == null
+          ? TextButton(onPressed: onPressed, child: Text(label))
+          : TextButton.icon(
+              onPressed: onPressed,
+              icon: icon!,
+              label: Text(label),
+            );
+    }
+    if (variant == AppButtonVariant.outlined) {
+      return icon == null
+          ? OutlinedButton(onPressed: onPressed, child: Text(label))
+          : OutlinedButton.icon(
+              onPressed: onPressed,
+              icon: icon!,
+              label: Text(label),
+            );
+    }
+    return icon == null
+        ? FilledButton(onPressed: onPressed, child: Text(label))
+        : FilledButton.icon(
+            onPressed: onPressed,
+            icon: icon!,
+            label: Text(label),
+          );
+  }
+}
+
+class AppScaffold extends StatelessWidget {
+  final String? title;
+  final Widget child;
+  final List<Widget>? actions;
+  final Widget? floatingActionButton;
+  final Widget? bottomNavigationBar;
+  final bool centerContent;
+  final double maxWidth;
+
+  const AppScaffold({
+    super.key,
+    this.title,
+    required this.child,
+    this.actions,
+    this.floatingActionButton,
+    this.bottomNavigationBar,
+    this.centerContent = true,
+    this.maxWidth = 1180,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: title == null
+          ? null
+          : AppBar(
+              title: Text(title!),
+              actions: actions,
+            ),
+      floatingActionButton: floatingActionButton,
+      bottomNavigationBar: bottomNavigationBar,
+      body: SafeArea(
+        child: centerContent
+            ? AppResponsiveContainer(maxWidth: maxWidth, child: child)
+            : child,
       ),
     );
   }

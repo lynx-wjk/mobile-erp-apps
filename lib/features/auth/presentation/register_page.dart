@@ -116,7 +116,9 @@ class _RegisterPageState extends State<RegisterPage> {
         setState(() {
           _inviteChecked = true;
           _inviteValid = isValid;
-          _inviteMessage = isValid ? 'Undangan valid' : 'Undangan tidak valid atau sudah kedaluwarsa.';
+          _inviteMessage = isValid
+              ? 'Undangan valid'
+              : 'Undangan tidak valid atau sudah kedaluwarsa.';
           _tenantName = tenantName;
           _roleId = roleId;
           _inviteEmail = email;
@@ -236,7 +238,8 @@ class _RegisterPageState extends State<RegisterPage> {
         throw Exception('Gagal memproses persetujuan undangan.');
       }
     } catch (e) {
-      AppUi.showSnack(AppUi.userMessage(e.toString().replaceAll('Exception:', '')));
+      AppUi.showSnack(
+          AppUi.userMessage(e.toString().replaceAll('Exception:', '')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -265,13 +268,21 @@ class _RegisterPageState extends State<RegisterPage> {
                           width: 70,
                           height: 70,
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            border: Border.all(color: Colors.black, width: 3),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black, offset: Offset(4, 4)),
-                            ],
+                            color: theme.colorScheme.primary.withOpacity(
+                              isDark ? 0.18 : 0.10,
+                            ),
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color:
+                                  theme.colorScheme.primary.withOpacity(0.24),
+                            ),
+                            boxShadow: AppTheme.softShadow(theme.brightness),
                           ),
-                          child: const Icon(Icons.mail_outline_rounded, color: Colors.black, size: 38),
+                          child: Icon(
+                            Icons.mail_outline_rounded,
+                            color: theme.colorScheme.primary,
+                            size: 38,
+                          ),
                         ),
                         const SizedBox(height: 18),
                         Text(
@@ -280,18 +291,18 @@ class _RegisterPageState extends State<RegisterPage> {
                           style: TextStyle(
                             color: theme.colorScheme.onSurface,
                             fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Masukkan kode khusus untuk bergabung'.toUpperCase(),
+                          'Masukkan kode khusus untuk bergabung',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: theme.colorScheme.primary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
@@ -300,18 +311,21 @@ class _RegisterPageState extends State<RegisterPage> {
 
                     // Token Verification NiceCard
                     NiceCard(
-                      borderColor: Colors.black,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           const Text(
                             'Kode / Link Undangan',
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                            style: TextStyle(
+                                fontWeight: FontWeight.w800, fontSize: 14),
                           ),
                           const SizedBox(height: 4),
                           const Text(
                             'Masukkan kode undangan atau link invite yang diberikan oleh Platform Owner.',
-                            style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.textMuted,
+                                fontWeight: FontWeight.w500),
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -332,14 +346,18 @@ class _RegisterPageState extends State<RegisterPage> {
                                 child: FilledButton.icon(
                                   style: FilledButton.styleFrom(
                                     minimumSize: const Size(0, 40),
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
                                   ),
-                                  onPressed: (_checkingToken || _submitting) ? null : _checkInvite,
+                                  onPressed: (_checkingToken || _submitting)
+                                      ? null
+                                      : _checkInvite,
                                   icon: _checkingToken
                                       ? const SizedBox(
                                           width: 16,
                                           height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
                                         )
                                       : const Icon(Icons.search),
                                   label: const Text('Cek Undangan'),
@@ -351,7 +369,10 @@ class _RegisterPageState extends State<RegisterPage> {
                             const SizedBox(height: 12),
                             Text(
                               _inviteMessage ?? 'Token tidak valid.',
-                              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w800, fontSize: 12),
+                              style: const TextStyle(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12),
                             ),
                           ],
                         ],
@@ -362,31 +383,40 @@ class _RegisterPageState extends State<RegisterPage> {
                     // Registration Form NiceCard
                     if (_inviteChecked && _inviteValid)
                       NiceCard(
-                        borderColor: Colors.black,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: AppUi.green.withOpacity(isDark ? 0.2 : 0.1),
-                                border: Border.all(color: AppUi.green, width: 2),
+                                color:
+                                    AppUi.green.withOpacity(isDark ? 0.2 : 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                    color: AppUi.green.withOpacity(0.34)),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'UNDANGAN VALID'.toUpperCase(),
-                                    style: const TextStyle(fontWeight: FontWeight.w900, color: AppUi.green, fontSize: 13),
+                                    'Undangan valid',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        color: AppUi.green,
+                                        fontSize: 13),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
                                     'Tenant: ${_tenantName ?? '-'}',
-                                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 12),
                                   ),
                                   Text(
                                     'Role: ${appRoleFromRoleId(_roleId).label}',
-                                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 12),
                                   ),
                                 ],
                               ),
@@ -396,16 +426,18 @@ class _RegisterPageState extends State<RegisterPage> {
                             // If not logged in, show Auth credentials
                             if (currentUser == null) ...[
                               const Text(
-                                'KREDENSIAL LOGIN BARU',
-                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+                                'Kredensial login baru',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w800, fontSize: 13),
                               ),
                               const SizedBox(height: 8),
                               TextField(
                                 controller: _emailController,
-                                enabled: _inviteEmail == null || _inviteEmail!.isEmpty,
+                                enabled: _inviteEmail == null ||
+                                    _inviteEmail!.isEmpty,
                                 keyboardType: TextInputType.emailAddress,
                                 decoration: const InputDecoration(
-                                  labelText: 'EMAIL',
+                                  labelText: 'Email',
                                   prefixIcon: Icon(Icons.email),
                                 ),
                               ),
@@ -414,30 +446,38 @@ class _RegisterPageState extends State<RegisterPage> {
                                 controller: _passwordController,
                                 obscureText: _obscure,
                                 decoration: InputDecoration(
-                                  labelText: 'PASSWORD',
+                                  labelText: 'Password',
                                   prefixIcon: const Icon(Icons.lock),
                                   suffixIcon: IconButton(
-                                    icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
-                                    onPressed: () => setState(() => _obscure = !_obscure),
+                                    icon: Icon(_obscure
+                                        ? Icons.visibility
+                                        : Icons.visibility_off),
+                                    onPressed: () =>
+                                        setState(() => _obscure = !_obscure),
                                   ),
                                 ),
                               ),
-                              const Divider(height: 32, thickness: 2, color: Colors.black),
+                              const Divider(height: 32),
                             ] else ...[
                               // If logged in
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.black, width: 2),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                      color: theme.colorScheme.outlineVariant),
                                 ),
                                 child: Row(
                                   children: [
-                                    const Icon(Icons.check_circle, color: AppUi.green),
+                                    const Icon(Icons.check_circle,
+                                        color: AppUi.green),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
                                         'Terotentikasi sebagai: ${currentUser.email}',
-                                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 11),
                                       ),
                                     ),
                                   ],
@@ -449,13 +489,14 @@ class _RegisterPageState extends State<RegisterPage> {
                             // Profile Fields
                             const Text(
                               'PROFIL PENGGUNA',
-                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 13),
                             ),
                             const SizedBox(height: 8),
                             TextField(
                               controller: _nameController,
                               decoration: const InputDecoration(
-                                labelText: 'NAMA LENGKAP',
+                                labelText: 'Nama lengkap',
                                 prefixIcon: Icon(Icons.badge),
                               ),
                             ),
@@ -463,7 +504,7 @@ class _RegisterPageState extends State<RegisterPage> {
                             TextField(
                               controller: _usernameController,
                               decoration: const InputDecoration(
-                                labelText: 'USERNAME',
+                                labelText: 'Username',
                                 prefixIcon: Icon(Icons.alternate_email),
                               ),
                             ),
@@ -472,7 +513,7 @@ class _RegisterPageState extends State<RegisterPage> {
                               controller: _phoneController,
                               keyboardType: TextInputType.phone,
                               decoration: const InputDecoration(
-                                labelText: 'NOMOR HP (OPSIONAL)',
+                                labelText: 'Nomor HP (opsional)',
                                 prefixIcon: Icon(Icons.phone),
                               ),
                             ),
@@ -484,10 +525,13 @@ class _RegisterPageState extends State<RegisterPage> {
                                   ? const SizedBox(
                                       width: 20,
                                       height: 20,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
                                     )
                                   : Text(
-                                      (currentUser == null ? 'DAFTAR & BERGABUNG' : 'BERGABUNG KE TENANT').toUpperCase(),
+                                      currentUser == null
+                                          ? 'Daftar dan bergabung'
+                                          : 'Bergabung ke tenant',
                                     ),
                             ),
                           ],

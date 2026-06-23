@@ -147,35 +147,36 @@ class _LoginPageState extends State<LoginPage>
           width: 80,
           height: 80,
           decoration: BoxDecoration(
-            color: theme.colorScheme.primary,
-            border: Border.all(color: Colors.black, width: 3),
-            boxShadow: const [
-              BoxShadow(color: Colors.black, offset: Offset(5, 5)),
-            ],
+            color: theme.colorScheme.primary.withOpacity(
+              theme.brightness == Brightness.dark ? 0.18 : 0.10,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: theme.colorScheme.primary.withOpacity(0.24),
+            ),
+            boxShadow: AppTheme.softShadow(theme.brightness),
           ),
-          child: const Icon(Icons.account_balance_rounded,
-              color: Colors.black, size: 42),
+          child: Icon(
+            Icons.account_balance_rounded,
+            color: theme.colorScheme.primary,
+            size: 42,
+          ),
         ),
         const SizedBox(height: 28),
         Text(
-          'Mobile ERP'.toUpperCase(),
+          'Mobile ERP',
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: theme.colorScheme.onSurface,
-            fontSize: 32,
+          style: theme.textTheme.displaySmall?.copyWith(
             fontWeight: FontWeight.w900,
-            height: 1,
-            letterSpacing: -1,
+            height: 1.05,
           ),
         ),
         Text(
-          'OMNICHANNEL MANAGEMENT SYSTEM'.toUpperCase(),
+          'Omnichannel management system',
           textAlign: TextAlign.center,
-          style: TextStyle(
+          style: theme.textTheme.titleMedium?.copyWith(
             color: theme.colorScheme.primary,
-            fontSize: 22,
-            fontWeight: FontWeight.w900,
-            height: 1.2,
+            fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 24),
@@ -191,35 +192,39 @@ class _LoginPageState extends State<LoginPage>
       runSpacing: 10,
       children: [
         _previewChip(
-            Icons.trending_up_rounded, 'FINANCE', AppTheme.primaryColor),
-        _previewChip(Icons.inventory_2_rounded, 'STOCK', AppTheme.accentColor),
-        _previewChip(Icons.store_rounded, 'MARKET', AppTheme.pinkColor),
+            Icons.trending_up_rounded, 'Finance', AppTheme.primaryColor),
+        _previewChip(Icons.inventory_2_rounded, 'Stock', AppTheme.accentColor),
+        _previewChip(Icons.store_rounded, 'Market', AppTheme.indigoColor),
       ],
     );
   }
 
   Widget _previewChip(IconData icon, String label, Color color) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final background =
-        isDark ? color.withOpacity(0.92) : color.withOpacity(0.22);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final background = Color.alphaBlend(
+      color.withOpacity(isDark ? 0.16 : 0.10),
+      theme.cardColor,
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: background,
-        border: Border.all(color: Colors.black, width: 2),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(isDark ? 0.34 : 0.22)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(Icons.circle, size: 0, color: Colors.transparent),
-          Icon(icon, size: 16, color: Colors.black),
+          Icon(icon, size: 16, color: color),
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(
-              color: Colors.black,
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
+            style: TextStyle(
+              color: isDark ? color.withOpacity(0.95) : color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -230,28 +235,28 @@ class _LoginPageState extends State<LoginPage>
   // ── Form card ────────────────────────────────────────────────────────────────
   Widget _form() {
     return NiceCard(
-      borderColor: Colors.black,
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'SYSTEM LOGIN',
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 24),
+            'Masuk ke workspace',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22),
           ),
           const SizedBox(height: 22),
           TextField(
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
             decoration: const InputDecoration(
-                labelText: 'EMAIL ATAU USERNAME', prefixIcon: Icon(Icons.email)),
+                labelText: 'Email atau username',
+                prefixIcon: Icon(Icons.email)),
           ),
           const SizedBox(height: 14),
           TextField(
             controller: _passwordController,
             obscureText: _obscure,
             decoration: InputDecoration(
-              labelText: 'PASSWORD',
+              labelText: 'Password',
               prefixIcon: const Icon(Icons.lock),
               suffixIcon: IconButton(
                 icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
@@ -267,7 +272,7 @@ class _LoginPageState extends State<LoginPage>
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('SYSTEM LOGIN'),
+                : const Text('Masuk'),
           ),
           const SizedBox(height: 12),
           TextButton(
@@ -276,7 +281,7 @@ class _LoginPageState extends State<LoginPage>
                 MaterialPageRoute(builder: (_) => const RequestAccessPage()),
               );
             },
-            child: const Text('LIHAT PAKET & REQUEST ACCESS'),
+            child: const Text('Lihat paket dan request access'),
           ),
           const SizedBox(height: 4),
           TextButton.icon(
@@ -286,7 +291,7 @@ class _LoginPageState extends State<LoginPage>
               );
             },
             icon: const Icon(Icons.mail_outline_rounded, size: 16),
-            label: const Text('DAFTAR LEWAT UNDANGAN'),
+            label: const Text('Daftar lewat undangan'),
           ),
         ],
       ),
@@ -310,15 +315,15 @@ class _LoginPageState extends State<LoginPage>
                     _form(),
                     const SizedBox(height: 24),
                     Text(
-                      'AUTHORIZED PERSONNEL ONLY'.toUpperCase(),
+                      'Akses khusus pengguna terdaftar',
                       style: TextStyle(
                         color: Theme.of(context)
                             .colorScheme
                             .outline
                             .withOpacity(0.5),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 2,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0,
                       ),
                     ),
                   ],

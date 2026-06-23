@@ -7,9 +7,9 @@ enum AppVisualMode {
 
   String get storageValue => name;
 
-  String get label => this == AppVisualMode.girl ? 'Girl Light' : 'Man Dark';
+  String get label => this == AppVisualMode.girl ? 'Light' : 'Dark';
 
-  String get shortLabel => this == AppVisualMode.girl ? 'Girl' : 'Man';
+  String get shortLabel => this == AppVisualMode.girl ? 'Light' : 'Dark';
 
   static AppVisualMode fromValue(String? value) {
     final normalized = (value ?? '').trim().toLowerCase();

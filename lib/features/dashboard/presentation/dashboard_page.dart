@@ -1001,9 +1001,9 @@ class _DashboardPageState extends State<DashboardPage> {
                       onRefresh: _loadDashboard,
                       child: ListView(
                         padding: EdgeInsets.fromLTRB(
-                          16,
-                          16,
-                          16,
+                          wide ? 24 : 16,
+                          wide ? 24 : 16,
+                          wide ? 24 : 16,
                           wide ? 32 : 132,
                         ),
                         children: [
@@ -1058,16 +1058,11 @@ class _DashboardPageState extends State<DashboardPage> {
         margin: const EdgeInsets.fromLTRB(14, 14, 0, 14),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.zero,
+          borderRadius: BorderRadius.circular(18),
           color: Theme.of(context).cardColor,
-          border: Border.all(color: Colors.black, width: 3),
-          boxShadow: const [
-            BoxShadow(
-              color: Colors.black,
-              blurRadius: 0,
-              offset: Offset(6, 6),
-            ),
-          ],
+          border:
+              Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1078,20 +1073,21 @@ class _DashboardPageState extends State<DashboardPage> {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.zero,
-                    color: Theme.of(context).colorScheme.primary,
+                    borderRadius: BorderRadius.circular(14),
+                    color: Theme.of(context).colorScheme.primary.withOpacity(
+                          Theme.of(context).brightness == Brightness.dark
+                              ? 0.18
+                              : 0.10,
+                        ),
                     border: Border.all(
-                        color: (Theme.of(context).dividerColor), width: 1.4),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Theme.of(context).colorScheme.tertiary,
-                        blurRadius: 0,
-                        offset: const Offset(3, 3),
-                      ),
-                    ],
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withOpacity(0.24),
+                    ),
                   ),
                   child: Icon(Icons.grid_view_rounded,
-                      color: Colors.white, size: 22),
+                      color: Theme.of(context).colorScheme.primary, size: 22),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1101,7 +1097,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                       fontSize: 16,
                     ),
                   ),
@@ -1118,12 +1114,12 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 10),
             Text(
-              'MENU',
+              'Menu',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.outline,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.9,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0,
               ),
             ),
             const SizedBox(height: 8),
@@ -1153,51 +1149,58 @@ class _DashboardPageState extends State<DashboardPage> {
     required bool selected,
     required VoidCallback onTap,
   }) {
+    final theme = Theme.of(context);
     final accent = AppUi
         .playfulPalette[(title.hashCode.abs()) % AppUi.playfulPalette.length];
+    final selectedBg = Color.alphaBlend(
+      theme.colorScheme.primary.withOpacity(
+        theme.brightness == Brightness.dark ? 0.18 : 0.10,
+      ),
+      theme.cardColor,
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Material(
         color: Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
         child: InkWell(
           onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.zero,
-              color: selected ? accent : Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(14),
+              color: selected ? selectedBg : theme.cardColor,
               border: Border.all(
-                color: Colors.black,
-                width: 2,
+                color: selected
+                    ? theme.colorScheme.primary.withOpacity(0.28)
+                    : theme.colorScheme.outlineVariant,
               ),
-              boxShadow: selected
-                  ? [
-                      const BoxShadow(
-                        color: Colors.black,
-                        offset: Offset(3, 3),
-                      )
-                    ]
-                  : null,
             ),
             child: Row(
               children: [
-                Icon(icon, color: selected ? Colors.black : accent, size: 20),
+                Icon(
+                  icon,
+                  color: selected ? theme.colorScheme.primary : accent,
+                  size: 20,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        title.toUpperCase(),
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: selected
-                              ? Colors.black
-                              : Theme.of(context).colorScheme.onSurface,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 12,
-                          letterSpacing: 0.5,
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface,
+                          fontWeight:
+                              selected ? FontWeight.w800 : FontWeight.w700,
+                          fontSize: 13,
+                          letterSpacing: 0,
                         ),
                       ),
                       if (subtitle.trim().isNotEmpty)
@@ -1206,7 +1209,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.outline,
+                            color:
+                                theme.colorScheme.onSurface.withOpacity(0.58),
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
@@ -1310,9 +1314,7 @@ class _DashboardPageState extends State<DashboardPage> {
               padding: const EdgeInsets.symmetric(horizontal: 5),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.error,
-                borderRadius: BorderRadius.zero,
-                border: Border.all(
-                    color: (Theme.of(context).dividerColor), width: 1),
+                borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 count > 99 ? '99+' : count.toString(),
@@ -1320,7 +1322,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 10,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -1525,42 +1527,32 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   BoxDecoration _pixelDecoration(Color accent) {
+    final theme = Theme.of(context);
     return BoxDecoration(
-      color: Theme.of(context).cardColor,
-      borderRadius: BorderRadius.zero,
-      border: Border.all(color: Colors.black, width: 2.5),
-      boxShadow: const [
-        BoxShadow(
-          color: Colors.black,
-          offset: Offset(4, 4),
-        ),
-      ],
+      color: theme.cardColor,
+      borderRadius: AppTheme.radiusMd,
+      border: Border.all(color: theme.colorScheme.outlineVariant),
+      boxShadow: AppTheme.softShadow(theme.brightness),
     );
   }
 
   Widget _iconBtn(IconData icon, VoidCallback onTap) {
+    final theme = Theme.of(context);
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.zero,
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(14),
         child: Container(
           width: 42,
           height: 42,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.zero,
-            color: Theme.of(context).cardColor,
-            border: Border.all(color: Colors.black, width: 2),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black,
-                offset: Offset(3, 3),
-              ),
-            ],
+            borderRadius: BorderRadius.circular(14),
+            color: theme.cardColor,
+            border: Border.all(color: theme.colorScheme.outlineVariant),
           ),
-          child: Icon(icon,
-              size: 20, color: Theme.of(context).colorScheme.onSurface),
+          child: Icon(icon, size: 20, color: theme.colorScheme.onSurface),
         ),
       ),
     );
