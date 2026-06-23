@@ -134,7 +134,11 @@ class AppUi {
   }
 
   static Color mutedText(BuildContext context, [double opacity = 0.68]) {
-    return Theme.of(context).colorScheme.onSurface.withOpacity(opacity);
+    final theme = Theme.of(context);
+    if (theme.brightness == Brightness.light) {
+      return AppTheme.textMuted;
+    }
+    return theme.colorScheme.onSurface.withOpacity(opacity);
   }
 
   // ── Formatters ──────────────────────────────────────────────────────────────
