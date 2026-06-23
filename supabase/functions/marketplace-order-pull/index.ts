@@ -178,49 +178,6 @@ Deno.serve(async (req) => {
     const marketplaceAccountId = text(body.marketplace_account_id);
     const action = text(body.action || body.mode).toLowerCase();
     const isStatusRefreshAction = action === "refresh_existing_status" || action === "status_refresh" || body.auto_status_only === true;
-
-    // HOT/WARM LANE SAFETY PATCH:
-    // Non-final 90-day refresh tidak boleh jalan dari hot order lane.
-    // Warm/cold lane nanti harus explicit mengirim allow_nonfinal_90d_refresh=true.
-    const __statusRefreshType = text(body.type || body.action || body.mode).toLowerCase();
-    const __statusRefreshRangeDaysRaw = Number(body.range_days ?? body.status_range_days ?? body.days_back ?? 0);
-    const __statusRefreshRangeDays = Number.isFinite(__statusRefreshRangeDaysRaw) ? __statusRefreshRangeDaysRaw : 0;
-    const __isNonfinal90dRefreshRequest =
-      (
-        __statusRefreshType === "order_status_refresh" ||
-        __statusRefreshType === "refresh_existing_status" ||
-        __statusRefreshType === "status_refresh" ||
-        __statusRefreshType === "status_refresh_existing_orders" ||
-        body.auto_status_only === true
-      ) &&
-      __statusRefreshRangeDays >= 90;
-
-    if (
-      __isNonfinal90dRefreshRequest &&
-      body.allow_nonfinal_90d_refresh !== true &&
-      body.run_status_refresh_90d !== true
-    ) {
-      console.log("[marketplace-order-pull] hard_block_nonfinal_90d_refresh_hot_lane", {
-        type: body.type,
-        action: body.action,
-        mode: body.mode,
-        rangeDays: body.range_days,
-        statusRangeDays: body.status_range_days,
-        daysBack: body.days_back,
-        maxExistingOrders: body.max_existing_orders,
-        marketplace: body.marketplace,
-        marketplaceAccountId: body.marketplace_account_id,
-      });
-
-      return json({
-        ok: true,
-        skipped: true,
-        skipped_reason: "hard_block_nonfinal_90d_refresh_hot_lane",
-        message: "Skipped non-final 90d status refresh. This refresh must run only from explicit warm/cold lane.",
-        request_payload: body,
-        version: FUNCTION_VERSION,
-      }, 200);
-    }
     const isAutoRunnerSource = text(body.source) === "marketplace-auto-runner" || body.auto_today_only === true || body.auto_status_only === true;
     const daysBack = isAutoRunnerSource ? 1 : clampInt(body.days_back, 1, 60, 1);
     let range = pullDateRangeFromBody(body, daysBack);

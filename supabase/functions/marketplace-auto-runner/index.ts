@@ -52,7 +52,7 @@ Deno.serve(async (req)=>{
     const statusRefreshRangeDays = clampInt(body.order_status_range_days ?? body.status_range_days ?? Deno.env.get("ORDER_STATUS_REFRESH_RANGE_DAYS"), 1, 90, 90);
     const maxStatusRefreshPerAccount = clampInt(body.max_status_refresh_per_account ?? body.max_existing_orders ?? Deno.env.get("ORDER_STATUS_REFRESH_MAX_EXISTING"), 0, 200, 10);
     const runPendingDrain = body.run_pending_drain !== false;
-    const runStatusRefresh = body.run_order_status_refresh !== false;
+    const runStatusRefresh = body.run_order_status_refresh === true || body.run_status_refresh === true || body.allow_order_status_refresh === true;
     const runReturnRefund = body.run_return_refund_pull === true;
     const maxFinanceJobs = clampInt(body.max_finance_jobs ?? Deno.env.get("FINANCE_SYNC_MAX_JOBS"), 1, 3, 3);
     const maxFinanceOrders = clampInt(body.max_finance_orders ?? Deno.env.get("FINANCE_SYNC_MAX_ORDERS"), 1, 80, 50);
@@ -279,43 +279,6 @@ async function runAutoStockSync(args) {
   return result;
 }
 async function runAutoOrderPull(args) {
-  // AUTO_RUNNER_ORDER_LANE_DISABLED_20260624:
-  // Emergency kill-switch. Unknown non-pg_cron caller is still invoking marketplace-auto-runner every ~2 minutes.
-  // Keep finance/stock behavior separate; order hot lane must run from marketplace-order-dispatcher only.
-  const __allowAutoRunnerOrderLane =
-    (args as any)?.allow_auto_order_runner_order === true ||
-    (args as any)?.allowOrderHotLane === true ||
-    (args as any)?.allow_order_hot_lane === true;
-
-  if (!__allowAutoRunnerOrderLane) {
-    console.log("[marketplace-auto-runner] AUTO_RUNNER_ORDER_LANE_DISABLED_20260624", {
-      reason: "unknown_non_pgcron_2min_caller",
-    });
-
-    return {
-      enabled_tenants: 0,
-      tenants_run: 0,
-      accounts_run: 0,
-      queued: 0,
-      processed_jobs: 0,
-      remaining_jobs: 0,
-      orders: 0,
-      items: 0,
-      status_checked: 0,
-      status_updated: 0,
-      status_review_required: 0,
-      failed: 0,
-      skipped: 1,
-      details: [
-        {
-          type: "order_lane_disabled",
-          status: "skipped",
-          reason: "AUTO_RUNNER_ORDER_LANE_DISABLED_20260624",
-          message: "marketplace-auto-runner order lane disabled. Use marketplace-order-dispatcher for controlled order sync.",
-        },
-      ],
-    };
-  }
   let settingsQuery = args.admin.from("marketplace_order_pull_settings").select("tenant_id, auto_order_pull_enabled, interval_minutes, days_back, previous_unpacked_days, last_auto_run_at").eq("auto_order_pull_enabled", true).order("updated_at", {
     ascending: true
   });
@@ -438,7 +401,7 @@ async function runAutoOrderPull(args) {
         skip_completed_orders: true,
         skip_final_orders: true,
         include_completed: false,
-        source: "marketplace-auto-runner-v8-hot-today-no-90d-refresh",
+        source: "marketplace-auto-runner-v7-order-bounded-active-only",
         refresh_existing_status: false
       }, args.childTimeoutMs);
       if (orderJobs.ok && orderJobs.http_status >= 200 && orderJobs.http_status < 300 && orderJobs.data?.ok !== false) {
@@ -774,44 +737,6 @@ async function resetStaleJobs(admin) {
   }
 }
 async function invokeFunction(supabaseUrl, serviceRoleKey, cronSecret, functionName, body, timeoutMs = 45_000) {
-  // HOT LANE SAFETY PATCH v8:
-  // Auto-runner boleh pull order hari ini, tapi tidak boleh ikut refresh non-final 90 hari.
-  // Refresh 90 hari harus dipisah ke warm/cold lane agar Shopee/TikTok tidak kena API spike.
-  const __hotLanePayload =
-    body && typeof body === "object"
-      ? (body as Record<string, unknown>)
-      : null;
-
-  const __skipHotLaneNonfinal90dRefresh =
-    functionName === "marketplace-order-pull" &&
-    __hotLanePayload?.type === "order_status_refresh" &&
-    Number(__hotLanePayload?.range_days ?? 0) >= 90 &&
-    __hotLanePayload?.run_status_refresh_90d !== true &&
-    __hotLanePayload?.allow_nonfinal_90d_refresh !== true &&
-    __hotLanePayload?.skip_nonfinal_90d_refresh !== false;
-
-  if (__skipHotLaneNonfinal90dRefresh) {
-    console.log("[marketplace-auto-runner] hot_lane_skip_nonfinal_90d_refresh", {
-      functionName: functionName,
-      rangeDays: __hotLanePayload?.range_days,
-      maxExistingOrders: __hotLanePayload?.max_existing_orders,
-    });
-
-    return {
-      ok: true,
-      http_status: 200,
-      data: {
-        ok: true,
-        skipped: true,
-        skipped_reason: "hot_lane_skip_nonfinal_90d_refresh",
-        message: "Skipped non-final 90d status refresh from marketplace-auto-runner hot lane.",
-        function: functionName,
-        request_payload: __hotLanePayload,
-      },
-      elapsed_ms: 0,
-    };
-  }
-
   const url = `${supabaseUrl.replace(/\/+$/, "")}/functions/v1/${functionName}`;
   const startedAt = Date.now();
   const controller = new AbortController();
