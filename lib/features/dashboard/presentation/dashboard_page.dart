@@ -994,7 +994,7 @@ class _DashboardPageState extends State<DashboardPage> {
             child: SafeArea(
               bottom: false,
               child: _loading
-                  ? const FuturisticLoader(message: 'Memuat dashboardâ€¦')
+                  ? const FuturisticLoader(message: 'Memuat dashboard…')
                   : RefreshIndicator(
                       color: Theme.of(context).colorScheme.primary,
                       backgroundColor: Theme.of(context).cardColor,
@@ -1010,7 +1010,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           _topBar(),
                           const SizedBox(height: 16),
                           _profileCard(_user),
-                          if (_isAdmin || _isOperationalAdmin) ...[
+                          if (_isAdmin) ...[
                             const SizedBox(height: 12),
                             _subscriptionOverviewCard(),
                           ],
@@ -1047,7 +1047,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // â”€â”€ Top bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Top bar ─────────────────────────────────────────────────────────────────
   Widget _sidebarNavigation() {
     final menus = _filterMenusByPlan(_roleMenus());
     return SafeArea(
@@ -1802,7 +1802,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // â”€â”€ Profile card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Profile card ────────────────────────────────────────────────────────────
   Widget _profileCard(_CurrentUser? user) {
     final roleLabel = _roleLabel(user?.role ?? '-');
     final isActive = user?.active ?? true;
@@ -2137,7 +2137,7 @@ class _DashboardPageState extends State<DashboardPage> {
     return points.length - 1;
   }
 
-  // â”€â”€ Summary 2Ã—2 grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Summary 2×2 grid ────────────────────────────────────────────────────────
   Widget _adminAnalyticsCard() {
     final points = _financeTrendForChart();
     final defaultSelectedIndex = _defaultFinanceTrendIndex(points);
@@ -2678,7 +2678,7 @@ class _DashboardPageState extends State<DashboardPage> {
     ];
   }
 
-  // â”€â”€ Menu content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Menu content ─────────────────────────────────────────────────────────────
   List<Widget> _menuContent() {
     final menus = _filterMenusByPlan(_roleMenus());
     if (menus.isEmpty) return [];
@@ -2920,7 +2920,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   Expanded(
                     child: Tooltip(
                       message:
-                          '${AppUi.date(point.date)} Â· ${_shortRupiah(point.omzet)} Â· ${point.orders} order',
+                          '${AppUi.date(point.date)} · ${_shortRupiah(point.omzet)} · ${point.orders} order',
                       child: Container(
                         height: (point.omzet / maxOmzet * 88)
                             .clamp(8, 88)
@@ -2940,7 +2940,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Omzet ${_shortRupiah(_financeOmzet)} Â· Laba ${_shortRupiah(_financeNetProfit)} Â· Order $_financeOrderCount',
+            'Omzet ${_shortRupiah(_financeOmzet)} · Laba ${_shortRupiah(_financeNetProfit)} · Order $_financeOrderCount',
             style: TextStyle(
               color: AppUi.mutedText(context, 0.92),
               fontSize: 12,
@@ -3371,7 +3371,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // â”€â”€ Finance content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Finance content ──────────────────────────────────────────────────────────
   List<Widget> _financeContent() {
     return [
       _sectionHeader('Analytics Finance'),
@@ -3557,7 +3557,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // â”€â”€ Bottom nav â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Bottom nav ───────────────────────────────────────────────────────────────
   Widget _bottomQuickBar() {
     final canStockOut = _canStockOut();
     final baseMenus = _bottomMenus();
@@ -3949,7 +3949,7 @@ class _DashboardPageState extends State<DashboardPage> {
     ];
   }
 
-  // â”€â”€ Role menus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Role menus ───────────────────────────────────────────────────────────────
   List<_DashboardMenu> _roleMenus() {
     final role = _role;
 
@@ -4453,7 +4453,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 }
 
-// â”€â”€ Data classes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Data classes ─────────────────────────────────────────────────────────────
 
 class _TenantSubscriptionInfo {
   final String status;

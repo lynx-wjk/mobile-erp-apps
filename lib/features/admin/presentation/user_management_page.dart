@@ -808,7 +808,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
                   ),
                   subtitle: Text(
                     '${AppUi.text(user['email'])}\n'
-                    '${AppUi.text(user['role_id'])} â€¢ ${AppUi.text(user['status'])}\n'
+                    '${AppUi.text(user['role_id'])} • ${AppUi.text(user['status'])}\n'
                     'ID: ${AppUi.text(user['user_id'])}',
                   ),
                   isThreeLine: true,

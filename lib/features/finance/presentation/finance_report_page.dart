@@ -451,7 +451,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             .timeout(const Duration(seconds: 15));
         final enrichedResponse = response;
         _lastSnapshotStats =
-            '$safeRpcName Â· ${_snapshotStats(enrichedResponse)}';
+            '$safeRpcName · ${_snapshotStats(enrichedResponse)}';
 
         if (!_isFinanceSnapshotEmpty(enrichedResponse) &&
             !_isLegacySkuOnlySnapshot(enrichedResponse)) {
@@ -1700,7 +1700,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         summary['finance_orders_count'] ??
         summary['order_count'] ??
         summary['orders_count']);
-    return 'Data: ${orders.toStringAsFixed(0)} pesanan Â· $bySku SKU Â· $paid settled Â· $unpaid belum payout Â· $market sumber Â· $abnormal abnormal Â· omzet ${_money(gross)} Â· payout ${_money(payout)}';
+    return 'Data: ${orders.toStringAsFixed(0)} pesanan · $bySku SKU · $paid settled · $unpaid belum payout · $market sumber · $abnormal abnormal · omzet ${_money(gross)} · payout ${_money(payout)}';
   }
 
   bool _isFinanceSnapshotEmpty(dynamic response) {
@@ -5362,7 +5362,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (count > 1) '$count detail order',
       if (date != '-') date,
     ];
-    return parts.join(' Â· ');
+    return parts.join(' · ');
   }
 
   void _cacheFinanceProgress() {
@@ -8718,7 +8718,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         final marketplace = _marketplaceName(_text(account['marketplace']));
         return DropdownMenuItem<String>(
           value: id,
-          child: Text('$marketplace Â· $name', overflow: TextOverflow.ellipsis),
+          child: Text('$marketplace · $name', overflow: TextOverflow.ellipsis),
         );
       }).whereType<DropdownMenuItem<String>>(),
     ];
@@ -9367,7 +9367,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               title: payout > 0 ? 'LABA BERSIH' : 'ESTIMASI LABA',
               value: _money(profit),
               subtitle:
-                  'Margin ${margin.toStringAsFixed(2)}%  Â·  $orderSubtitle',
+                  'Margin ${margin.toStringAsFixed(2)}%  ·  $orderSubtitle',
               icon: Icons.account_balance_wallet_rounded,
               positive: profit >= 0,
             ),
@@ -9447,7 +9447,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 _detailCard(
                   title: 'Sample / Gratis sesuai filter',
                   subtitle:
-                      '${sampleOrderCount.toStringAsFixed(0)} order Â· HPP ${_money(sampleHppTotal)} Â· Payout minus ${_money(sampleNegativePayout)}',
+                      '${sampleOrderCount.toStringAsFixed(0)} order · HPP ${_money(sampleHppTotal)} · Payout minus ${_money(sampleNegativePayout)}',
                   children: [
                     if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
                         'shopee')
@@ -9706,9 +9706,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               final margin =
                   _num(row['net_margin_percent'] ?? row['margin_percent']);
               return _detailCard(
-                title: '$marketplace Â· $shop',
+                title: '$marketplace · $shop',
                 subtitle:
-                    '${_num(row['order_count']).toStringAsFixed(0)} pesanan  Â·  ${_dateTime(row['last_updated_at'] ?? row['updated_at'])}',
+                    '${_num(row['order_count']).toStringAsFixed(0)} pesanan  ·  ${_dateTime(row['last_updated_at'] ?? row['updated_at'])}',
                 children: [
                   _miniMetric('Omzet',
                       _money(_num(row['gross_sales'] ?? row['gross']))),
@@ -9776,8 +9776,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           Expanded(
             child: Text(
               _skuHasMoreServerRows
-                  ? 'SKU $startâ€“$end dari ${_bySku.length}+ Â· Page $page/$totalPages'
-                  : 'SKU $startâ€“$end dari ${_bySku.length} Â· Page $page/$totalPages',
+                  ? 'SKU $start–$end dari ${_bySku.length}+ · Page $page/$totalPages'
+                  : 'SKU $start–$end dari ${_bySku.length} · Page $page/$totalPages',
               style: TextStyle(
                 color: theme.colorScheme.onSurface.withOpacity(0.75),
                 fontSize: 12,
@@ -9983,7 +9983,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   if (variantName.isNotEmpty) 'Varian: $variantName',
                   if (marketplaceSku.isNotEmpty)
                     'SKU marketplace: $marketplaceSku',
-                ].join(' Â· '),
+                ].join(' · '),
                 trailing: Wrap(
                   spacing: 6,
                   children: [
@@ -10847,7 +10847,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   ]
                       .where((item) =>
                           item.trim().isNotEmpty && item.trim() != '-')
-                      .join('  Â·  '),
+                      .join('  ·  '),
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -11031,7 +11031,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       ]
                           .where((item) =>
                               item.trim().isNotEmpty && item.trim() != '-')
-                          .join('  Â·  '),
+                          .join('  ·  '),
                       trailing: _money(_purchaseAmount(row)),
                       positive: false,
                     )),
@@ -11225,7 +11225,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '$marketplace Â· $shop',
+              '$marketplace · $shop',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
@@ -11234,7 +11234,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ),
             const SizedBox(height: 3),
             Text(
-              '$orderCount pesanan Â· periode ${_date(_start)} - ${_date(_end)}',
+              '$orderCount pesanan · periode ${_date(_start)} - ${_date(_end)}',
               style: TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
@@ -11839,7 +11839,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         !_sampleFreeDetailsLoaded
                     ? 'Memuat data...'
                     : (_abnormalServerLoaded
-                        ? 'Hal $_abnormalPage/$pageMax Â· $startRow-$endRow dari $visibleTotal Â· $dataCount perlu cek payout'
+                        ? 'Hal $_abnormalPage/$pageMax · $startRow-$endRow dari $visibleTotal · $dataCount perlu cek payout'
                         : 'Belum ada hasil pencarian.'),
                 style: TextStyle(
                     fontSize: 11,
@@ -12634,7 +12634,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 ),
                 SizedBox(height: 3),
                 Text(
-                  '${_date(row['paid_at'] ?? row['expense_date'] ?? row['created_at'])}  Â·  ${_text(row['note'], 'Tanpa catatan')}',
+                  '${_date(row['paid_at'] ?? row['expense_date'] ?? row['created_at'])}  ·  ${_text(row['note'], 'Tanpa catatan')}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -13376,11 +13376,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required int visibleCount,
   }) {
     if (total <= 0 || visibleCount <= 0) {
-      return 'Menampilkan 0 dari $total Â· Hal $page/$totalPages';
+      return 'Menampilkan 0 dari $total · Hal $page/$totalPages';
     }
     final start = ((page - 1) * pageSize) + 1;
     final end = _minIntV82o(((page - 1) * pageSize) + visibleCount, total);
-    return 'Menampilkan $start-$end dari $total Â· Hal $page/$totalPages';
+    return 'Menampilkan $start-$end dari $total · Hal $page/$totalPages';
   }
 
   String? _marketplaceForAccountId(
@@ -13801,7 +13801,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
-        backgroundColor: (Theme.of(context).cardColor),
+        backgroundColor: Theme.of(context).colorScheme.surface,
         shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(8))),
         builder: (sheetContext) {
@@ -13852,10 +13852,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                 ),
                                 SizedBox(height: 4),
                                 Text(
-                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} Â· $pageSummary Â· $payoutLabel Â· Deduped by order line/facts',
+                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel · Deduped by order line/facts',
                                   style: TextStyle(
                                       fontSize: 12,
-                                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
+                                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.96)),
                                 ),
                               ],
                             ),
@@ -13896,11 +13896,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                             child: Text(
                               keyword.isEmpty
                                   ? pageSummary
-                                  : '$pageSummary Â· Filter: $keyword',
+                                  : '$pageSummary · Filter: $keyword',
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w800,
-                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
+                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.96)),
                             ),
                           ),
                           TextButton.icon(
@@ -13960,9 +13960,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               borderRadius:
                                                   BorderRadius.circular(8),
                                               border: Border.all(
-                                                  color: Theme.of(context)
-                                                      .dividerColor
-                                                      .withOpacity(0.75)),
+                                                  color: Theme.of(context).colorScheme.onSurface
+                                                      .withValues(alpha: 0.22)),
                                             ),
                                             child: Row(
                                               crossAxisAlignment:
@@ -13975,7 +13974,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                     color: Theme.of(context)
                                                         .colorScheme
                                                         .primary
-                                                        .withOpacity(0.10),
+                                                        .withValues(alpha: 0.22),
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                             12),
@@ -14003,17 +14002,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                                 FontWeight.w800,
                                                             color: Theme.of(
                                                                     context)
-                                                                .dividerColor),
+                                                                .colorScheme.onSurface.withValues(alpha: 0.90)),
                                                       ),
                                                       SizedBox(height: 4),
                                                       SelectableText(
                                                         'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .outline,
+                                                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
                                                             height: 1.35),
                                                       ),
                                                       SizedBox(height: 4),
@@ -14021,21 +14017,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         'Tanggal pesanan: ${_dateTime(item['order_date'])}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .outline,
+                                                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
                                                             height: 1.35),
                                                       ),
                                                       SizedBox(height: 4),
                                                       Text(
-                                                        'Status: ${_skuDetailOrderStatusV82o(item)}  Â·  Payout: ${_payoutStatusText(item)}',
+                                                        'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .outline,
+                                                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
                                                             height: 1.35),
                                                       ),
                                                       if (_skuDetailNeedsMarketplaceRefreshV82o(
@@ -14054,7 +14044,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                               .isNotEmpty) ...[
                                                         SizedBox(height: 4),
                                                         Text(
-                                                          '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' Â· ' : ''}${_text(item['resi_reason'], '')}',
+                                                          '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' · ' : ''}${_text(item['resi_reason'], '')}',
                                                           style: TextStyle(
                                                               fontSize: 11.5,
                                                               color: _linePayoutAmount(
@@ -14071,13 +14061,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ],
                                                       SizedBox(height: 4),
                                                       Text(
-                                                        'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  Â·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  Â·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  Â·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  Â·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
+                                                        'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  ·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  ·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  ·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .outline,
+                                                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
                                                             height: 1.35),
                                                       ),
                                                       SizedBox(height: 8),
@@ -14111,13 +14098,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ),
                                                       SizedBox(height: 6),
                                                       Text(
-                                                        'Settlement: ${_skuDetailSettlementText(item)}  Â·   ${_skuDetailSourceText(item)}',
+                                                        'Settlement: ${_skuDetailSettlementText(item)}  ·   ${_skuDetailSourceText(item)}',
                                                         style: TextStyle(
                                                             fontSize: 10.5,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .outline,
+                                                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
                                                             height: 1.3),
                                                       ),
                                                       if (_skuDetailAllocationText(
@@ -14129,10 +14113,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                               item),
                                                           style: TextStyle(
                                                               fontSize: 10.5,
-                                                              color: Theme.of(
-                                                                      context)
-                                                                  .colorScheme
-                                                                  .outline,
+                                                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
                                                               height: 1.3),
                                                         ),
                                                       ],
@@ -14197,7 +14178,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                           child: ColoredBox(
                                             color: Theme.of(context)
                                                 .cardColor
-                                                .withOpacity(0.55),
+                                                .withValues(alpha: 0.22),
                                             child: const Center(
                                                 child:
                                                     CircularProgressIndicator()),
@@ -14313,7 +14294,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                               ),
                               SizedBox(height: 4),
                               Text(
-                                '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} Â· ${allRows.length} detail order SKU Â· $payoutLabel',
+                                '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · ${allRows.length} detail order SKU · $payoutLabel',
                                 style: TextStyle(
                                     fontSize: 12,
                                     color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
@@ -14398,15 +14379,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                   fontSize: 13.5,
                                                   fontWeight: FontWeight.w800,
                                                   color: Theme.of(context)
-                                                      .dividerColor),
+                                                      .colorScheme.onSurface.withValues(alpha: 0.90)),
                                             ),
                                             SizedBox(height: 4),
                                             SelectableText(
                                               'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: AppUi.mutedText(
-                                                      context, 0.92),
+                                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 4),
@@ -14414,17 +14394,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               'Tanggal pesanan: ${_dateTime(item['order_date'])}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: AppUi.mutedText(
-                                                      context, 0.92),
+                                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 4),
                                             Text(
-                                              'Status: ${_skuDetailOrderStatusV82o(item)}  Â·  Payout: ${_payoutStatusText(item)}',
+                                              'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: AppUi.mutedText(
-                                                      context, 0.92),
+                                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             if (_payoutExplainText(item)
@@ -14435,7 +14413,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                     .isNotEmpty) ...[
                                               SizedBox(height: 4),
                                               Text(
-                                                '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' Â· ' : ''}${_text(item['resi_reason'], '')}',
+                                                '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' · ' : ''}${_text(item['resi_reason'], '')}',
                                                 style: TextStyle(
                                                     fontSize: 11.5,
                                                     color: _linePayoutAmount(
@@ -14450,11 +14428,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ],
                                             SizedBox(height: 4),
                                             Text(
-                                              'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  Â·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  Â·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  Â·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  Â·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
+                                              'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  ·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  ·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  ·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: AppUi.mutedText(
-                                                      context, 0.92),
+                                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 8),
@@ -14482,11 +14459,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ),
                                             SizedBox(height: 6),
                                             Text(
-                                              'Settlement: ${_skuDetailSettlementText(item)}  Â·   ${_skuDetailSourceText(item)}',
+                                              'Settlement: ${_skuDetailSettlementText(item)}  ·   ${_skuDetailSourceText(item)}',
                                               style: TextStyle(
                                                   fontSize: 10.5,
-                                                  color: AppUi.mutedText(
-                                                      context, 0.92),
+                                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
                                                   height: 1.3),
                                             ),
                                             if (_skuDetailAllocationText(item)
@@ -14496,8 +14472,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                 _skuDetailAllocationText(item),
                                                 style: TextStyle(
                                                     fontSize: 10.5,
-                                                    color: AppUi.mutedText(
-                                                        context, 0.92),
+                                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
                                                     height: 1.3),
                                               ),
                                             ],
@@ -14578,7 +14553,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             label,
             style: TextStyle(
                 fontSize: 10,
-                color: AppUi.mutedText(context, 0.88),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
                 fontWeight: FontWeight.w500),
           ),
           SizedBox(height: 2),
@@ -15120,7 +15095,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .take(limit)
         .map((entry) =>
             '${entry.key}: ${entry.value.toStringAsFixed(entry.value % 1 == 0 ? 0 : 2)}')
-        .join('  Â·  ');
+        .join('  ·  ');
   }
 
   Future<void> _refreshExpenseCategories() async {
@@ -15227,7 +15202,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
     return parts
         .where((part) => part.trim().isNotEmpty && part.trim() != '-')
-        .join(' Â· ');
+        .join(' · ');
   }
 
   List<Map<String, dynamic>> _safeOrderRefRows(Map<String, dynamic> row) {
@@ -15536,11 +15511,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var ref = clean
         .replaceAll(
             RegExp(
-                r'Â·?\s*(?:gross|omzet|payout|net|diterima)?\s*rp\s*[0-9.,-]+',
+                r'·?\s*(?:gross|omzet|payout|net|diterima)?\s*rp\s*[0-9.,-]+',
                 caseSensitive: false),
             '')
         .trim();
-    ref = ref.replaceAll(RegExp(r'Â·\s*$'), '').trim();
+    ref = ref.replaceAll(RegExp(r'·\s*$'), '').trim();
     final parts = ref.split(RegExp(r'\s*/\s*'));
     add(
       order: parts.isNotEmpty ? parts.first : ref,
