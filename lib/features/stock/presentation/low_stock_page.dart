@@ -141,7 +141,7 @@ class _LowStockPageState extends State<LowStockPage> {
                   Text(
                     'SKU ${product.kodeSku} · ${product.satuan}',
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.outline,
+                      color: AppUi.mutedText(context, 0.92),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -196,12 +196,12 @@ class _LowStockPageState extends State<LowStockPage> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Stock Low'),
+        title: Text('Stock Low'),
         actions: [
           IconButton(
             tooltip: 'Refresh',
             onPressed: _isLoading ? null : _loadLowStock,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: Icon(Icons.refresh_rounded),
           ),
         ],
       ),

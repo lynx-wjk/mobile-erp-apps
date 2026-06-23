@@ -195,7 +195,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
             ],
           ),
           const SizedBox(height: 10),
-          const Text(
+          Text(
             'Akses Mobile ERP dibuat melalui undangan Platform Owner. Pilih paket yang sesuai, lalu kirim request agar tenant dan akun owner bisa disiapkan.',
             style: TextStyle(
                 fontWeight: FontWeight.w500, fontSize: 13, height: 1.4),
@@ -225,7 +225,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
+        Text(
           'Paket tersedia',
           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
         ),
@@ -259,8 +259,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
                     planName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w800, fontSize: 16),
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
                   ),
                 ),
                 if (isTrial) _badge('TRIAL', AppUi.teal),
@@ -272,13 +271,13 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 fontSize: 12,
-                color: Colors.grey[600],
+                color: AppUi.mutedText(context, 0.90),
               ),
             ),
             const SizedBox(height: 10),
             Text(
               _planPrice(plan),
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 18,
                 color: AppUi.green,
@@ -291,7 +290,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
                 style: TextStyle(
                   fontWeight: FontWeight.w500,
                   fontSize: 12,
-                  color: Colors.grey[700],
+                  color: AppUi.mutedText(context, 0.90),
                   height: 1.35,
                 ),
               ),
@@ -311,7 +310,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
               ],
             ),
             const SizedBox(height: 14),
-            const Text(
+            Text(
               'Fitur utama',
               style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
             ),
@@ -350,8 +349,8 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
                 planName: planName,
                 planCode: planCode,
               ),
-              icon: const Icon(Icons.chat_rounded, size: 16),
-              label: const Text(
+              icon: Icon(Icons.chat_rounded, size: 16),
+              label: Text(
                 'Request paket ini',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
@@ -372,7 +371,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
       ),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontWeight: FontWeight.w700,
           fontSize: 12,
           color: AppUi.green,
@@ -397,7 +396,7 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
       ),
       child: Text(
         '$label: $value',
-        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
       ),
     );
   }
@@ -462,8 +461,8 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 13),
+                      style:
+                          TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -486,10 +485,10 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
               backgroundColor: color,
               foregroundColor: Colors.white,
             ),
-            icon: const Icon(Icons.open_in_new_rounded, size: 16),
+            icon: Icon(Icons.open_in_new_rounded, size: 16),
             label: Text(
               btnLabel,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
             ),
           ),
         ],
@@ -569,8 +568,8 @@ class _RequestAccessPageState extends State<RequestAccessPage> {
                           );
                         }
                       },
-                      icon: const Icon(Icons.arrow_back),
-                      label: const Text('Kembali ke Login'),
+                      icon: Icon(Icons.arrow_back),
+                      label: Text('Kembali ke Login'),
                     ),
                   ],
                 ),

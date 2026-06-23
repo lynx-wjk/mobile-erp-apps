@@ -97,7 +97,7 @@ class _PurchaseVerificationPageState extends State<PurchaseVerificationPage> {
       case 'submitted':
         return Colors.blue;
       case 'draft':
-        return Colors.grey;
+        return AppUi.mutedText(context, 0.90);
       default:
         return Colors.blueGrey;
     }

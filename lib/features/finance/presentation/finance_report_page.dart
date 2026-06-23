@@ -6859,7 +6859,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           }
 
           return AlertDialog(
-            title: const Text('Pilih periode'),
+            title: Text('Pilih periode'),
             content: SizedBox(
               width: 332,
               child: Column(
@@ -6895,7 +6895,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                       visibleMonth.month - 1);
                                 })
                             : null,
-                        icon: const Icon(Icons.chevron_left_rounded),
+                        icon: Icon(Icons.chevron_left_rounded),
                       ),
                       Expanded(
                         child: Center(
@@ -6916,7 +6916,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                       visibleMonth.month + 1);
                                 })
                             : null,
-                        icon: const Icon(Icons.chevron_right_rounded),
+                        icon: Icon(Icons.chevron_right_rounded),
                       ),
                     ],
                   ),
@@ -6927,14 +6927,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     runSpacing: 8,
                     children: [
                       ActionChip(
-                        label: const Text('Hari ini'),
+                        label: Text('Hari ini'),
                         onPressed: () => setSheetState(() {
                           final today = _dateOnly(DateTime.now());
                           setDraftRange(today, today);
                         }),
                       ),
                       ActionChip(
-                        label: const Text('Bulan ini'),
+                        label: Text('Bulan ini'),
                         onPressed: () => setSheetState(() {
                           final now = DateTime.now();
                           setDraftRange(
@@ -6951,7 +6951,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Batal'),
+                child: Text('Batal'),
               ),
               FilledButton(
                 onPressed: () {
@@ -6960,7 +6960,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     DateTimeRange(start: draftStart, end: draftEnd),
                   );
                 },
-                child: const Text('Terapkan'),
+                child: Text('Terapkan'),
               ),
             ],
           );
@@ -7560,16 +7560,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           insetPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
           contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
-          title: const Text('Edit saldo awal bulan'),
+          title: Text('Edit saldo awal bulan'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Bulan'),
+                  title: Text('Bulan'),
                   subtitle: Text(_monthLabel(period)),
-                  trailing: const Icon(Icons.calendar_month_rounded),
+                  trailing: Icon(Icons.calendar_month_rounded),
                   onTap: () async {
                     final picked = await _pickMonth(period);
                     if (picked == null) return;
@@ -7600,10 +7600,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Batal')),
+                child: Text('Batal')),
             FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Simpan')),
+                child: Text('Simpan')),
           ],
         ),
       ),
@@ -7668,16 +7668,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Reset saldo awal?'),
+        title: Text('Reset saldo awal?'),
         content: Text(
             'Saldo awal ${_monthLabel(_parseDate(row['period_month']) ?? _start)} akan diatur menjadi Rp0.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Batal')),
+              child: Text('Batal')),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Reset')),
+              child: Text('Reset')),
         ],
       ),
     );
@@ -7706,18 +7706,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Hapus saldo awal?'),
+        title: Text('Hapus saldo awal?'),
         content: Text(
             'Saldo awal ${_monthLabel(_parseDate(row['period_month']) ?? _start)} akan dihapus dari Arus Kas.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Batal')),
+              child: Text('Batal')),
           FilledButton(
             style: FilledButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Hapus'),
+            child: Text('Hapus'),
           ),
         ],
       ),
@@ -7815,9 +7815,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 const SizedBox(height: 12),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Tanggal transaksi'),
+                  title: Text('Tanggal transaksi'),
                   subtitle: Text(_date(adjustmentDate)),
-                  trailing: const Icon(Icons.calendar_month_rounded),
+                  trailing: Icon(Icons.calendar_month_rounded),
                   onTap: () async {
                     final picked = await showDatePicker(
                       context: context,
@@ -7836,10 +7836,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Batal')),
+                child: Text('Batal')),
             FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Simpan')),
+                child: Text('Simpan')),
           ],
         ),
       ),
@@ -7893,18 +7893,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Hapus kas manual?'),
+        title: Text('Hapus kas manual?'),
         content: Text(
             '${_text(row['category'], 'Kas manual')} akan dihapus dari Arus Kas.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Batal')),
+              child: Text('Batal')),
           FilledButton(
             style: FilledButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Hapus'),
+            child: Text('Hapus'),
           ),
         ],
       ),
@@ -8058,9 +8058,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 const SizedBox(height: 12),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Tanggal penarikan'),
+                  title: Text('Tanggal penarikan'),
                   subtitle: Text(_date(withdrawalDate)),
-                  trailing: const Icon(Icons.calendar_month_rounded),
+                  trailing: Icon(Icons.calendar_month_rounded),
                   onTap: () async {
                     final picked = await showDatePicker(
                       context: context,
@@ -8079,10 +8079,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Batal')),
+                child: Text('Batal')),
             FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Simpan')),
+                child: Text('Simpan')),
           ],
         ),
       ),
@@ -8140,18 +8140,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Hapus penarikan marketplace?'),
-        content: const Text(
-            'Penarikan dan alokasi terkait akan dihapus dari Arus Kas.'),
+        title: Text('Hapus penarikan marketplace?'),
+        content:
+            Text('Penarikan dan alokasi terkait akan dihapus dari Arus Kas.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Batal')),
+              child: Text('Batal')),
           FilledButton(
             style: FilledButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Hapus'),
+            child: Text('Hapus'),
           ),
         ],
       ),
@@ -8224,9 +8224,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               children: [
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Bulan sumber'),
+                  title: Text('Bulan sumber'),
                   subtitle: Text(_monthLabel(sourceMonth)),
-                  trailing: const Icon(Icons.calendar_month_rounded),
+                  trailing: Icon(Icons.calendar_month_rounded),
                   onTap: () async {
                     final picked = await _pickMonth(sourceMonth);
                     if (picked == null) return;
@@ -8270,10 +8270,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Batal')),
+                child: Text('Batal')),
             FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Simpan')),
+                child: Text('Simpan')),
           ],
         ),
       ),
@@ -8331,18 +8331,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Hapus alokasi penarikan?'),
+        title: Text('Hapus alokasi penarikan?'),
         content: Text(
             'Alokasi bulan ${_monthLabel(_parseDate(row['source_period_month']) ?? _start)} akan dihapus.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Batal')),
+              child: Text('Batal')),
           FilledButton(
             style: FilledButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Hapus'),
+            child: Text('Hapus'),
           ),
         ],
       ),
@@ -8547,7 +8547,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             elevation: 0,
             scrolledUnderElevation: 0,
             leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_rounded, size: 20),
+              icon: Icon(Icons.arrow_back_ios_rounded, size: 20),
               onPressed: () => Navigator.of(context).maybePop(),
             ),
             title: Text(
@@ -8578,18 +8578,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 IconButton(
                   tooltip: 'Hapus data finance marketplace',
                   onPressed: _processing ? null : _clearMarketplaceFinanceData,
-                  icon: const Icon(Icons.delete_sweep_rounded, size: 22),
+                  icon: Icon(Icons.delete_sweep_rounded, size: 22),
                 ),
                 IconButton(
                   tooltip: 'Export semua marketplace',
                   onPressed:
                       _processing ? null : _exportAllMarketplaceFinanceReport,
-                  icon: const Icon(Icons.file_download_rounded, size: 22),
+                  icon: Icon(Icons.file_download_rounded, size: 22),
                 ),
                 IconButton(
                   tooltip: 'Muat ulang tampilan',
                   onPressed: _processing ? null : _hardReloadFinanceView,
-                  icon: const Icon(Icons.refresh_rounded, size: 22),
+                  icon: Icon(Icons.refresh_rounded, size: 22),
                 ),
               ],
             ],
@@ -8614,12 +8614,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   indicatorWeight: 2.5,
                   labelColor: Theme.of(context).colorScheme.primary,
                   unselectedLabelColor: AppUi.mutedText(context, 0.88),
-                  labelStyle: const TextStyle(
+                  labelStyle: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0),
-                  unselectedLabelStyle: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w500),
+                  unselectedLabelStyle:
+                      TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                   tabs: tabs,
                 ),
               ),
@@ -8659,8 +8659,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     onPressed: _addManualExpense,
                     backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                    icon: const Icon(Icons.add, size: 20),
-                    label: const Text('Biaya',
+                    icon: Icon(Icons.add, size: 20),
+                    label: Text('Biaya',
                         style: TextStyle(fontWeight: FontWeight.w700)),
                   );
                 },
@@ -8774,7 +8774,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   icon: Icon(
                       _filterExpanded ? Icons.expand_less : Icons.tune_rounded,
                       size: 18),
-                  label: const Text('Filter',
+                  label: Text('Filter',
                       style:
                           TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
@@ -9358,8 +9358,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Theme.of(context).colorScheme.onPrimary,
                 ),
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('TARIK ULANG DATA'),
+                icon: Icon(Icons.refresh_rounded),
+                label: Text('TARIK ULANG DATA'),
               ),
             ),
           ] else ...[
@@ -9431,8 +9431,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                             foregroundColor:
                                 Theme.of(context).colorScheme.onPrimary,
                           ),
-                          icon: const Icon(Icons.card_giftcard_rounded),
-                          label: const Text('MUAT AUDIT SAMPLE/GRATIS'),
+                          icon: Icon(Icons.card_giftcard_rounded),
+                          label: Text('MUAT AUDIT SAMPLE/GRATIS'),
                         ),
                       ),
                     ],
@@ -9564,7 +9564,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     ),
                     if (sampleNegativePayout > 0) ...[
                       const SizedBox(height: 4),
-                      const Text(
+                      Text(
                         '* Payout minus dilabeli sesuai sumber yang terbukti: settlement, ongkir, voucher, atau fee platform.',
                         style: TextStyle(
                           fontSize: 11,
@@ -9591,8 +9591,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14)),
                         ),
-                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                        label: const Text('LIHAT DAFTAR ORDER SAMPLE'),
+                        icon: Icon(Icons.arrow_forward_rounded, size: 16),
+                        label: Text('LIHAT DAFTAR ORDER SAMPLE'),
                       ),
                     ),
                   ],
@@ -9789,7 +9789,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             tooltip: 'Page sebelumnya',
             onPressed:
                 page > 1 ? () => setState(() => _skuPage = page - 1) : null,
-            icon: const Icon(Icons.chevron_left_rounded),
+            icon: Icon(Icons.chevron_left_rounded),
           ),
           IconButton(
             tooltip: page < totalPages
@@ -9806,7 +9806,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.chevron_right_rounded),
+                : Icon(Icons.chevron_right_rounded),
           ),
         ],
       ),
@@ -10721,28 +10721,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               children: [
                 OutlinedButton.icon(
                   onPressed: _processing ? null : _editCashOpeningBalance,
-                  icon: const Icon(Icons.account_balance_wallet_rounded,
-                      size: 18),
-                  label: const Text('Saldo awal'),
+                  icon: Icon(Icons.account_balance_wallet_rounded, size: 18),
+                  label: Text('Saldo awal'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _processing
                       ? null
                       : () => _editCashAdjustment(direction: 'in'),
-                  icon: const Icon(Icons.south_west_rounded, size: 18),
-                  label: const Text('Kas masuk'),
+                  icon: Icon(Icons.south_west_rounded, size: 18),
+                  label: Text('Kas masuk'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _processing
                       ? null
                       : () => _editCashAdjustment(direction: 'out'),
-                  icon: const Icon(Icons.north_east_rounded, size: 18),
-                  label: const Text('Kas keluar'),
+                  icon: Icon(Icons.north_east_rounded, size: 18),
+                  label: Text('Kas keluar'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _processing ? null : _editMarketplaceWithdrawal,
-                  icon: const Icon(Icons.account_balance_rounded, size: 18),
-                  label: const Text('Penarikan'),
+                  icon: Icon(Icons.account_balance_rounded, size: 18),
+                  label: Text('Penarikan'),
                 ),
               ],
             ),
@@ -10872,12 +10871,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             IconButton(
               tooltip: 'Edit biaya',
               onPressed: _processing ? null : () => _editManualExpense(row),
-              icon: const Icon(Icons.edit_note_rounded, size: 20),
+              icon: Icon(Icons.edit_note_rounded, size: 20),
             ),
             IconButton(
               tooltip: 'Hapus biaya',
               onPressed: _processing ? null : () => _deleteManualExpense(row),
-              icon: const Icon(Icons.delete_outline_rounded, size: 20),
+              icon: Icon(Icons.delete_outline_rounded, size: 20),
             ),
           ],
         ],
@@ -11371,8 +11370,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       isExpanded
                           ? 'Sembunyikan Rincian Rekonsiliasi'
                           : 'Lihat Rincian Rekonsiliasi',
-                      style: const TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                     ),
                   ),
                   if (isExpanded) ...[
@@ -12061,7 +12060,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           style: TextStyle(
             fontSize: 13.5,
             fontWeight: FontWeight.w700,
-            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.75),
+            color: AppUi.mutedText(context, 0.90),
             letterSpacing: 0,
           ),
         ),
@@ -13194,7 +13193,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(label,
-                    style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                    style: TextStyle(
+                        fontSize: 10, color: AppUi.mutedText(context, 0.90))),
                 Text(_money(val),
                     style: TextStyle(
                         fontSize: 10,
@@ -13227,10 +13227,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Rincian Biaya/Item:',
             style: TextStyle(
-                fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: AppUi.mutedText(context, 0.90)),
           ),
           const SizedBox(height: 4),
           ...list,
@@ -13872,7 +13874,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         decoration: InputDecoration(
                           hintText:
                               'Cari nomor pesanan, resi, tanggal, gross, atau payout',
-                          prefixIcon: const Icon(Icons.search_rounded),
+                          prefixIcon: Icon(Icons.search_rounded),
                           suffixIcon: IconButton(
                             tooltip: 'Cari',
                             onPressed: loadingPage
@@ -13882,7 +13884,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                       searchController.text,
                                       setSheetState,
                                     ),
-                            icon: const Icon(Icons.search),
+                            icon: Icon(Icons.search),
                           ),
                           border: const OutlineInputBorder(),
                         ),
@@ -13909,8 +13911,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                       setSheetState,
                                     )
                                 : null,
-                            icon: const Icon(Icons.chevron_left_rounded),
-                            label: const Text('Sebelumnya'),
+                            icon: Icon(Icons.chevron_left_rounded),
+                            label: Text('Sebelumnya'),
                           ),
                           SizedBox(width: 6),
                           TextButton.icon(
@@ -13921,8 +13923,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                       setSheetState,
                                     )
                                 : null,
-                            icon: const Icon(Icons.chevron_right_rounded),
-                            label: const Text('Berikutnya'),
+                            icon: Icon(Icons.chevron_right_rounded),
+                            label: Text('Berikutnya'),
                           ),
                         ],
                       ),
@@ -16148,7 +16150,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           insetPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
           contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
-          title: const Text('Pilih bulan'),
+          title: Text('Pilih bulan'),
           content: SizedBox(
             width: 320,
             child: Column(
@@ -16159,13 +16161,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     IconButton(
                       tooltip: 'Tahun sebelumnya',
                       onPressed: () => setDialogState(() => year--),
-                      icon: const Icon(Icons.chevron_left_rounded),
+                      icon: Icon(Icons.chevron_left_rounded),
                     ),
                     Expanded(
                       child: Center(
                         child: Text(
                           '$year',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 18, fontWeight: FontWeight.w800),
                         ),
                       ),
@@ -16173,7 +16175,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     IconButton(
                       tooltip: 'Tahun berikutnya',
                       onPressed: () => setDialogState(() => year++),
-                      icon: const Icon(Icons.chevron_right_rounded),
+                      icon: Icon(Icons.chevron_right_rounded),
                     ),
                   ],
                 ),
@@ -16213,12 +16215,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Batal')),
+                onPressed: () => Navigator.pop(context), child: Text('Batal')),
             FilledButton(
               onPressed: () =>
                   Navigator.pop(context, DateTime(year, selectedMonth, 1)),
-              child: const Text('Pilih'),
+              child: Text('Pilih'),
             ),
           ],
         ),

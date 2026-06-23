@@ -116,7 +116,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
   Widget _filterChip(String value, String label) {
     return ChoiceChip(
       label: Text(label,
-          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 10)),
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 10)),
       selected: _tenantFilter == value,
       onSelected: (_) => setState(() => _tenantFilter = value),
     );
@@ -198,12 +198,12 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
       builder: (context) {
         return AlertDialog(
           title: Text('TAMBAH TENANT BARU'.toUpperCase(),
-              style: const TextStyle(fontWeight: FontWeight.w800)),
+              style: TextStyle(fontWeight: FontWeight.w800)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('NAMA TENANT / CLIENT',
+              Text('NAMA TENANT / CLIENT',
                   style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
               const SizedBox(height: 8),
               TextField(
@@ -218,8 +218,8 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('BATAL',
-                  style: TextStyle(fontWeight: FontWeight.w800)),
+              child:
+                  Text('BATAL', style: TextStyle(fontWeight: FontWeight.w800)),
             ),
             FilledButton(
               onPressed: () async {
@@ -254,7 +254,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                   setState(() => _isLoading = false);
                 }
               },
-              child: const Text('SIMPAN'),
+              child: Text('SIMPAN'),
             ),
           ],
         );
@@ -292,13 +292,13 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
           builder: (context, setDialogState) {
             return AlertDialog(
               title: Text('GENERATE UNDANGAN'.toUpperCase(),
-                  style: const TextStyle(fontWeight: FontWeight.w800)),
+                  style: TextStyle(fontWeight: FontWeight.w800)),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text('TENANT TARGET',
+                    Text('TENANT TARGET',
                         style: TextStyle(
                             fontWeight: FontWeight.w800, fontSize: 12)),
                     const SizedBox(height: 6),
@@ -316,7 +316,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                               setDialogState(() => selectedTenantId = val),
                     ),
                     const SizedBox(height: 14),
-                    const Text('PERAN / ROLE',
+                    Text('PERAN / ROLE',
                         style: TextStyle(
                             fontWeight: FontWeight.w800, fontSize: 12)),
                     const SizedBox(height: 6),
@@ -334,7 +334,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                               () => selectedRole = val ?? AppRole.superAdmin),
                     ),
                     const SizedBox(height: 14),
-                    const Text('EMAIL PENERIMA (OPSIONAL)',
+                    Text('EMAIL PENERIMA (OPSIONAL)',
                         style: TextStyle(
                             fontWeight: FontWeight.w800, fontSize: 12)),
                     const SizedBox(height: 6),
@@ -348,7 +348,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                       ),
                     ),
                     const SizedBox(height: 14),
-                    const Text('MASA BERLAKU (HARI)',
+                    Text('MASA BERLAKU (HARI)',
                         style: TextStyle(
                             fontWeight: FontWeight.w800, fontSize: 12)),
                     const SizedBox(height: 6),
@@ -367,7 +367,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
               actions: [
                 TextButton(
                   onPressed: generating ? null : () => Navigator.pop(context),
-                  child: const Text('BATAL',
+                  child: Text('BATAL',
                       style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
                 FilledButton(
@@ -411,7 +411,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                             color: Theme.of(context).colorScheme.onPrimary,
                           ),
                         )
-                      : const Text('GENERATE'),
+                      : Text('GENERATE'),
                 ),
               ],
             );
@@ -441,8 +441,8 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
       builder: (context) {
         return AlertDialog(
           title: Text('UNDANGAN DIHASILKAN'.toUpperCase(),
-              style: const TextStyle(
-                  fontWeight: FontWeight.w800, color: AppUi.green)),
+              style:
+                  TextStyle(fontWeight: FontWeight.w800, color: AppUi.green)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -450,12 +450,12 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
               Text('LINK REGISTRASI UTAMA (HTTPS):',
                   style: TextStyle(
                       fontWeight: FontWeight.w800,
-                      color: Colors.grey[600],
+                      color: AppUi.mutedText(context, 0.90),
                       fontSize: 11)),
               const SizedBox(height: 4),
               SelectableText(
                 registerUrl,
-                style: const TextStyle(
+                style: TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 12,
                     decoration: TextDecoration.underline),
@@ -464,12 +464,12 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
               Text('KODE TOKEN RAW:',
                   style: TextStyle(
                       fontWeight: FontWeight.w800,
-                      color: Colors.grey[600],
+                      color: AppUi.mutedText(context, 0.90),
                       fontSize: 11)),
               const SizedBox(height: 4),
               SelectableText(
                 token,
-                style: const TextStyle(
+                style: TextStyle(
                     fontWeight: FontWeight.w800,
                     fontFamily: 'monospace',
                     fontSize: 13),
@@ -478,15 +478,15 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
               Text('LINK APLIKASI (DEEP LINK):',
                   style: TextStyle(
                       fontWeight: FontWeight.w800,
-                      color: Colors.grey[600],
+                      color: AppUi.mutedText(context, 0.90),
                       fontSize: 11)),
               const SizedBox(height: 4),
               SelectableText(
                 appDeepLink,
-                style: const TextStyle(
+                style: TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 11,
-                    color: Colors.grey),
+                    color: AppUi.mutedText(context, 0.90)),
               ),
             ],
           ),
@@ -501,8 +501,8 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                     Clipboard.setData(ClipboardData(text: registerUrl));
                     AppUi.showSnack('LINK REGISTRASI DISALIN KE CLIPBOARD.');
                   },
-                  icon: const Icon(Icons.copy, size: 16),
-                  label: const Text('COPY LINK',
+                  icon: Icon(Icons.copy, size: 16),
+                  label: Text('COPY LINK',
                       style:
                           TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                   style: FilledButton.styleFrom(
@@ -527,8 +527,8 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                           'GAGAL MEMBUKA LINK. LINK DISALIN KE CLIPBOARD.');
                     }
                   },
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('OPEN LINK',
+                  icon: Icon(Icons.open_in_new, size: 16),
+                  label: Text('OPEN LINK',
                       style:
                           TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                   style: FilledButton.styleFrom(
@@ -541,8 +541,8 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                     Clipboard.setData(ClipboardData(text: token));
                     AppUi.showSnack('TOKEN RAW DISALIN KE CLIPBOARD.');
                   },
-                  icon: const Icon(Icons.vpn_key, size: 16),
-                  label: const Text('COPY TOKEN',
+                  icon: Icon(Icons.vpn_key, size: 16),
+                  label: Text('COPY TOKEN',
                       style:
                           TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                   style: FilledButton.styleFrom(
@@ -555,8 +555,8 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                     Clipboard.setData(ClipboardData(text: appDeepLink));
                     AppUi.showSnack('LINK APLIKASI DISALIN KE CLIPBOARD.');
                   },
-                  icon: const Icon(Icons.phone_android, size: 16),
-                  label: const Text('COPY APP LINK',
+                  icon: Icon(Icons.phone_android, size: 16),
+                  label: Text('COPY APP LINK',
                       style:
                           TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
                   style: FilledButton.styleFrom(
@@ -566,7 +566,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                 ),
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('SELESAI',
+                  child: Text('SELESAI',
                       style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
               ],
@@ -634,12 +634,12 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PLATFORM OWNER DASHBOARD',
+        title: Text('PLATFORM OWNER DASHBOARD',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
         actions: [
           IconButton(
             tooltip: 'Reload data',
-            icon: const Icon(Icons.refresh),
+            icon: Icon(Icons.refresh),
             onPressed: _loadData,
           ),
           ValueListenableBuilder<AppVisualMode>(
@@ -657,7 +657,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
           ),
           IconButton(
             tooltip: 'Logout',
-            icon: const Icon(Icons.logout),
+            icon: Icon(Icons.logout),
             onPressed: _isLoggingOut ? null : _logout,
           ),
         ],
@@ -721,7 +721,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                       label,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           fontWeight: FontWeight.w800,
                                           fontSize: 11),
                                     ),
@@ -810,14 +810,14 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                 // Tenant Info Row
                                 Row(
                                   children: [
-                                    const Icon(Icons.business_center, size: 20),
+                                    Icon(Icons.business_center, size: 20),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
                                         tenantName.toUpperCase(),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                             fontWeight: FontWeight.w800,
                                             fontSize: 15),
                                       ),
@@ -833,8 +833,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                     _tenantStatusChip(tenantStatus),
                                     IconButton(
                                       tooltip: 'Kelola Subscription',
-                                      icon: const Icon(
-                                          Icons.card_membership_rounded,
+                                      icon: Icon(Icons.card_membership_rounded,
                                           size: 18),
                                       onPressed: () {
                                         final tenantObj =
@@ -865,8 +864,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                     ),
                                     IconButton(
                                       tooltip: 'Undang user ke tenant ini',
-                                      icon: const Icon(
-                                          Icons.person_add_alt_1_rounded,
+                                      icon: Icon(Icons.person_add_alt_1_rounded,
                                           size: 18),
                                       onPressed: () =>
                                           _showGenerateInviteDialog(
@@ -874,8 +872,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                     ),
                                     IconButton(
                                       tooltip: 'Kelola User / Reset Password',
-                                      icon: const Icon(
-                                          Icons.manage_accounts_rounded,
+                                      icon: Icon(Icons.manage_accounts_rounded,
                                           size: 18),
                                       onPressed: () {
                                         Navigator.of(context)
@@ -916,15 +913,13 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          const Icon(
-                                              Icons.warning_amber_rounded,
-                                              size: 12,
-                                              color: AppUi.orange),
+                                          Icon(Icons.warning_amber_rounded,
+                                              size: 12, color: AppUi.orange),
                                           const SizedBox(width: 4),
                                           Text(
                                             'UNASSIGNED (FALLBACK ACTIVE)'
                                                 .toUpperCase(),
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                                 color: AppUi.orange,
                                                 fontWeight: FontWeight.w800,
                                                 fontSize: 9),
@@ -1003,7 +998,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                                 Text(
                                                   'TRIAL: ${AppUi.date(trialEnd)}'
                                                       .toUpperCase(),
-                                                  style: const TextStyle(
+                                                  style: TextStyle(
                                                       fontWeight:
                                                           FontWeight.w800,
                                                       fontSize: 9),
@@ -1053,7 +1048,8 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                             'Belum ada akun toko terhubung.'
                                                 .toUpperCase(),
                                             style: TextStyle(
-                                                color: Colors.grey[600],
+                                                color: AppUi.mutedText(
+                                                    context, 0.90),
                                                 fontSize: 11,
                                                 fontWeight: FontWeight.w800),
                                           ),
@@ -1120,7 +1116,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                                 '${marketplace.toUpperCase()}: $storeAlias',
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
+                                                style: TextStyle(
                                                     fontWeight: FontWeight.w800,
                                                     fontSize: 12),
                                               ),
@@ -1176,10 +1172,12 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color:
-            alert ? AppUi.red.withOpacity(0.1) : Colors.grey.withOpacity(0.05),
+        color: alert
+            ? AppUi.red.withOpacity(0.1)
+            : AppUi.mutedText(context, 0.90).withOpacity(0.05),
         border: Border.all(
-            color: alert ? AppUi.red : Colors.grey[400]!, width: 1.5),
+            color: alert ? AppUi.red : AppUi.mutedText(context, 0.90),
+            width: 1.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1189,7 +1187,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
             style: TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 8.5,
-                color: alert ? AppUi.red : Colors.grey[700]),
+                color: alert ? AppUi.red : AppUi.mutedText(context, 0.90)),
           ),
           Text(
             value,

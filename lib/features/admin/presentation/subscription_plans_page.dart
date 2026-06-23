@@ -299,7 +299,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
             return AlertDialog(
               title: Text(
                 isEditing ? 'EDIT PAKET SUBSCRIPTION' : 'TAMBAH PAKET BARU',
-                style: const TextStyle(fontWeight: FontWeight.w800),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
               insetPadding:
                   const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
@@ -462,7 +462,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                         visualDensity: VisualDensity.compact,
                         contentPadding: EdgeInsets.zero,
                         value: isTrial,
-                        title: const Text(
+                        title: Text(
                           'TRIAL PLAN',
                           style: TextStyle(fontWeight: FontWeight.w800),
                         ),
@@ -475,11 +475,11 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                         visualDensity: VisualDensity.compact,
                         contentPadding: EdgeInsets.zero,
                         value: isActive,
-                        title: const Text(
+                        title: Text(
                           'AKTIF DI DAFTAR PAKET',
                           style: TextStyle(fontWeight: FontWeight.w800),
                         ),
-                        subtitle: const Text(
+                        subtitle: Text(
                           'Nonaktif berarti paket disembunyikan dari pilihan aktif, bukan dihapus.',
                         ),
                         onChanged: saving
@@ -493,7 +493,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
               actions: [
                 TextButton(
                   onPressed: saving ? null : () => Navigator.pop(context),
-                  child: const Text(
+                  child: Text(
                     'BATAL',
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
@@ -543,7 +543,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                             color: Theme.of(context).colorScheme.onPrimary,
                           ),
                         )
-                      : const Text('SIMPAN'),
+                      : Text('SIMPAN'),
                 ),
               ],
             );
@@ -570,7 +570,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
             return AlertDialog(
               title: Text(
                 'FITUR PAKET: ${planName.toUpperCase()}',
-                style: const TextStyle(fontWeight: FontWeight.w800),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
               content: SizedBox(
                 width: 780,
@@ -614,7 +614,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                                           _featureLabel(feature).toUpperCase(),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontWeight: FontWeight.w800,
                                             fontSize: 12,
                                           ),
@@ -627,7 +627,8 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                                           style: TextStyle(
                                             fontSize: 10,
                                             fontWeight: FontWeight.w800,
-                                            color: Colors.grey[600],
+                                            color:
+                                                AppUi.mutedText(context, 0.90),
                                           ),
                                         ),
                                         const SizedBox(height: 6),
@@ -657,7 +658,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                                   const SizedBox(width: 8),
                                   IconButton(
                                     tooltip: 'Edit limit fitur',
-                                    icon: const Icon(Icons.tune_rounded),
+                                    icon: Icon(Icons.tune_rounded),
                                     onPressed: savingFeatureKey != null
                                         ? null
                                         : () async {
@@ -746,7 +747,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                   onPressed: savingFeatureKey != null
                       ? null
                       : () => Navigator.pop(context),
-                  child: const Text(
+                  child: Text(
                     'SELESAI',
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
@@ -772,7 +773,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
         return AlertDialog(
           title: Text(
             'LIMIT: ${featureLabel.toUpperCase()}',
-            style: const TextStyle(fontWeight: FontWeight.w800),
+            style: TextStyle(fontWeight: FontWeight.w800),
           ),
           content: TextField(
             controller: controller,
@@ -785,7 +786,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, _NoLimitCancel()),
-              child: const Text(
+              child: Text(
                 'BATAL',
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
@@ -795,7 +796,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                 context,
                 const _FeatureLimitResult(null),
               ),
-              child: const Text(
+              child: Text(
                 'HAPUS LIMIT',
                 style: TextStyle(fontWeight: FontWeight.w800, color: AppUi.red),
               ),
@@ -810,7 +811,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                 }
                 Navigator.pop(context, _FeatureLimitResult(parsed));
               },
-              child: const Text('SIMPAN'),
+              child: Text('SIMPAN'),
             ),
           ],
         );
@@ -830,7 +831,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
         return AlertDialog(
           title: Text(
             nextActive ? 'AKTIFKAN PAKET?' : 'NONAKTIFKAN PAKET?',
-            style: const TextStyle(fontWeight: FontWeight.w800),
+            style: TextStyle(fontWeight: FontWeight.w800),
           ),
           content: Text(
             nextActive
@@ -840,7 +841,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text(
+              child: Text(
                 'BATAL',
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
@@ -869,22 +870,22 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'EDITOR PAKET SUBSCRIPTION',
           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
         ),
         actions: [
           IconButton(
             tooltip: 'Reload data',
-            icon: const Icon(Icons.refresh),
+            icon: Icon(Icons.refresh),
             onPressed: _isSaving ? null : _loadPlans,
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isSaving ? null : () => _showPlanEditor(),
-        icon: const Icon(Icons.add),
-        label: const Text(
+        icon: Icon(Icons.add),
+        label: Text(
           'TAMBAH PAKET',
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
@@ -989,7 +990,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                     planName.toUpperCase(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 17,
                     ),
@@ -1010,7 +1011,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
               style: TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 10,
-                color: Colors.grey[600],
+                color: AppUi.mutedText(context, 0.90),
               ),
             ),
             const SizedBox(height: 12),
@@ -1026,13 +1027,14 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
               const SizedBox(height: 8),
               Text(
                 description,
-                style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                style: TextStyle(
+                    fontSize: 12, color: AppUi.mutedText(context, 0.90)),
               ),
             ],
             const SizedBox(height: 16),
             Divider(height: 1, thickness: 2, color: accent),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'BATASAN KUOTA',
               style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
             ),
@@ -1060,7 +1062,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
               ],
             ),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               'FITUR TERMASUK',
               style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
             ),
@@ -1071,7 +1073,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
-                  color: Colors.grey[600],
+                  color: AppUi.mutedText(context, 0.90),
                 ),
               )
             else
@@ -1093,7 +1095,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                     ),
                     child: Text(
                       _featureLabel(feature).toUpperCase(),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 8.5,
                         color: AppUi.green,
@@ -1107,7 +1109,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
               Text(
                 '+${enabledFeatureCount - 18} FITUR LAINNYA',
                 style: TextStyle(
-                  color: Colors.grey[600],
+                  color: AppUi.mutedText(context, 0.90),
                   fontWeight: FontWeight.w800,
                   fontSize: 10,
                 ),
@@ -1121,13 +1123,13 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                 FilledButton.icon(
                   onPressed:
                       _isSaving ? null : () => _showPlanEditor(plan: plan),
-                  icon: const Icon(Icons.edit_rounded, size: 16),
-                  label: const Text('EDIT PAKET'),
+                  icon: Icon(Icons.edit_rounded, size: 16),
+                  label: Text('EDIT PAKET'),
                 ),
                 FilledButton.icon(
                   onPressed: _isSaving ? null : () => _showFeatureEditor(plan),
-                  icon: const Icon(Icons.extension_rounded, size: 16),
-                  label: const Text('EDIT FITUR'),
+                  icon: Icon(Icons.extension_rounded, size: 16),
+                  label: Text('EDIT FITUR'),
                 ),
                 OutlinedButton.icon(
                   onPressed:
@@ -1191,7 +1193,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
           fontWeight: FontWeight.w800,
           fontSize: 10,
           letterSpacing: 0.2,
-          color: Colors.grey[800],
+          color: AppUi.mutedText(context, 0.90),
         ),
       ),
     );
@@ -1207,7 +1209,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
           TextField(
             controller: controller,
             keyboardType: TextInputType.number,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
             ),
@@ -1225,7 +1227,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.grey.withOpacity(0.05),
+        color: AppUi.mutedText(context, 0.90).withOpacity(0.05),
         borderRadius: BorderRadius.circular(12),
         border: Border.fromBorderSide(AppUi.softBorderSide(context)),
       ),
@@ -1237,12 +1239,12 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
             style: TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: 8.5,
-              color: Colors.grey[700],
+              color: AppUi.mutedText(context, 0.90),
             ),
           ),
           Text(
             value,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 9.5),
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 9.5),
           ),
         ],
       ),

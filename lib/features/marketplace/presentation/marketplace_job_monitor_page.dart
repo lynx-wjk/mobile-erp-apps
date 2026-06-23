@@ -699,11 +699,11 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
       appBar: AppBar(
         backgroundColor: theme.cardColor,
         foregroundColor: theme.textTheme.titleLarge?.color,
-        title: const Text('Monitor Pembaruan Marketplace'),
+        title: Text('Monitor Pembaruan Marketplace'),
         actions: [
           IconButton(
             tooltip: 'Monitor Dispatcher',
-            icon: const Icon(Icons.route_outlined),
+            icon: Icon(Icons.route_outlined),
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -715,7 +715,7 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
           IconButton(
             tooltip: 'Refresh data/job',
             onPressed: _loading ? null : () => _load(),
-            icon: const Icon(Icons.refresh_rounded),
+            icon: Icon(Icons.refresh_rounded),
           ),
         ],
       ),
@@ -1014,18 +1014,18 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
             children: [
               FilledButton.icon(
                 onPressed: canContinue ? onContinue : null,
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: const Text('Lanjutkan'),
+                icon: Icon(Icons.play_arrow_rounded),
+                label: Text('Lanjutkan'),
               ),
               OutlinedButton.icon(
                 onPressed: canReset ? onReset : null,
-                icon: const Icon(Icons.restart_alt_rounded),
-                label: const Text('Siapkan ulang'),
+                icon: Icon(Icons.restart_alt_rounded),
+                label: Text('Siapkan ulang'),
               ),
               OutlinedButton.icon(
                 onPressed: canRetry ? onRetryFailed : null,
-                icon: const Icon(Icons.replay_rounded),
-                label: const Text('Ulangi gagal'),
+                icon: Icon(Icons.replay_rounded),
+                label: Text('Ulangi gagal'),
               ),
             ],
           ),
@@ -1142,7 +1142,7 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
     if (s == 'failed' || s == 'gagal') return Colors.redAccent;
     if (s == 'retry' || s == 'ulangi' || s == 'perlu dicek')
       return Colors.orangeAccent;
-    return Theme.of(context).colorScheme.outline;
+    return AppUi.mutedText(context, 0.92);
   }
 
   double _num(dynamic value) {

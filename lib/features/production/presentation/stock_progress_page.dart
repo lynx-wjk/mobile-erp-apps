@@ -496,7 +496,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                         () => productionDate = picked);
                                   }
                                 },
-                          icon: const Icon(Icons.event_outlined),
+                          icon: Icon(Icons.event_outlined),
                           label: Text('Tanggal ${AppUi.date(productionDate)}'),
                         ),
                       ),
@@ -511,7 +511,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                     setSheetState(() => targetDate = picked);
                                   }
                                 },
-                          icon: const Icon(Icons.flag_outlined),
+                          icon: Icon(Icons.flag_outlined),
                           label: Text(targetDate == null
                               ? 'Target'
                               : AppUi.date(targetDate)),
@@ -572,7 +572,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         final confirmed = await showDialog<bool>(
                           context: sheetContext,
                           builder: (dialogContext) => AlertDialog(
-                            title: const Text('Hapus template progress?'),
+                            title: Text('Hapus template progress?'),
                             content: Text(
                               'Progress "${_editableStageLabel(stage)}" tidak akan muncul lagi saat tambah produksi baru. Progress lama tetap aman.',
                             ),
@@ -580,13 +580,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               TextButton(
                                 onPressed: () =>
                                     AppUi.safePop(dialogContext, false),
-                                child: const Text('Batal'),
+                                child: Text('Batal'),
                               ),
                               FilledButton.icon(
                                 onPressed: () =>
                                     AppUi.safePop(dialogContext, true),
-                                icon: const Icon(Icons.delete_outline),
-                                label: const Text('Hapus'),
+                                icon: Icon(Icons.delete_outline),
+                                label: Text('Hapus'),
                               ),
                             ],
                           ),
@@ -633,7 +633,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       ),
                       const SizedBox(width: 8),
                       IconButton(
-                        icon: const Icon(Icons.add_circle_outline),
+                        icon: Icon(Icons.add_circle_outline),
                         onPressed: saving
                             ? null
                             : () async {
@@ -729,8 +729,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           ? null
                           : () => setSheetState(
                               () => lines.add(_ProductionLineInput())),
-                      icon: const Icon(Icons.add_circle_outline),
-                      label: const Text('Tambah size'),
+                      icon: Icon(Icons.add_circle_outline),
+                      label: Text('Tambah size'),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -768,7 +768,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.attach_file_outlined),
+                        : Icon(Icons.attach_file_outlined),
                     label: Text(suratJalanUrl == null
                         ? 'Upload surat jalan'
                         : 'Surat jalan tersimpan'),
@@ -802,7 +802,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.save_outlined),
+                        : Icon(Icons.save_outlined),
                     label: Text(saving ? 'Menyimpan...' : 'Simpan Progress'),
                   ),
                 ],
@@ -877,7 +877,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   IconButton(
                     tooltip: 'Hapus size',
                     onPressed: saving ? null : onRemove,
-                    icon: const Icon(Icons.remove_circle_outline),
+                    icon: Icon(Icons.remove_circle_outline),
                   ),
               ],
             ),
@@ -963,7 +963,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             onChanged: filter,
                             decoration: InputDecoration(
                               labelText: searchLabel,
-                              prefixIcon: const Icon(Icons.search),
+                              prefixIcon: Icon(Icons.search),
                               border: const OutlineInputBorder(),
                             ),
                           ),
@@ -1000,12 +1000,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                           .colorScheme
                                           .primary
                                           .withOpacity(0.12),
-                                      child: const Icon(
-                                          Icons.inventory_2_outlined),
+                                      child: Icon(Icons.inventory_2_outlined),
                                     ),
                                     title: Text(
                                       product.namaBarang,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           fontWeight: FontWeight.w800),
                                     ),
                                     subtitle: Text(
@@ -1329,7 +1328,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       builder: (context, constraints) => DropdownMenu<String>(
                         width: constraints.maxWidth,
                         initialSelection: note.text,
-                        label: const Text('Jenis / Deskripsi'),
+                        label: Text('Jenis / Deskripsi'),
                         controller: note,
                         enableFilter: true,
                         enableSearch: true,
@@ -1425,7 +1424,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     builder: (context, constraints) => DropdownMenu<String>(
                       width: constraints.maxWidth,
                       initialSelection: paymentLabel.text,
-                      label: const Text('Label Pembayaran (Opsional)'),
+                      label: Text('Label Pembayaran (Opsional)'),
                       controller: paymentLabel,
                       enableFilter: true,
                       enableSearch: true,
@@ -1466,7 +1465,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                     setSheetState(() => paymentDate = picked);
                                   }
                                 },
-                          icon: const Icon(Icons.event_outlined),
+                          icon: Icon(Icons.event_outlined),
                           label: Text(AppUi.date(paymentDate)),
                         ),
                       ),
@@ -1529,7 +1528,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.payments_outlined),
+                        : Icon(Icons.payments_outlined),
                     label: Text(saving ? 'Menyimpan...' : 'Simpan Pembayaran'),
                   ),
                 ],
@@ -1794,7 +1793,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text('Lewati Progress'),
+                          Text('Lewati Progress'),
                           Switch(
                             value: isSkipped,
                             onChanged: saving || isProgressLocked
@@ -1917,7 +1916,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           children: [
                             Text(
                               '${input['size_label']} - ${input['local_sku']} (${input['local_product_name']})',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontWeight: FontWeight.w800, fontSize: 11),
                             ),
                             const SizedBox(height: 6),
@@ -1991,9 +1990,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     const SizedBox(height: 12),
                   ],
                   ListTile(
-                    title: const Text('Tanggal Proses'),
+                    title: Text('Tanggal Proses'),
                     subtitle: Text(AppUi.date(processDate)),
-                    trailing: const Icon(Icons.calendar_today_outlined),
+                    trailing: Icon(Icons.calendar_today_outlined),
                     onTap: saving || isProgressLocked
                         ? null
                         : () async {
@@ -2045,7 +2044,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       },
                       icon: Icon(Icons.payments_outlined,
                           color: Theme.of(context).colorScheme.primary),
-                      label: const Text('Bayar Ongkos Progress Ini'),
+                      label: Text('Bayar Ongkos Progress Ini'),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(44),
                         foregroundColor: Theme.of(context).colorScheme.primary,
@@ -2075,20 +2074,20 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         final confirmed = await showDialog<bool>(
                           context: context,
                           builder: (dialogContext) => AlertDialog(
-                            title: const Text('Hapus progress ini?'),
+                            title: Text('Hapus progress ini?'),
                             content: Text(
                                 'Menghapus progress "${_stageLabel(stageKey)}" akan mem-void semua rincian pembayaran terkait progress ini.\n\nApakah Anda yakin?'),
                             actions: [
                               TextButton(
                                 onPressed: () =>
                                     AppUi.safePop(dialogContext, false),
-                                child: const Text('Batal'),
+                                child: Text('Batal'),
                               ),
                               FilledButton.icon(
                                 onPressed: () =>
                                     AppUi.safePop(dialogContext, true),
-                                icon: const Icon(Icons.delete_outline),
-                                label: const Text('Hapus'),
+                                icon: Icon(Icons.delete_outline),
+                                label: Text('Hapus'),
                               ),
                             ],
                           ),
@@ -2115,8 +2114,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             setSheetState(() => saving = false);
                         }
                       },
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      label: const Text('Hapus Progress Ini'),
+                      icon: Icon(Icons.delete_outline, color: Colors.red),
+                      label: Text('Hapus Progress Ini'),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(44),
                         side: const BorderSide(color: Colors.red),
@@ -2133,7 +2132,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               height: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Icon(Icons.task_alt_outlined),
+                          : Icon(Icons.task_alt_outlined),
                       label: Text(stageKey == 'packing' &&
                               status == 'done' &&
                               !isSkipped
@@ -2240,7 +2239,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 10),
-                  const Text(
+                  Text(
                     'Masukkan kuantitas masuk riil per size. Stock lokal akan bertambah sesuai kuantitas ini.',
                     style: TextStyle(fontSize: 12),
                   ),
@@ -2255,7 +2254,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           Expanded(
                             child: Text(
                               '${AppUi.text(row['size_label'])} - ${AppUi.text(row['local_sku'])} (${AppUi.text(row['local_product_name'])}):',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontWeight: FontWeight.w700, fontSize: 12),
                             ),
                           ),
@@ -2286,7 +2285,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           onPressed: saving
                               ? null
                               : () => AppUi.safePop(sheetContext, false),
-                          child: const Text('Batal'),
+                          child: Text('Batal'),
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size(0, 44),
                           ),
@@ -2303,8 +2302,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                   child:
                                       CircularProgressIndicator(strokeWidth: 2),
                                 )
-                              : const Icon(Icons.inventory_2_outlined),
-                          label: const Text('Stock In'),
+                              : Icon(Icons.inventory_2_outlined),
+                          label: Text('Stock In'),
                           style: FilledButton.styleFrom(
                             minimumSize: const Size(0, 44),
                           ),
@@ -2337,7 +2336,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Hapus progress produksi?'),
+        title: Text('Hapus progress produksi?'),
         content: Text(
             'Menghapus Surat Jalan ini akan menghapus semua progress proses, catatan pembayaran pekerja, '
             'dan otomatis membatalkan penambahan stok barang di master SKU (jika sudah Done).\n\n'
@@ -2345,12 +2344,12 @@ class _StockProgressPageState extends State<StockProgressPage> {
         actions: [
           TextButton(
             onPressed: () => AppUi.safePop(dialogContext, false),
-            child: const Text('Batal'),
+            child: Text('Batal'),
           ),
           FilledButton.icon(
             onPressed: () => AppUi.safePop(dialogContext, true),
-            icon: const Icon(Icons.delete_outline),
-            label: const Text('Hapus'),
+            icon: Icon(Icons.delete_outline),
+            label: Text('Hapus'),
           ),
         ],
       ),
@@ -2678,7 +2677,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                         () => productionDate = picked);
                                   }
                                 },
-                          icon: const Icon(Icons.event_outlined),
+                          icon: Icon(Icons.event_outlined),
                           label: Text('Mulai: ${AppUi.date(productionDate)}'),
                         ),
                       ),
@@ -2693,7 +2692,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                     setSheetState(() => targetDate = picked);
                                   }
                                 },
-                          icon: const Icon(Icons.flag_outlined),
+                          icon: Icon(Icons.flag_outlined),
                           label: Text(targetDate == null
                               ? 'Target: -'
                               : 'Target: ${AppUi.date(targetDate!)}'),
@@ -2738,8 +2737,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           ? null
                           : () => setSheetState(
                               () => lines.add(_ProductionLineInput())),
-                      icon: const Icon(Icons.add_circle_outline),
-                      label: const Text('Tambah size'),
+                      icon: Icon(Icons.add_circle_outline),
+                      label: Text('Tambah size'),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -2825,7 +2824,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           ),
                           IconButton(
                             tooltip: 'Edit label',
-                            icon: const Icon(Icons.edit_outlined),
+                            icon: Icon(Icons.edit_outlined),
                             onPressed: saving
                                 ? null
                                 : () async {
@@ -2843,7 +2842,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                           ),
                           IconButton(
                             tooltip: 'Hapus / nonaktifkan',
-                            icon: const Icon(Icons.delete_outline),
+                            icon: Icon(Icons.delete_outline),
                             color: Colors.red,
                             onPressed: saving
                                 ? null
@@ -2873,7 +2872,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       ),
                       const SizedBox(width: 8),
                       IconButton(
-                        icon: const Icon(Icons.add_circle_outline),
+                        icon: Icon(Icons.add_circle_outline),
                         onPressed: saving
                             ? null
                             : () {
@@ -2931,7 +2930,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.save_outlined),
+                        : Icon(Icons.save_outlined),
                     label: Text(saving ? 'Menyimpan...' : 'Simpan Perubahan'),
                   ),
                 ],
@@ -3772,7 +3771,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
     if (_error != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Produksi Berjalan')),
+        appBar: AppBar(title: Text('Produksi Berjalan')),
         body: ErrorState(message: _error!, onRetry: _load),
       );
     }
@@ -3781,9 +3780,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Produksi Berjalan'),
+          title: Text('Produksi Berjalan'),
           actions: [
-            IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+            IconButton(onPressed: _load, icon: Icon(Icons.refresh)),
           ],
           bottom: const TabBar(
             tabs: [
@@ -3797,8 +3796,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
         ),
         floatingActionButton: FloatingActionButton.extended(
           onPressed: _createProgress,
-          icon: const Icon(Icons.add),
-          label: const Text('Progress'),
+          icon: Icon(Icons.add),
+          label: Text('Progress'),
         ),
         body: TabBarView(
           children: [
@@ -3980,7 +3979,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
         'Belum dibayar',
         AppUi.rupiah(AppUi.toNum(_summary['unpaid_total'])),
         Icons.pending_actions_outlined,
-        Theme.of(context).colorScheme.outline,
+        AppUi.mutedText(context, 0.92),
         'Kewajiban ongkos jahit yang belum lunas.'
       ),
     ];
@@ -4095,8 +4094,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                             color: AppUi.teal.withOpacity(0.16), width: 0.8),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child:
-                          const Icon(Icons.savings_outlined, color: AppUi.teal),
+                      child: Icon(Icons.savings_outlined, color: AppUi.teal),
                     ),
                     SizedBox(width: 10),
                     Expanded(
@@ -4107,7 +4105,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               AppUi.text(
                                       deposit['note'], 'Deposit awal produksi')
                                   .toUpperCase(),
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontWeight: FontWeight.w800, fontSize: 12)),
                           Text(AppUi.rupiah(AppUi.toNum(deposit['amount'])),
                               style: TextStyle(
@@ -4397,8 +4395,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               ),
-              icon: const Icon(Icons.add),
-              label: const Text('Tambah Pekerja'),
+              icon: Icon(Icons.add),
+              label: Text('Tambah Pekerja'),
             ),
           ],
         ),
@@ -4420,12 +4418,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     children: [
                       Expanded(
                         child: Text(AppUi.text(tailor['tailor_name']),
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w800)),
+                            style: TextStyle(fontWeight: FontWeight.w800)),
                       ),
                       if (status == 'inactive')
                         Chip(
-                          label: const Text('Nonaktif'),
+                          label: Text('Nonaktif'),
                           backgroundColor: Theme.of(context)
                               .colorScheme
                               .secondary
@@ -4439,21 +4436,21 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         ),
                       TextButton.icon(
                         onPressed: () => _showTailorSheet(tailor: tailor),
-                        icon: const Icon(Icons.edit_outlined),
-                        label: const Text('Edit'),
+                        icon: Icon(Icons.edit_outlined),
+                        label: Text('Edit'),
                       ),
                       TextButton.icon(
                         onPressed: () => _deleteTailor(tailor),
-                        icon: const Icon(Icons.delete_outline),
-                        label: const Text('Hapus'),
+                        icon: Icon(Icons.delete_outline),
+                        label: Text('Hapus'),
                       ),
                       TextButton.icon(
                         onPressed: () => _showPaymentSheet(
                           tailor: tailor,
                           initialType: 'kasbon',
                         ),
-                        icon: const Icon(Icons.add_card_outlined),
-                        label: const Text('Kasbon'),
+                        icon: Icon(Icons.add_card_outlined),
+                        label: Text('Kasbon'),
                       ),
                     ],
                   ),
@@ -4516,13 +4513,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
                   children: [
                     Text(
                       AppUi.text(item['surat_jalan_number'], '-'),
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'Kode Pola: ${AppUi.text(item['pattern_code'], '-')}',
-                      style: const TextStyle(
-                          fontSize: 12, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -4601,7 +4598,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     const SizedBox(width: 8),
                     Text(
                       AppUi.rupiah(AppUi.toNum(payment['amount'])),
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                     PopupMenuButton<String>(
                       onSelected: (value) {
@@ -4660,7 +4657,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     ),
                     Text(
                       '${AppUi.toNum(row['qty']).toStringAsFixed(0)} pcs',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ],
                 ),
@@ -4685,16 +4682,16 @@ class _StockProgressPageState extends State<StockProgressPage> {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: status == 'done' ? null : () => _markDone(item),
-                  icon: const Icon(Icons.inventory_2_outlined),
-                  label: const Text('Done / Stock In'),
+                  icon: Icon(Icons.inventory_2_outlined),
+                  label: Text('Done / Stock In'),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: FilledButton.icon(
                   onPressed: () => _showStageSelectionForPayment(item),
-                  icon: const Icon(Icons.payments_outlined),
-                  label: const Text('Bayar'),
+                  icon: Icon(Icons.payments_outlined),
+                  label: Text('Bayar'),
                 ),
               ),
             ],
@@ -4798,11 +4795,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 children: [
                   Text(
                     'Pekerja: ${tailorName.isNotEmpty ? tailorName : '-'}',
-                    style: const TextStyle(fontSize: 11),
+                    style: TextStyle(fontSize: 11),
                   ),
                   Text(
                     'Tarif: ${AppUi.rupiah(pricePerPcs)}/pcs',
-                    style: const TextStyle(fontSize: 11),
+                    style: TextStyle(fontSize: 11),
                   ),
                 ],
               ),
@@ -4812,8 +4809,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 children: [
                   Text(
                     'Total Ongkos: ${AppUi.rupiah(totalAmount)}',
-                    style: const TextStyle(
-                        fontSize: 11, fontWeight: FontWeight.bold),
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -4842,11 +4838,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('In: ${qtyIn.toStringAsFixed(0)} pcs',
-                      style: const TextStyle(fontSize: 10)),
+                      style: TextStyle(fontSize: 10)),
                   Text('Out: ${qtyOut.toStringAsFixed(0)} pcs',
-                      style: const TextStyle(fontSize: 10)),
+                      style: TextStyle(fontSize: 10)),
                   Text('Reject: ${qtyReject.toStringAsFixed(0)} pcs',
-                      style: const TextStyle(fontSize: 10)),
+                      style: TextStyle(fontSize: 10)),
                 ],
               ),
               if (sizeBreakdown.isNotEmpty) ...[
@@ -4871,7 +4867,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       ),
                       child: Text(
                         '$label (In: ${sbIn.toStringAsFixed(0)}, Out: ${sbOut.toStringAsFixed(0)}, Rej: ${sbReject.toStringAsFixed(0)})',
-                        style: const TextStyle(fontSize: 9),
+                        style: TextStyle(fontSize: 9),
                       ),
                     );
                   }).toList(),
@@ -4881,8 +4877,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 const SizedBox(height: 6),
                 Text(
                   'Catatan: $catatan',
-                  style: const TextStyle(
-                      fontSize: 10, fontStyle: FontStyle.italic),
+                  style: TextStyle(fontSize: 10, fontStyle: FontStyle.italic),
                 ),
               ],
               if (dates.isNotEmpty) ...[
@@ -4977,7 +4972,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
           IconButton(
             tooltip: 'Edit label template',
             onPressed: saving ? null : onEdit,
-            icon: const Icon(Icons.edit_outlined),
+            icon: Icon(Icons.edit_outlined),
           ),
           IconButton(
             tooltip: 'Hapus template dari daftar tambah produksi',
@@ -5118,7 +5113,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
     final result = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Edit label progress'),
+        title: Text('Edit label progress'),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -5131,7 +5126,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
         actions: [
           TextButton(
             onPressed: () => AppUi.safePop(dialogContext),
-            child: const Text('Batal'),
+            child: Text('Batal'),
           ),
           FilledButton.icon(
             onPressed: () {
@@ -5139,8 +5134,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
               if (value.isEmpty) return;
               AppUi.safePop(dialogContext, value);
             },
-            icon: const Icon(Icons.save_outlined),
-            label: const Text('Simpan'),
+            icon: Icon(Icons.save_outlined),
+            label: Text('Simpan'),
           ),
         ],
       ),
@@ -5259,7 +5254,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
     final selectedStageKey = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Pilih Progress Pembayaran'),
+        title: Text('Pilih Progress Pembayaran'),
         content: SizedBox(
           width: 320,
           child: ListView.builder(
@@ -5295,7 +5290,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Batal'),
+            child: Text('Batal'),
           ),
         ],
       ),

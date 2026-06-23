@@ -218,7 +218,7 @@ class _LoginPageState extends State<LoginPage>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.circle, size: 0, color: Colors.transparent),
+          Icon(Icons.circle, size: 0, color: Colors.transparent),
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 6),
           Text(
@@ -241,7 +241,7 @@ class _LoginPageState extends State<LoginPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
+          Text(
             'Masuk ke workspace',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22),
           ),
@@ -259,7 +259,7 @@ class _LoginPageState extends State<LoginPage>
             obscureText: _obscure,
             decoration: InputDecoration(
               labelText: 'Password',
-              prefixIcon: const Icon(Icons.lock),
+              prefixIcon: Icon(Icons.lock),
               suffixIcon: IconButton(
                 icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
                 onPressed: () => setState(() => _obscure = !_obscure),
@@ -274,7 +274,7 @@ class _LoginPageState extends State<LoginPage>
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('Masuk'),
+                : Text('Masuk'),
           ),
           const SizedBox(height: 12),
           TextButton(
@@ -283,7 +283,7 @@ class _LoginPageState extends State<LoginPage>
                 MaterialPageRoute(builder: (_) => const RequestAccessPage()),
               );
             },
-            child: const Text('Lihat paket dan request access'),
+            child: Text('Lihat paket dan request access'),
           ),
           const SizedBox(height: 4),
           TextButton.icon(
@@ -292,8 +292,8 @@ class _LoginPageState extends State<LoginPage>
                 MaterialPageRoute(builder: (_) => const RegisterPage()),
               );
             },
-            icon: const Icon(Icons.mail_outline_rounded, size: 16),
-            label: const Text('Daftar lewat undangan'),
+            icon: Icon(Icons.mail_outline_rounded, size: 16),
+            label: Text('Daftar lewat undangan'),
           ),
         ],
       ),
@@ -319,10 +319,7 @@ class _LoginPageState extends State<LoginPage>
                     Text(
                       'Akses khusus pengguna terdaftar',
                       style: TextStyle(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .outline
-                            .withOpacity(0.5),
+                        color: AppUi.mutedText(context, 0.92).withOpacity(0.5),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 0,

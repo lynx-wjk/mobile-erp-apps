@@ -266,10 +266,7 @@ class _LocationTabState extends State<_LocationTab> {
                             'Radius ${loc.radiusMeter.toStringAsFixed(0)} m  ·  ${loc.status}',
                             style: TextStyle(
                                 fontSize: 12,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withOpacity(0.5)),
+                                color: AppUi.mutedText(context, 0.90)),
                           ),
                           if ((loc.alamat ?? '').isNotEmpty) ...[
                             const SizedBox(height: 2),
@@ -559,7 +556,7 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                     'Pengaturan ini menentukan jam kerja per user yang dipakai sistem absensi ke depan. Timezone default Asia/Jakarta (WIB).',
                     style: TextStyle(
                         fontSize: 12,
-                        color: Theme.of(context).colorScheme.outline,
+                        color: AppUi.mutedText(context, 0.92),
                         height: 1.4),
                   ),
                 ),
@@ -582,7 +579,7 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                     'Pilih User',
                     style: TextStyle(
                         fontWeight: FontWeight.w700,
-                        color: Theme.of(context).colorScheme.outline,
+                        color: AppUi.mutedText(context, 0.92),
                         fontSize: 12,
                         letterSpacing: 0.4),
                   ),
@@ -592,10 +589,10 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                       value: _selectedUserId,
                       isExpanded: true,
                       hint: Text('Pilih user untuk edit jadwal…',
-                          style: TextStyle(
-                              color: Theme.of(context).colorScheme.outline)),
+                          style:
+                              TextStyle(color: AppUi.mutedText(context, 0.92))),
                       dropdownColor: Theme.of(context).cardColor,
-                      iconEnabledColor: Theme.of(context).colorScheme.outline,
+                      iconEnabledColor: AppUi.mutedText(context, 0.92),
                       items: _users.map((user) {
                         final uid = user['user_id']?.toString() ?? '';
                         final nama = user['nama']?.toString() ??
@@ -638,7 +635,7 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                     Text('Terapkan cepat',
                         style: TextStyle(
                             fontWeight: FontWeight.w700,
-                            color: Theme.of(context).colorScheme.outline,
+                            color: AppUi.mutedText(context, 0.92),
                             fontSize: 12)),
                     const SizedBox(height: 8),
                     Wrap(
@@ -728,7 +725,7 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                       fontWeight: FontWeight.w800,
                       color: active
                           ? Theme.of(context).colorScheme.onSurface
-                          : Theme.of(context).colorScheme.outline,
+                          : AppUi.mutedText(context, 0.92),
                       fontSize: 14,
                     ),
                   ),
@@ -759,8 +756,7 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
                 children: [
                   Text('Toleransi telat:',
                       style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.outline)),
+                          fontSize: 12, color: AppUi.mutedText(context, 0.92))),
                   const Spacer(),
                   IconButton(
                     onPressed: sched.lateTolerance <= 0
@@ -1006,7 +1002,7 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
                 'Isi latitude, longitude, dan radius untuk validasi absensi GPS. Koordinat bisa diambil dari Google Maps.',
                 style: TextStyle(
                     fontSize: 13,
-                    color: Theme.of(context).colorScheme.outline,
+                    color: AppUi.mutedText(context, 0.92),
                     height: 1.5),
               ),
             ),

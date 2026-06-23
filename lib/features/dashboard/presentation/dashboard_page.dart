@@ -1475,9 +1475,8 @@ class _DashboardPageState extends State<DashboardPage> {
                                           Text(
                                             item.body,
                                             style: TextStyle(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .outline,
+                                              color: AppUi.mutedText(
+                                                  context, 0.92),
                                               fontWeight: FontWeight.w600,
                                               height: 1.32,
                                             ),
@@ -1486,10 +1485,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                           Text(
                                             'Update ${AppUi.dateTime(item.lastTriggeredAt)}',
                                             style: TextStyle(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .outline
-                                                  ?.withOpacity(0.78),
+                                              color:
+                                                  AppUi.mutedText(context, 0.92)
+                                                      ?.withOpacity(0.78),
                                               fontSize: 11,
                                               fontWeight: FontWeight.w700,
                                             ),
@@ -1797,7 +1795,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
               Icon(Icons.chevron_right_rounded,
-                  color: Theme.of(context).colorScheme.outline, size: 20),
+                  color: AppUi.mutedText(context, 0.92), size: 20),
             ],
           ),
         ),
@@ -1856,10 +1854,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withOpacity(0.50),
+                    color: AppUi.mutedText(context, 0.90),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1913,7 +1908,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 Text(
                   'PAKET SUBSCRIPTION',
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.outline,
+                    color: AppUi.mutedText(context, 0.92),
                     fontSize: 10.5,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.6,
@@ -1982,7 +1977,7 @@ class _DashboardPageState extends State<DashboardPage> {
         clean == 'past_due') {
       return Theme.of(context).colorScheme.error;
     }
-    return Theme.of(context).colorScheme.outline;
+    return AppUi.mutedText(context, 0.92);
   }
 
   Widget _roleBadge(String label) {
@@ -2093,7 +2088,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 _dashboardFinanceMarketplaceFilter.trim().isEmpty);
         final accent = selected
             ? Theme.of(context).colorScheme.primary
-            : Theme.of(context).colorScheme.outline.withOpacity(0.55);
+            : AppUi.mutedText(context, 0.92).withOpacity(0.55);
 
         return Material(
           color: Colors.transparent,
@@ -2339,7 +2334,7 @@ class _DashboardPageState extends State<DashboardPage> {
         const SizedBox(width: 6),
         Text(label,
             style: TextStyle(
-                color: Theme.of(context).colorScheme.outline,
+                color: AppUi.mutedText(context, 0.92),
                 fontSize: 11,
                 fontWeight: FontWeight.w700)),
       ],
@@ -2406,10 +2401,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           style: TextStyle(
                             fontSize: 13,
                             height: 1.2,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withOpacity(0.6),
+                            color: AppUi.mutedText(context, 0.90),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -2951,7 +2943,7 @@ class _DashboardPageState extends State<DashboardPage> {
           Text(
             'Omzet ${_shortRupiah(_financeOmzet)} · Laba ${_shortRupiah(_financeNetProfit)} · Order $_financeOrderCount',
             style: TextStyle(
-              color: Theme.of(context).colorScheme.outline,
+              color: AppUi.mutedText(context, 0.92),
               fontSize: 12,
               fontWeight: FontWeight.w700,
             ),
@@ -3479,10 +3471,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12.5,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withOpacity(0.60),
+                        color: AppUi.mutedText(context, 0.90),
                         height: 1.35,
                       ),
                     ),
@@ -3542,10 +3531,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withOpacity(0.60),
+                        color: AppUi.mutedText(context, 0.90),
                         height: 1.3,
                         fontWeight: FontWeight.w600,
                       ),
