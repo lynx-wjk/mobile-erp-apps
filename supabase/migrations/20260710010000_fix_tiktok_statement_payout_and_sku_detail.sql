@@ -430,7 +430,13 @@ begin
         -- Filter by p_marketplace_sku and p_search in unmapped path
         and (
           p_marketplace_sku is null or p_marketplace_sku = ''
-          or lower(coalesce(oi.marketplace_sku, oi.marketplace_seller_sku, oi.seller_sku, '')) = lower(p_marketplace_sku)
+          or lower(p_marketplace_sku) in (
+             lower(oi.marketplace_sku::text),
+             lower(oi.marketplace_seller_sku::text),
+             lower(oi.seller_sku::text),
+             lower(oi.marketplace_sku_id::text),
+             lower(oi.marketplace_product_id::text)
+          )
         )
         and (
           p_search is null or p_search = ''
@@ -509,7 +515,7 @@ begin
           'status', order_status,
           'product_name', coalesce(marketplace_product_name, product_name, '-'),
           'variant_name', coalesce(marketplace_variant_name, variant_name, '-'),
-          'marketplace_sku', coalesce(marketplace_sku, marketplace_seller_sku, seller_sku, '-'),
+          'marketplace_sku', coalesce(marketplace_sku, marketplace_seller_sku, seller_sku, marketplace_sku_id::text, marketplace_product_id::text, '-'),
           'local_sku', 'Unmapped',
           'qty', qty,
           'quantity', qty,
@@ -561,7 +567,9 @@ begin
       coalesce(nullif(trim(i.local_sku),''), nullif(trim(i.mapped_local_sku),'')) as local_sku,
       greatest(1, coalesce(nullif(i.quantity,0), nullif(i.qty,0), 1))::integer as qty,
       coalesce(i.gross_amount, 0)::numeric as gross_amount,
-      coalesce(i.unit_gross_amount, 0)::numeric as unit_price
+      coalesce(i.unit_gross_amount, 0)::numeric as unit_price,
+      i.marketplace_sku_id,
+      i.marketplace_product_id
     from public.marketplace_order_items i
     join public.marketplace_orders o
       on o.marketplace_order_id = i.marketplace_order_id
@@ -626,7 +634,13 @@ begin
     where
       (
         p_marketplace_sku is null or p_marketplace_sku = ''
-        or lower(coalesce(b.marketplace_sku, b.marketplace_seller_sku, b.seller_sku, '')) = lower(p_marketplace_sku)
+        or lower(p_marketplace_sku) in (
+           lower(b.marketplace_sku::text),
+           lower(b.marketplace_seller_sku::text),
+           lower(b.seller_sku::text),
+           lower(b.marketplace_sku_id::text),
+           lower(b.marketplace_product_id::text)
+        )
       )
       and (
         -- When v_local_sku is provided, match on effective_local_sku
@@ -696,7 +710,7 @@ begin
         'status', order_status,
         'product_name', coalesce(marketplace_product_name, product_name, '-'),
         'variant_name', coalesce(marketplace_variant_name, variant_name, '-'),
-        'marketplace_sku', coalesce(marketplace_sku, marketplace_seller_sku, seller_sku, '-'),
+        'marketplace_sku', coalesce(marketplace_sku, marketplace_seller_sku, seller_sku, marketplace_sku_id::text, marketplace_product_id::text, '-'),
         'local_sku', coalesce(effective_local_sku, local_sku, 'Unmapped'),
         'qty', qty,
         'quantity', qty,

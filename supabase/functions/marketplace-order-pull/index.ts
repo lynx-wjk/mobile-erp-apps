@@ -367,149 +367,203 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
   const warnings: string[] = [];
   let skippedCompleted = 0;
 
-  for (const row of existingOrders || []) {
-    const orderId = text(row.external_order_id) || text(row.order_sn);
-    if (!orderId) continue;
-    const currentOrderStatusUpper = text(row.order_status).toUpperCase();
-    if (args.skipCompletedStatusRefresh && STATUS_REFRESH_SKIP_CURRENT_STATUSES.has(currentOrderStatusUpper)) {
-      skippedCompleted += 1;
-      continue;
-    }
-    checked += 1;
+  // Prepare chunking by order IDs
+  const orderIds = existingOrders.map(row => text(row.external_order_id) || text(row.order_sn)).filter(id => id);
+  if (orderIds.length === 0) {
+    return {
+      ok: true,
+      marketplace: "tiktok_shop",
+      mode: "status_refresh_existing_orders",
+      checked,
+      updated,
+      skipped_completed: skippedCompleted,
+      review_required: changedToReview,
+      failed,
+      payout_priority_candidates: payoutPriorityKeys.size,
+      selected_candidates: 0,
+      warning_count: 0,
+      warnings: [],
+      message: "Tidak ada order candidate untuk direfresh status.",
+    };
+  }
 
-    let detailOrder: any = null;
+  // Chunk into batches of up to 50 order IDs
+  const chunks: string[][] = [];
+  for (let i = 0; i < orderIds.length; i += 50) {
+    chunks.push(orderIds.slice(i, i + 50));
+  }
+
+  for (const chunk of chunks) {
+    const idsString = chunk.join(",");
+    let detailJson: any = null;
+
     try {
-      const detailJson = await fetchTikTokOrderDetail({
-        orderId,
+      detailJson = await fetchTikTokOrderDetail({
+        orderId: idsString,
         appKey,
         appSecret,
         accessToken,
         shopCipher,
         shopId,
       });
-      detailOrder = normalizeDetailOrder(detailJson, { id: orderId }, orderId);
     } catch (e) {
       if (isTikTokAuthError(e)) {
         try {
           tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, activeAccount, true);
           activeAccount = tokenBundle.account;
           accessToken = tokenBundle.accessToken;
-          const detailJson = await fetchTikTokOrderDetail({ orderId, appKey, appSecret, accessToken, shopCipher, shopId });
-          detailOrder = normalizeDetailOrder(detailJson, { id: orderId }, orderId);
+          detailJson = await fetchTikTokOrderDetail({
+            orderId: idsString,
+            appKey,
+            appSecret,
+            accessToken,
+            shopCipher,
+            shopId,
+          });
         } catch (retryError) {
-          failed += 1;
-          warnings.push(`Refresh status ${mask(orderId)} gagal: ${String(retryError)}`);
+          failed += chunk.length;
+          warnings.push(`Batch refresh ${chunk.length} order gagal: ${String(retryError)}`);
           continue;
         }
       } else {
-        failed += 1;
-        warnings.push(`Refresh status ${mask(orderId)} gagal: ${String(e)}`);
+        failed += chunk.length;
+        warnings.push(`Batch refresh ${chunk.length} order gagal: ${String(e)}`);
         continue;
       }
     }
 
-    const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
-    const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
-    const statusGroup = orderStatusGroup(orderStatusUpper);
-    const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
-    const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
-      normalizedOrder.order_status,
-      normalizedOrder.tracking_number || row.tracking_number,
-    );
-
-    const existingOrderAction = text(row.stock_action_status);
-    let nextStockActionStatus = existingOrderAction || "pending";
-    let nextLastError: string | null = null;
-
-    if (preserveFinalStatuses.has(existingOrderAction)) {
-      nextStockActionStatus = existingOrderAction;
-      nextLastError = null;
-    } else if (isCancelNoStockAction) {
-      nextStockActionStatus = "ignored_status";
-      nextLastError = "Buyer cancel request saat AWAITING_SHIPMENT dan belum ada resi. Tidak perlu stock out/stock in.";
-    } else if (hasActiveCancelRequest) {
-      nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
-      nextLastError = "Status order berubah: buyer mengajukan cancel. Review sebelum proses lanjutan.";
-    } else if (statusGroup === "cancelled") {
-      nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
-      nextLastError = "Status marketplace berubah menjadi cancel. Review di Refund/Cancel Monitor.";
-    } else if (statusGroup === "return_refund") {
-      nextStockActionStatus = "return_review_required";
-      nextLastError = "Status marketplace berubah menjadi refund/return. Review di Refund/Cancel Monitor.";
-    } else if (STOCK_OUT_ELIGIBLE_STATUSES.has(orderStatusUpper) && (!existingOrderAction || existingOrderAction === "pending" || existingOrderAction === "ignored_status")) {
-      nextStockActionStatus = "ready_to_pick";
-      nextLastError = null;
+    const data = detailJson?.data ?? detailJson?.response?.data ?? detailJson?.response ?? detailJson;
+    const ordersList = data?.orders || data?.order_list || detailJson?.orders || [];
+    const ordersMap = new Map<string, any>();
+    for (const ord of ordersList) {
+      const oid = text(ord.id) || text(ord.order_id);
+      if (oid) ordersMap.set(oid, ord);
     }
 
-    const nextPackageId = normalizedOrder.package_id || row.package_id || null;
-    const nextTrackingNumber = physicalTrackingNumber(
-      normalizedOrder.tracking_number || row.tracking_number,
-      orderId,
-      nextPackageId,
-    );
-    const nextLabelCode = nextTrackingNumber || physicalTrackingNumber(normalizedOrder.label_code || row.label_code, orderId, nextPackageId);
+    for (const orderId of chunk) {
+      const row = existingOrders.find(r => (text(r.external_order_id) || text(r.order_sn)) === orderId);
+      if (!row) continue;
 
-    const statusChanged = text(row.order_status).toUpperCase() !== orderStatusUpper
-      || text(row.tracking_number) !== text(nextTrackingNumber)
-      || nextStockActionStatus !== existingOrderAction;
+      const currentOrderStatusUpper = text(row.order_status).toUpperCase();
+      if (args.skipCompletedStatusRefresh && STATUS_REFRESH_SKIP_CURRENT_STATUSES.has(currentOrderStatusUpper)) {
+        skippedCompleted += 1;
+        continue;
+      }
+      checked += 1;
 
-    const now = new Date().toISOString();
-    const updatePayload: Record<string, unknown> = {
-      order_status: normalizedOrder.order_status || row.order_status,
-      order_status_label: normalizedOrder.order_status_label || row.order_status_label,
-      tracking_number: nextTrackingNumber,
-      shipping_provider_name: normalizedOrder.shipping_provider_name,
-      package_id: nextPackageId,
-      logistic_status: normalizedOrder.logistic_status,
-      label_code: nextLabelCode,
-      cancel_request_id: normalizedOrder.cancel_request_id,
-      cancel_request_status: normalizedOrder.cancel_request_status,
-      cancel_request_reason: normalizedOrder.cancel_request_reason,
-      cancel_request_note: normalizedOrder.cancel_request_note,
-      cancel_requested_at: normalizedOrder.cancel_requested_at,
-      cancel_request_raw: normalizedOrder.cancel_request_raw,
-      cancel_request_pulled_at: normalizedOrder.cancel_request_status ? now : null,
-      has_cancel_request: hasActiveCancelRequest,
-      stock_action_status: nextStockActionStatus,
-      last_error: nextLastError,
-      order_updated_at: normalizedOrder.order_updated_at || row.order_updated_at,
-      raw_order: normalizedOrder.raw_order,
-      pulled_at: now,
-      updated_at: now,
-    };
+      const rawOrder = ordersMap.get(orderId);
+      if (!rawOrder) {
+        failed += 1;
+        warnings.push(`Order detail ${mask(orderId)} tidak ditemukan dalam response API.`);
+        continue;
+      }
 
-    const { error: updateError } = await admin
-      .from("marketplace_orders")
-      .update(updatePayload)
-      .eq("marketplace_order_id", row.marketplace_order_id)
-      .eq("tenant_id", activeAccount.tenant_id);
+      const singleOrderJson = { data: { order: rawOrder } };
+      const detailOrder = normalizeDetailOrder(singleOrderJson, { id: orderId }, orderId);
 
-    if (updateError) {
-      failed += 1;
-      warnings.push(`Update status ${mask(orderId)} gagal: ${updateError.message}`);
-      continue;
-    }
+      const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
+      const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
+      const statusGroup = orderStatusUpper ? orderStatusGroup(orderStatusUpper) : "unknown";
+      const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
+      const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
+        normalizedOrder.order_status,
+        normalizedOrder.tracking_number || row.tracking_number,
+      );
 
-    if (statusChanged) updated += 1;
+      const existingOrderAction = text(row.stock_action_status);
+      let nextStockActionStatus = existingOrderAction || "pending";
+      let nextLastError: string | null = null;
 
-    if (nextStockActionStatus === "cancel_review_required" || nextStockActionStatus === "return_review_required" || nextStockActionStatus === "ignored_status") {
-      changedToReview += 1;
-      await syncOrderItemsStatusFromOrder(admin, activeAccount, row.marketplace_order_id, {
-        trackingNumber: nextTrackingNumber,
-        packageId: nextPackageId,
-        nextStockActionStatus,
-        lastError: nextLastError,
-      });
-    } else if (nextTrackingNumber || nextPackageId) {
-      await admin
-        .from("marketplace_order_items")
-        .update({
-          tracking_number: nextTrackingNumber,
-          package_id: nextPackageId,
-          updated_at: now,
-        })
-        .eq("tenant_id", activeAccount.tenant_id)
-        .eq("marketplace_order_id", row.marketplace_order_id);
+      if (preserveFinalStatuses.has(existingOrderAction)) {
+        nextStockActionStatus = existingOrderAction;
+        nextLastError = null;
+      } else if (isCancelNoStockAction) {
+        nextStockActionStatus = "ignored_status";
+        nextLastError = "Buyer cancel request saat AWAITING_SHIPMENT dan belum ada resi. Tidak perlu stock out/stock in.";
+      } else if (hasActiveCancelRequest) {
+        nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
+        nextLastError = "Status order berubah: buyer mengajukan cancel. Review sebelum proses lanjutan.";
+      } else if (statusGroup === "cancelled") {
+        nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
+        nextLastError = "Status marketplace berubah menjadi cancel. Review di Refund/Cancel Monitor.";
+      } else if (statusGroup === "return_refund") {
+        nextStockActionStatus = "return_review_required";
+        nextLastError = "Status marketplace berubah menjadi refund/return. Review di Refund/Cancel Monitor.";
+      } else if (STOCK_OUT_ELIGIBLE_STATUSES.has(orderStatusUpper) && (!existingOrderAction || existingOrderAction === "pending" || existingOrderAction === "ignored_status")) {
+        nextStockActionStatus = "ready_to_pick";
+        nextLastError = null;
+      }
+
+      const nextPackageId = normalizedOrder.package_id || row.package_id || null;
+      const nextTrackingNumber = physicalTrackingNumber(
+        normalizedOrder.tracking_number || row.tracking_number,
+        orderId,
+        nextPackageId,
+      );
+      const nextLabelCode = nextTrackingNumber || physicalTrackingNumber(normalizedOrder.label_code || row.label_code, orderId, nextPackageId);
+
+      const statusChanged = text(row.order_status).toUpperCase() !== orderStatusUpper
+        || text(row.tracking_number) !== text(nextTrackingNumber)
+        || nextStockActionStatus !== existingOrderAction;
+
+      const nowStr = new Date().toISOString();
+      const updatePayload: Record<string, unknown> = {
+        order_status: normalizedOrder.order_status || row.order_status,
+        order_status_label: normalizedOrder.order_status_label || row.order_status_label,
+        tracking_number: nextTrackingNumber,
+        shipping_provider_name: normalizedOrder.shipping_provider_name,
+        package_id: nextPackageId,
+        logistic_status: normalizedOrder.logistic_status,
+        label_code: nextLabelCode,
+        cancel_request_id: normalizedOrder.cancel_request_id,
+        cancel_request_status: normalizedOrder.cancel_request_status,
+        cancel_request_reason: normalizedOrder.cancel_request_reason,
+        cancel_request_note: normalizedOrder.cancel_request_note,
+        cancel_requested_at: normalizedOrder.cancel_requested_at,
+        cancel_request_raw: normalizedOrder.cancel_request_raw,
+        cancel_request_pulled_at: normalizedOrder.cancel_request_status ? nowStr : null,
+        has_cancel_request: hasActiveCancelRequest,
+        stock_action_status: nextStockActionStatus,
+        last_error: nextLastError,
+        order_updated_at: normalizedOrder.order_updated_at || row.order_updated_at,
+        raw_order: normalizedOrder.raw_order,
+        pulled_at: nowStr,
+        updated_at: nowStr,
+      };
+
+      const { error: updateError } = await admin
+        .from("marketplace_orders")
+        .update(updatePayload)
+        .eq("marketplace_order_id", row.marketplace_order_id)
+        .eq("tenant_id", activeAccount.tenant_id);
+
+      if (updateError) {
+        failed += 1;
+        warnings.push(`Update status ${mask(orderId)} gagal: ${updateError.message}`);
+        continue;
+      }
+
+      if (statusChanged) updated += 1;
+
+      if (nextStockActionStatus === "cancel_review_required" || nextStockActionStatus === "return_review_required" || nextStockActionStatus === "ignored_status") {
+        changedToReview += 1;
+        await syncOrderItemsStatusFromOrder(admin, activeAccount, row.marketplace_order_id, {
+          trackingNumber: nextTrackingNumber,
+          packageId: nextPackageId,
+          nextStockActionStatus,
+          lastError: nextLastError,
+        });
+      } else if (nextTrackingNumber || nextPackageId) {
+        await admin
+          .from("marketplace_order_items")
+          .update({
+            tracking_number: nextTrackingNumber,
+            package_id: nextPackageId,
+            updated_at: nowStr,
+          })
+          .eq("tenant_id", activeAccount.tenant_id)
+          .eq("marketplace_order_id", row.marketplace_order_id);
+      }
     }
   }
 
@@ -884,7 +938,7 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
   const timeFields = args.includeUpdateTimeSearch ? ["create_time", "update_time"] : ["create_time"];
   const shopeeStatuses = args.statuslessOnly ? [null] : uniqueStrings([
     ...args.statuses.map(toShopeeOrderStatus).filter(Boolean),
-    null,
+    ...(args.includeStatuslessSearch ? [null] : []),
   ]);
   const ranges = buildShopeeTimeRanges(sinceSeconds, args.endSeconds);
 
@@ -1741,6 +1795,65 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
       .eq("marketplace_order_id", orderRow.marketplace_order_id);
   }
 
+  // Backfill logic for TikTok orders with 0 or null prices (rate-limited up to 10 unique orders per run)
+  try {
+    const { data: incompleteItems, error: incompleteError } = await admin
+      .from("marketplace_order_items")
+      .select("marketplace_order_id, external_order_id")
+      .eq("tenant_id", activeAccount.tenant_id)
+      .eq("marketplace_account_id", activeAccount.marketplace_account_id)
+      .or("price_amount.is.null,price_amount.eq.0,gross_amount.is.null,gross_amount.eq.0")
+      .limit(100);
+
+    if (!incompleteError && incompleteItems && incompleteItems.length > 0) {
+      const uniqueOrderIds = Array.from(
+        new Set(
+          incompleteItems
+            .map((item: any) => item.external_order_id || item.marketplace_order_id)
+            .filter(Boolean)
+        )
+      ).slice(0, 10);
+
+      if (uniqueOrderIds.length > 0) {
+        console.log(`Backfill: fetching detail for ${uniqueOrderIds.length} orders with 0/null price`);
+        for (const orderId of uniqueOrderIds) {
+          try {
+            const detailJson = await fetchTikTokOrderDetail({
+              orderId,
+              appKey,
+              appSecret,
+              accessToken,
+              shopCipher,
+              shopId,
+            });
+            const detailOrder = normalizeDetailOrder(detailJson, {}, orderId);
+            const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
+            const orderRow = await upsertOrder(admin, activeAccount, normalizedOrder);
+            
+            const items = normalizeOrderItems(detailOrder, normalizedOrder).filter((item) => item.quantity > 0);
+            for (const item of items) {
+              const mapping = await findSkuMapping(admin, activeAccount, item, preloadedMaps || undefined);
+              const itemPayload = {
+                ...item,
+                mapped_product_id: mapping?.product_id || null,
+                mapped_local_sku: mapping?.local_sku || null,
+                marketplace_sku_map_id: mapping?.marketplace_sku_map_id || null,
+                mapping_status: mapping?.product_id ? "mapped" : "unmapped",
+                stock_action_status: mapping?.product_id ? "ignored_status" : "unmapped",
+                last_error: mapping?.product_id ? null : "SKU marketplace belum dimapping ke SKU lokal.",
+              };
+              await upsertOrderItem(admin, orderRow.marketplace_order_id, activeAccount, normalizedOrder, itemPayload);
+            }
+          } catch (e) {
+            console.warn(`Gagal backfill order ${orderId}: ${String(e)}`);
+          }
+        }
+      }
+    }
+  } catch (backfillErr) {
+    console.warn(`Gagal memproses backfill: ${String(backfillErr)}`);
+  }
+
   await admin
     .from("marketplace_accounts")
     .update({
@@ -2377,7 +2490,7 @@ function marketplaceItemGrossLine(item: any, qty: number): number | null {
   ]);
   if (unit !== null) return unit * qty;
 
-  const original = firstNumberFromPaths(item, ["original_price", "model_original_price", "before_discount_price", "list_price", "original_price.amount", "model_original_price.amount", "before_discount_price.amount", "list_price.amount"]);
+  const original = firstNumberFromPaths(item, ["sku_original_price", "original_price", "model_original_price", "before_discount_price", "list_price", "sku_original_price.amount", "original_price.amount", "model_original_price.amount", "before_discount_price.amount", "list_price.amount"]);
   const sellerDiscount = firstNumberFromPaths(item, ["seller_discount", "seller_discount_amount", "seller_discount_total", "discount_from_seller", "discount_seller", "seller_discount.amount", "seller_discount_amount.amount", "seller_discount_total.amount", "discount_from_seller.amount", "discount_seller.amount"]) ?? 0;
   if (original !== null) return Math.max(original * qty - sellerDiscount, 0);
   return null;
