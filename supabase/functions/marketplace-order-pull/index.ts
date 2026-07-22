@@ -251,9 +251,12 @@ Deno.serve(async (req) => {
       const statusRangeDays = clampInt(body.status_range_days || body.days_back, 1, 120, 60);
       const maxExistingOrders = clampInt(body.max_existing_orders || body.limit, 1, 200, 100);
       const skipCompletedStatusRefresh = body.skip_completed_status_refresh !== false;
+      const explicitOrderIds = Array.isArray(body.explicit_order_ids)
+        ? body.explicit_order_ids.map(text).filter(Boolean)
+        : (body.order_id ? [text(body.order_id)] : []);
       const result = account.marketplace === "shopee"
-        ? await refreshExistingShopeeOrderStatuses(admin, account, { statusRangeDays, maxExistingOrders, skipCompletedStatusRefresh })
-        : await refreshExistingTikTokOrderStatuses(admin, account, { statusRangeDays, maxExistingOrders, skipCompletedStatusRefresh });
+        ? await refreshExistingShopeeOrderStatuses(admin, account, { statusRangeDays, maxExistingOrders, skipCompletedStatusRefresh, explicitOrderIds })
+        : await refreshExistingTikTokOrderStatuses(admin, account, { statusRangeDays, maxExistingOrders, skipCompletedStatusRefresh, explicitOrderIds });
       return json({ version: FUNCTION_VERSION, ...result, elapsed_ms: Date.now() - requestStartedAt });
     }
 
@@ -285,7 +288,7 @@ Deno.serve(async (req) => {
 });
 
 
-async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args: { statusRangeDays: number; maxExistingOrders: number; skipCompletedStatusRefresh: boolean }) {
+async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args: { statusRangeDays: number; maxExistingOrders: number; skipCompletedStatusRefresh: boolean; explicitOrderIds?: string[] }) {
   const appKey = text(account.app_key) || requiredEnv("TIKTOK_APP_KEY");
   const appSecret = requiredEnv("TIKTOK_APP_SECRET");
   let tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, account);
@@ -340,18 +343,25 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
     .from("marketplace_orders")
     .select("marketplace_order_id, external_order_id, order_sn, tracking_number, package_id, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
     .eq("tenant_id", activeAccount.tenant_id)
-    .eq("marketplace_account_id", activeAccount.marketplace_account_id)
-    .or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
+    .eq("marketplace_account_id", activeAccount.marketplace_account_id);
 
-  if (args.skipCompletedStatusRefresh) {
-    existingQuery = existingQuery.or(`order_status.is.null,order_status.in.(${STATUS_REFRESH_TARGET_STATUSES.join(",")})`);
+  const hasExplicitIds = Array.isArray(args.explicitOrderIds) && args.explicitOrderIds.length > 0;
+  if (hasExplicitIds) {
+    const idsFilter = args.explicitOrderIds!.map(id => `external_order_id.eq.${id},order_sn.eq.${id}`).join(",");
+    existingQuery = existingQuery.or(idsFilter);
+  } else {
+    existingQuery = existingQuery.or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
+    if (args.skipCompletedStatusRefresh) {
+      existingQuery = existingQuery.or(`order_status.is.null,order_status.in.(${STATUS_REFRESH_TARGET_STATUSES.join(",")})`);
+    }
   }
 
   const candidateLimit = Math.min(Math.max(args.maxExistingOrders * 3, args.maxExistingOrders), 600);
-  const { data: existingOrdersRaw, error: existingError } = await existingQuery
-    .order("order_created_at", { ascending: false, nullsFirst: true })
-    .order("pulled_at", { ascending: true, nullsFirst: true })
-    .limit(candidateLimit);
+  const { data: existingOrdersRaw, error: existingError } = await (
+    hasExplicitIds
+      ? existingQuery.limit(candidateLimit)
+      : existingQuery.order("pulled_at", { ascending: true, nullsFirst: true }).order("order_created_at", { ascending: true, nullsFirst: true }).limit(candidateLimit)
+  );
 
   if (existingError) throw new Error(`Load existing marketplace order gagal: ${existingError.message}`);
 
@@ -697,7 +707,7 @@ async function syncOrderItemsStatusFromOrder(admin: any, account: any, marketpla
   }
 }
 
-async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args: { statusRangeDays: number; maxExistingOrders: number; skipCompletedStatusRefresh: boolean }) {
+async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args: { statusRangeDays: number; maxExistingOrders: number; skipCompletedStatusRefresh: boolean; explicitOrderIds?: string[] }) {
   let tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, account);
   let activeAccount = tokenBundle.account;
   let accessToken = tokenBundle.accessToken;
@@ -713,18 +723,25 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
     .from("marketplace_orders")
     .select("marketplace_order_id, external_order_id, order_sn, tracking_number, package_id, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
     .eq("tenant_id", activeAccount.tenant_id)
-    .eq("marketplace_account_id", activeAccount.marketplace_account_id)
-    .or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
+    .eq("marketplace_account_id", activeAccount.marketplace_account_id);
 
-  if (args.skipCompletedStatusRefresh) {
-    existingQuery = existingQuery.or(`order_status.is.null,order_status.in.(${STATUS_REFRESH_TARGET_STATUSES.join(",")})`);
+  const hasExplicitIds = Array.isArray(args.explicitOrderIds) && args.explicitOrderIds.length > 0;
+  if (hasExplicitIds) {
+    const idsFilter = args.explicitOrderIds!.map(id => `external_order_id.eq.${id},order_sn.eq.${id}`).join(",");
+    existingQuery = existingQuery.or(idsFilter);
+  } else {
+    existingQuery = existingQuery.or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
+    if (args.skipCompletedStatusRefresh) {
+      existingQuery = existingQuery.or(`order_status.is.null,order_status.in.(${STATUS_REFRESH_TARGET_STATUSES.join(",")})`);
+    }
   }
 
   const candidateLimit = Math.min(Math.max(args.maxExistingOrders * 3, args.maxExistingOrders), 600);
-  const { data: existingOrdersRaw, error: existingError } = await existingQuery
-    .order("order_created_at", { ascending: false, nullsFirst: true })
-    .order("pulled_at", { ascending: true, nullsFirst: true })
-    .limit(candidateLimit);
+  const { data: existingOrdersRaw, error: existingError } = await (
+    hasExplicitIds
+      ? existingQuery.limit(candidateLimit)
+      : existingQuery.order("pulled_at", { ascending: true, nullsFirst: true }).order("order_created_at", { ascending: true, nullsFirst: true }).limit(candidateLimit)
+  );
 
   if (existingError) throw new Error(`Load existing Shopee order gagal: ${existingError.message}`);
 
