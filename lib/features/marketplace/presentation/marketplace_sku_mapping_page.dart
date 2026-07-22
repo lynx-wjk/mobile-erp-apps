@@ -644,7 +644,10 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
           hpp.toStringAsFixed(0),
           _rowDouble(row, const ['target_margin_percent', 'target_margin'])
               .toStringAsFixed(0),
-        ].map(TextCellValue.new).toList());
+        ].map((value) {
+          final s = value?.toString() ?? '';
+          return s.trim().isEmpty ? null : TextCellValue(s);
+        }).toList());
       }
       final bytes = excel.encode();
       if (bytes == null) return;
@@ -719,14 +722,18 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
             cellFrom(r, const ['marketplace_sku_id', 'sku_id']);
         final sellerSku =
             cellFrom(r, const ['marketplace_seller_sku', 'seller_sku']);
+        final marketplaceProductId = cellFrom(
+            r, const ['marketplace_product_id', 'product_id_marketplace']);
         final productName =
             cellFrom(r, const ['product_name', 'marketplace_product_name']);
         final variantName =
             cellFrom(r, const ['variant_name', 'marketplace_variant_name']);
-        if (marketplaceSkuId.isEmpty &&
-            sellerSku.isEmpty &&
-            productName.isEmpty &&
-            variantName.isEmpty) continue;
+        final hppRaw = cellFrom(r, const ['hpp', 'hpp_amount', 'hpp_per_item']);
+        if (marketplaceProductId.isEmpty ||
+            marketplaceSkuId.isEmpty ||
+            hppRaw.isEmpty) {
+          continue;
+        }
 
         final rowAccountId =
             cellFrom(r, const ['marketplace_account_id', 'account_id']);
@@ -740,8 +747,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         final product = localProductIdFromFile.isNotEmpty
             ? _productById(localProductIdFromFile)
             : _productBySku(localSku);
-        final hpp = _parseNumberText(
-            cellFrom(r, const ['hpp', 'hpp_amount', 'hpp_per_item']));
+        final hpp = _parseNumberText(hppRaw);
         final targetMargin = _parseNumberText(
             cellFrom(r, const ['target_margin_percent', 'target_margin']));
 
@@ -750,8 +756,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
           'marketplace': cellFrom(r, const ['marketplace']).isEmpty
               ? (_selectedAccount?.marketplace ?? 'tiktok_shop')
               : cellFrom(r, const ['marketplace']),
-          'marketplace_product_id': cellFrom(
-              r, const ['marketplace_product_id', 'product_id_marketplace']),
+          'marketplace_product_id': marketplaceProductId,
           'marketplace_sku_id': marketplaceSkuId,
           'marketplace_seller_sku': sellerSku,
           'marketplace_product_name': productName,
@@ -769,7 +774,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
 
       if (rows.isEmpty) {
         throw Exception(
-            'Tidak ada baris HPP valid yang bisa diimport. Pastikan sheet hpp_mapping berisi marketplace_sku_id/seller_sku dan kolom hpp.');
+            'Tidak ada baris HPP valid yang bisa diimport. Pastikan sheet hpp_mapping berisi marketplace_product_id, marketplace_sku_id, dan kolom hpp.');
       }
 
       final result = await _service.hppUpsertBulk(rows);
@@ -878,7 +883,10 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
           row['local_sku'],
           row['local_product_name'],
           row['sync_enabled'] == true ? 'TRUE' : 'TRUE',
-        ].map((value) => TextCellValue(value?.toString() ?? '')).toList());
+        ].map((value) {
+          final s = value?.toString() ?? '';
+          return s.trim().isEmpty ? null : TextCellValue(s);
+        }).toList());
       }
 
       localSheet.appendRow([
@@ -899,7 +907,10 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
           row['kategori'],
           row['harga_hpp_default'],
           row['stock_saat_ini'],
-        ].map((value) => TextCellValue(value?.toString() ?? '')).toList());
+        ].map((value) {
+          final s = value?.toString() ?? '';
+          return s.trim().isEmpty ? null : TextCellValue(s);
+        }).toList());
       }
 
       final bytes = excel.encode();
@@ -967,6 +978,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
 
       final rows = <Map<String, dynamic>>[];
       for (final r in sheet.rows.skip(1)) {
+        final marketplaceProductId =
+            cellFrom(r, const ['marketplace_product_id']);
         final marketplaceSkuId = cellFrom(r, const ['marketplace_sku_id']);
         final sellerSku =
             cellFrom(r, const ['marketplace_seller_sku', 'seller_sku']);
@@ -975,8 +988,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         final localProductId =
             cellFrom(r, const ['local_product_id', 'product_id']);
         final localSku = cellFrom(r, const ['local_sku']);
-        if (marketplaceSkuId.isEmpty &&
-            sellerSku.isEmpty &&
+        if ((marketplaceProductId.isEmpty || marketplaceSkuId.isEmpty) &&
             snapshotId.isEmpty) {
           continue;
         }
@@ -995,8 +1007,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
               ? (_selectedAccount?.marketplace ?? 'tiktok_shop')
               : cellFrom(r, const ['marketplace']),
           'marketplace_variant_snapshot_id': snapshotId,
-          'marketplace_product_id':
-              cellFrom(r, const ['marketplace_product_id']),
+          'marketplace_product_id': marketplaceProductId,
           'marketplace_sku_id': marketplaceSkuId,
           'marketplace_sku':
               cellFrom(r, const ['marketplace_sku', 'marketplace_sku_code']),
@@ -1022,6 +1033,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         throw Exception(
             result['message']?.toString() ?? 'Import SKU mapping gagal.');
       }
+      await _applySkuMapsToOrderItemsForSelectedAccount();
       await _refreshAll();
       if (mounted) {
         final upserted = _resultInt(result, 'upserted');
@@ -1050,6 +1062,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         marketplaceAccountId: _selectedAccountId,
         overwrite: overwrite,
       );
+      await _applySkuMapsToOrderItemsForSelectedAccount();
       await _loadHpp(resetPage: true);
       if (mounted) {
         final upserted = _resultInt(result, 'upserted');
@@ -1065,6 +1078,26 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
     } finally {
       if (mounted) setState(() => _isSyncingHpp = false);
     }
+  }
+
+  Future<Map<String, dynamic>?> _applySkuMapsToOrderItemsForSelectedAccount({
+    int daysBack = 90,
+  }) async {
+    final accountId = _selectedAccountId?.trim();
+    if (accountId == null || accountId.isEmpty || accountId == 'all') {
+      return null;
+    }
+
+    final result = await _service.applySkuMapsToOrderItems(
+      tenantId: widget.currentUser.tenantId,
+      marketplaceAccountId: accountId,
+      daysBack: daysBack,
+    );
+    if (result['ok'] == false) {
+      throw Exception(result['message']?.toString() ??
+          'Apply SKU mapping ke order item gagal.');
+    }
+    return result;
   }
 
   Future<void> _recalculateFinanceAfterHpp() async {
@@ -1146,6 +1179,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         marketplaceAccountId: accountId,
         overwrite: overwrite,
       );
+      await _applySkuMapsToOrderItemsForSelectedAccount();
       await _refreshAll();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1205,7 +1239,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('Bersihkan cache produk marketplace?'),
+          title: Text('Clear product cache only?'),
           content: Text(
             'Ini hanya menghapus daftar produk yang sudah diambil. Mapping yang sudah dibuat tidak ikut dihapus.',
           ),
@@ -1235,7 +1269,63 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text('Cache dibersihkan. $count varian cache dihapus.')),
+            content: Text(
+                'Product cache dibersihkan. $count varian cache dihapus.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    } finally {
+      if (mounted) setState(() => _isPulling = false);
+    }
+  }
+
+  Future<void> _clearSkuHppMappings() async {
+    final accountId = _selectedAccountId;
+    if (accountId == null || accountId.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Clear SKU + HPP mapping?'),
+          content: Text(
+            'Ini menghapus mapping SKU dan HPP untuk account marketplace yang dipilih saja. Order, finance, payout, dan produk lokal tidak disentuh.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text('Clear Mapping'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _isPulling = true);
+    try {
+      final result = await _service.clearSkuHppMapping(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: accountId,
+        marketplace: _selectedAccount?.marketplace,
+      );
+      await _refreshAll();
+      if (!mounted) return;
+      final skuCleared = _resultInt(result, 'sku_cleared');
+      final hppCleared = _resultInt(result, 'hpp_cleared');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']?.toString() ??
+              'SKU mapping dibersihkan: $skuCleared | HPP mapping dibersihkan: $hppCleared.'),
+        ),
       );
     } catch (error) {
       if (!mounted) return;
@@ -1383,18 +1473,6 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       return;
     }
 
-    final alreadyUsed = _maps.any((item) =>
-        item.productId == product.productId &&
-        item.marketplaceSkuId != variant.marketplaceSkuId);
-    if (alreadyUsed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text(
-                'Produk lokal ini sudah dipakai mapping lain. Pilih produk lokal berbeda agar tidak double source.')),
-      );
-      return;
-    }
-
     setState(() => _isSaving = true);
 
     try {
@@ -1403,6 +1481,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         product: product,
         syncEnabled: _formSyncEnabled,
       );
+      await _applySkuMapsToOrderItemsForSelectedAccount();
 
       if (!mounted) return;
       setState(() {
@@ -1459,22 +1538,6 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       return;
     }
 
-    final localProductUsage = <String, int>{};
-    for (final pair in pairs) {
-      localProductUsage[pair.value.productId] =
-          (localProductUsage[pair.value.productId] ?? 0) + 1;
-    }
-    final hasDuplicateSelection =
-        localProductUsage.values.any((count) => count > 1);
-    if (hasDuplicateSelection) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text(
-                'Satu produk lokal tidak boleh dipakai untuk lebih dari satu varian marketplace dalam satu batch.')),
-      );
-      return;
-    }
-
     setState(() => _isSaving = true);
 
     var saved = 0;
@@ -1488,6 +1551,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         saved += 1;
       }
 
+      await _applySkuMapsToOrderItemsForSelectedAccount();
       await _refreshAll();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1701,6 +1765,11 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                 label: Text('Clear Cache'),
               ),
               OutlinedButton.icon(
+                onPressed: _isPulling ? null : _clearSkuHppMappings,
+                icon: Icon(Icons.link_off_rounded),
+                label: Text('Clear SKU + HPP Mapping'),
+              ),
+              OutlinedButton.icon(
                 onPressed: _refreshAll,
                 icon: Icon(Icons.refresh),
                 label: Text('Refresh'),
@@ -1742,6 +1811,38 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         ],
       ),
     );
+  }
+
+  _MarketplaceProductOption? _selectedMarketplaceProductOption() {
+    final selectedId = _selectedMarketplaceProductId;
+    if (selectedId == null || selectedId.trim().isEmpty) return null;
+    for (final option in _marketplaceProductOptions) {
+      if (option.productId == selectedId) return option;
+    }
+    return null;
+  }
+
+  Future<void> _pickMarketplaceProduct() async {
+    if (_isSaving) return;
+    final options = _marketplaceProductOptions;
+    if (options.isEmpty) return;
+
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => _MarketplaceProductPicker(
+        options: options,
+        selectedProductId: _selectedMarketplaceProductId,
+      ),
+    );
+
+    if (!mounted || picked == null) return;
+
+    setState(() {
+      _selectedMarketplaceProductId = picked.trim().isEmpty ? null : picked;
+      _bulkLocalProductByVariantId.clear();
+    });
   }
 
   Widget _variantFilterCard() {
@@ -1798,45 +1899,59 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
               icon: Icons.cloud_off_outlined,
             )
           else ...[
-            DropdownButtonFormField<String>(
-              isExpanded: true,
-              value: _selectedMarketplaceProductId,
-              decoration: const InputDecoration(
-                labelText: 'Pilih produk marketplace',
-                border: OutlineInputBorder(),
-              ),
-              selectedItemBuilder: (context) {
-                return options.map((option) {
-                  return Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      option.dropdownLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+            Builder(
+              builder: (context) {
+                final selectedOption = _selectedMarketplaceProductOption();
+                return InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: _isSaving ? null : _pickMarketplaceProduct,
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Pilih produk marketplace',
+                      border: OutlineInputBorder(),
                     ),
-                  );
-                }).toList();
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                selectedOption?.productName ??
+                                    'Pilih produk marketplace',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                selectedOption == null
+                                    ? '${options.length} produk marketplace tersedia'
+                                    : '${selectedOption.variantCount} varian | ID Produk: ${selectedOption.productId}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.color,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.arrow_drop_down_rounded),
+                      ],
+                    ),
+                  ),
+                );
               },
-              items: options
-                  .map(
-                    (option) => DropdownMenuItem(
-                      value: option.productId,
-                      child: Text(
-                        option.dropdownLabel,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  )
-                  .toList(),
-              onChanged: _isSaving
-                  ? null
-                  : (value) {
-                      setState(() {
-                        _selectedMarketplaceProductId = value;
-                        _bulkLocalProductByVariantId.clear();
-                      });
-                    },
             ),
             SizedBox(height: 14),
             Row(
@@ -1916,7 +2031,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
 
   Widget _hppMappingCard() {
     if (!_canManageHppMapping) return const SizedBox.shrink();
-     if (!_canManageHppMapping) return const SizedBox.shrink();
+    if (!_canManageHppMapping) return const SizedBox.shrink();
     final pageMax =
         _hppTotal <= 0 ? 1 : ((_hppTotal + _hppPageSize - 1) ~/ _hppPageSize);
     return NiceCard(
@@ -2331,6 +2446,232 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         ],
       ),
       body: _body(),
+    );
+  }
+}
+
+class _MarketplaceProductPicker extends StatefulWidget {
+  final List<_MarketplaceProductOption> options;
+  final String? selectedProductId;
+
+  const _MarketplaceProductPicker({
+    required this.options,
+    required this.selectedProductId,
+  });
+
+  @override
+  State<_MarketplaceProductPicker> createState() =>
+      _MarketplaceProductPickerState();
+}
+
+class _MarketplaceProductPickerState extends State<_MarketplaceProductPicker> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  List<_MarketplaceProductOption> get _filtered {
+    final keyword = _controller.text.trim().toLowerCase();
+    if (keyword.isEmpty) return widget.options;
+
+    return widget.options.where((option) {
+      final haystack =
+          '${option.productName} ${option.productId} ${option.variantCount}'
+              .toLowerCase();
+      return haystack.contains(keyword);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filtered;
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.82,
+      minChildSize: 0.45,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) {
+        return SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 42,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).dividerColor.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Pilih Produk Marketplace',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Tutup',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+                child: TextField(
+                  controller: _controller,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: _controller.text.trim().isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear',
+                            onPressed: () {
+                              setState(() => _controller.clear());
+                            },
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                    labelText: 'Cari produk / ID produk marketplace',
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              if (widget.selectedProductId != null &&
+                  widget.selectedProductId!.trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(context, ''),
+                    icon: const Icon(Icons.clear_rounded),
+                    label: const Text('Kosongkan pilihan'),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${filtered.length} dari ${widget.options.length} produk marketplace',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: Theme.of(context).textTheme.bodySmall?.color,
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: filtered.isEmpty
+                    ? const EmptyState(
+                        title: 'Produk marketplace tidak ditemukan',
+                        subtitle:
+                            'Coba keyword lain atau klik Ambil Produk & Varian untuk refresh cache marketplace.',
+                        icon: Icons.search_off_rounded,
+                      )
+                    : ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final option = filtered[index];
+                          final selected =
+                              option.productId == widget.selectedProductId;
+
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(18),
+                            onTap: () =>
+                                Navigator.pop(context, option.productId),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? AppUi.blue.withOpacity(0.14)
+                                    : Theme.of(context)
+                                        .colorScheme
+                                        .surfaceVariant
+                                        .withOpacity(0.28),
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(
+                                  color: selected
+                                      ? AppUi.blue.withOpacity(0.70)
+                                      : Theme.of(context)
+                                          .dividerColor
+                                          .withOpacity(0.35),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    selected
+                                        ? Icons.check_circle_rounded
+                                        : Icons.inventory_2_outlined,
+                                    color: selected
+                                        ? AppUi.blue
+                                        : Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.color,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          option.productName,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          '${option.variantCount} varian | ID Produk: ${option.productId}',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.color,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

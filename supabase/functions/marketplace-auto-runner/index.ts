@@ -597,7 +597,7 @@ async function runAutoFinanceStatementJobs(args) {
     return `${y}-${m}-${d}`;
   };
   const statementEndDate = jakartaDateString(0);
-  const statementStartDate = jakartaDateString(args.force ? -14 : -7);
+  const statementStartDate = jakartaDateString(args.force ? -21 : -15);
   const body = {
     action: "pull_finance_statements_period",
     params: {

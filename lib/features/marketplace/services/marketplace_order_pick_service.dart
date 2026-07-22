@@ -33,6 +33,7 @@ class MarketplaceResiOrderResult {
   final String message;
   final String? marketplaceOrderId;
   final String? marketplace;
+  final String? marketplaceAccountId;
   final String? accountName;
   final String? externalOrderId;
   final String? trackingNumber;
@@ -48,6 +49,7 @@ class MarketplaceResiOrderResult {
     required this.message,
     this.marketplaceOrderId,
     this.marketplace,
+    this.marketplaceAccountId,
     this.accountName,
     this.externalOrderId,
     this.trackingNumber,
@@ -65,6 +67,7 @@ class MarketplaceResiOrderResult {
       message: map['message']?.toString() ?? 'Selesai.',
       marketplaceOrderId: map['marketplace_order_id']?.toString(),
       marketplace: map['marketplace']?.toString(),
+      marketplaceAccountId: map['marketplace_account_id']?.toString(),
       accountName: (map['account_name'] ?? map['shop_name'])?.toString(),
       externalOrderId: map['external_order_id']?.toString(),
       trackingNumber: map['tracking_number']?.toString(),
@@ -241,6 +244,22 @@ class MarketplaceOrderPickService {
     required String tenantId,
     required String resiCode,
   }) async {
+    final order = await findOrderByResi(
+      tenantId: tenantId,
+      resiCode: resiCode,
+    );
+    final accountId = order.marketplaceAccountId?.trim();
+    if (accountId != null && accountId.isNotEmpty) {
+      await _client.rpc(
+        'marketplace_apply_sku_maps_to_order_items',
+        params: {
+          'p_tenant_id': tenantId,
+          'p_marketplace_account_id': accountId,
+          'p_days_back': 90,
+        },
+      );
+    }
+
     final response = await _client.rpc(
       'marketplace_finalize_scanned_order_stock_out_by_resi_guarded',
       params: {

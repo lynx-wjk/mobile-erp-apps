@@ -1,4 +1,4 @@
-﻿---
+---
 name: marketplace-api-integrations
 description: Use this skill for Shopee Open Platform and TikTok Shop API work, including OAuth, token refresh, signatures, orders, products, stock sync, finance/settlement, returns/refunds, webhooks, rate limits, sandbox/production separation, and marketplace data reconciliation.
 ---
@@ -123,6 +123,7 @@ For finance sync:
 - Do not move payout minus into the wrong month.
 - Do not use finance sync to mutate order status unless explicitly designed.
 - Preserve existing finance source-of-truth RPC behavior.
+- Always configure the time window to look back at least 15 days because marketplace settlements (e.g. TikTok, Shopee) can be delayed up to 14 days after delivery. Never use short windows (e.g. 3-7 days) for finance syncs.
 
 For product and stock sync:
 - Product pull should update product and variant snapshots without destroying local mapping.

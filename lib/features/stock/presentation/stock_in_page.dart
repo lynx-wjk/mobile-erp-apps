@@ -203,18 +203,6 @@ class _StockInPageState extends State<StockInPage> {
     MarketplaceReturnReviewItem item,
   ) {
     final returnQty = _returnQtyFromRow(row, item);
-    final statusText = [
-      row['source'],
-      row['recommended_action'],
-      row['return_status'],
-      row['refund_status'],
-      row['case_status'],
-      row['return_case_status'],
-      row['cancel_request_status'],
-      row['order_status'],
-      row['order_status_label'],
-      row['stock_action_status'],
-    ].map((value) => AppUi.text(value).toUpperCase()).join(' ');
 
     if (_isBlank(item.marketplaceOrderItemId)) {
       return (
@@ -230,13 +218,6 @@ class _StockInPageState extends State<StockInPage> {
         qty: returnQty,
       );
     }
-    if (!item.hasPhysicalStockOut) {
-      return (
-        canStockIn: false,
-        reason: 'Item belum tercatat stock-out fisik.',
-        qty: returnQty,
-      );
-    }
     if (!item.isPending) {
       return (
         canStockIn: false,
@@ -244,50 +225,25 @@ class _StockInPageState extends State<StockInPage> {
         qty: returnQty,
       );
     }
-    if (returnQty <= 0) {
-      return (
-        canStockIn: false,
-        reason:
-            'Qty return 0 atau barang fisik belum diterima. Gunakan "Jangan masukkan".',
-        qty: returnQty,
-      );
-    }
 
-    final isReturnOrRefund =
-        statusText.contains('RETURN') || statusText.contains('REFUND');
-    final isReceivedOrApproved = statusText.contains('RECEIVED') ||
-        statusText.contains('APPROVED') ||
-        statusText.contains('ACCEPTED') ||
-        statusText.contains('COMPLETED') ||
-        statusText.contains('DONE') ||
-        statusText.contains('SUCCESS');
-    final isAwaiting = statusText.contains('AWAITING') ||
-        statusText.contains('PENDING') ||
-        statusText.contains('REQUESTED');
-    final isCancelOnly = statusText.contains('CANCEL') && !isReturnOrRefund;
+    final qty = returnQty > 0
+        ? returnQty
+        : (item.qtyTotal > 0
+            ? item.qtyTotal
+            : AppUi.toNum(row['quantity'] ?? row['item_qty'] ?? row['qty']));
 
-    if (isCancelOnly) {
+    if (qty <= 0) {
       return (
         canStockIn: false,
-        reason:
-            'Cancel sebelum shipment tidak membuktikan barang fisik kembali.',
-        qty: returnQty,
-      );
-    }
-    if (!isReturnOrRefund || !isReceivedOrApproved || isAwaiting) {
-      return (
-        canStockIn: false,
-        reason:
-            'Belum ada bukti return/refund diterima atau disetujui marketplace.',
-        qty: returnQty,
+        reason: 'Qty return 0 atau barang fisik belum diterima.',
+        qty: qty,
       );
     }
 
     return (
       canStockIn: true,
-      reason:
-          'Return/refund sudah diterima/disetujui dan qty return lebih dari 0.',
-      qty: returnQty,
+      reason: 'Barang fisik diterima, siap dimasukkan ke stok.',
+      qty: qty,
     );
   }
 
@@ -465,6 +421,7 @@ class _StockInPageState extends State<StockInPage> {
       final stockIn = decision == _ReturnStockDecision.stockIn;
       final note = [
         'Stock In Return mode',
+        'legacy_mode=true',
         'source=$source',
         'resi=$scannedResi',
         'order=${AppUi.text(row['external_order_id'] ?? row['order_sn'])}',

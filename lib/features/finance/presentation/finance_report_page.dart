@@ -32,6 +32,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   bool _processing = false;
   bool _skuLoaded = false;
   bool _skuLoadingFirstPage = false;
+  bool _isSyncingHpp = false;
   bool _sampleFreeLoaded = false;
   bool _sampleFreeLoading = false;
   String? _sampleFreeError;
@@ -81,6 +82,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   int _financeLoadSerial = 0;
   final Map<String, Future<dynamic>> _activeFinanceRequests = {};
   final Map<String, dynamic> _financeLoadCache = {};
+  Map<String, dynamic> _skuPayoutCountSummaryMap = {};
 
   bool _isCurrentFilter(
       String startKey, String endKey, String mktKey, String accKey) {
@@ -96,9 +98,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String? _sampleFreeDetailsError;
   final Set<String> _expandedReconciliations = {};
   static const String _financeCacheVersion =
-      'finance_live_20260622_v37_mapping_sources';
+      'finance_live_20260713_v38_sku_status';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
+    'finance_live_20260622_v37_mapping_sources',
   ];
 
   bool get _isDemoSuperAdmin =>
@@ -131,6 +134,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   int _skuServerPageLoaded = 1;
   bool _skuHasMoreServerRows = true;
   bool _skuLoadingMore = false;
+  int _skuServerTotalPages = 1;
+  int _skuServerTotalCount = 0;
   static const int _skuPageSize = 20;
   static const int _skuDetailPageSize = 25;
   String? _skuDetailBusyKey;
@@ -1440,13 +1445,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
 
     if (!ignoreCache) {
-      final cachedRows = await FinanceLocalCache.readRows(cacheKey, ttlDays: 2);
-      if (cachedRows != null && (cachedRows.isNotEmpty || page > 1)) {
-        if (payoutFilter == 'all' && page == 1) {
-          _lastSkuRpcRowCount = cachedRows.length;
-          _lastSkuParsedRowCount = cachedRows.length;
+      final cachedData = await FinanceLocalCache.readJson(cacheKey, ttlDays: 2);
+      if (cachedData != null) {
+        final cachedRows = (cachedData['rows'] as List?)
+            ?.whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        if (cachedRows != null && (cachedRows.isNotEmpty || page > 1)) {
+          if (payoutFilter == 'all') {
+            setState(() {
+              _skuServerTotalPages = cachedData['total_pages'] ?? 1;
+              _skuServerTotalCount =
+                  cachedData['total_count'] ?? cachedRows.length;
+            });
+            if (page == 1) {
+              _lastSkuRpcRowCount = cachedRows.length;
+              _lastSkuParsedRowCount = cachedRows.length;
+            }
+          }
+          return cachedRows;
         }
-        return cachedRows;
       }
     }
 
@@ -1463,31 +1481,53 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     try {
       final response = await _client.rpc(
-        'finance_sku_order_details',
+        'finance_sku_order_details_group_20260625',
         params: params,
       );
       List<dynamic> rawRowsList = [];
+      int totalCount = 0;
+      int totalPages = 1;
       if (response is List) {
         if (response.isNotEmpty &&
             response.first is Map &&
             (response.first as Map).containsKey('rows')) {
-          rawRowsList = _asList((response.first as Map)['rows']);
+          final firstMap = response.first as Map;
+          rawRowsList = _asList(firstMap['rows']);
+          totalCount = firstMap['total_count'] ??
+              firstMap['total'] ??
+              rawRowsList.length;
+          totalPages = firstMap['total_pages'] ?? 1;
         } else {
           rawRowsList = response;
+          totalCount = rawRowsList.length;
+          totalPages = 1;
         }
       } else if (response is Map) {
         rawRowsList =
             _asList(response['rows'] ?? response['by_sku'] ?? response['sku']);
+        totalCount =
+            response['total_count'] ?? response['total'] ?? rawRowsList.length;
+        totalPages = response['total_pages'] ?? 1;
       }
       final rows = rawRowsList
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
-      if (payoutFilter == 'all' && page == 1) {
-        _lastSkuRpcRowCount = rawRowsList.length;
-        _lastSkuParsedRowCount = rows.length;
+      if (payoutFilter == 'all') {
+        if (page == 1) {
+          _lastSkuRpcRowCount = rawRowsList.length;
+          _lastSkuParsedRowCount = rows.length;
+        }
+        setState(() {
+          _skuServerTotalPages = totalPages;
+          _skuServerTotalCount = totalCount;
+        });
       }
-      await FinanceLocalCache.writeRows(cacheKey, rows);
+      await FinanceLocalCache.writeJson(cacheKey, {
+        'rows': rows,
+        'total_count': totalCount,
+        'total_pages': totalPages,
+      });
       return rows;
     } catch (error) {
       debugPrint('FINANCE_SKU_${payoutFilter}_PAGE_$page failed: $error');
@@ -1535,7 +1575,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _bySku = sorted;
         _skuServerPageLoaded = nextPage;
         _skuHasMoreServerRows = rows.length >= _skuPageSize;
-        _skuPage = _skuTotalPages;
+        _skuPage = nextPage;
       });
       unawaited(_overlaySkuPayoutCountSummaryFromServer());
     } finally {
@@ -1612,7 +1652,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     };
     try {
       final response = await _client.rpc(
-        'finance_sku_order_details',
+        'finance_sku_order_details_group_20260625',
         params: params,
       );
       final map = _asMap(response);
@@ -2394,33 +2434,50 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       };
       unawaited(_loadMarketplaceFinanceGapHint());
 
-      var response = await _loadFinanceSnapshot(snapshotParams);
-      var data = _asMap(response);
-      if (_isFinanceSnapshotEmpty(data)) {
+      if (!hasLocalSnapshot) {
+        // No local cache: run sync refresh
         await _refreshFinanceCacheForSelectedPeriod();
-        response = await _loadFinanceSnapshot(snapshotParams);
-        data = _asMap(response);
-      }
-      if (_isFinanceSnapshotEmpty(data)) {
-        if (hasLocalSnapshot) {
+        var response = await _loadFinanceSnapshot(snapshotParams);
+        var data = _asMap(response);
+        if (_isFinanceSnapshotEmpty(data)) {
+          if (mounted) {
+            _setMessage(
+                'Data laporan periode ini belum siap. Auto finance sedang mengejar data periode ini di background.');
+          }
           await _loadPersistedFinanceProgressFromDb();
           return;
         }
-        if (mounted) {
-          _setMessage(
-              'Data laporan periode ini belum siap. Auto finance sedang mengejar data periode ini di background.');
-        }
-        await _loadPersistedFinanceProgressFromDb();
-        return;
+        await FinanceLocalCache.writeJson(localKey, data);
+        if (!isCurrentFinanceLoad()) return;
+        await _applyFinanceSnapshotData(
+          data,
+          fallbackAccounts,
+          includeOperationalExpenses: false,
+          includeSupplementalSku: false,
+        );
+      } else {
+        // Has local cache: load background refresh
+        unawaited(Future(() async {
+          try {
+            await _refreshFinanceCacheForSelectedPeriod();
+            final response = await _loadFinanceSnapshot(snapshotParams);
+            final data = _asMap(response);
+            if (!_isFinanceSnapshotEmpty(data)) {
+              await FinanceLocalCache.writeJson(localKey, data);
+              if (!isCurrentFinanceLoad()) return;
+              await _applyFinanceSnapshotData(
+                data,
+                fallbackAccounts,
+                includeOperationalExpenses: false,
+                includeSupplementalSku: false,
+              );
+              if (mounted) {
+                setState(() {});
+              }
+            }
+          } catch (_) {}
+        }));
       }
-      await FinanceLocalCache.writeJson(localKey, data);
-      if (!isCurrentFinanceLoad()) return;
-      await _applyFinanceSnapshotData(
-        data,
-        fallbackAccounts,
-        includeOperationalExpenses: false,
-        includeSupplementalSku: false,
-      );
 
       if (!isCurrentFinanceLoad() || !mounted) return;
       await _loadPersistedFinanceProgressFromDb();
@@ -2924,8 +2981,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         final row = Map<String, dynamic>.from(item);
 
         final marketplaceSku = _firstSkuPayoutCountValue(row, const [
-          'marketplace_sku',
           'marketplace_sku_id',
+          'marketplace_sku',
           'sku_marketplace',
         ]);
 
@@ -2959,8 +3016,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     Map<String, Map<String, dynamic>> summaryMap,
   ) {
     final marketplaceSku = _firstSkuPayoutCountValue(row, const [
-      'marketplace_sku',
       'marketplace_sku_id',
+      'marketplace_sku',
       'sku_marketplace',
     ]);
 
@@ -3028,6 +3085,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (!mounted) return;
       setState(() {
         _bySku = mergedRows;
+        _skuPayoutCountSummaryMap = summaryMap;
       });
     } catch (e) {
       // Overlay hitungan settled/belum payout hanya data pendukung.
@@ -9417,7 +9475,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         'Audit data order sample, giveaway, tester, gratis dengan payout Rp 0 atau minus.',
                         style: TextStyle(
                           fontSize: 11,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.82),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -9727,6 +9788,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   int get _skuTotalPages {
+    if (_skuServerTotalPages > 1) return _skuServerTotalPages;
     if (_bySku.isEmpty) return 1;
     return ((_bySku.length - 1) ~/ _skuPageSize) + 1;
   }
@@ -9742,6 +9804,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (_bySku.isEmpty) return const <Map<String, dynamic>>[];
     final page = _skuSafePage;
     final start = (page - 1) * _skuPageSize;
+    if (start >= _bySku.length) return const <Map<String, dynamic>>[];
     final end = (start + _skuPageSize) > _bySku.length
         ? _bySku.length
         : start + _skuPageSize;
@@ -9756,9 +9819,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final totalPages = _skuTotalPages;
     final canLoadMore = _skuHasMoreServerRows && !_skuLoadingMore;
     final start = ((page - 1) * _skuPageSize) + 1;
+    if (start > _bySku.length) return const SizedBox.shrink();
     final end = (page * _skuPageSize) > _bySku.length
         ? _bySku.length
         : page * _skuPageSize;
+    final totalCount =
+        _skuServerTotalCount > 0 ? _skuServerTotalCount : _bySku.length;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -9775,9 +9841,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         children: [
           Expanded(
             child: Text(
-              _skuHasMoreServerRows
-                  ? 'SKU $start–$end dari ${_bySku.length}+ · Page $page/$totalPages'
-                  : 'SKU $start–$end dari ${_bySku.length} · Page $page/$totalPages',
+              'SKU $start–$end dari $totalCount · Page $page/$totalPages',
               style: TextStyle(
                 color: theme.colorScheme.onSurface.withOpacity(0.75),
                 fontSize: 12,
@@ -9792,14 +9856,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             icon: Icon(Icons.chevron_left_rounded),
           ),
           IconButton(
-            tooltip: page < totalPages
-                ? 'Page berikutnya'
-                : 'Muat page SKU berikutnya',
+            tooltip: 'Page berikutnya',
             onPressed: page < totalPages
-                ? () => setState(() => _skuPage = page + 1)
-                : canLoadMore
-                    ? _loadNextSkuPage
-                    : null,
+                ? (_bySku.length > page * _skuPageSize
+                    ? () => setState(() => _skuPage = page + 1)
+                    : (canLoadMore ? _loadNextSkuPage : null))
+                : null,
             icon: _skuLoadingMore
                 ? const SizedBox(
                     width: 18,
@@ -9810,6 +9872,310 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSkuSummaryCard() {
+    double totalGross = _num(_summary['gross_sales'] ?? _summary['gross_total'] ?? _summary['gross'] ?? 0);
+    double totalPayout = _num(_summary['net_received'] ?? _summary['payout_total'] ?? _summary['payout_amount'] ?? 0);
+    double totalHpp = _num(_summary['hpp_total'] ?? _summary['paid_hpp_total'] ?? _summary['hpp'] ?? 0);
+    int totalQty = 0;
+    int totalSettledQty = 0;
+
+    for (final v in _skuPayoutCountSummaryMap.values.toSet()) {
+      totalQty += _num(v['all_qty'] ?? 0).round();
+      totalSettledQty += _num(v['paid_qty'] ?? 0).round();
+    }
+
+    final double margin = totalPayout > 0 ? ((totalPayout - totalHpp) / totalPayout) * 100 : 0.0;
+    final marketplaceName = _marketplaceFilter == 'all' ? 'Semua Platform' : _marketplaceName(_marketplaceFilter);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppUi.modernCardDecoration(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.date_range_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${_date(_start)} - ${_date(_end)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  marketplaceName,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _isSyncingHpp ? null : _syncSkuHppFromMapping,
+                icon: _isSyncingHpp 
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) 
+                    : const Icon(Icons.sync_rounded, size: 16),
+                label: const Text('Live Sync HPP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                style: TextButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.5),
+                  foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _miniMetric('Total Omzet (SKU)', _money(totalGross)),
+              _miniMetric('Total Payout (SKU)', _money(totalPayout)),
+              _miniMetric('HPP Settled', _money(totalHpp)),
+              _miniMetric('Margin Rata-rata', '${margin.toStringAsFixed(2)}%'),
+              _miniMetric('Total Qty', '$totalQty'),
+              _miniMetric('Qty Settled', '$totalSettledQty'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkuRowCard(Map<String, dynamic> row) {
+    final sku = _text(row['local_sku'] ?? row['sku']);
+    final marketplaceSku = _text(
+        row['marketplace_sku'] ??
+            row['marketplace_sku_id'] ??
+            row['marketplace_seller_sku'],
+        '');
+    final productName = _text(
+        row['product_name'] ?? row['nama_barang'],
+        'Produk belum diberi nama');
+    final variantName = _text(
+        row['variant_name'] ?? row['marketplace_variation_name'], '');
+    var actualMargin = _num(row['net_margin_percent'] ??
+        row['payout_margin_percent'] ??
+        row['actual_margin_percent'] ??
+        row['gross_margin_percent']);
+    final targetMargin = _targetMarginFromRow(row);
+    final skuDetailRows = _safeOrderRefRows(row);
+    final paidDetailRows =
+        _filteredSkuOrderRows(skuDetailRows, 'paid');
+    final unpaidDetailRows =
+        _filteredSkuOrderRows(skuDetailRows, 'unpaid');
+    final paidQtyDisplay = _qtyFromOrderRows(paidDetailRows) > 0
+        ? _qtyFromOrderRows(paidDetailRows)
+        : _numFirstNonZero([
+            row['paid_qty_total'],
+            row['settled_qty_total'],
+            row['paid_qty'],
+            row['settled_qty'],
+            row['qty_paid']
+          ]).round();
+    final unpaidQtyDisplay = _qtyFromOrderRows(unpaidDetailRows) > 0
+        ? _qtyFromOrderRows(unpaidDetailRows)
+        : _numFirstNonZero([
+            row['unpaid_qty_total'],
+            row['unpaid_qty'],
+            row['pending_payout_qty'],
+            row['pending_payout_qty_total'],
+            row['qty_unpaid']
+          ]).round();
+    final qtyTotalDisplay = _numFirstNonZero([
+      row['qty'],
+      row['qty_total'],
+      row['total_qty'],
+      paidQtyDisplay + unpaidQtyDisplay,
+    ]).round();
+    final displayPayoutPerItem = _numFirstNonZero([
+      row['positive_payout_per_item'],
+      row['payout_per_item_paid'],
+      row['payout_per_item'],
+      paidQtyDisplay > 0
+          ? (_num(row['payout_total'] ??
+                  row['payout_amount'] ??
+                  row['received_amount']) /
+              paidQtyDisplay)
+          : 0,
+    ]);
+    final payoutRange = _positivePayoutRangeForSku(
+      row: row,
+      detailRows:
+          paidDetailRows.isNotEmpty ? paidDetailRows : skuDetailRows,
+      settledQty: paidQtyDisplay,
+    );
+    final highestPayout = payoutRange['highest'] ?? 0.0;
+    final lowestPayout = payoutRange['lowest'] ?? 0.0;
+    final showPayoutRange = highestPayout > 0 &&
+        lowestPayout > 0 &&
+        (highestPayout - lowestPayout).abs() >= 0.5;
+    final paidHppTotalForDisplay = _numFirstNonZero([
+      row['paid_hpp_total'],
+      row['settled_hpp_total'],
+      row['hpp_total'],
+      row['total_hpp'],
+      row['hpp'],
+    ]);
+    final displayHppPerItem = _numFirstNonZero([
+      row['hpp_per_item'],
+      row['hpp_unit'],
+      row['unit_hpp'],
+      row['hpp_item'],
+      paidQtyDisplay > 0
+          ? paidHppTotalForDisplay / paidQtyDisplay
+          : 0,
+    ]);
+    final hppStatusText = _text(row['hpp_status'], '').toLowerCase();
+    final hppMissing =
+        displayHppPerItem <= 0 || hppStatusText.contains('belum');
+    if (displayPayoutPerItem > 0 && displayHppPerItem > 0) {
+      actualMargin = ((displayPayoutPerItem - displayHppPerItem) /
+              displayPayoutPerItem) *
+          100;
+    } else if (hppMissing) {
+      actualMargin = 0;
+    }
+    final belowTarget = !hppMissing &&
+        targetMargin > 0 &&
+        actualMargin < targetMargin;
+    final settledBusy =
+        _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'paid');
+    final unpaidBusy =
+        _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'unpaid');
+    final detailBusy = _skuDetailBusyKey != null;
+    return _detailCard(
+      title: sku,
+      subtitle: [
+        productName,
+        if (variantName.isNotEmpty) 'Varian: $variantName',
+        if (marketplaceSku.isNotEmpty)
+          'SKU marketplace: $marketplaceSku',
+      ].join(' · '),
+      trailing: Wrap(
+        spacing: 6,
+        children: [
+          TextButton.icon(
+            onPressed: detailBusy
+                ? null
+                : () => _showSkuOrderRefsV82o(
+                      row,
+                      payoutFilter: 'paid',
+                    ),
+            icon: settledBusy
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(Icons.receipt_long_rounded, size: 16),
+            label: Text('Settled $paidQtyDisplay',
+                style: TextStyle(fontSize: 12)),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: detailBusy
+                ? null
+                : () => _showSkuOrderRefsV82o(
+                      row,
+                      payoutFilter: 'unpaid',
+                    ),
+            icon: unpaidBusy
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(Icons.pending_actions_rounded, size: 16),
+            label: Text('Belum payout $unpaidQtyDisplay',
+                style: TextStyle(fontSize: 12)),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ],
+      ),
+      children: [
+        if (marketplaceSku.isNotEmpty)
+          _miniMetric('SKU marketplace', marketplaceSku),
+        if (variantName.isNotEmpty)
+          _miniMetric('Varian', variantName),
+        _miniMetric('Qty total', '$qtyTotalDisplay'),
+        _miniMetric('Qty settled', '$paidQtyDisplay'),
+        _miniMetric('Qty belum payout', '$unpaidQtyDisplay',
+            warning: unpaidQtyDisplay > 0),
+        if (_num(row['positive_payout_qty']) > 0)
+          _miniMetric('Qty payout +',
+              _num(row['positive_payout_qty']).toStringAsFixed(0)),
+        if (_num(row['negative_payout_qty']) > 0)
+          _miniMetric('Qty koreksi -',
+              _num(row['negative_payout_qty']).toStringAsFixed(0),
+              warning: true),
+        _miniMetric(
+            'Gross/item', _money(_num(row['gross_per_item']))),
+        if (showPayoutRange) ...[
+          _miniMetric('Payout tertinggi', _money(highestPayout)),
+          _miniMetric('Payout terendah', _money(lowestPayout)),
+        ] else
+          _miniMetric(
+            'Payout settled/item',
+            highestPayout > 0
+                ? _money(highestPayout)
+                : 'Belum ada payout',
+          ),
+        _miniMetric(
+            'Total payout',
+            _money(_num(row['payout_total'] ??
+                row['payout_amount'] ??
+                row['received_amount']))),
+        if (_num(row['negative_payout_total']) < 0)
+          _miniMetric('Koreksi minus',
+              _money(_num(row['negative_payout_total'])),
+              warning: true),
+        _miniMetric(
+            'HPP/item',
+            hppMissing
+                ? 'HPP belum mapping'
+                : _money(displayHppPerItem),
+            warning: hppMissing),
+        _miniMetric(
+            'Margin net',
+            hppMissing
+                ? 'HPP belum mapping'
+                : '${actualMargin.toStringAsFixed(2)}%',
+            warning: belowTarget),
+        _miniMetric(
+            'Target',
+            targetMargin <= 0
+                ? 'Belum ada target'
+                : '${targetMargin.toStringAsFixed(2)}%'),
+      ],
     );
   }
 
@@ -9837,13 +10203,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: ListView(
         padding: const EdgeInsets.all(14),
         children: [
-          _sectionHeader('Kinerja SKU'),
-          SizedBox(height: 8),
+          _buildSkuSummaryCard(),
+          const SizedBox(height: 16),
           if (_enableSkuDebugLogs && _lastSkuDebugProof.trim().isNotEmpty) ...[
             _emptyCard('Debug SKU: $_lastSkuDebugProof'),
             const SizedBox(height: 8),
           ],
           if (_bySku.isNotEmpty) ...[
+            _sectionHeader('Daftar SKU'),
+            const SizedBox(height: 8),
             _skuPaginationControls(),
             const SizedBox(height: 10),
           ],
@@ -9863,7 +10231,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       'Belum ada data SKU finance.\nAuto finance sedang mengejar data periode ini di background. Pastikan mapping SKU lokal sudah benar agar HPP ikut terbaca.',
                       style: TextStyle(
                           fontSize: 13,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.82),
                           height: 1.4),
                     ),
                   ),
@@ -9874,224 +10245,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             _emptyCard(
                 'Data SKU sudah diterima ($_lastSkuParsedRowCount parsed), sedang menunggu render ulang. Tekan muat ulang jika kartu belum muncul.')
           else
-            ...visibleRows.map((row) {
-              final sku = _text(row['local_sku'] ?? row['sku']);
-              final marketplaceSku = _text(
-                  row['marketplace_sku'] ??
-                      row['marketplace_sku_id'] ??
-                      row['marketplace_seller_sku'],
-                  '');
-              final productName = _text(
-                  row['product_name'] ?? row['nama_barang'],
-                  'Produk belum diberi nama');
-              final variantName = _text(
-                  row['variant_name'] ?? row['marketplace_variation_name'], '');
-              var actualMargin = _num(row['net_margin_percent'] ??
-                  row['payout_margin_percent'] ??
-                  row['actual_margin_percent'] ??
-                  row['gross_margin_percent']);
-              final targetMargin = _targetMarginFromRow(row);
-              final skuDetailRows = _safeOrderRefRows(row);
-              final paidDetailRows =
-                  _filteredSkuOrderRows(skuDetailRows, 'paid');
-              final unpaidDetailRows =
-                  _filteredSkuOrderRows(skuDetailRows, 'unpaid');
-              final paidQtyDisplay = _qtyFromOrderRows(paidDetailRows) > 0
-                  ? _qtyFromOrderRows(paidDetailRows)
-                  : _numFirstNonZero([
-                      row['paid_qty_total'],
-                      row['settled_qty_total'],
-                      row['paid_qty'],
-                      row['settled_qty'],
-                      row['qty_paid']
-                    ]).round();
-              final unpaidQtyDisplay = _qtyFromOrderRows(unpaidDetailRows) > 0
-                  ? _qtyFromOrderRows(unpaidDetailRows)
-                  : _numFirstNonZero([
-                      row['unpaid_qty_total'],
-                      row['unpaid_qty'],
-                      row['pending_payout_qty'],
-                      row['pending_payout_qty_total'],
-                      row['qty_unpaid']
-                    ]).round();
-              final qtyTotalDisplay = _numFirstNonZero([
-                row['qty'],
-                row['qty_total'],
-                row['total_qty'],
-                paidQtyDisplay + unpaidQtyDisplay,
-              ]).round();
-              final displayPayoutPerItem = _numFirstNonZero([
-                row['positive_payout_per_item'],
-                row['payout_per_item_paid'],
-                row['payout_per_item'],
-                paidQtyDisplay > 0
-                    ? (_num(row['payout_total'] ??
-                            row['payout_amount'] ??
-                            row['received_amount']) /
-                        paidQtyDisplay)
-                    : 0,
-              ]);
-              final payoutRange = _positivePayoutRangeForSku(
-                row: row,
-                detailRows:
-                    paidDetailRows.isNotEmpty ? paidDetailRows : skuDetailRows,
-                settledQty: paidQtyDisplay,
-              );
-              final highestPayout = payoutRange['highest'] ?? 0.0;
-              final lowestPayout = payoutRange['lowest'] ?? 0.0;
-              final showPayoutRange = highestPayout > 0 &&
-                  lowestPayout > 0 &&
-                  (highestPayout - lowestPayout).abs() >= 0.5;
-              final paidHppTotalForDisplay = _numFirstNonZero([
-                row['paid_hpp_total'],
-                row['settled_hpp_total'],
-                row['hpp_total'],
-                row['total_hpp'],
-                row['hpp'],
-              ]);
-              final displayHppPerItem = _numFirstNonZero([
-                row['hpp_per_item'],
-                row['hpp_unit'],
-                row['unit_hpp'],
-                row['hpp_item'],
-                paidQtyDisplay > 0
-                    ? paidHppTotalForDisplay / paidQtyDisplay
-                    : 0,
-              ]);
-              final hppStatusText = _text(row['hpp_status'], '').toLowerCase();
-              final hppMissing =
-                  displayHppPerItem <= 0 || hppStatusText.contains('belum');
-              if (displayPayoutPerItem > 0 && displayHppPerItem > 0) {
-                actualMargin = ((displayPayoutPerItem - displayHppPerItem) /
-                        displayPayoutPerItem) *
-                    100;
-              } else if (hppMissing) {
-                actualMargin = 0;
-              }
-              final belowTarget = !hppMissing &&
-                  targetMargin > 0 &&
-                  actualMargin < targetMargin;
-              final settledBusy =
-                  _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'paid');
-              final unpaidBusy =
-                  _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'unpaid');
-              final detailBusy = _skuDetailBusyKey != null;
-              return _detailCard(
-                title: sku,
-                subtitle: [
-                  productName,
-                  if (variantName.isNotEmpty) 'Varian: $variantName',
-                  if (marketplaceSku.isNotEmpty)
-                    'SKU marketplace: $marketplaceSku',
-                ].join(' · '),
-                trailing: Wrap(
-                  spacing: 6,
-                  children: [
-                    TextButton.icon(
-                      onPressed: detailBusy
-                          ? null
-                          : () => _showSkuOrderRefsV82o(
-                                row,
-                                payoutFilter: 'paid',
-                              ),
-                      icon: settledBusy
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Icon(Icons.receipt_long_rounded, size: 16),
-                      label: Text('Settled $paidQtyDisplay',
-                          style: TextStyle(fontSize: 12)),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: detailBusy
-                          ? null
-                          : () => _showSkuOrderRefsV82o(
-                                row,
-                                payoutFilter: 'unpaid',
-                              ),
-                      icon: unpaidBusy
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Icon(Icons.pending_actions_rounded, size: 16),
-                      label: Text('Belum payout $unpaidQtyDisplay',
-                          style: TextStyle(fontSize: 12)),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ],
-                ),
-                children: [
-                  if (marketplaceSku.isNotEmpty)
-                    _miniMetric('SKU marketplace', marketplaceSku),
-                  if (variantName.isNotEmpty)
-                    _miniMetric('Varian', variantName),
-                  _miniMetric('Qty total', '$qtyTotalDisplay'),
-                  _miniMetric('Qty settled', '$paidQtyDisplay'),
-                  _miniMetric('Qty belum payout', '$unpaidQtyDisplay',
-                      warning: unpaidQtyDisplay > 0),
-                  if (_num(row['positive_payout_qty']) > 0)
-                    _miniMetric('Qty payout +',
-                        _num(row['positive_payout_qty']).toStringAsFixed(0)),
-                  if (_num(row['negative_payout_qty']) > 0)
-                    _miniMetric('Qty koreksi -',
-                        _num(row['negative_payout_qty']).toStringAsFixed(0),
-                        warning: true),
-                  _miniMetric(
-                      'Gross/item', _money(_num(row['gross_per_item']))),
-                  if (showPayoutRange) ...[
-                    _miniMetric('Payout tertinggi', _money(highestPayout)),
-                    _miniMetric('Payout terendah', _money(lowestPayout)),
-                  ] else
-                    _miniMetric(
-                      'Payout settled/item',
-                      highestPayout > 0
-                          ? _money(highestPayout)
-                          : 'Belum ada payout',
-                    ),
-                  _miniMetric(
-                      'Total payout',
-                      _money(_num(row['payout_total'] ??
-                          row['payout_amount'] ??
-                          row['received_amount']))),
-                  if (_num(row['negative_payout_total']) < 0)
-                    _miniMetric('Koreksi minus',
-                        _money(_num(row['negative_payout_total'])),
-                        warning: true),
-                  _miniMetric(
-                      'HPP/item',
-                      hppMissing
-                          ? 'HPP belum mapping'
-                          : _money(displayHppPerItem),
-                      warning: hppMissing),
-                  _miniMetric(
-                      'Margin net',
-                      hppMissing
-                          ? 'HPP belum mapping'
-                          : '${actualMargin.toStringAsFixed(2)}%',
-                      warning: belowTarget),
-                  _miniMetric(
-                      'Target',
-                      targetMargin <= 0
-                          ? 'Belum ada target'
-                          : '${targetMargin.toStringAsFixed(2)}%'),
-                ],
-              );
-            }),
+            ...visibleRows.map((row) => _buildSkuRowCard(row)),
         ],
       ),
     );
@@ -10851,7 +11005,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.82),
                   ),
                 ),
               ],
@@ -11136,6 +11293,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final affiliateFee = _num(row['affiliate_fee']);
       final shippingFee = _num(row['shipping_fee']);
       final feeAmount = _num(row['fee_amount'] ?? row['total_fees']);
+      final knownFeesTotal = platformFee.abs() + commissionFee.abs() + affiliateFee.abs() + shippingFee.abs();
+      final otherFees = feeAmount.abs() > knownFeesTotal + 0.49 ? feeAmount.abs() - knownFeesTotal : 0.0;
       final subsidy = _num(row['subsidy_amount'] ??
           row['marketplace_subsidy'] ??
           row['seller_subsidy']);
@@ -11179,12 +11338,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         if (shippingFee.abs() > 0.49)
           _profitLossMiniMetric('Ongkir', _money(shippingFee.abs()),
               warning: true),
-        if (platformFee.abs() <= 0.49 &&
-            commissionFee.abs() <= 0.49 &&
-            affiliateFee.abs() <= 0.49 &&
-            shippingFee.abs() <= 0.49 &&
-            feeAmount.abs() > 0.49)
-          _profitLossMiniMetric('Biaya marketplace', _money(feeAmount.abs()),
+        if (otherFees > 0.49)
+          _profitLossMiniMetric('Biaya marketplace lainnya', _money(otherFees),
               warning: true),
         if (discount.abs() > 0.49)
           _profitLossMiniMetric('Voucher / diskon', _money(discount.abs()),
@@ -11238,7 +11393,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               style: TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+                color:
+                    Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
               ),
             ),
             const SizedBox(height: 10),
@@ -11285,7 +11441,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.82),
                         ),
                       ),
                       Text(
@@ -11305,7 +11464,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   commissionFee +
                   affiliateFee +
                   shippingFee +
-                  _num(row['other_fee']);
+                  (otherFees > 0 ? otherFees : _num(row['other_fee']));
               final calculatedPayout = gross -
                   discount.abs() -
                   totalFees.abs() -
@@ -11322,7 +11481,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.04),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.04),
                         border: Border.all(
                             color: Theme.of(context)
                                 .dividerColor
@@ -11337,7 +11499,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.82),
                         ),
                       ),
                     ),
@@ -11379,7 +11544,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.04),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.04),
                         border: Border.all(
                             color: Theme.of(context)
                                 .dividerColor
@@ -11410,9 +11578,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           reconcileItemRow('Platform Fee', -platformFee.abs()),
                           reconcileItemRow(
                               'Shipping/ongkir', -shippingFee.abs()),
-                          if (_num(row['other_fee']) > 0)
+                          if (otherFees > 0 || _num(row['other_fee']) > 0)
                             reconcileItemRow(
-                                'Other fee', -_num(row['other_fee']).abs()),
+                                'Other fee', -(otherFees > 0 ? otherFees : _num(row['other_fee']).abs())),
                           reconcileItemRow('Refund/return', -refund.abs()),
                           reconcileItemRow(
                               'Settlement correction/gap', adjustment),
@@ -11714,8 +11882,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           // Search bar
           TextField(
             controller: _abnormalSearchController,
-            style:
-                TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
             textInputAction: TextInputAction.search,
             onSubmitted: (_) => _refreshAbnormalTab(resetPage: true),
             decoration: InputDecoration(
@@ -11843,7 +12011,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         : 'Belum ada hasil pencarian.'),
                 style: TextStyle(
                     fontSize: 11,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.82),
                     fontWeight: FontWeight.w700),
               ),
             ),
@@ -12003,7 +12174,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   SizedBox(width: 10),
                   Text('$_abnormalPage / $pageMax',
                       style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.82),
                           fontWeight: FontWeight.w800)),
                   SizedBox(width: 10),
                   Expanded(
@@ -12248,14 +12422,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(Icons.info_outline_rounded,
-              size: 18, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
+              size: 18,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
           SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
               style: TextStyle(
                   fontSize: 13,
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
                   height: 1.4),
             ),
           ),
@@ -12340,7 +12516,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
+                      fontSize: 11.5,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.82)),
                 ),
               ],
             ),
@@ -12430,7 +12610,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
+                      fontSize: 11.5,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.82)),
                 ),
               ],
             ),
@@ -12540,7 +12724,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
+                      fontSize: 11.5,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.82)),
                 ),
               ],
             ),
@@ -12638,7 +12826,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
+                      fontSize: 11.5,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.82)),
                 ),
               ],
             ),
@@ -12898,6 +13090,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['payout'],
       row['payout_amount'],
       row['payout_total'],
+      row['order_payout'],
       row['received_amount'],
       row['net_received'],
       row['net_settlement'],
@@ -12942,9 +13135,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _skuDetailNeedsMarketplaceRefreshV82o(Map<String, dynamic> row) {
-    if (_skuOrderDetailPayoutValueV82o(row) <= 0) return false;
+    final payout = _skuOrderDetailPayoutValueV82o(row);
     final status = _skuDetailOrderStatusV82o(row).toUpperCase();
     if (status.isEmpty || status == '-') return false;
+    
+    // If order is completed or delivered but payout is still 0/negative, we need to refresh.
+    if (payout <= 0) {
+      return status == 'COMPLETED' || status == 'DELIVERED';
+    }
+    
     const nonFinal = <String>{
       'AWAITING_SHIPMENT',
       'AWAITING_COLLECTION',
@@ -12959,6 +13158,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _skuRefreshWarningBannerV82o(Map<String, dynamic> item) {
     final status = _skuDetailOrderStatusV82o(item);
+    final payout = _skuOrderDetailPayoutValueV82o(item);
+    final String msg = payout <= 0
+        ? 'Status order sudah $status, tetapi payout masih Rp 0. Perlu refresh marketplace.'
+        : 'Payout sudah masuk, tetapi status order masih $status. Perlu refresh marketplace.';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -12968,7 +13171,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         border: Border.all(color: Colors.orange.withOpacity(0.28), width: 0.8),
       ),
       child: Text(
-        'Payout sudah masuk, tetapi status order masih $status. Perlu refresh marketplace.',
+        msg,
         style: TextStyle(
           fontSize: 11.5,
           fontWeight: FontWeight.w600,
@@ -13096,6 +13299,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _skuDetailHasPayoutV82o(Map<String, dynamic> row) {
+
     final payout = _skuOrderDetailPayoutValueV82o(row);
 
     final rawStatus = _text(
@@ -13116,9 +13320,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return false;
     }
 
+    if (row.containsKey('has_payout') && row['has_payout'] != null) {
+      return row['has_payout'] == true;
+    }
+
     if (payout != 0) return true;
 
-    return financeStatus.contains('SETTLED') ||
+    if (row['positive_payout_exists'] == true) return true;
+
+    return (financeStatus.contains('SETTLED') && !financeStatus.contains('UNSETTLED')) ||
         financeStatus.contains('PAID') ||
         financeStatus.contains('RELEASE') ||
         financeStatus.contains('PAYOUT_MINUS') ||
@@ -13146,12 +13356,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return false;
     }
 
+    if (row.containsKey('has_payout') && row['has_payout'] != null) {
+      return row['has_payout'] == false;
+    }
+
     if (payout != 0) return false;
+
+    if (row['positive_payout_exists'] == true) return false;
 
     return financeStatus.contains('BELUM') ||
         financeStatus.contains('PENDING') ||
         financeStatus.contains('UNPAID') ||
         financeStatus.contains('MISSING') ||
+        financeStatus.contains('UNSETTLED') ||
         financeStatus.trim().isEmpty;
   }
 
@@ -13174,13 +13391,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _buildFeeBreakdownV82o(Map<String, dynamic> item) {
-    final platformFee = _num(item['platform_fee_item']);
-    final commissionFee = _num(item['commission_fee_item']);
-    final affiliateFee = _num(item['affiliate_fee_item']);
-    final shippingFee = _num(item['shipping_fee_item']);
-    final discount = _num(item['discount_amount_item']);
-    final refund = _num(item['refund_amount_item']);
-    final adjustment = _num(item['adjustment_amount_item']);
+    final qty = _num(item['qty']);
+    final divider = qty > 0 ? qty : 1;
+    final platformFee = _numAny(item, ['admin_fee', 'platform_fee_item']) / divider;
+    final commissionFee = _numAny(item, ['commission_fee', 'commission_fee_item']) / divider;
+    final affiliateFee = _numAny(item, ['affiliate_fee', 'affiliate_fee_item']) / divider;
+    final shippingFee = _numAny(item, ['shipping_fee', 'shipping_fee_item']) / divider;
+    final discount = _numAny(item, ['discount_amount', 'discount_amount_item']) / divider;
+    final voucher = _num(item['voucher_amount']) / divider;
+    final refund = _numAny(item, ['refund_amount', 'refund_amount_item']) / divider;
+    final adjustment = _numAny(item, ['adjustment_amount', 'adjustment_amount_item']) / divider;
 
     final list = <Widget>[];
 
@@ -13206,15 +13426,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
     }
 
-    addIfNonZero('Platform Fee/item', platformFee);
+    addIfNonZero('Admin Fee/item', platformFee);
     addIfNonZero('Komisi/item', commissionFee);
     addIfNonZero('Afiliasi/item', affiliateFee);
     addIfNonZero('Ongkir/item', shippingFee);
-    addIfNonZero('Diskon/Voucher/item', discount);
+    addIfNonZero('Diskon/item', discount);
+    addIfNonZero('Voucher/item', voucher);
     addIfNonZero('Refund/item', refund);
     addIfNonZero('Koreksi/item', adjustment);
 
     if (list.isEmpty) return const SizedBox.shrink();
+
+    final recon = item['reconciliation_status'] as String?;
+    final isMismatch = recon == 'MISMATCH';
 
     return Container(
       margin: const EdgeInsets.only(top: 6),
@@ -13227,12 +13451,33 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Rincian Biaya/Item:',
-            style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: AppUi.mutedText(context, 0.90)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Rincian Biaya/Item:',
+                style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: AppUi.mutedText(context, 0.90)),
+              ),
+              if (recon != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isMismatch ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    recon,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: isMismatch ? Colors.red : Colors.green,
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 4),
           ...list,
@@ -13485,8 +13730,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         isPseudoUnmapped(title) ||
         isPseudoUnmapped(localSkuRaw) ||
         isPseudoUnmapped(mappingStatus) ||
-        hppStatus.toLowerCase().contains('belum mapping') ||
-        (localLooksLikeMarketplaceFallback && hppNotMapped) ||
         (localLooksLikeMarketplaceFallback && missingMarketplaceIdentity);
 
     if (isUnmappedBucket) {
@@ -13602,6 +13845,102 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       required String? localSkuParam,
       required String? searchParam,
     }) async {
+      bool isPseudoUnmapped(String value) {
+        final clean = value.trim().toLowerCase().replaceAll('_', ' ');
+        if (clean.isEmpty || clean == '-' || clean == 'null') return false;
+        return clean == 'unmapped' ||
+            clean == '__unmapped__' ||
+            clean == 'belum mapping' ||
+            clean == 'belum ada sku marketplace' ||
+            clean == 'produk belum diberi nama' ||
+            clean.contains('unmapped') ||
+            clean.contains('belum mapping');
+      }
+
+      bool sameText(String a, String b) {
+        final left = a.trim().toLowerCase();
+        final right = b.trim().toLowerCase();
+        return left.isNotEmpty && left != '-' && left == right;
+      }
+
+      final String rowType = _text(row['row_type'], '').trim();
+      final String title = _text(row['title'], '').trim();
+      final String rowSku = _text(row['sku'], '').trim();
+      final String localSkuRaw = _text(
+              row['local_sku'] ??
+                  row['product_sku'] ??
+                  row['local_product_sku'] ??
+                  row['mapped_local_sku'],
+              '')
+          .trim();
+      final String canonicalLocalSku = _text(
+              row['canonical_local_sku'] ??
+                  row['canonical_sku'] ??
+                  row['local_sku'],
+              '')
+          .trim();
+      final String mappingStatus =
+          _text(row['mapping_status'] ?? row['mapping_label'], '').trim();
+      final String hppStatus =
+          _text(row['hpp_status'] ?? row['hpp_label'], '').trim();
+      final String mSkuRaw = _text(
+              row['marketplace_sku_id'] ??
+                  row['marketplace_sku'] ??
+                  row['marketplace_seller_sku'] ??
+                  row['seller_sku'] ??
+                  row['sku_marketplace'] ??
+                  row['external_sku_id'] ??
+                  row['remote_sku_id'] ??
+                  row['sku_id'],
+              '')
+          .trim();
+      final String mProductId = _text(row['marketplace_product_id'], '').trim();
+      final String mSellerSku =
+          _text(row['marketplace_seller_sku'] ?? row['seller_sku'], '').trim();
+      final String pName = _text(
+              row['product_name'] ??
+                  row['marketplace_product_name'] ??
+                  row['nama_barang'],
+              '')
+          .trim();
+      final String vName = _text(
+              row['variant_name'] ??
+                  row['marketplace_variant_name'] ??
+                  row['marketplace_variation_name'],
+              '')
+          .trim();
+
+      final bool localLooksLikeMarketplaceFallback =
+          sameText(localSkuRaw, mSkuRaw) ||
+              sameText(localSkuRaw, mSellerSku) ||
+              sameText(localSkuRaw, rowSku);
+      final bool missingMarketplaceIdentity =
+          mProductId.isEmpty && pName.isEmpty && vName.isEmpty;
+
+      final bool isUnmappedBucket = rowType == 'unmapped_marketplace_sku' ||
+          isPseudoUnmapped(rowSku) ||
+          isPseudoUnmapped(title) ||
+          isPseudoUnmapped(localSkuRaw) ||
+          isPseudoUnmapped(mappingStatus) ||
+          (localLooksLikeMarketplaceFallback && missingMarketplaceIdentity);
+
+      print('--- TRACE_CLICK_BEFORE_RPC ---');
+      print('rowType: $rowType');
+      print('title: $title');
+      print('rowSku: $rowSku');
+      print('localSkuRaw: $localSkuRaw');
+      print('canonical_local_sku: $canonicalLocalSku');
+      print('mappingStatus: $mappingStatus');
+      print('hppStatus: $hppStatus');
+      print('isUnmappedBucket: $isUnmappedBucket');
+      print('--- RPC_PAYLOAD ---');
+      print('p_local_sku: $localSkuParam');
+      print('p_marketplace_sku: $marketplaceSkuParam');
+      print('p_search: $searchParam');
+      print('p_page: $page');
+      print('p_limit: $pageSize');
+      print('-------------------------------');
+
       final response = await _client.rpc(
         'finance_sku_order_line_details',
         params: {
@@ -13848,14 +14187,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                   style: TextStyle(
                                       fontSize: 20,
                                       fontWeight: FontWeight.w800,
-                                      color: Theme.of(context).colorScheme.onSurface),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface),
                                 ),
                                 SizedBox(height: 4),
                                 Text(
                                   '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel · Deduped by order line/facts',
                                   style: TextStyle(
                                       fontSize: 12,
-                                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.96)),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: 0.96)),
                                 ),
                               ],
                             ),
@@ -13900,7 +14244,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w800,
-                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.96)),
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withValues(alpha: 0.96)),
                             ),
                           ),
                           TextButton.icon(
@@ -13960,7 +14307,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               borderRadius:
                                                   BorderRadius.circular(8),
                                               border: Border.all(
-                                                  color: Theme.of(context).colorScheme.onSurface
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface
                                                       .withValues(alpha: 0.22)),
                                             ),
                                             child: Row(
@@ -13974,7 +14323,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                     color: Theme.of(context)
                                                         .colorScheme
                                                         .primary
-                                                        .withValues(alpha: 0.22),
+                                                        .withValues(
+                                                            alpha: 0.22),
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                             12),
@@ -14002,14 +14352,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                                 FontWeight.w800,
                                                             color: Theme.of(
                                                                     context)
-                                                                .colorScheme.onSurface.withValues(alpha: 0.90)),
+                                                                .colorScheme
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.90)),
                                                       ),
                                                       SizedBox(height: 4),
                                                       SelectableText(
                                                         'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+                                                            color: Theme.of(
+                                                                    context)
+                                                                .colorScheme
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.86),
                                                             height: 1.35),
                                                       ),
                                                       SizedBox(height: 4),
@@ -14017,7 +14377,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         'Tanggal pesanan: ${_dateTime(item['order_date'])}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+                                                            color: Theme.of(
+                                                                    context)
+                                                                .colorScheme
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.86),
                                                             height: 1.35),
                                                       ),
                                                       SizedBox(height: 4),
@@ -14025,7 +14391,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+                                                            color: Theme.of(
+                                                                    context)
+                                                                .colorScheme
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.86),
                                                             height: 1.35),
                                                       ),
                                                       if (_skuDetailNeedsMarketplaceRefreshV82o(
@@ -14064,7 +14436,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  ·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  ·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  ·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
-                                                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+                                                            color: Theme.of(
+                                                                    context)
+                                                                .colorScheme
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.86),
                                                             height: 1.35),
                                                       ),
                                                       SizedBox(height: 8),
@@ -14079,8 +14457,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                                       0)),
                                                           _miniMetric(
                                                               'Harga jual/item',
-                                                              _money(_num(item[
-                                                                  'gross_per_item']))),
+                                                              _skuDetailGrossPerItemText(
+                                                                  item)),
                                                           _miniMetric(
                                                               'Payout order marketplace',
                                                               _skuDetailOrderPayoutText(
@@ -14098,10 +14476,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ),
                                                       SizedBox(height: 6),
                                                       Text(
-                                                        'Settlement: ${_skuDetailSettlementText(item)}  ·   ${_skuDetailSourceText(item)}',
+                                                        'Settlement: ${_skuDetailSettlementText(item)}',
                                                         style: TextStyle(
                                                             fontSize: 10.5,
-                                                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+                                                            color: Theme.of(
+                                                                    context)
+                                                                .colorScheme
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.86),
                                                             height: 1.3),
                                                       ),
                                                       if (_skuDetailAllocationText(
@@ -14113,7 +14497,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                               item),
                                                           style: TextStyle(
                                                               fontSize: 10.5,
-                                                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+                                                              color: Theme.of(
+                                                                      context)
+                                                                  .colorScheme
+                                                                  .onSurface
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.86),
                                                               height: 1.3),
                                                         ),
                                                       ],
@@ -14290,14 +14680,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                 style: TextStyle(
                                     fontSize: 20,
                                     fontWeight: FontWeight.w800,
-                                    color: Theme.of(context).colorScheme.onSurface),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface),
                               ),
                               SizedBox(height: 4),
                               Text(
                                 '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · ${allRows.length} detail order SKU · $payoutLabel',
                                 style: TextStyle(
                                     fontSize: 12,
-                                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withOpacity(0.82)),
                               ),
                             ],
                           ),
@@ -14379,14 +14774,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                   fontSize: 13.5,
                                                   fontWeight: FontWeight.w800,
                                                   color: Theme.of(context)
-                                                      .colorScheme.onSurface.withValues(alpha: 0.90)),
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90)),
                                             ),
                                             SizedBox(height: 4),
                                             SelectableText(
                                               'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 4),
@@ -14394,7 +14794,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               'Tanggal pesanan: ${_dateTime(item['order_date'])}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 4),
@@ -14402,7 +14805,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             if (_payoutExplainText(item)
@@ -14431,7 +14837,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  ·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  ·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  ·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                               style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 8),
@@ -14445,8 +14854,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         .toStringAsFixed(0)),
                                                 _miniMetric(
                                                     'Harga jual/item',
-                                                    _money(_num(item[
-                                                        'gross_per_item']))),
+                                                    _skuDetailGrossPerItemText(
+                                                        item)),
                                                 _miniMetric(
                                                     'Payout order marketplace',
                                                     _skuDetailOrderPayoutText(
@@ -14459,10 +14868,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ),
                                             SizedBox(height: 6),
                                             Text(
-                                              'Settlement: ${_skuDetailSettlementText(item)}  ·   ${_skuDetailSourceText(item)}',
+                                              'Settlement: ${_skuDetailSettlementText(item)}',
                                               style: TextStyle(
                                                   fontSize: 10.5,
-                                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90),
                                                   height: 1.3),
                                             ),
                                             if (_skuDetailAllocationText(item)
@@ -14472,7 +14884,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                 _skuDetailAllocationText(item),
                                                 style: TextStyle(
                                                     fontSize: 10.5,
-                                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface
+                                                        .withValues(
+                                                            alpha: 0.90),
                                                     height: 1.3),
                                               ),
                                             ],
@@ -14553,7 +14969,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             label,
             style: TextStyle(
                 fontSize: 10,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.90),
                 fontWeight: FontWeight.w500),
           ),
           SizedBox(height: 2),
@@ -14677,7 +15096,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     fontSize: 12.5,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.82),
                     height: 1.5),
               ),
               SizedBox(height: 20),
@@ -15778,6 +16200,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _hasReleasedPayout(Map<String, dynamic> detail) {
+    if (detail.containsKey('has_payout') && detail['has_payout'] != null) {
+      if (detail['has_payout'] == true) return true;
+    }
+
     final orderStatus = _text(
       detail['status'] ?? detail['order_status'],
       '',
@@ -15795,8 +16221,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     if (joinedStatus.contains('CANCEL') ||
         joinedStatus.contains('REFUND') ||
-        joinedStatus.contains('RETURN')) {
+        joinedStatus.contains('RETURN') ||
+        joinedStatus.contains('BATAL')) {
       return false;
+    }
+
+    final marketplace = _text(detail['marketplace'] ?? detail['marketplace_name'], '').toLowerCase();
+    if (marketplace.contains('shopee')) {
+      final bool isUnpaidStatus = financeStatus.contains('SHIPPED') ||
+          financeStatus.contains('DIKIRIM') ||
+          financeStatus.contains('RECEIVE') ||
+          financeStatus.contains('BELUM') ||
+          financeStatus.contains('PENDING') ||
+          financeStatus.contains('UNPAID') ||
+          financeStatus.contains('PERLU') ||
+          financeStatus.contains('READY') ||
+          financeStatus.contains('DITERIMA') ||
+          financeStatus.contains('TERIMA');
+      return !isUnpaidStatus &&
+          (financeStatus.contains('SELESAI') ||
+              financeStatus.contains('COMPLETED') ||
+              financeStatus.contains('IMPORT') ||
+              financeStatus.contains('PROCESSED'));
     }
 
     final payout = _linePayoutAmount(detail);
@@ -15975,6 +16421,78 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
     }
     return 'Payout/item ditampilkan sebagai Rata-rata/Estimasi.';
+  }
+
+  bool _skuDetailGrossMissing(Map<String, dynamic> detail) {
+    final missingFlag =
+        _text(detail['is_gross_missing'], '').trim().toLowerCase();
+    if (missingFlag == 'true' || missingFlag == '1' || missingFlag == 'yes') {
+      return true;
+    }
+
+    final validFlag =
+        _text(detail['is_marketplace_gross_valid'], '').trim().toLowerCase();
+    if (validFlag == 'false' || validFlag == '0' || validFlag == 'no') {
+      return true;
+    }
+
+    final source = _text(detail['gross_source'], '').trim().toLowerCase();
+    if (source == 'missing') return true;
+
+    final gross = _num(detail['gross_sales'] ??
+        detail['gross'] ??
+        detail['gross_amount'] ??
+        detail['gross_total']);
+    final unit = _num(detail['gross_per_item'] ??
+        detail['harga_jual_per_item'] ??
+        detail['unit_price'] ??
+        detail['price_per_item'] ??
+        detail['unit_gross_amount']);
+
+    return gross <= 0 && unit <= 0;
+  }
+
+  String _skuDetailGrossMissingLabel(Map<String, dynamic> detail) {
+    final rawLabel = _cleanText(
+      detail['gross_missing_label'] ??
+          detail['gross_sales_display'] ??
+          detail['harga_jual_per_item_display'],
+      '',
+    ).trim();
+
+    final normalized = rawLabel.toLowerCase();
+    final looksZero = RegExp(r'^(rp\s*)?0([,.]0+)?$').hasMatch(normalized);
+
+    if (rawLabel.isNotEmpty &&
+        normalized != 'null' &&
+        rawLabel != '-' &&
+        !looksZero) {
+      return rawLabel;
+    }
+
+    return 'Harga marketplace belum tersedia';
+  }
+
+  String _skuDetailGrossPerItemText(Map<String, dynamic> detail) {
+    if (_skuDetailGrossMissing(detail)) {
+      return _skuDetailGrossMissingLabel(detail);
+    }
+
+    final unit = _num(detail['gross_per_item'] ??
+        detail['harga_jual_per_item'] ??
+        detail['unit_price'] ??
+        detail['price_per_item'] ??
+        detail['unit_gross_amount']);
+    if (unit > 0) return _money(unit);
+
+    final gross = _num(detail['gross_sales'] ??
+        detail['gross'] ??
+        detail['gross_amount'] ??
+        detail['gross_total']);
+    final qty = _num(detail['qty'] ?? detail['quantity']);
+    if (gross > 0 && qty > 0) return _money(gross / qty);
+
+    return _skuDetailGrossMissingLabel(detail);
   }
 
   String _skuDetailHppItemText(Map<String, dynamic> detail) {
@@ -16261,6 +16779,34 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .replaceAll(', details:', '\nDetail:')
         .replaceAll(', hint:', '\nSaran:')
         .replaceAll(')', ''));
+  }
+
+  Future<void> _syncSkuHppFromMapping() async {
+    if (_isSyncingHpp) return;
+    setState(() => _isSyncingHpp = true);
+    try {
+      await _client.rpc(
+        'marketplace_sync_hpp_from_sku_maps',
+        params: {
+          'p_tenant_id': _currentTenantId,
+          'p_marketplace_account_id': _marketplaceFilter == 'all' ? null : _marketplaceFilter,
+          'p_overwrite': false,
+        },
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('HPP disinkronisasi.')));
+        _hardReloadFinanceView();
+      }
+    } catch (e) {
+      if (mounted) {
+        final err = _cleanError(e);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal sinkron HPP: $err')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSyncingHpp = false);
+      }
+    }
   }
 }
 

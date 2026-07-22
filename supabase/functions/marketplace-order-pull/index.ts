@@ -740,6 +740,7 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
   let skippedCompleted = 0;
   const warnings: string[] = [];
 
+  const filteredRows = [];
   for (const row of existingOrders || []) {
     const orderId = text(row.external_order_id) || text(row.order_sn);
     if (!orderId) continue;
@@ -749,144 +750,188 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
       skippedCompleted += 1;
       continue;
     }
+    filteredRows.push(row);
+  }
 
-    checked += 1;
-    let detailOrder: any = null;
-    try {
-      const detailJson = await fetchShopeeOrderDetail({ account: activeAccount, accessToken, orderIds: [orderId] });
-      detailOrder = normalizeDetailOrder(detailJson, { order_sn: orderId }, orderId);
-    } catch (e) {
-      if (isShopeeAuthError(e)) {
-        try {
-          tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, activeAccount, true);
-          activeAccount = tokenBundle.account;
-          accessToken = tokenBundle.accessToken;
-          const detailJson = await fetchShopeeOrderDetail({ account: activeAccount, accessToken, orderIds: [orderId] });
-          detailOrder = normalizeDetailOrder(detailJson, { order_sn: orderId }, orderId);
-        } catch (retryError) {
-          failed += 1;
-          warnings.push(`Refresh status Shopee ${mask(orderId)} gagal: ${String(retryError)}`);
-          continue;
+  const chunks = [];
+  const chunkSize = 50;
+  for (let i = 0; i < filteredRows.length; i += chunkSize) {
+    chunks.push(filteredRows.slice(i, i + chunkSize));
+  }
+
+  for (const chunk of chunks) {
+    const orderIds = chunk.map((row: any) => text(row.external_order_id) || text(row.order_sn)).filter(Boolean);
+    if (orderIds.length === 0) continue;
+
+    let detailList: any[] = [];
+    let success = false;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts && !success) {
+      attempts++;
+      try {
+        const detailJson = await fetchShopeeOrderDetail({ account: activeAccount, accessToken, orderIds });
+        if (detailJson?.error) {
+          throw new Error(`${detailJson.error}: ${detailJson.message}`);
         }
-      } else {
-        failed += 1;
-        warnings.push(`Refresh status Shopee ${mask(orderId)} gagal: ${String(e)}`);
-        continue;
+        const responseData = detailJson?.response ?? detailJson;
+        detailList = responseData?.order_list ?? [];
+        success = true;
+      } catch (e) {
+        if (isShopeeAuthError(e)) {
+          if (attempts < maxAttempts) {
+            const delayMs = Math.pow(2, attempts) * 1000;
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            try {
+              tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, activeAccount, true);
+              activeAccount = tokenBundle.account;
+              accessToken = tokenBundle.accessToken;
+            } catch (refreshErr) {
+              warnings.push(`Refresh token failed on batch retry: ${refreshErr}`);
+            }
+            continue;
+          }
+        }
+        if (attempts >= maxAttempts) {
+          failed += chunk.length;
+          warnings.push(`Batch fetch Shopee detail gagal: ${String(e)}`);
+          break;
+        }
+        const delayMs = Math.pow(2, attempts) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
 
-    let normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
-    normalizedOrder = await enrichShopeeOrderWithPhysicalTracking({
-      account: activeAccount,
-      accessToken,
-      orderId,
-      rawOrder: detailOrder,
-      order: normalizedOrder,
-      warnings,
-    });
-    const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
-    const statusGroup = orderStatusGroup(orderStatusUpper);
-    const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
-    const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
-      normalizedOrder.order_status,
-      normalizedOrder.tracking_number || row.tracking_number,
-    );
+    if (!success) continue;
 
-    const existingOrderAction = text(row.stock_action_status);
-    let nextStockActionStatus = existingOrderAction || "pending";
-    let nextLastError: string | null = null;
+    for (const row of chunk) {
+      const orderId = text(row.external_order_id) || text(row.order_sn);
+      checked += 1;
 
-    if (preserveFinalStatuses.has(existingOrderAction)) {
-      nextStockActionStatus = existingOrderAction;
-      nextLastError = null;
-    } else if (isCancelNoStockAction) {
-      nextStockActionStatus = "ignored_status";
-      nextLastError = "Buyer cancel request Shopee saat belum ada resi. Tidak perlu stock out/stock in.";
-    } else if (hasActiveCancelRequest) {
-      nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
-      nextLastError = "Status order Shopee berubah: buyer mengajukan cancel. Review sebelum proses lanjutan.";
-    } else if (statusGroup === "cancelled") {
-      nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
-      nextLastError = "Status Shopee berubah menjadi cancel. Review di Refund/Cancel Monitor.";
-    } else if (statusGroup === "return_refund") {
-      nextStockActionStatus = "return_review_required";
-      nextLastError = "Status Shopee berubah menjadi refund/return. Review di Refund/Cancel Monitor.";
-    } else if (STOCK_OUT_ELIGIBLE_STATUSES.has(orderStatusUpper) && (!existingOrderAction || existingOrderAction === "pending" || existingOrderAction === "ignored_status")) {
-      nextStockActionStatus = "ready_to_pick";
-      nextLastError = null;
-    }
+      const rawDetail = detailList.find((item: any) => text(item?.order_sn) === orderId);
+      if (!rawDetail) {
+        failed += 1;
+        warnings.push(`Detail order Shopee ${mask(orderId)} tidak ditemukan di response batch`);
+        continue;
+      }
 
-    const nextTrackingNumber = physicalShopeeTrackingNumber(
-      normalizedOrder.tracking_number || row.tracking_number,
-      orderId,
-      normalizedOrder.package_id || row.package_id,
-    );
-    const nextPackageId = normalizedOrder.package_id || row.package_id || null;
-    const nextLabelCode = physicalShopeeTrackingNumber(
-      normalizedOrder.label_code,
-      orderId,
-      nextPackageId,
-    ) || nextTrackingNumber;
+      const detailOrder = normalizeDetailOrder(rawDetail, { order_sn: orderId }, orderId);
+      let normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
 
-    const statusChanged = text(row.order_status).toUpperCase() !== orderStatusUpper
-      || text(row.tracking_number) !== text(nextTrackingNumber)
-      || nextStockActionStatus !== existingOrderAction;
-
-    const now = new Date().toISOString();
-    const { error: updateError } = await admin
-      .from("marketplace_orders")
-      .update({
-        order_status: normalizedOrder.order_status || row.order_status,
-        order_status_label: normalizedOrder.order_status_label || row.order_status_label,
-        tracking_number: nextTrackingNumber,
-        shipping_provider_name: normalizedOrder.shipping_provider_name,
-        package_id: nextPackageId,
-        logistic_status: normalizedOrder.logistic_status,
-        label_code: nextLabelCode,
-        cancel_request_id: normalizedOrder.cancel_request_id,
-        cancel_request_status: normalizedOrder.cancel_request_status,
-        cancel_request_reason: normalizedOrder.cancel_request_reason,
-        cancel_request_note: normalizedOrder.cancel_request_note,
-        cancel_requested_at: normalizedOrder.cancel_requested_at,
-        cancel_request_raw: normalizedOrder.cancel_request_raw,
-        cancel_request_pulled_at: normalizedOrder.cancel_request_status ? now : null,
-        has_cancel_request: hasActiveCancelRequest,
-        stock_action_status: nextStockActionStatus,
-        last_error: nextLastError,
-        order_updated_at: normalizedOrder.order_updated_at || row.order_updated_at,
-        raw_order: normalizedOrder.raw_order,
-        pulled_at: now,
-        updated_at: now,
-      })
-      .eq("marketplace_order_id", row.marketplace_order_id)
-      .eq("tenant_id", activeAccount.tenant_id);
-
-    if (updateError) {
-      failed += 1;
-      warnings.push(`Update status Shopee ${mask(orderId)} gagal: ${updateError.message}`);
-      continue;
-    }
-
-    if (statusChanged) updated += 1;
-
-    if (nextStockActionStatus === "cancel_review_required" || nextStockActionStatus === "return_review_required" || nextStockActionStatus === "ignored_status") {
-      changedToReview += 1;
-      await syncOrderItemsStatusFromOrder(admin, activeAccount, row.marketplace_order_id, {
-        trackingNumber: nextTrackingNumber,
-        packageId: nextPackageId,
-        nextStockActionStatus,
-        lastError: nextLastError,
+      normalizedOrder = await enrichShopeeOrderWithPhysicalTracking({
+        account: activeAccount,
+        accessToken,
+        orderId,
+        rawOrder: detailOrder,
+        order: normalizedOrder,
+        warnings,
       });
-    } else if (nextTrackingNumber || nextPackageId) {
-      await admin
-        .from("marketplace_order_items")
+
+      const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
+      const statusGroup = orderStatusGroup(orderStatusUpper);
+      const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
+      const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
+        normalizedOrder.order_status,
+        normalizedOrder.tracking_number || row.tracking_number,
+      );
+
+      const existingOrderAction = text(row.stock_action_status);
+      let nextStockActionStatus = existingOrderAction || "pending";
+      let nextLastError: string | null = null;
+
+      if (preserveFinalStatuses.has(existingOrderAction)) {
+        nextStockActionStatus = existingOrderAction;
+        nextLastError = null;
+      } else if (isCancelNoStockAction) {
+        nextStockActionStatus = "ignored_status";
+        nextLastError = "Buyer cancel request Shopee saat belum ada resi. Tidak perlu stock out/stock in.";
+      } else if (hasActiveCancelRequest) {
+        nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
+        nextLastError = "Status order Shopee berubah: buyer mengajukan cancel. Review sebelum proses lanjutan.";
+      } else if (statusGroup === "cancelled") {
+        nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
+        nextLastError = "Status Shopee berubah menjadi cancel. Review di Refund/Cancel Monitor.";
+      } else if (statusGroup === "return_refund") {
+        nextStockActionStatus = "return_review_required";
+        nextLastError = "Status Shopee berubah menjadi refund/return. Review di Refund/Cancel Monitor.";
+      } else if (STOCK_OUT_ELIGIBLE_STATUSES.has(orderStatusUpper) && (!existingOrderAction || existingOrderAction === "pending" || existingOrderAction === "ignored_status")) {
+        nextStockActionStatus = "ready_to_pick";
+        nextLastError = null;
+      }
+
+      const nextTrackingNumber = physicalShopeeTrackingNumber(
+        normalizedOrder.tracking_number || row.tracking_number,
+        orderId,
+        normalizedOrder.package_id || row.package_id,
+      );
+      const nextPackageId = normalizedOrder.package_id || row.package_id || null;
+      const nextLabelCode = physicalShopeeTrackingNumber(
+        normalizedOrder.label_code,
+        orderId,
+        nextPackageId,
+      ) || nextTrackingNumber;
+
+      const statusChanged = text(row.order_status).toUpperCase() !== orderStatusUpper
+        || text(row.tracking_number) !== text(nextTrackingNumber)
+        || nextStockActionStatus !== existingOrderAction;
+
+      const now = new Date().toISOString();
+      const { error: updateError } = await admin
+        .from("marketplace_orders")
         .update({
+          order_status: normalizedOrder.order_status || row.order_status,
+          order_status_label: normalizedOrder.order_status_label || row.order_status_label,
           tracking_number: nextTrackingNumber,
+          shipping_provider_name: normalizedOrder.shipping_provider_name,
           package_id: nextPackageId,
+          logistic_status: normalizedOrder.logistic_status,
+          label_code: nextLabelCode,
+          cancel_request_id: normalizedOrder.cancel_request_id,
+          cancel_request_status: normalizedOrder.cancel_request_status,
+          cancel_request_reason: normalizedOrder.cancel_request_reason,
+          cancel_request_note: normalizedOrder.cancel_request_note,
+          cancel_requested_at: normalizedOrder.cancel_requested_at,
+          cancel_request_raw: normalizedOrder.cancel_request_raw,
+          cancel_request_pulled_at: normalizedOrder.cancel_request_status ? now : null,
+          has_cancel_request: hasActiveCancelRequest,
+          stock_action_status: nextStockActionStatus,
+          last_error: nextLastError,
+          order_updated_at: normalizedOrder.order_updated_at || row.order_updated_at,
+          raw_order: normalizedOrder.raw_order,
+          pulled_at: now,
           updated_at: now,
         })
-        .eq("tenant_id", activeAccount.tenant_id)
-        .eq("marketplace_order_id", row.marketplace_order_id);
+        .eq("marketplace_order_id", row.marketplace_order_id)
+        .eq("tenant_id", activeAccount.tenant_id);
+
+      if (updateError) {
+        failed += 1;
+        warnings.push(`Update status Shopee ${mask(orderId)} gagal: ${updateError.message}`);
+        continue;
+      }
+
+      if (statusChanged) updated += 1;
+
+      if (nextStockActionStatus === "cancel_review_required" || nextStockActionStatus === "return_review_required" || nextStockActionStatus === "ignored_status") {
+        changedToReview += 1;
+        await syncOrderItemsStatusFromOrder(admin, activeAccount, row.marketplace_order_id, {
+          trackingNumber: nextTrackingNumber,
+          packageId: nextPackageId,
+          nextStockActionStatus,
+          lastError: nextLastError,
+        });
+      } else if (nextTrackingNumber || nextPackageId) {
+        await admin
+          .from("marketplace_order_items")
+          .update({
+            tracking_number: nextTrackingNumber,
+            package_id: nextPackageId,
+            updated_at: now,
+          })
+          .eq("tenant_id", activeAccount.tenant_id)
+          .eq("marketplace_order_id", row.marketplace_order_id);
+      }
     }
   }
 
@@ -951,6 +996,7 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
     for (const timeField of timeFields) {
       for (const status of shopeeStatuses) {
         let cursor = "";
+        let authRetries = 0;
         for (let pageIndex = 0; pageIndex < args.maxPages && searchOrdersAll.length < maxOrders; pageIndex += 1) {
           try {
             const listJson = await fetchShopeeOrderListPage({
@@ -978,6 +1024,13 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
             if (!cursor || pageOrders.length === 0) break;
           } catch (e) {
             if (isShopeeAuthError(e)) {
+              authRetries += 1;
+              if (authRetries > 3) {
+                warnings.push(`Shopee order list gagal: limit auth retry exceeded (${String(e)})`);
+                break;
+              }
+              const delayMs = Math.pow(2, authRetries) * 1000;
+              await new Promise(resolve => setTimeout(resolve, delayMs));
               tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, activeAccount, true);
               activeAccount = tokenBundle.account;
               accessToken = tokenBundle.accessToken;
@@ -1795,7 +1848,7 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
       .eq("marketplace_order_id", orderRow.marketplace_order_id);
   }
 
-  // Backfill logic for TikTok orders with 0 or null prices (rate-limited up to 10 unique orders per run)
+  // Backfill logic for TikTok orders with 0/null prices or missing items (rate-limited up to 30 unique orders per run)
   try {
     const { data: incompleteItems, error: incompleteError } = await admin
       .from("marketplace_order_items")
@@ -1805,14 +1858,31 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
       .or("price_amount.is.null,price_amount.eq.0,gross_amount.is.null,gross_amount.eq.0")
       .limit(100);
 
-    if (!incompleteError && incompleteItems && incompleteItems.length > 0) {
-      const uniqueOrderIds = Array.from(
-        new Set(
-          incompleteItems
-            .map((item: any) => item.external_order_id || item.marketplace_order_id)
-            .filter(Boolean)
-        )
-      ).slice(0, 10);
+    const { data: recentOrders } = await admin
+      .from("marketplace_orders")
+      .select("marketplace_order_id, external_order_id, order_sn")
+      .eq("tenant_id", activeAccount.tenant_id)
+      .eq("marketplace_account_id", activeAccount.marketplace_account_id)
+      .order("order_created_at", { ascending: false })
+      .limit(200);
+
+    const { data: existingItemOrderIds } = await admin
+      .from("marketplace_order_items")
+      .select("marketplace_order_id, external_order_id")
+      .eq("tenant_id", activeAccount.tenant_id)
+      .eq("marketplace_account_id", activeAccount.marketplace_account_id)
+      .limit(1000);
+
+    const existingSet = new Set((existingItemOrderIds || []).map((x: any) => x.external_order_id || x.marketplace_order_id));
+    const missingItemOrderIds = (recentOrders || [])
+      .filter((o: any) => !existingSet.has(o.external_order_id) && !existingSet.has(o.marketplace_order_id) && !existingSet.has(o.order_sn))
+      .map((o: any) => o.external_order_id || o.order_sn || o.marketplace_order_id);
+
+    const incompleteOrderIds = (!incompleteError && incompleteItems)
+      ? incompleteItems.map((item: any) => item.external_order_id || item.marketplace_order_id)
+      : [];
+
+    const uniqueOrderIds = Array.from(new Set([...missingItemOrderIds, ...incompleteOrderIds].filter(Boolean))).slice(0, 30);
 
       if (uniqueOrderIds.length > 0) {
         console.log(`Backfill: fetching detail for ${uniqueOrderIds.length} orders with 0/null price`);
@@ -1849,7 +1919,6 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
           }
         }
       }
-    }
   } catch (backfillErr) {
     console.warn(`Gagal memproses backfill: ${String(backfillErr)}`);
   }
@@ -2198,12 +2267,20 @@ async function upsertOrderItem(admin: any, marketplaceOrderId: string, account: 
     external_order_item_id: item.external_order_item_id,
     marketplace_product_id: item.marketplace_product_id,
     marketplace_sku_id: item.marketplace_sku_id,
+    remote_sku_id: item.marketplace_sku_id,
+    marketplace_sku: item.marketplace_sku_id || item.seller_sku,
+    marketplace_seller_sku: item.seller_sku,
     seller_sku: item.seller_sku,
     product_name: item.product_name,
+    marketplace_product_name: item.product_name,
     variant_name: item.variant_name,
+    variation_name: item.variant_name,
+    marketplace_variant_name: item.variant_name,
     tracking_number: item.tracking_number,
     package_id: item.package_id,
-    quantity: item.quantity,
+    quantity: item.quantity || 1,
+    qty: item.quantity || 1,
+    local_sku: item.mapped_local_sku || item.seller_sku,
     gross_amount: item.gross_amount,
     paid_amount: item.paid_amount,
     unit_gross_amount: item.unit_gross_amount,
@@ -2211,6 +2288,8 @@ async function upsertOrderItem(admin: any, marketplaceOrderId: string, account: 
     marketplace_price_updated_at: now,
     finance_price_source: item.finance_price_source,
     mapped_product_id: item.mapped_product_id,
+    local_product_id: item.mapped_product_id,
+    product_id: item.mapped_product_id,
     mapped_local_sku: item.mapped_local_sku,
     marketplace_sku_map_id: item.marketplace_sku_map_id,
     mapping_status: item.mapping_status,

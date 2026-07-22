@@ -711,63 +711,81 @@ async function actionPullOrders(ctx, params) {
   const resolved = await resolveShopIdentity(refreshedToken.account, refreshedToken.accessToken, ctx.userId);
   const refreshed = resolved.account;
   const accessToken = refreshedToken.accessToken;
-  const nowSec = Math.floor(Date.now() / 1000);
-  const daysBack = Math.min(Math.max(getNumber(params.days_back, 7), 1), 30);
-  const pageSize = Math.min(Math.max(getNumber(params.page_size, 50), 1), 100);
-  const pageToken = getString(params.page_token, '');
-  const query = {
-    page_size: String(pageSize)
-  };
-  if (pageToken) query.page_token = pageToken;
-  const body = {
-    create_time_ge: nowSec - daysBack * 86400,
-    create_time_lt: nowSec
-  };
-  const orderStatus = getString(params.order_status, '');
-  if (orderStatus) body.order_status = orderStatus;
-  const payload = await tiktokRequest({
-    account: refreshed,
-    accessToken,
-    method: 'POST',
-    path: '/order/202309/orders/search',
-    query,
-    body,
-    action: 'pull_orders',
-    createdBy: ctx.userId
-  });
-  const data = dataOf(payload);
-  const searchOrders = arrayFromAny(data.orders ?? data.order_list ?? data.list);
-  const orderIds = searchOrders.map((order)=>getString(order.id ?? order.order_id)).filter((id)=>id.length > 0).slice(0, 50);
-  let orders = searchOrders;
-  // Get Order List can be lighter than Get Order Detail. Detail is needed for SKU/item reference
-  // so warehouse can compare scanned resi + scanned product against marketplace items.
-  if (orderIds.length > 0) {
+  let payload = {};
+  const orderIdsParam = params.order_ids ?? params.order_id_list;
+  let orders = [];
+  if (Array.isArray(orderIdsParam) && orderIdsParam.length > 0) {
     const detailPayload = await tiktokRequest({
       account: refreshed,
       accessToken,
-      method: 'POST',
+      method: 'GET',
       path: '/order/202309/orders',
-      body: {
-        order_id_list: orderIds
+      query: {
+        ids: orderIdsParam.slice(0, 50).join(',')
       },
       action: 'pull_order_details',
       createdBy: ctx.userId
     });
+    payload = detailPayload;
     const detailData = dataOf(detailPayload);
-    const detailOrders = arrayFromAny(detailData.orders ?? detailData.order_list ?? detailData.list);
-    if (detailOrders.length > 0) {
-      const searchById = new Map();
-      for (const item of searchOrders){
-        const id = getString(item.id ?? item.order_id);
-        if (id) searchById.set(id, item);
-      }
-      orders = detailOrders.map((detail)=>{
-        const id = getString(detail.id ?? detail.order_id);
-        return {
-          ...searchById.get(id) ?? {},
-          ...detail
-        };
+    orders = arrayFromAny(detailData.orders ?? detailData.order_list ?? detailData.list);
+  } else {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const daysBack = Math.min(Math.max(getNumber(params.days_back, 7), 1), 30);
+    const pageSize = Math.min(Math.max(getNumber(params.page_size, 50), 1), 100);
+    const pageToken = getString(params.page_token, '');
+    const query = {
+      page_size: String(pageSize)
+    };
+    if (pageToken) query.page_token = pageToken;
+    const body = {
+      create_time_ge: nowSec - daysBack * 86400,
+      create_time_lt: nowSec
+    };
+    const orderStatus = getString(params.order_status, '');
+    if (orderStatus) body.order_status = orderStatus;
+    payload = await tiktokRequest({
+      account: refreshed,
+      accessToken,
+      method: 'POST',
+      path: '/order/202309/orders/search',
+      query,
+      body,
+      action: 'pull_orders',
+      createdBy: ctx.userId
+    });
+    const data = dataOf(payload);
+    const searchOrders = arrayFromAny(data.orders ?? data.order_list ?? data.list);
+    const orderIds = searchOrders.map((order)=>getString(order.id ?? order.order_id)).filter((id)=>id.length > 0).slice(0, 50);
+    orders = searchOrders;
+    if (orderIds.length > 0) {
+      const detailPayload = await tiktokRequest({
+        account: refreshed,
+        accessToken,
+        method: 'GET',
+        path: '/order/202309/orders',
+        query: {
+          ids: orderIds.join(',')
+        },
+        action: 'pull_order_details',
+        createdBy: ctx.userId
       });
+      const detailData = dataOf(detailPayload);
+      const detailOrders = arrayFromAny(detailData.orders ?? detailData.order_list ?? detailData.list);
+      if (detailOrders.length > 0) {
+        const searchById = new Map();
+        for (const item of searchOrders){
+          const id = getString(item.id ?? item.order_id);
+          if (id) searchById.set(id, item);
+        }
+        orders = detailOrders.map((detail)=>{
+          const id = getString(detail.id ?? detail.order_id);
+          return {
+            ...searchById.get(id) ?? {},
+            ...detail
+          };
+        });
+      }
     }
   }
   let saved = 0;
@@ -782,7 +800,6 @@ async function actionPullOrders(ctx, params) {
       marketplace_account_id: refreshed.marketplace_account_id,
       marketplace: 'tiktok_shop',
       shop_id: refreshed.shop_id,
-      shop_cipher: refreshed.shop_cipher,
       order_id: orderId,
       external_order_id: orderId,
       order_sn: orderId,
@@ -795,7 +812,7 @@ async function actionPullOrders(ctx, params) {
       gross_amount: grossAmount,
       paid_amount: paidAmount,
       order_created_at: toIsoFromEpochSeconds(order.create_time ?? order.created_time),
-      order_paid_at: toIsoFromEpochSeconds(order.paid_time ?? order.payment_time),
+      paid_at: toIsoFromEpochSeconds(order.paid_time ?? order.payment_time),
       order_updated_at: toIsoFromEpochSeconds(order.update_time ?? order.updated_time),
       raw_order: order,
       pulled_at: new Date().toISOString(),
@@ -832,21 +849,30 @@ async function actionPullOrders(ctx, params) {
         marketplace: 'tiktok_shop',
         order_sn: orderId,
         external_order_id: orderId,
+        external_order_item_id: getString(item.order_item_id ?? item.id ?? remoteSkuId),
         tracking_number: trackingNumber || null,
         package_id: getString(order.package_id ?? order.package_list?.[0]?.id, ''),
         product_id: productId,
         map_id: mapId,
         marketplace_sku_map_id: mapId,
-        local_sku: localSku ?? sellerSku,
         mapped_local_sku: localSku ?? sellerSku,
-        remote_product_id: getString(item.product_id),
+        marketplace_product_id: getString(item.product_id),
         remote_sku_id: remoteSkuId,
-        remote_seller_sku: sellerSku,
+        marketplace_sku_id: remoteSkuId,
+        marketplace_sku: remoteSkuId || sellerSku,
+        seller_sku: sellerSku,
+        marketplace_seller_sku: sellerSku,
         product_name: getString(item.product_name ?? item.name),
+        marketplace_product_name: getString(item.product_name ?? item.name),
         variation_name: getString(item.sku_name ?? item.variation_name),
-        qty,
-        item_price: getNumber(item.sale_price ?? item.price ?? item.original_price, 0),
-        hpp_per_item: hpp,
+        variant_name: getString(item.sku_name ?? item.variation_name),
+        marketplace_variant_name: getString(item.sku_name ?? item.variation_name),
+        qty: qty || 1,
+        quantity: qty || 1,
+        unit_gross_amount: getNumber(item.sale_price ?? item.price ?? item.original_price, 0),
+        unit_paid_amount: getNumber(item.sale_price ?? item.price ?? item.original_price, 0),
+        gross_amount: getNumber(item.sale_price ?? item.price ?? item.original_price, 0) * (qty || 1),
+        paid_amount: getNumber(item.sale_price ?? item.price ?? item.original_price, 0) * (qty || 1),
         raw_item: item
       });
     }
@@ -1004,15 +1030,69 @@ function pickFinanceAmount(raw, names) {
   }
   return 0;
 }
-async function actionPullFinanceByOrder(ctx, params) {
-  const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  const account = await getTikTokAccount(getString(params.account_id, ''));
-  const refreshedToken = await refreshAccessTokenIfNeeded(account);
-  const resolved = await resolveShopIdentity(refreshedToken.account, refreshedToken.accessToken, ctx.userId);
-  const refreshed = resolved.account;
-  const accessToken = refreshedToken.accessToken;
-  const orderId = getString(params.order_id, '');
-  if (!orderId) throw new Error('order_id wajib diisi.');
+function aggregateTikTokFees(data: any) {
+  const skus = arrayFromAny(data?.sku_transactions ?? data?.sku_list ?? []);
+  
+  let totalCommission = 0;
+  let totalAffiliate = 0;
+  let totalPlatform = 0;
+  let totalDiscount = 0;
+  let totalShipping = 0;
+  let totalGross = 0;
+  let totalSettlement = 0;
+
+  for (const sku of skus) {
+    const feeObj = sku.fee_tax_breakdown?.fee ?? {};
+    for (const [key, val] of Object.entries(feeObj)) {
+      const v = Math.abs(getNumber(val, 0));
+      if (key.includes('commission') || key.includes('referral')) {
+        if (key.includes('affiliate')) {
+          totalAffiliate += v;
+        } else {
+          totalCommission += v;
+        }
+      } else if (key.includes('fee') || key.includes('tax') || key.includes('infrastructure')) {
+        totalPlatform += v;
+      }
+    }
+
+    const revObj = sku.revenue_breakdown ?? {};
+    for (const [key, val] of Object.entries(revObj)) {
+      if ((key.includes('discount') || key.includes('voucher')) && !key.includes('before_discount') && !key.includes('before_voucher')) {
+        totalDiscount += Math.abs(getNumber(val, 0));
+      }
+    }
+
+    totalShipping += Math.abs(getNumber(sku.shipping_cost_amount, 0));
+    totalGross += getNumber(sku.revenue_amount, 0);
+    totalSettlement += getNumber(sku.settlement_amount, 0);
+  }
+
+  // Fallbacks to top level
+  if (totalGross === 0) {
+    totalGross = getNumber(data?.revenue_amount ?? data?.gross_amount ?? data?.order_amount, 0);
+  }
+  if (totalSettlement === 0) {
+    totalSettlement = getNumber(data?.settlement_amount ?? data?.payout_amount ?? data?.paid_amount, 0);
+  }
+  if (totalShipping === 0) {
+    totalShipping = Math.abs(getNumber(data?.shipping_cost_amount ?? data?.shipping_fee, 0));
+  }
+  if (totalPlatform === 0) {
+    totalPlatform = Math.abs(getNumber(data?.fee_and_tax_amount ?? data?.platform_fee, 0));
+  }
+
+  return {
+    commissionFee: totalCommission,
+    affiliateFee: totalAffiliate,
+    platformFee: totalPlatform,
+    discountAmount: totalDiscount,
+    shippingFee: totalShipping,
+    grossAmount: totalGross,
+    receivedAmount: totalSettlement
+  };
+}
+async function pullFinanceForOrderWithToken(serviceClient: any, refreshed: any, accessToken: string, orderId: string, userId: string) {
   const payload = await tiktokRequestFinanceVersionFallback({
     account: refreshed,
     accessToken,
@@ -1026,49 +1106,24 @@ async function actionPullFinanceByOrder(ctx, params) {
       page_size: '50'
     }),
     action: 'pull_finance_by_order',
-    createdBy: ctx.userId
+    createdBy: userId
   });
   const data = dataOf(payload);
   const transactions = arrayFromAny(data.transactions ?? data.statement_transactions ?? data.order_transactions ?? data.list);
   const raw = transactions.length > 0 ? transactions[0] : data;
-  const grossAmount = pickFinanceAmount(raw, [
-    'gross_amount',
-    'order_amount',
-    'total_amount',
-    'subtotal'
-  ]);
-  const receivedAmount = pickFinanceAmount(raw, [
-    'settlement_amount',
-    'payout_amount',
-    'paid_amount',
-    'received_amount',
-    'seller_income'
-  ]);
-  const platformFee = Math.abs(pickFinanceAmount(raw, [
-    'platform_fee',
-    'platform_service_fee',
-    'transaction_fee'
-  ]));
-  const commissionFee = Math.abs(pickFinanceAmount(raw, [
-    'commission_fee',
-    'referral_fee'
-  ]));
-  const affiliateFee = Math.abs(pickFinanceAmount(raw, [
-    'affiliate_commission',
-    'affiliate_fee'
-  ]));
-  const shippingFee = Math.abs(pickFinanceAmount(raw, [
-    'shipping_fee',
-    'shipping_cost'
-  ]));
+
+  const fees = aggregateTikTokFees(raw ?? data);
+  const grossAmount = fees.grossAmount;
+  const receivedAmount = fees.receivedAmount;
+  const platformFee = fees.platformFee;
+  const commissionFee = fees.commissionFee;
+  const affiliateFee = fees.affiliateFee;
+  const shippingFee = fees.shippingFee;
+  const discountAmount = fees.discountAmount;
+  
   const refundAmount = Math.abs(pickFinanceAmount(raw, [
     'refund_amount',
     'refund_total'
-  ]));
-  const discountAmount = Math.abs(pickFinanceAmount(raw, [
-    'discount_amount',
-    'voucher_amount',
-    'seller_discount'
   ]));
   const safeOrderId = orderId.replace(/[,()]/g, '');
   const { data: orderRow } = await serviceClient.from('marketplace_orders').select('marketplace_order_id, paid_at, order_created_at, created_time, created_at').eq('marketplace', 'tiktok_shop').or(`order_id.eq.${safeOrderId},external_order_id.eq.${safeOrderId},order_sn.eq.${safeOrderId},remote_order_id.eq.${safeOrderId}`).limit(1).maybeSingle();
@@ -1104,20 +1159,32 @@ async function actionPullFinanceByOrder(ctx, params) {
     gross_profit: receivedAmount - totalHpp,
     status: 'pulled',
     settlement_status: getString(raw.status ?? data.status ?? raw.settlement_status, ''),
-    settlement_date: getString(raw.settlement_date ?? data.settlement_date, '') || null,
+    settlement_date: isoFromFinanceTime(raw.statement_time ?? raw.transaction_time ?? raw.statement_date ?? data.settlement_date) || null,
     raw_finance: payload,
     raw_response: payload,
     raw_report: payload,
+    note: '',
     pulled_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
   const financeRow = await upsertMarketplaceFinanceReportByOrderId(serviceClient, upsertPayload);
-  await safeRefreshMarketplaceAbnormal(serviceClient, financeRow.finance_report_id);
+  await safeRefreshMarketplaceAbnormal(serviceClient, financeRow?.finance_report_id);
   return {
     ok: true,
     finance_report: financeRow,
     payload
   };
+}
+async function actionPullFinanceByOrder(ctx, params) {
+  const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const account = await getTikTokAccount(getString(params.account_id, ''));
+  const refreshedToken = await refreshAccessTokenIfNeeded(account);
+  const resolved = await resolveShopIdentity(refreshedToken.account, refreshedToken.accessToken, ctx.userId);
+  const refreshed = resolved.account;
+  const accessToken = refreshedToken.accessToken;
+  const orderId = getString(params.order_id, '');
+  if (!orderId) throw new Error('order_id wajib diisi.');
+  return await pullFinanceForOrderWithToken(serviceClient, refreshed, accessToken, orderId, ctx.userId);
 }
 async function safeRefreshMarketplaceAbnormal(serviceClient, financeReportId) {
   const id = getString(financeReportId, '');
@@ -1172,8 +1239,6 @@ async function actionPullFinancePeriod(ctx, params) {
     p_missing_only: missingOnly,
     p_tenant_id: tenantId || null
   });
-  // Backward-compatible fallback untuk DB yang belum apply fungsi v3.
-  // Kalau v3 error karena function belum ada, worker tetap jalan via v2, tapi response akan bilang fallback.
   if (error) {
     const message = getString(error.message, String(error));
     const canFallback = message.toLowerCase().includes('finance_order_candidates_for_period_v3') || message.toLowerCase().includes('could not find the function') || message.toLowerCase().includes('function public.finance_order_candidates_for_period_v3');
@@ -1196,7 +1261,9 @@ async function actionPullFinancePeriod(ctx, params) {
   let skipped = 0;
   const results = [];
   const seenOrderKeys = new Set();
-  for (const row of Array.isArray(candidates) ? candidates : []){
+
+  const accountGroups: Record<string, string[]> = {};
+  for (const row of Array.isArray(candidates) ? candidates : []) {
     const item = row;
     const orderId = getString(item.order_id ?? item.external_order_id ?? item.order_sn, '');
     const rowAccountId = getString(item.marketplace_account_id ?? accountId, '');
@@ -1223,27 +1290,64 @@ async function actionPullFinancePeriod(ctx, params) {
       continue;
     }
     seenOrderKeys.add(seenKey);
+    if (!accountGroups[rowAccountId]) {
+      accountGroups[rowAccountId] = [];
+    }
+    accountGroups[rowAccountId].push(orderId);
+  }
+
+  for (const [rowAccountId, orderIds] of Object.entries(accountGroups)) {
     try {
-      await actionPullFinanceByOrder(ctx, {
-        account_id: rowAccountId,
-        order_id: orderId
-      });
-      success += 1;
-      results.push({
-        ok: true,
-        order_id: orderId,
-        marketplace_account_id: rowAccountId
-      });
-    } catch (error) {
-      failed += 1;
-      results.push({
-        ok: false,
-        order_id: orderId,
-        marketplace_account_id: rowAccountId,
-        error: error instanceof Error ? error.message : String(error)
-      });
+      const account = await getTikTokAccount(rowAccountId);
+      const refreshedToken = await refreshAccessTokenIfNeeded(account);
+      const resolved = await resolveShopIdentity(refreshedToken.account, refreshedToken.accessToken, ctx.userId);
+      const refreshed = resolved.account;
+      const accessToken = refreshedToken.accessToken;
+
+      const concurrencyLimit = 5;
+      for (let i = 0; i < orderIds.length; i += concurrencyLimit) {
+        const chunk = orderIds.slice(i, i + concurrencyLimit);
+        const promises = chunk.map(async (orderId) => {
+          try {
+            await pullFinanceForOrderWithToken(serviceClient, refreshed, accessToken, orderId, ctx.userId);
+            return { orderId, ok: true };
+          } catch (e) {
+            return { orderId, ok: false, error: e instanceof Error ? e.message : String(e) };
+          }
+        });
+        const chunkResults = await Promise.all(promises);
+        for (const res of chunkResults) {
+          if (res.ok) {
+            success += 1;
+            results.push({
+              ok: true,
+              order_id: res.orderId,
+              marketplace_account_id: rowAccountId
+            });
+          } else {
+            failed += 1;
+            results.push({
+              ok: false,
+              order_id: res.orderId,
+              marketplace_account_id: rowAccountId,
+              error: res.error
+            });
+          }
+        }
+      }
+    } catch (err) {
+      for (const orderId of orderIds) {
+        failed += 1;
+        results.push({
+          ok: false,
+          order_id: orderId,
+          marketplace_account_id: rowAccountId,
+          error: `Initialize account gagal: ${err instanceof Error ? err.message : String(err)}`
+        });
+      }
     }
   }
+
   return {
     ok: true,
     checked: Array.isArray(candidates) ? candidates.length : 0,
@@ -1394,16 +1498,57 @@ function tiktokPayoutAmount(row) {
   ]);
 }
 function tiktokPlatformFee(row) {
-  return Math.abs(moneyByKeysOrPaths(row, ['platform_fee','platform_service_fee','transaction_fee','allocated_platform_fee'], ['fee_breakdown.platform_fee','fee_breakdown.platform_service_fee','fee_breakdown.transaction_fee']));
+  const rootVal = moneyByKeys(row, ['platform_fee','platform_service_fee','transaction_fee','allocated_platform_fee']);
+  if (rootVal) return Math.abs(rootVal);
+
+  const fee = valueByPath(row, 'fee_tax_breakdown.fee') || valueByPath(row, 'raw_item.fee_tax_breakdown.fee');
+  if (fee && typeof fee === 'object') {
+    const commission = nestedMoney(fee.platform_commission_amount) || 0;
+    const trans = nestedMoney(fee.transaction_fee_amount) || 0;
+    const dynamic = nestedMoney(fee.dynamic_commission_amount) || 0;
+    const infra = nestedMoney(fee.vn_fix_infrastructure_fee) || 0;
+    const cashback = nestedMoney(fee.bonus_cashback_service_fee_amount) || 0;
+    const semimanaged = nestedMoney(fee.platform_semi_managed_commission_fee) || 0;
+    return Math.abs(commission + trans + dynamic + infra + cashback + semimanaged);
+  }
+  return Math.abs(moneyByPaths(row, ['fee_breakdown.platform_fee','fee_breakdown.platform_service_fee','fee_breakdown.transaction_fee']));
 }
 function tiktokCommissionFee(row) {
-  return Math.abs(moneyByKeysOrPaths(row, ['commission_fee','referral_fee','allocated_commission_fee'], ['fee_breakdown.commission_fee','fee_breakdown.referral_fee']));
+  const rootVal = moneyByKeys(row, ['commission_fee','referral_fee','allocated_commission_fee']);
+  if (rootVal) return Math.abs(rootVal);
+
+  const fee = valueByPath(row, 'fee_tax_breakdown.fee') || valueByPath(row, 'raw_item.fee_tax_breakdown.fee');
+  if (fee && typeof fee === 'object') {
+    const referral = nestedMoney(fee.referral_fee_amount) || 0;
+    const platform = nestedMoney(fee.platform_commission_amount) || 0;
+    return Math.abs(referral || platform);
+  }
+  return Math.abs(moneyByPaths(row, ['fee_breakdown.commission_fee','fee_breakdown.referral_fee']));
 }
 function tiktokAffiliateFee(row) {
-  return Math.abs(moneyByKeysOrPaths(row, ['affiliate_commission','affiliate_fee','affiliate_partner_commission','affiliate_shop_ads_commission','allocated_affiliate_fee'], ['fee_breakdown.affiliate_commission','fee_breakdown.affiliate_fee','fee_breakdown.affiliate_partner_commission','fee_breakdown.affiliate_shop_ads_commission']));
+  const rootVal = moneyByKeys(row, ['affiliate_commission','affiliate_fee','affiliate_partner_commission','allocated_affiliate_fee']);
+  if (rootVal) return Math.abs(rootVal);
+
+  const fee = valueByPath(row, 'fee_tax_breakdown.fee') || valueByPath(row, 'raw_item.fee_tax_breakdown.fee');
+  if (fee && typeof fee === 'object') {
+    const affiliate = nestedMoney(fee.affiliate_commission_amount) || 0;
+    const partner = nestedMoney(fee.affiliate_partner_commission_amount) || 0;
+    const ads = nestedMoney(fee.affiliate_ads_commission_amount) || 0;
+    return Math.abs(affiliate + partner + ads);
+  }
+  return Math.abs(moneyByPaths(row, ['fee_breakdown.affiliate_commission','fee_breakdown.affiliate_fee','fee_breakdown.affiliate_partner_commission','fee_breakdown.affiliate_shop_ads_commission']));
 }
 function tiktokShippingFee(row) {
-  return Math.abs(moneyByKeysOrPaths(row, ['shipping_fee','shipping_cost','tiktok_shop_shipping_fee','allocated_shipping_fee'], ['fee_breakdown.shipping_fee','shipping_breakdown.shipping_fee']));
+  const rootVal = moneyByKeys(row, ['shipping_fee','shipping_cost','tiktok_shop_shipping_fee','allocated_shipping_fee']);
+  if (rootVal) return Math.abs(rootVal);
+
+  const cost = nestedMoney(row.shipping_cost_amount);
+  if (Number.isFinite(cost) && cost !== 0) return Math.abs(cost);
+
+  const actual = nestedMoney(valueByPath(row, 'shipping_cost_breakdown.actual_shipping_fee_amount'));
+  if (Number.isFinite(actual) && actual !== 0) return Math.abs(actual);
+
+  return Math.abs(moneyByPaths(row, ['fee_breakdown.shipping_fee','shipping_breakdown.shipping_fee']));
 }
 function tiktokRefundAmount(row) {
   return Math.abs(moneyByKeysOrPaths(row, ['refund_amount','gross_sales_refund','customer_refund','customer_refund_amount','allocated_refund_amount'], ['supplementary_component.customer_refund_amount','refund_breakdown.customer_refund_amount']));
@@ -1545,7 +1690,7 @@ async function resolveLocalSkuForFinance(serviceClient, account, row, orderId = 
     const { data } = await serviceClient.from('marketplace_sku_maps').select('map_id, product_id, local_product_id, local_sku, mapped_local_sku, products(harga_hpp_default)').eq('tenant_id', tenantId).eq('marketplace_account_id', accountId).or(mappingFilters).limit(1).maybeSingle();
     const map = data;
     const mappedProductId = getString(map?.product_id ?? map?.local_product_id, '');
-    if (mappedProductId) {
+    if (mappedProductId && map?.products) {
       const product = map.products;
       return {
         map_id: map.map_id,
@@ -1586,15 +1731,19 @@ async function resolveLocalSkuForFinance(serviceClient, account, row, orderId = 
   const productId = getString(orderItem.mapped_product_id ?? orderItem.product_id ?? orderItem.local_product_id, '');
   let hpp = 0;
   let localSku = getString(orderItem.mapped_local_sku ?? orderItem.local_sku, '');
+  let validProductId = null;
   if (productId) {
     const { data: product } = await serviceClient.from('products').select('product_id, kode_sku, harga_hpp_default').eq('product_id', productId).limit(1).maybeSingle();
     const productMap = product;
-    hpp = getNumber(productMap?.harga_hpp_default, 0);
-    localSku = localSku || getString(productMap?.kode_sku, '');
+    if (productMap) {
+      validProductId = productId;
+      hpp = getNumber(productMap?.harga_hpp_default, 0);
+      localSku = localSku || getString(productMap?.kode_sku, '');
+    }
   }
   return {
     map_id: orderItem.marketplace_sku_map_id,
-    product_id: productId || null,
+    product_id: validProductId,
     local_sku: localSku,
     hpp_per_item: hpp,
     tracking_number: getString(orderItem.tracking_number, ''),
@@ -1663,16 +1812,20 @@ async function saveFinanceStatementReport(serviceClient, account, statement, raw
   });
   if (error) throw new Error(`Simpan statement finance gagal: ${error.message}`);
 }
-async function saveFinanceItemFromRow(args) {
+async function buildFinanceItemFromRow(args) {
   const { serviceClient, account, statementId, statementRow, transactionRow, detailRow, orderLite, index } = args;
   const orderId = financeOrderId(detailRow) || financeOrderId(transactionRow);
   const txId = financeTransactionId(detailRow, financeTransactionId(transactionRow, String(index)));
   const remoteSkuId = getString(detailRow.sku_id ?? detailRow.remote_sku_id ?? detailRow.product_sku_id ?? detailRow.marketplace_sku_id ?? detailRow.marketplace_sku, '');
   const sellerSku = getString(detailRow.seller_sku ?? detailRow.seller_sku_code ?? detailRow.sku_code ?? detailRow.marketplace_seller_sku, '');
   let productName = getString(detailRow.product_name ?? detailRow.marketplace_product_name ?? detailRow.product?.name ?? transactionRow.product_name, '');
-  let variationName = getString(detailRow.sku_name ?? detailRow.variation_name ?? detailRow.variant_name ?? detailRow.marketplace_variant_name, '');
-  const qty = Math.max(1, getNumber(detailRow.quantity ?? detailRow.qty ?? detailRow.item_quantity ?? transactionRow.quantity ?? 1, 1));
-  const matchedOrderItem = await loadMatchingOrderItemForFinance(serviceClient, account, detailRow, orderId);
+  let variationName = getString(detailRow.sku_name ?? detailRow.variation_name ?? detailRow.variant_name ?? detailRow.marketplace_variation_name, '');
+  const isTransactionOnly = !detailRow || detailRow === transactionRow;
+  const qty = detailRow ? Math.max(1, getNumber(detailRow.quantity ?? detailRow.qty ?? detailRow.item_quantity ?? transactionRow.quantity ?? 1, 1)) : 1;
+  let matchedOrderItem = null;
+  if (!isTransactionOnly) {
+    matchedOrderItem = await loadMatchingOrderItemForFinance(serviceClient, account, detailRow, orderId);
+  }
   const matchedRawItem = matchedOrderItem?.raw_item && typeof matchedOrderItem.raw_item === 'object' ? matchedOrderItem.raw_item : {};
   const effectiveRemoteSkuId = remoteSkuId || getString(matchedOrderItem?.marketplace_sku_id ?? matchedOrderItem?.marketplace_sku ?? matchedRawItem.sku_id, '');
   const effectiveSellerSku = sellerSku || getString(matchedOrderItem?.marketplace_seller_sku ?? matchedOrderItem?.seller_sku ?? matchedRawItem.seller_sku, '');
@@ -1687,21 +1840,25 @@ async function saveFinanceItemFromRow(args) {
   const shippingFee = tiktokShippingFee(detailRow) || tiktokShippingFee(transactionRow);
   const refundAmount = tiktokRefundAmount(detailRow) || tiktokRefundAmount(transactionRow);
   const discountAmount = tiktokDiscountAmount(detailRow) || tiktokDiscountAmount(transactionRow);
-  const rowForMap = matchedOrderItem ? {
-    ...matchedRawItem,
-    ...matchedOrderItem,
-    ...detailRow,
-    sku_id: effectiveRemoteSkuId || remoteSkuId,
-    remote_sku_id: effectiveRemoteSkuId || remoteSkuId,
-    seller_sku: effectiveSellerSku || sellerSku,
-    marketplace_seller_sku: effectiveSellerSku || sellerSku
-  } : detailRow;
-  const map = await resolveLocalSkuForFinance(serviceClient, account, rowForMap, orderId);
+  
+  let map = { local_sku: '', product_id: null, map_id: null, hpp_per_item: 0, tracking_number: '' };
+  if (!isTransactionOnly) {
+    const rowForMap = matchedOrderItem ? {
+      ...matchedRawItem,
+      ...matchedOrderItem,
+      ...detailRow,
+      sku_id: effectiveRemoteSkuId || remoteSkuId,
+      remote_sku_id: effectiveRemoteSkuId || remoteSkuId,
+      seller_sku: effectiveSellerSku || sellerSku,
+      marketplace_seller_sku: effectiveSellerSku || sellerSku
+    } : detailRow;
+    map = await resolveLocalSkuForFinance(serviceClient, account, rowForMap, orderId);
+  }
   const hppPerItem = getNumber(map.hpp_per_item, 0);
   const hppAmount = hppPerItem * qty;
-  const orderCreatedAt = isoFromFinanceTime(detailRow.order_created_time ?? detailRow.order_create_time ?? detailRow.order_created_date ?? transactionRow.order_created_time) ?? getString(orderLite?.order_created_at ?? orderLite?.paid_at ?? orderLite?.created_time ?? orderLite?.created_at, null);
-  const transactionTime = isoFromFinanceTime(detailRow.statement_time ?? detailRow.transaction_time ?? transactionRow.statement_time ?? transactionRow.transaction_time ?? statementRow.statement_time) ?? new Date().toISOString();
-  const trackingNumber = getString(detailRow.tracking_number ?? detailRow.tracking_no ?? orderLite?.tracking_number ?? map.tracking_number, '');
+  const orderCreatedAt = isoFromFinanceTime((detailRow && detailRow.order_created_time) ?? (detailRow && detailRow.order_create_time) ?? (detailRow && detailRow.order_created_date) ?? transactionRow.order_created_time) ?? getString(orderLite?.order_created_at ?? orderLite?.paid_at ?? orderLite?.created_time ?? orderLite?.created_at, null);
+  const transactionTime = isoFromFinanceTime((detailRow && detailRow.statement_time) ?? (detailRow && detailRow.transaction_time) ?? transactionRow.statement_time ?? transactionRow.transaction_time ?? statementRow.statement_time) ?? new Date().toISOString();
+  const trackingNumber = getString((detailRow && detailRow.tracking_number) ?? (detailRow && detailRow.tracking_no) ?? orderLite?.tracking_number ?? map.tracking_number, '');
   // statement-item-dedupe-key-v1:
   // Do not include volatile row index. Statement pulls can be repeated and pagination/order can change.
   const remoteItemKey = effectiveRemoteSkuId || effectiveSellerSku || variationName || productName || getString(detailRow.item_id ?? detailRow.product_id, '') || 'no_item';
@@ -1757,11 +1914,7 @@ async function saveFinanceItemFromRow(args) {
     pulled_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
-  const { error } = await serviceClient.from('marketplace_finance_items').upsert(payload, {
-    onConflict: 'tenant_id,marketplace_account_id,remote_finance_key'
-  });
-  if (error) throw new Error(`Simpan item finance gagal: ${error.message}`);
-  return true;
+  return payload;
 }
 async function actionPullFinanceStatementsPeriod(ctx, params) {
   const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -1856,6 +2009,7 @@ async function actionPullFinanceStatementsPeriod(ctx, params) {
   let detailCalls = 0;
   const orderCache = new Map();
   const errors = [];
+  const allPayloads = [];
   for (const statement of statements){
     const statementId = financeStatementId(statement);
     if (!statementId) continue;
@@ -1886,7 +2040,7 @@ async function actionPullFinanceStatementsPeriod(ctx, params) {
         transactionCount += 1;
         const orderId = financeOrderId(tx);
         let orderLite = null;
-        if (orderId) {
+        if (includeSkuDetails && orderId) {
           if (!orderCache.has(orderId)) {
             orderCache.set(orderId, await loadOrderLite(serviceClient, getString(refreshed.tenant_id), getString(refreshed.marketplace_account_id), orderId));
           }
@@ -1924,7 +2078,7 @@ async function actionPullFinanceStatementsPeriod(ctx, params) {
           tx
         ];
         for(let i = 0; i < detailRows.length; i += 1){
-          await saveFinanceItemFromRow({
+          const p = await buildFinanceItemFromRow({
             serviceClient,
             account: refreshed,
             statementId,
@@ -1934,12 +2088,32 @@ async function actionPullFinanceStatementsPeriod(ctx, params) {
             orderLite,
             index: itemCount + i
           });
+          allPayloads.push(p);
           itemCount += 1;
         }
       }
       txPageToken = extractNextToken(dataOf(txPayload));
     }while (txPageToken && transactionCount < maxTransactions)
     if (transactionCount >= maxTransactions) break;
+  }
+
+  if (allPayloads.length > 0) {
+    const uniquePayloads = [];
+    const seenKeys = new Set();
+    for (const p of allPayloads) {
+      if (p && p.remote_finance_key) {
+        if (!seenKeys.has(p.remote_finance_key)) {
+          seenKeys.add(p.remote_finance_key);
+          uniquePayloads.push(p);
+        }
+      }
+    }
+    if (uniquePayloads.length > 0) {
+      const { error: batchErr } = await serviceClient.from('marketplace_finance_items').upsert(uniquePayloads, {
+        onConflict: 'tenant_id,marketplace_account_id,remote_finance_key'
+      });
+      if (batchErr) throw new Error(`Batch upsert items finance gagal: ${batchErr.message}`);
+    }
   }
   return {
     ok: true,

@@ -108,7 +108,7 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
   Future<void> _ensureDeletePermission() async {
     if (_permissionLoaded) return;
     try {
-      final result = await _client.rpc('current_user_is_super_admin');
+      final result = await _client.rpc('current_user_can_delete_stock_history');
       _canDelete = result == true || result.toString().toLowerCase() == 'true';
     } catch (_) {
       _canDelete = false;

@@ -1665,6 +1665,26 @@ class MarketplaceService {
     return int.tryParse(response?.toString() ?? '0') ?? 0;
   }
 
+  Future<Map<String, dynamic>> clearSkuHppMapping({
+    required String tenantId,
+    required String marketplaceAccountId,
+    String? marketplace,
+  }) async {
+    final response = await _client.rpc(
+      'marketplace_clear_sku_hpp_mapping',
+      params: {
+        'p_tenant_id': tenantId,
+        'p_marketplace_account_id': marketplaceAccountId,
+        'p_marketplace': marketplace == null ||
+                marketplace.trim().isEmpty ||
+                marketplace == 'all'
+            ? null
+            : marketplace,
+      },
+    );
+    return _rpcMap(response);
+  }
+
   Future<MarketplaceStockSyncWorkerResult> processStockSyncQueue({
     required String tenantId,
     String? marketplaceAccountId,
@@ -2801,6 +2821,26 @@ class MarketplaceService {
       params: {
         'p_rows': rows,
         'p_sync_enabled': syncEnabled,
+      },
+    );
+    return _rpcMap(res);
+  }
+
+  Future<Map<String, dynamic>> applySkuMapsToOrderItems({
+    required String tenantId,
+    String? marketplaceAccountId,
+    int daysBack = 90,
+  }) async {
+    final res = await _client.rpc(
+      'marketplace_apply_sku_maps_to_order_items',
+      params: {
+        'p_tenant_id': tenantId,
+        'p_marketplace_account_id': marketplaceAccountId == null ||
+                marketplaceAccountId.trim().isEmpty ||
+                marketplaceAccountId == 'all'
+            ? null
+            : marketplaceAccountId,
+        'p_days_back': daysBack,
       },
     );
     return _rpcMap(res);
