@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_ui.dart';
 
@@ -46,6 +47,7 @@ class _AiChatAssistantSheetState extends State<AiChatAssistantSheet> {
   final ScrollController _scrollCtrl = ScrollController();
   final List<Map<String, String>> _messages = [];
   bool _isSending = false;
+  String _activeModelInfo = 'OpenRouter AI (Meta Llama 3.3 70B)';
 
   final List<String> _suggestedPrompts = [
     '💡 Berapa total omzet Shopee vs TikTok?',
@@ -60,7 +62,7 @@ class _AiChatAssistantSheetState extends State<AiChatAssistantSheet> {
     _messages.add({
       'role': 'assistant',
       'content':
-          'Halo! Saya **Antigravity AI Assistant**. Saya terhubung langsung ke database live toko Anda.\n\nAnda dapat menanyakan data omzet real, perbandingan Shopee vs TikTok, stok unmapped SKU, atau strategi penjualan!'
+          'Halo! Saya **Antigravity AI Assistant**. Saya terhubung langsung ke database live toko Anda via OpenRouter AI.\n\nAnda dapat menanyakan data omzet real, perbandingan Shopee vs TikTok, stok unmapped SKU, atau strategi penjualan!'
     });
 
     if (widget.initialPrompt != null && widget.initialPrompt!.trim().isNotEmpty) {
@@ -94,12 +96,17 @@ class _AiChatAssistantSheetState extends State<AiChatAssistantSheet> {
     _scrollToBottom();
 
     try {
+      final customKey = dotenv.env['OPENROUTER_API_KEY'];
       final response = await _client.functions.invoke(
         'ai-insights-engine',
+        headers: customKey != null && customKey.isNotEmpty
+            ? {'x-openrouter-key': customKey}
+            : null,
         body: <String, dynamic>{
           'action': 'chat',
           'prompt': query,
           'tenant_id': widget.tenantId,
+          'openrouter_api_key': customKey,
           'messages': _messages,
         },
       );
@@ -110,8 +117,12 @@ class _AiChatAssistantSheetState extends State<AiChatAssistantSheet> {
 
       if (response.status == 200 && data['ok'] == true) {
         final reply = data['reply']?.toString() ?? 'Tanggapan AI tidak tersedia.';
+        final modelName = data['model']?.toString() ?? 'Llama 3.3 70B';
+        final keySrc = data['openrouter_key_source']?.toString() ?? 'active';
+
         if (mounted) {
           setState(() {
+            _activeModelInfo = 'OpenRouter ($modelName) • Key: $keySrc';
             _messages.add({'role': 'assistant', 'content': reply});
           });
         }
@@ -193,11 +204,11 @@ class _AiChatAssistantSheetState extends State<AiChatAssistantSheet> {
                         ),
                       ),
                       Text(
-                        widget.subtitle,
+                        '${widget.subtitle}\n⚡ Engine: $_activeModelInfo',
                         style: TextStyle(
-                          fontSize: 11,
-                          color: theme.colorScheme.onSurface.withOpacity(0.6),
-                          fontWeight: FontWeight.w500,
+                          fontSize: 10.5,
+                          color: theme.colorScheme.onSurface.withOpacity(0.7),
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],

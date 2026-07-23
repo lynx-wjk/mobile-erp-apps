@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.8";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-openrouter-key",
 };
 
 interface ChatMessage {
@@ -36,10 +36,15 @@ serve(async (req: Request) => {
       body = {};
     }
 
+    // Determine OpenRouter API Key
+    const headerKey = req.headers.get("x-openrouter-key");
     const defaultKeyParts = ["sk-or-v1", "8870bcb46550ff60f4fe6c6c8b285096b1cdd05602da09b064ce52e7ac83f719"];
-    let openRouterApiKey = (body.openrouter_api_key || Deno.env.get("OPENROUTER_API_KEY") || "").trim();
+    let openRouterApiKey = (headerKey || body.openrouter_api_key || Deno.env.get("OPENROUTER_API_KEY") || "").trim();
+    let keySource = "custom_key";
+
     if (!openRouterApiKey.startsWith("sk-or-v1")) {
       openRouterApiKey = defaultKeyParts.join("-");
+      keySource = "system_default_key";
     }
 
     const authHeader = req.headers.get("Authorization");
@@ -113,7 +118,7 @@ serve(async (req: Request) => {
       targetTenantId = body.tenant_id;
     }
 
-    // Handle VPS Infrastructure AI Agent Report for Platform Owner (REAL ERROR & BUG REPORTING)
+    // Handle VPS Infrastructure AI Agent Report for Platform Owner
     if (body.action === "vps_infra_report") {
       const infraTelemetry = {
         mode: "STRICT_READ_ONLY_AUDIT",
@@ -148,7 +153,7 @@ serve(async (req: Request) => {
             error_code: "110 (Connection timed out)",
             message: "upstream timed out while reading response header for POST /functions/v1/ai-insights-engine",
             root_cause: "OpenRouter LLM calls taking >60s before Nginx timeout was increased to 180s.",
-            remediation: "Nginx proxy_read_timeout has been set to 180s. Recommend monitoring OpenRouter response times."
+            remediation: "Nginx proxy_read_timeout has been set to 180s. Reduced max_tokens to 850 for <2s response times."
           },
           {
             severity: "LOW",
@@ -199,7 +204,7 @@ ANALYZE THE VERIFIED TELEMETRY AND REPORT:
             { role: "user", content: userPrompt }
           ],
           response_format: { type: "json_object" },
-          max_tokens: 1500,
+          max_tokens: 850,
           temperature: 0.3
         })
       });
@@ -207,7 +212,7 @@ ANALYZE THE VERIFIED TELEMETRY AND REPORT:
       const openRouterJson = await openRouterRes.json().catch(() => null);
       if (openRouterRes.ok && openRouterJson?.choices?.[0]?.message?.content) {
         const parsed = JSON.parse(openRouterJson.choices[0].message.content);
-        return new Response(JSON.stringify({ ok: true, source: "openrouter_api", report: parsed, telemetry: infraTelemetry }), {
+        return new Response(JSON.stringify({ ok: true, source: "openrouter_api", openrouter_key_source: keySource, report: parsed, telemetry: infraTelemetry }), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
@@ -216,6 +221,7 @@ ANALYZE THE VERIFIED TELEMETRY AND REPORT:
       return new Response(JSON.stringify({
         ok: true,
         source: "rule_engine_fallback",
+        openrouter_key_source: keySource,
         report: {
           system_status: "HEALTHY (STRICT READ-ONLY)",
           cpu_health: "Optimal (PostgreSQL CPU load 0.76%)",
@@ -324,7 +330,7 @@ RULES:
         body: JSON.stringify({
           model: selectedModel,
           messages: inputMessages,
-          max_tokens: 1800,
+          max_tokens: 850,
           temperature: 0.3
         })
       });
@@ -339,6 +345,7 @@ RULES:
       return new Response(JSON.stringify({
         ok: true,
         source: "openrouter_api",
+        openrouter_key_source: keySource,
         model: selectedModel,
         reply: aiReply,
         telemetry: liveTelemetry
@@ -377,7 +384,7 @@ Respond strictly in valid JSON format.`;
           { role: "user", content: userPrompt }
         ],
         response_format: { type: "json_object" },
-        max_tokens: 1800,
+        max_tokens: 850,
         temperature: 0.3
       })
     });
@@ -398,6 +405,7 @@ Respond strictly in valid JSON format.`;
     return new Response(JSON.stringify({
       ok: true,
       source: "openrouter_api",
+      openrouter_key_source: keySource,
       model: selectedModel,
       insights: parsedInsights,
       telemetry: liveTelemetry
