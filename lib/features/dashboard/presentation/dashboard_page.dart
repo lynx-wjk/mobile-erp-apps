@@ -3271,19 +3271,26 @@ class _DashboardPageState extends State<DashboardPage> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primaryContainer,
+                          color: Colors.blueAccent.shade700,
                           borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.blue.withOpacity(0.3),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
-                        child: Row(
+                        child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.chat_bubble_outline_rounded,
-                                color: Theme.of(context).colorScheme.primary, size: 14),
-                            const SizedBox(width: 4),
+                                color: Colors.white, size: 14),
+                            SizedBox(width: 4),
                             Text(
                               'Tanya AI',
                               style: TextStyle(
-                                color: Theme.of(context).colorScheme.primary,
+                                color: Colors.white,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w800,
                               ),
