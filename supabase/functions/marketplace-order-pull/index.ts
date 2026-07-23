@@ -1009,9 +1009,13 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
   const seenOrderIds = new Set<string>();
   const warnings: string[] = [];
 
+  let stopBatchScan = false;
   for (const range of ranges) {
+    if (stopBatchScan) break;
     for (const timeField of timeFields) {
+      if (stopBatchScan) break;
       for (const status of shopeeStatuses) {
+        if (stopBatchScan) break;
         let cursor = "";
         let authRetries = 0;
         for (let pageIndex = 0; pageIndex < args.maxPages && searchOrdersAll.length < maxOrders; pageIndex += 1) {
@@ -1042,18 +1046,39 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
           } catch (e) {
             if (isShopeeAuthError(e)) {
               authRetries += 1;
-              if (authRetries > 3) {
+              if (authRetries > 2) {
                 warnings.push(`Shopee order list gagal: limit auth retry exceeded (${String(e)})`);
+                await markMarketplaceAuthExpired(admin, activeAccount, `Shopee auth error: ${String(e)}`);
+                stopBatchScan = true;
                 break;
               }
               const delayMs = Math.pow(2, authRetries) * 1000;
               await new Promise(resolve => setTimeout(resolve, delayMs));
-              tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, activeAccount, true);
-              activeAccount = tokenBundle.account;
-              accessToken = tokenBundle.accessToken;
-              pageIndex -= 1;
-              continue;
+              try {
+                tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, activeAccount, true);
+                activeAccount = tokenBundle.account;
+                accessToken = tokenBundle.accessToken;
+                pageIndex -= 1;
+                continue;
+              } catch (refreshErr) {
+                warnings.push(`Shopee refresh token gagal pasca auth error: ${String(refreshErr)}`);
+                stopBatchScan = true;
+                break;
+              }
             }
+
+            if (isShopeeRateLimitError(e)) {
+              warnings.push(`Shopee API Rate Limit terdeteksi (${timeField}): ${String(e)}. Menghentikan scan batch agar tidak overload.`);
+              stopBatchScan = true;
+              break;
+            }
+
+            if (isShopeeServerAbnormalError(e)) {
+              warnings.push(`Shopee API Server Abnormal (HTTP 5xx/gateway): ${String(e)}. Menghentikan scan batch.`);
+              stopBatchScan = true;
+              break;
+            }
+
             warnings.push(`Shopee order list gagal (${timeField}${status ? `/${status}` : ""}): ${String(e)}`);
             break;
           }
@@ -1392,14 +1417,23 @@ async function refreshShopeeAccessTokenIfNeeded(admin: any, account: any, force 
     refresh_token: refreshToken,
     shop_id: numericOrString(shopId),
   };
-  const response = await shopeeRequest({
-    method: "POST",
-    account,
-    path,
-    credential,
-    body: payload,
-    authless: true,
-  });
+  let response: any;
+  try {
+    response = await shopeeRequest({
+      method: "POST",
+      account,
+      path,
+      credential,
+      body: payload,
+      authless: true,
+    });
+  } catch (refreshErr) {
+    const errStr = String(refreshErr);
+    if (isShopeeAuthError(refreshErr)) {
+      await markMarketplaceAuthExpired(admin, account, `Refresh token Shopee gagal (Auth invalid): ${errStr.slice(0, 300)}`);
+    }
+    throw refreshErr;
+  }
 
   const data = response?.response ?? response ?? {};
   const newAccessToken = text(data.access_token);
@@ -1478,8 +1512,33 @@ async function shopeeRequest(args: {
     },
     body: args.method === "POST" ? JSON.stringify(args.body || {}) : undefined,
   });
-  if (!res.ok || !payload) throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(payload)}`);
-  if (payload.error) throw new Error(`Shopee API error: ${JSON.stringify(maskTokenObject(payload))}`);
+
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(`Shopee API Rate Limit (HTTP 429) pada ${args.path}`);
+    }
+    if (res.status >= 500) {
+      throw new Error(`Shopee API Server Error (HTTP ${res.status}) pada ${args.path}: ${text(payload ? JSON.stringify(maskTokenObject(payload)) : res.statusText).slice(0, 200)}`);
+    }
+    throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(maskTokenObject(payload))}`);
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Shopee API Abnormal Response (non-JSON payload) pada ${args.path}`);
+  }
+
+  if (payload.error) {
+    const errCode = text(payload.error).toLowerCase();
+    const errMsg = text(payload.message || payload.msg || payload.error_description || payload.error_msg);
+    if (errCode.includes("rate_limit") || errCode.includes("frequency") || errCode.includes("limit_exceeded")) {
+      throw new Error(`Shopee API Rate Limit [${payload.error}]: ${errMsg || "Frequency limit reached."}`);
+    }
+    if (errCode.includes("auth") || errCode.includes("permission") || errCode.includes("token") || errCode.includes("sign") || errCode.includes("shop_not_found") || errCode.includes("user_not_found") || errCode.includes("banned")) {
+      throw new Error(`Shopee API Auth Error [${payload.error}]: ${errMsg || "Authorization invalid or expired."}`);
+    }
+    throw new Error(`Shopee API error [${payload.error}]: ${errMsg || JSON.stringify(maskTokenObject(payload))}`);
+  }
+
   return payload;
 }
 
@@ -1527,7 +1586,34 @@ function isShopeeAuthError(err: unknown): boolean {
     || message.includes("invalid_access_token")
     || message.includes("access_token")
     || message.includes("401")
-    || message.includes("error_auth");
+    || message.includes("error_auth")
+    || message.includes("error_permission")
+    || message.includes("error_sign")
+    || message.includes("error_shop_not_found")
+    || message.includes("error_user_not_found")
+    || message.includes("error_token")
+    || message.includes("invalid_grant")
+    || message.includes("reconnect shopee");
+}
+
+function isShopeeRateLimitError(err: unknown): boolean {
+  const message = String(err).toLowerCase();
+  return message.includes("rate_limit")
+    || message.includes("frequency_limit")
+    || message.includes("limit_exceeded")
+    || message.includes("429");
+}
+
+function isShopeeServerAbnormalError(err: unknown): boolean {
+  const message = String(err).toLowerCase();
+  return message.includes("500")
+    || message.includes("502")
+    || message.includes("503")
+    || message.includes("504")
+    || message.includes("bad gateway")
+    || message.includes("gateway timeout")
+    || message.includes("service unavailable")
+    || message.includes("cloudflare");
 }
 
 function toShopeeOrderStatus(status: string): string | null {
@@ -1658,8 +1744,11 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
 
   // Pull manual harus mengambil semua order sesuai pilihan hari, bukan cuma status cancel/return yang kebetulan muncul di page pertama.
   // Karena TikTok search bisa terpecah per create_time/update_time/status dan pakai page_token, kita gabungkan semua page dengan dedupe order id.
+  let stopBatchScan = false;
   for (const body of bodies) {
+    if (stopBatchScan) break;
     let pageToken = "";
+    let authRetries = 0;
 
     for (let pageIndex = 0; pageIndex < args.maxPages && searchOrdersAll.length < maxOrders; pageIndex += 1) {
       try {
@@ -1693,11 +1782,30 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
       } catch (e) {
         firstError = e;
         if (isTikTokAuthError(e)) {
-          tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, activeAccount, true);
-          activeAccount = tokenBundle.account;
-          accessToken = tokenBundle.accessToken;
-          pageIndex -= 1;
-          continue;
+          authRetries += 1;
+          if (authRetries > 2) {
+            await markMarketplaceAuthExpired(admin, activeAccount, `TikTok auth error: ${String(e)}`);
+            stopBatchScan = true;
+            break;
+          }
+          try {
+            tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, activeAccount, true);
+            activeAccount = tokenBundle.account;
+            accessToken = tokenBundle.accessToken;
+            pageIndex -= 1;
+            continue;
+          } catch (refreshErr) {
+            stopBatchScan = true;
+            break;
+          }
+        }
+        if (isTikTokRateLimitError(e)) {
+          stopBatchScan = true;
+          break;
+        }
+        if (isTikTokServerAbnormalError(e)) {
+          stopBatchScan = true;
+          break;
         }
         break;
       }
@@ -2950,11 +3058,37 @@ async function tiktokRequest(args: {
     },
     body: args.method === "POST" ? bodyString : undefined,
   });
-  if (!res.ok || !jsonRes) throw new Error(`TikTok API HTTP ${res.status}: ${JSON.stringify(jsonRes)}`);
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(`TikTok API Rate Limit (HTTP 429) pada ${args.path}`);
+    }
+    if (res.status >= 500) {
+      throw new Error(`TikTok API Server Error (HTTP ${res.status}) pada ${args.path}: ${text(jsonRes ? JSON.stringify(maskTokenObject(jsonRes)) : res.statusText).slice(0, 200)}`);
+    }
+    throw new Error(`TikTok API HTTP ${res.status}: ${JSON.stringify(maskTokenObject(jsonRes))}`);
+  }
 
-  const code = jsonRes.code;
+  if (!jsonRes || typeof jsonRes !== "object") {
+    throw new Error(`TikTok API Abnormal Response (non-JSON payload) pada ${args.path}`);
+  }
+
+  const code = jsonRes.code ?? jsonRes.error_code;
   if (code !== undefined && String(code) !== "0" && String(code).toLowerCase() !== "success") {
-    throw new Error(`TikTok API error: ${JSON.stringify(jsonRes)}`);
+    const codeStr = text(code).toLowerCase();
+    const errMsg = text(jsonRes.message || jsonRes.msg || jsonRes.detail).toLowerCase();
+
+    if (codeStr === "105002" || codeStr === "105003" || errMsg.includes("frequency limit") || errMsg.includes("rate limit") || errMsg.includes("qps limit") || errMsg.includes("too many requests")) {
+      throw new Error(`TikTok API Rate Limit [code=${codeStr}]: ${jsonRes.message || "Frequency limit reached"} [path=${args.path}]`);
+    }
+
+    if (codeStr === "105001" || codeStr === "105004" || errMsg.includes("invalid shop_cipher") || errMsg.includes("access token") || errMsg.includes("token expired") || errMsg.includes("token invalid") || errMsg.includes("unauthorized")) {
+      if (errMsg.includes("invalid shop_cipher")) {
+        throw new Error(`TikTok API Auth Error [${args.path}]: Invalid shop_cipher. Re-authorize shop. Detail: ${JSON.stringify(maskTokenObject(jsonRes))}`);
+      }
+      throw new Error(`TikTok API Auth Error [code=${codeStr}]: ${jsonRes.message || "Token invalid or expired"} [path=${args.path}]`);
+    }
+
+    throw new Error(`TikTok API error: ${JSON.stringify(maskTokenObject(jsonRes))}`);
   }
   return jsonRes;
 }
@@ -3032,7 +3166,37 @@ async function markMarketplaceAuthExpired(admin: any, account: any, message: str
 
 function isTikTokAuthError(err: unknown): boolean {
   const message = String(err).toLowerCase();
-  return message.includes("105001") || message.includes("access token is invalid") || message.includes("invalid access token") || message.includes("401");
+  return message.includes("105001")
+    || message.includes("105004")
+    || message.includes("access token is invalid")
+    || message.includes("invalid access token")
+    || message.includes("invalid shop_cipher")
+    || message.includes("shop_cipher")
+    || message.includes("token expired")
+    || message.includes("reconnect tiktok")
+    || message.includes("401");
+}
+
+function isTikTokRateLimitError(err: unknown): boolean {
+  const message = String(err).toLowerCase();
+  return message.includes("105002")
+    || message.includes("105003")
+    || message.includes("frequency limit")
+    || message.includes("rate limit")
+    || message.includes("qps limit")
+    || message.includes("too many requests")
+    || message.includes("429");
+}
+
+function isTikTokServerAbnormalError(err: unknown): boolean {
+  const message = String(err).toLowerCase();
+  return message.includes("500")
+    || message.includes("502")
+    || message.includes("503")
+    || message.includes("504")
+    || message.includes("bad gateway")
+    || message.includes("gateway timeout")
+    || message.includes("service unavailable");
 }
 
 async function signTikTokRequest(path: string, params: Record<string, string>, bodyString: string, secret: string): Promise<string> {

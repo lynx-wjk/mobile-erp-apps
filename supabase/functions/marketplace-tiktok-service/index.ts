@@ -396,11 +396,31 @@ async function tiktokRequest(args) {
     errorMessage: success ? undefined : JSON.stringify(payload),
     createdBy: args.createdBy
   });
-  if (!success) {
-    const message = getString(payload.message, '');
-    if (message.toLowerCase().includes('invalid shop_cipher')) {
-      throw new Error(`TikTok API gagal [${args.path}]: Invalid shop_cipher. Jalankan Test TikTok Connection untuk refresh shop_cipher dari Authorized Shops, lalu ulangi action. Detail: ${JSON.stringify(payload)}`);
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(`TikTok API Rate Limit (HTTP 429) pada ${args.path}`);
     }
+    if (res.status >= 500) {
+      throw new Error(`TikTok API Server Error (HTTP ${res.status}) pada ${args.path}: ${getString(payload?.raw || payload?.message, res.statusText).slice(0, 200)}`);
+    }
+  }
+
+  if (!success) {
+    const codeVal = payload.code ?? payload.error_code;
+    const codeStr = getString(codeVal, '');
+    const message = getString(payload.message || payload.msg || payload.detail, '').toLowerCase();
+
+    if (codeStr === '105002' || codeStr === '105003' || message.includes('frequency limit') || message.includes('rate limit') || message.includes('qps limit') || message.includes('too many requests')) {
+      throw new Error(`TikTok API Rate Limit [code=${codeStr}]: ${payload.message || 'Frequency limit reached'} [path=${args.path}]`);
+    }
+
+    if (codeStr === '105001' || codeStr === '105004' || message.includes('invalid shop_cipher') || message.includes('access token') || message.includes('token expired') || message.includes('token invalid') || message.includes('unauthorized')) {
+      if (message.includes('invalid shop_cipher')) {
+        throw new Error(`TikTok API Auth Error [${args.path}]: Invalid shop_cipher. Re-authorize shop. Detail: ${JSON.stringify(payload)}`);
+      }
+      throw new Error(`TikTok API Auth Error [code=${codeStr}]: ${payload.message || 'Token invalid or expired'} [path=${args.path}]`);
+    }
+
     throw new Error(`TikTok API gagal [${args.path}]: ${JSON.stringify(payload)}`);
   }
   return payload;
@@ -1031,7 +1051,9 @@ function pickFinanceAmount(raw, names) {
   return 0;
 }
 function aggregateTikTokFees(data: any) {
-  const skus = arrayFromAny(data?.sku_transactions ?? data?.sku_list ?? []);
+  const txList = Array.isArray(data) 
+    ? data 
+    : arrayFromAny(data?.transactions ?? data?.statement_transactions ?? data?.order_transactions ?? data?.list ?? [data]);
   
   let totalCommission = 0;
   let totalAffiliate = 0;
@@ -1041,45 +1063,50 @@ function aggregateTikTokFees(data: any) {
   let totalGross = 0;
   let totalSettlement = 0;
 
-  for (const sku of skus) {
-    const feeObj = sku.fee_tax_breakdown?.fee ?? {};
-    for (const [key, val] of Object.entries(feeObj)) {
-      const v = Math.abs(getNumber(val, 0));
-      if (key.includes('commission') || key.includes('referral')) {
-        if (key.includes('affiliate')) {
-          totalAffiliate += v;
-        } else {
-          totalCommission += v;
+  for (const item of txList) {
+    const skus = arrayFromAny(item?.sku_transactions ?? item?.sku_list ?? [item]);
+
+    for (const sku of skus) {
+      const feeObj = sku.fee_tax_breakdown?.fee ?? item.fee_tax_breakdown?.fee ?? {};
+      for (const [key, val] of Object.entries(feeObj)) {
+        const v = Math.abs(getNumber(val, 0));
+        if (key.includes('commission') || key.includes('referral')) {
+          if (key.includes('affiliate')) {
+            totalAffiliate += v;
+          } else {
+            totalCommission += v;
+          }
+        } else if (key.includes('fee') || key.includes('tax') || key.includes('infrastructure')) {
+          totalPlatform += v;
         }
-      } else if (key.includes('fee') || key.includes('tax') || key.includes('infrastructure')) {
-        totalPlatform += v;
       }
-    }
 
-    const revObj = sku.revenue_breakdown ?? {};
-    for (const [key, val] of Object.entries(revObj)) {
-      if ((key.includes('discount') || key.includes('voucher')) && !key.includes('before_discount') && !key.includes('before_voucher')) {
-        totalDiscount += Math.abs(getNumber(val, 0));
+      const revObj = sku.revenue_breakdown ?? item.revenue_breakdown ?? {};
+      for (const [key, val] of Object.entries(revObj)) {
+        if ((key.includes('discount') || key.includes('voucher')) && !key.includes('before_discount') && !key.includes('before_voucher')) {
+          totalDiscount += Math.abs(getNumber(val, 0));
+        }
       }
-    }
 
-    totalShipping += Math.abs(getNumber(sku.shipping_cost_amount, 0));
-    totalGross += getNumber(sku.revenue_amount, 0);
-    totalSettlement += getNumber(sku.settlement_amount, 0);
+      totalShipping += Math.abs(getNumber(sku.shipping_cost_amount ?? item.shipping_cost_amount, 0));
+      totalGross += getNumber(sku.revenue_amount ?? item.revenue_amount, 0);
+      totalSettlement += getNumber(sku.settlement_amount ?? item.settlement_amount, 0);
+    }
   }
 
   // Fallbacks to top level
+  const rawFirst = txList[0] || {};
   if (totalGross === 0) {
-    totalGross = getNumber(data?.revenue_amount ?? data?.gross_amount ?? data?.order_amount, 0);
+    totalGross = getNumber(rawFirst?.revenue_amount ?? rawFirst?.gross_amount ?? rawFirst?.order_amount, 0);
   }
   if (totalSettlement === 0) {
-    totalSettlement = getNumber(data?.settlement_amount ?? data?.payout_amount ?? data?.paid_amount, 0);
+    totalSettlement = getNumber(rawFirst?.settlement_amount ?? rawFirst?.payout_amount ?? rawFirst?.paid_amount, 0);
   }
   if (totalShipping === 0) {
-    totalShipping = Math.abs(getNumber(data?.shipping_cost_amount ?? data?.shipping_fee, 0));
+    totalShipping = Math.abs(getNumber(rawFirst?.shipping_cost_amount ?? rawFirst?.shipping_fee, 0));
   }
   if (totalPlatform === 0) {
-    totalPlatform = Math.abs(getNumber(data?.fee_and_tax_amount ?? data?.platform_fee, 0));
+    totalPlatform = Math.abs(getNumber(rawFirst?.fee_and_tax_amount ?? rawFirst?.platform_fee, 0));
   }
 
   return {
@@ -1092,6 +1119,7 @@ function aggregateTikTokFees(data: any) {
     receivedAmount: totalSettlement
   };
 }
+
 async function pullFinanceForOrderWithToken(serviceClient: any, refreshed: any, accessToken: string, orderId: string, userId: string) {
   const payload = await tiktokRequestFinanceVersionFallback({
     account: refreshed,
@@ -1112,7 +1140,7 @@ async function pullFinanceForOrderWithToken(serviceClient: any, refreshed: any, 
   const transactions = arrayFromAny(data.transactions ?? data.statement_transactions ?? data.order_transactions ?? data.list);
   const raw = transactions.length > 0 ? transactions[0] : data;
 
-  const fees = aggregateTikTokFees(raw ?? data);
+  const fees = aggregateTikTokFees(transactions.length > 0 ? transactions : data);
   const grossAmount = fees.grossAmount;
   const receivedAmount = fees.receivedAmount;
   const platformFee = fees.platformFee;

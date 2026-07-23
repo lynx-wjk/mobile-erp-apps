@@ -1081,8 +1081,33 @@ async function shopeeRequest(args: {
     body: args.method === "POST" ? JSON.stringify(args.body || {}) : undefined,
   });
   const payload = await res.json().catch(() => null);
-  if (!res.ok || !payload) throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(payload)}`);
-  if (payload.error) throw new Error(`Shopee API error: ${JSON.stringify(maskTokenObject(payload))}`);
+
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(`Shopee API Rate Limit (HTTP 429) pada ${args.path}`);
+    }
+    if (res.status >= 500) {
+      throw new Error(`Shopee API Server Error (HTTP ${res.status}) pada ${args.path}: ${text(payload ? JSON.stringify(maskTokenObject(payload)) : res.statusText).slice(0, 200)}`);
+    }
+    throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(maskTokenObject(payload))}`);
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Shopee API Abnormal Response (non-JSON payload) pada ${args.path}`);
+  }
+
+  if (payload.error) {
+    const errCode = text(payload.error).toLowerCase();
+    const errMsg = text(payload.message || payload.msg || payload.error_description || payload.error_msg);
+    if (errCode.includes("rate_limit") || errCode.includes("frequency") || errCode.includes("limit_exceeded")) {
+      throw new Error(`Shopee API Rate Limit [${payload.error}]: ${errMsg || "Frequency limit reached."}`);
+    }
+    if (errCode.includes("auth") || errCode.includes("permission") || errCode.includes("token") || errCode.includes("sign") || errCode.includes("shop_not_found") || errCode.includes("user_not_found") || errCode.includes("banned")) {
+      throw new Error(`Shopee API Auth Error [${payload.error}]: ${errMsg || "Authorization invalid or expired."}`);
+    }
+    throw new Error(`Shopee API error [${payload.error}]: ${errMsg || JSON.stringify(maskTokenObject(payload))}`);
+  }
+
   return payload;
 }
 
