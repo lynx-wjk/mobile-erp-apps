@@ -3215,7 +3215,8 @@ class _DashboardPageState extends State<DashboardPage> {
         ? 'Ringkasan lintas finance, stock, marketplace, produksi, dan people ops.'
         : 'Ringkasan data disesuaikan dengan role aktif.';
     final items = <String>[
-      'Finance ${_shortRupiah(_financeNetProfit)}',
+      if (_financeOmzet > 0) 'Omzet ${_shortRupiah(_financeOmzet)}',
+      'Laba Net ${_shortRupiah(_financeNetProfit)}',
       'Order $_financeOrderCount',
       'Stock risk $_lowStock',
       'Task ${_isManagementRole ? _allOpenTasks : _myOpenTasks}',
@@ -3258,6 +3259,47 @@ class _DashboardPageState extends State<DashboardPage> {
                   ],
                 ),
               ),
+              if (isSuper) ...[
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: _showAiSmartInsightsDialog,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Theme.of(context).colorScheme.primary,
+                          Theme.of(context).colorScheme.tertiary,
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 14),
+                        SizedBox(width: 4),
+                        Text(
+                          'AI Insights',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 12),
@@ -3265,6 +3307,344 @@ class _DashboardPageState extends State<DashboardPage> {
             spacing: 8,
             runSpacing: 8,
             children: items.map((item) => _miniBadge(item)).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAiSmartInsightsDialog() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Center(
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Mengnalisis Store Data via OpenRouter AI...',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final response = await _client.functions.invoke(
+        'ai-insights-engine',
+        body: <String, dynamic>{
+          'time_range_days': 30,
+        },
+      );
+
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop(); // dismiss loading
+
+      final data = response.data is Map
+          ? Map<String, dynamic>.from(response.data as Map)
+          : <String, dynamic>{};
+
+      if (response.status != 200 || data['ok'] == false) {
+        final err = data['error'] ?? 'Gagal memuat AI Insights';
+        AppUi.safeSnack(context, 'AI Error: $err');
+        return;
+      }
+
+      final insights = _asMap(data['insights']);
+      final model = data['model']?.toString() ?? 'OpenRouter AI';
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (modalCtx) {
+          return _buildAiInsightsBottomSheet(modalCtx, insights, model);
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        AppUi.safeSnack(context, 'AI Insights gagal: $e');
+      }
+    }
+  }
+
+  Widget _buildAiInsightsBottomSheet(
+      BuildContext modalCtx, Map<String, dynamic> insights, String model) {
+    final exec = _asMap(insights['executive_summary']);
+    final fin = _asMap(insights['financial_health']);
+    final inv = _asMap(insights['inventory_insights']);
+    final rawRecs = insights['actionable_recommendations'];
+    final recs = rawRecs is List ? rawRecs : <dynamic>[];
+
+    final storePerf = AppUi.text(exec['store_performance'] ?? exec['summary'] ?? exec.values.firstOrNull, 'Analisis toko lengkap.');
+    final challenges = AppUi.text(exec['key_challenges'], '');
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(modalCtx).size.height * 0.85,
+      ),
+      decoration: BoxDecoration(
+        color: Theme.of(modalCtx).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 10, bottom: 6),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Theme.of(modalCtx).colorScheme.onSurface.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Row(
+              children: [
+                Icon(Icons.auto_awesome_rounded,
+                    color: Theme.of(modalCtx).colorScheme.primary, size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'OpenRouter AI Smart Insights',
+                        style: TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.w800),
+                      ),
+                      Text(
+                        'Model: $model (Super Admin Only)',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(modalCtx)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.6),
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.pop(modalCtx),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Executive Summary Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(modalCtx).colorScheme.primaryContainer.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                          color: Theme.of(modalCtx).colorScheme.primary.withOpacity(0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.insights_rounded,
+                                color: Theme.of(modalCtx).colorScheme.primary, size: 18),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Ringkasan Eksekutif Store',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          storePerf,
+                          style: const TextStyle(fontSize: 13, height: 1.4),
+                        ),
+                        if (challenges.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            '⚠️ Tantangan Utama: $challenges',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(modalCtx).colorScheme.error,
+                                fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Financial & Inventory Grid
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _aiMetricBox(
+                          modalCtx,
+                          'Gross Revenue (30d)',
+                          'Rp ${_shortRupiah(AppUi.toNum(fin['gross_revenue']))}',
+                          Icons.payments_rounded,
+                          Theme.of(modalCtx).colorScheme.tertiary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _aiMetricBox(
+                          modalCtx,
+                          'Settled Payout',
+                          'Rp ${_shortRupiah(AppUi.toNum(fin['settled_payout']))}',
+                          Icons.account_balance_wallet_rounded,
+                          Theme.of(modalCtx).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _aiMetricBox(
+                          modalCtx,
+                          'Mapped SKU Status',
+                          AppUi.text(inv['inventory_coverage'], '${inv['active_sku_mappings'] ?? 0} SKUs Active'),
+                          Icons.inventory_2_rounded,
+                          Colors.green,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _aiMetricBox(
+                          modalCtx,
+                          'Unmapped SKUs',
+                          '${inv['unmapped_order_items'] ?? 0} Item',
+                          Icons.warning_amber_rounded,
+                          AppUi.toNum(inv['unmapped_order_items']) > 0 ? Colors.orange : Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Actionable Recommendations
+                  const Text(
+                    '🎯 Rekomendasi Aksi Prioritas Super Admin',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 10),
+                  ...recs.map((rec) {
+                    final recMap = rec is Map ? rec : <String, dynamic>{'recommendation': rec.toString()};
+                    final title = AppUi.text(recMap['recommendation'] ?? recMap['title'], rec.toString());
+                    final actions = recMap['action_items'] is List ? recMap['action_items'] as List : <dynamic>[];
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Theme.of(modalCtx).colorScheme.surfaceVariant.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Theme.of(modalCtx).colorScheme.outlineVariant.withOpacity(0.4),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.check_circle_rounded,
+                                  color: Theme.of(modalCtx).colorScheme.primary, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (actions.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            ...actions.map((act) => Padding(
+                                  padding: const EdgeInsets.only(left: 26, top: 3),
+                                  child: Text(
+                                    '• ${act.toString()}',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Theme.of(modalCtx)
+                                            .colorScheme
+                                            .onSurface
+                                            .withOpacity(0.8)),
+                                  ),
+                                )),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _aiMetricBox(BuildContext ctx, String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Theme.of(ctx).colorScheme.onSurface),
           ),
         ],
       ),
