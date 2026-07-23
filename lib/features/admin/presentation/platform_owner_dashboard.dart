@@ -1448,7 +1448,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                           children: [
                             Icon(Icons.shield_rounded, color: Theme.of(modalCtx).colorScheme.primary, size: 18),
                             const SizedBox(width: 8),
-                            const Text('Audit Keamanan & Network Hardening', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                            const Text('Audit Keamanan & Network Hardening (Read-Only)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
                           ],
                         ),
                         const SizedBox(height: 8),
@@ -1459,6 +1459,53 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                     ),
                   ),
                   const SizedBox(height: 20),
+
+                  // Error Logs & VPS Bugs Card
+                  if (telemetry['active_error_logs_and_bugs'] is List && (telemetry['active_error_logs_and_bugs'] as List).isNotEmpty) ...[
+                    const Text(
+                      '🐛 Audit Error Log & Bug Infrastruktur',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 10),
+                    ...(telemetry['active_error_logs_and_bugs'] as List).map((bug) {
+                      final b = bug is Map ? Map<String, dynamic>.from(bug as Map) : <String, dynamic>{};
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Chip(
+                                  label: Text(b['severity']?.toString() ?? 'WARNING', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+                                  backgroundColor: b['severity'] == 'HIGH' ? Colors.red : Colors.orange,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '${b['subsystem'] ?? 'VPS'}: ${b['error_code'] ?? ''}',
+                                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text('• Log: ${b['message'] ?? ''}', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 2),
+                            Text('• Remidiasi: ${b['remediation'] ?? ''}', style: TextStyle(fontSize: 11, color: Theme.of(modalCtx).colorScheme.onSurface.withOpacity(0.7))),
+                          ],
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 16),
+                  ],
 
                   // Docker Microservices Status
                   const Text(
