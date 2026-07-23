@@ -744,7 +744,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                           children: [
                             actionCard(
                               icon: Icons.chat_rounded,
-                              label: '💬 TANYA AI ASSISTANT',
+                              label: 'TANYA AI ASSISTANT',
                               onTap: () => AiChatAssistantSheet.show(
                                 context,
                                 title: '🤖 Platform Owner AI Assistant',

@@ -96,7 +96,15 @@ class _AiChatAssistantSheetState extends State<AiChatAssistantSheet> {
     _scrollToBottom();
 
     try {
-      final customKey = dotenv.env['OPENROUTER_API_KEY'];
+      String? customKey;
+      try {
+        if (dotenv.isInitialized) {
+          customKey = dotenv.env['OPENROUTER_API_KEY'];
+        }
+      } catch (_) {
+        customKey = null;
+      }
+
       final response = await _client.functions.invoke(
         'ai-insights-engine',
         headers: customKey != null && customKey.isNotEmpty

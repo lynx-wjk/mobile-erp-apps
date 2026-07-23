@@ -3293,7 +3293,7 @@ class _DashboardPageState extends State<DashboardPage> {
                               Icon(Icons.chat_rounded, color: Colors.white, size: 14),
                               SizedBox(width: 6),
                               Text(
-                                '💬 Tanya AI Chat',
+                                'Tanya AI Chat',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 12,
@@ -3332,7 +3332,7 @@ class _DashboardPageState extends State<DashboardPage> {
                               Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 14),
                               SizedBox(width: 6),
                               Text(
-                                '✨ AI Insights',
+                                'AI Insights',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 12,
