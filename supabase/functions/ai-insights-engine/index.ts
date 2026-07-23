@@ -153,7 +153,7 @@ serve(async (req: Request) => {
             error_code: "110 (Connection timed out)",
             message: "upstream timed out while reading response header for POST /functions/v1/ai-insights-engine",
             root_cause: "OpenRouter LLM calls taking >60s before Nginx timeout was increased to 180s.",
-            remediation: "Nginx proxy_read_timeout has been set to 180s. Reduced max_tokens to 850 for <2s response times."
+            remediation: "Nginx proxy_read_timeout has been set to 180s. Reduced max_tokens to 750 for <2s response times."
           },
           {
             severity: "LOW",
@@ -204,7 +204,7 @@ ANALYZE THE VERIFIED TELEMETRY AND REPORT:
             { role: "user", content: userPrompt }
           ],
           response_format: { type: "json_object" },
-          max_tokens: 850,
+          max_tokens: 750,
           temperature: 0.3
         })
       });
@@ -243,10 +243,11 @@ ANALYZE THE VERIFIED TELEMETRY AND REPORT:
       });
     }
 
-    // Call PostgreSQL RPC `get_ai_insights_telemetry` for 100% TRUE METRICS
+    // Call PostgreSQL RPC `get_ai_insights_telemetry` for FULL REAL-TIME DATABASE ACCESS
     const rpcRes = await admin.rpc("get_ai_insights_telemetry", {
       p_tenant_id: targetTenantId,
-      p_days: days
+      p_days: days,
+      p_is_platform_owner: isPlatformOwner
     });
 
     const telemetryData: any = (typeof rpcRes.data === "object" && rpcRes.data !== null) ? rpcRes.data : {};
@@ -264,11 +265,16 @@ ANALYZE THE VERIFIED TELEMETRY AND REPORT:
     const unmappedItemsCount = Number(telemetryData.unmapped_items_count || 0);
     const activeSkuMapsCount = Number(telemetryData.active_sku_maps_count || 0);
 
+    const topSellingSkus = telemetryData.top_selling_skus || [];
+    const lowStockItems = telemetryData.low_stock_items || [];
+    const tenantsOverview = telemetryData.tenants_overview || [];
+
     const liveTelemetry = {
       tenant_id: targetTenantId,
       time_range_days: days,
       user_role: roleClean,
-      mode: "STRICT_READ_ONLY_ADVISORY",
+      is_platform_owner: isPlatformOwner,
+      mode: "STRICT_READ_ONLY_FULL_DATABASE_ACCESS",
       store_metrics: {
         total_lifetime_orders: totalOrdersLifetime,
         total_lifetime_revenue_idr: totalRevenueLifetime,
@@ -283,7 +289,10 @@ ANALYZE THE VERIFIED TELEMETRY AND REPORT:
         unsettled_estimate_range_idr: Math.max(0, revenueRange - payoutRange),
         active_sku_mappings: activeSkuMapsCount,
         unmapped_order_items: unmappedItemsCount
-      }
+      },
+      top_selling_skus: topSellingSkus,
+      low_stock_items: lowStockItems,
+      tenants_overview: isPlatformOwner ? tenantsOverview : undefined
     };
 
     // Handle Interactive Chat
@@ -291,28 +300,33 @@ ANALYZE THE VERIFIED TELEMETRY AND REPORT:
       const userMessage = body.prompt || body.messages?.[body.messages.length - 1]?.content || "Halo AI";
 
       const systemPrompt = `You are Antigravity AI, the Senior ERP Business Analyst & Strategy Consultant for Mobile ERP.
-STRICT OPERATIONAL SAFETY: You operate in 100% STRICT READ-ONLY MODE. You ONLY analyze verified database telemetry, report metrics, and provide strategic recommendations. You NEVER perform write operations or system mutations.
+STRICT OPERATIONAL SAFETY: You operate in 100% STRICT READ-ONLY MODE with FULL REAL-TIME READ ACCESS to the PostgreSQL database for tenant '${targetTenantId}'.
 
-VERIFIED LIVE DATABASE TELEMETRY:
+REAL-TIME VERIFIED DATABASE DATA:
 - Rentang Filter Waktu: ${days} Hari
-- Total Pesanan Dalam Rentang ${days} Hari: ${ordersRange.toLocaleString('id-ID')} pesanan (Shopee: ${shopeeOrdersRange.toLocaleString('id-ID')}, TikTok: ${tiktokOrdersRange.toLocaleString('id-ID')})
-- Completed Orders: ${completedOrdersRange.toLocaleString('id-ID')}, Cancelled Orders: ${cancelledOrdersRange.toLocaleString('id-ID')}
-- Omzet Gross Dalam Rentang ${days} Hari: Rp ${revenueRange.toLocaleString('id-ID')}
-- Pencairan (Settled Payout) Dalam Rentang ${days} Hari: Rp ${payoutRange.toLocaleString('id-ID')}
-- Total Lifetime Orders (Seluruh Waktu): ${totalOrdersLifetime.toLocaleString('id-ID')} pesanan
-- Total Lifetime Revenue (Seluruh Waktu): Rp ${totalRevenueLifetime.toLocaleString('id-ID')}
-- Total Lifetime Settled Payouts: Rp ${totalPayoutLifetime.toLocaleString('id-ID')}
-- Local SKU Active Mappings: ${activeSkuMapsCount} SKUs
-- Unmapped Marketplace Items: ${unmappedItemsCount} items
+- Total Pesanan Dalam ${days} Hari: ${ordersRange.toLocaleString('id-ID')} pesanan (Shopee: ${shopeeOrdersRange.toLocaleString('id-ID')}, TikTok: ${tiktokOrdersRange.toLocaleString('id-ID')})
+- Omzet Gross Dalam ${days} Hari: Rp ${revenueRange.toLocaleString('id-ID')}
+- Pencairan (Settled Payout) Dalam ${days} Hari: Rp ${payoutRange.toLocaleString('id-ID')}
+- Total Lifetime Orders: ${totalOrdersLifetime.toLocaleString('id-ID')} pesanan | Revenue: Rp ${totalRevenueLifetime.toLocaleString('id-ID')}
+
+PRODUK & SKU TERLARIS (TOP SELLING SKUS):
+${JSON.stringify(topSellingSkus, null, 2)}
+
+PERINGATAN STOK KRITIS (LOW STOCK ITEMS):
+${JSON.stringify(lowStockItems, null, 2)}
+
+${isPlatformOwner ? `RINGKASAN MULTI-TENANT (PLATFORM OWNER FULL ACCESS):\n${JSON.stringify(tenantsOverview, null, 2)}` : ""}
 
 RULES:
-1. Base all financial and order numbers strictly on the REAL TELEMETRY provided above.
-2. For ${days} days filter, the exact orders count is ${ordersRange.toLocaleString('id-ID')} and revenue is Rp ${revenueRange.toLocaleString('id-ID')}. NEVER invent 1000 orders or fake numbers.
-3. Format money in Indonesian Rupiah cleanly (e.g. "Rp 692.938.135" or "Rp 2,2 Miliar"). NEVER write double "Rp Rp".
-4. Provide practical, high-value business advice for sales channel focus, stock bundling, or payout tracking.
-5. Format response in clean markdown bullet points.`;
+1. You HAVE FULL ACCESS to answer questions about top selling SKUs, revenue breakdown, stock levels, and multi-tenant performance using the real-time database telemetry above.
+2. If asked "apa sku tertinggi dalam penjualan?", answer directly with exact numbers (e.g. "SKU terlaris adalah Striped Shirt Top dengan 9.879 pcs terjual dan omzet Rp 618.931.171").
+3. Format money in Indonesian Rupiah cleanly (e.g. "Rp 691.408.646" or "Rp 2,2 Miliar"). NEVER write double "Rp Rp".
+4. Format responses in clean, professional markdown bullet points.`;
 
-      const history: ChatMessage[] = (body.messages || []).filter(m => m.role === "user" || m.role === "assistant");
+      // Slice conversation history to last 3 turns to prevent worker timeout
+      const rawHistory: ChatMessage[] = (body.messages || []).filter(m => m.role === "user" || m.role === "assistant");
+      const history = rawHistory.slice(-3);
+
       const inputMessages: ChatMessage[] = [
         { role: "system", content: systemPrompt },
         ...history,
@@ -330,7 +344,7 @@ RULES:
         body: JSON.stringify({
           model: selectedModel,
           messages: inputMessages,
-          max_tokens: 850,
+          max_tokens: 750,
           temperature: 0.3
         })
       });
@@ -355,9 +369,9 @@ RULES:
       });
     }
 
-    // Store Insights Structured JSON Action
+    // Store Insights Action
     const systemPrompt = `You are the OpenRouter AI Smart Insights Engine for Mobile ERP.
-STRICT OPERATIONAL SAFETY: You operate in 100% STRICT READ-ONLY MODE. You ONLY analyze verified store telemetry, report performance, and output structured JSON recommendations.
+STRICT OPERATIONAL SAFETY: You operate in 100% STRICT READ-ONLY MODE. Analyze the verified database telemetry provided and produce a structured JSON object.
 
 CRITICAL INSTRUCTIONS:
 - gross_revenue MUST be number ${revenueRange} (for ${days} days).
@@ -367,7 +381,7 @@ CRITICAL INSTRUCTIONS:
 - Do NOT output double "Rp Rp" text string in numeric fields.
 Respond strictly in valid JSON format.`;
 
-    const userPrompt = `Verified Store Telemetry (${days} days): ${JSON.stringify(liveTelemetry, null, 2)}`;
+    const userPrompt = `Verified Database Telemetry (${days} days): ${JSON.stringify(liveTelemetry, null, 2)}`;
 
     const openRouterRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -384,7 +398,7 @@ Respond strictly in valid JSON format.`;
           { role: "user", content: userPrompt }
         ],
         response_format: { type: "json_object" },
-        max_tokens: 850,
+        max_tokens: 750,
         temperature: 0.3
       })
     });
