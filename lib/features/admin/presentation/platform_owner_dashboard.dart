@@ -742,6 +742,11 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                           runSpacing: 12,
                           children: [
                             actionCard(
+                              icon: Icons.smart_toy_rounded,
+                              label: '🤖 AI INFRASTRUCTURE',
+                              onTap: _showVpsAiInfraDialog,
+                            ),
+                            actionCard(
                               icon: Icons.add_business_rounded,
                               label: 'TAMBAH TENANT',
                               onTap: _showCreateTenantDialog,

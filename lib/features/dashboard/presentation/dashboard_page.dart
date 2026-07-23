@@ -3319,10 +3319,18 @@ class _DashboardPageState extends State<DashboardPage> {
       barrierDismissible: false,
       builder: (ctx) => Center(
         child: Container(
-          padding: const EdgeInsets.all(24),
+          width: 320,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -3330,10 +3338,16 @@ class _DashboardPageState extends State<DashboardPage> {
               CircularProgressIndicator(
                 color: Theme.of(context).colorScheme.primary,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
               Text(
-                'Menganalisis Store Data ($days Hari) via OpenRouter AI...',
-                style: const TextStyle(fontWeight: FontWeight.w700),
+                'Menganalisis Store Data ($days Hari)\nvia OpenRouter AI...',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
               ),
             ],
           ),

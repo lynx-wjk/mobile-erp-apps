@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -15,12 +16,14 @@ Future<void> main() async {
     String? supabaseUrl;
     String? supabaseAnonKey;
 
-    try {
-      await dotenv.load(fileName: '.env');
-      supabaseUrl = dotenv.env['SUPABASE_URL'];
-      supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
-    } catch (e) {
-      debugPrint('dotenv load fallback: $e');
+    if (!kIsWeb) {
+      try {
+        await dotenv.load(fileName: '.env');
+        supabaseUrl = dotenv.env['SUPABASE_URL'];
+        supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
+      } catch (e) {
+        debugPrint('dotenv load fallback: $e');
+      }
     }
 
     supabaseUrl = (supabaseUrl != null && supabaseUrl.trim().isNotEmpty)
