@@ -78,7 +78,20 @@ serve(async (req: Request) => {
     }
 
 
-    const targetTenantId = body.tenant_id || userProfile.tenant_id || "00000000-0000-0000-0000-000000000001";
+    // Strict Tenant Isolation: Only platform_owner can query arbitrary tenant_id. Super_admins are locked to their own tenant_id.
+    const isPlatformOwner = roleClean === "platform_owner";
+    let targetTenantId = userProfile.tenant_id;
+    if (isPlatformOwner && body.tenant_id) {
+      targetTenantId = body.tenant_id;
+    } else if (body.tenant_id && body.tenant_id !== userProfile.tenant_id) {
+      return new Response(JSON.stringify({ 
+        ok: false, 
+        error: "Forbidden: Cross-tenant data access denied. You can only view insights for your own store." 
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const selectedModel = body.model || "meta-llama/llama-3.3-70b-instruct";
     const days = Math.max(7, Math.min(body.time_range_days || 30, 90));
     const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
