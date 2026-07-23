@@ -20,7 +20,15 @@ serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const openRouterApiKey = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("OPENAI_API_KEY");
+    // Parse Body Parameters
+    let body: InsightsRequestBody & { openrouter_api_key?: string } = {};
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
+
+    const openRouterApiKey = (body.openrouter_api_key || Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("OPENAI_API_KEY") || "").trim();
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -69,16 +77,9 @@ serve(async (req: Request) => {
       });
     }
 
-    // Parse Body Parameters
-    let body: InsightsRequestBody = {};
-    try {
-      body = await req.json();
-    } catch {
-      body = {};
-    }
 
     const targetTenantId = body.tenant_id || userProfile.tenant_id || "00000000-0000-0000-0000-000000000001";
-    const selectedModel = body.model || "anthropic/claude-3.5-sonnet";
+    const selectedModel = body.model || "meta-llama/llama-3.3-70b-instruct";
     const days = Math.max(7, Math.min(body.time_range_days || 30, 90));
     const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
@@ -190,6 +191,7 @@ serve(async (req: Request) => {
           { role: "user", content: userPrompt }
         ],
         response_format: { type: "json_object" },
+        max_tokens: 1500,
         temperature: 0.3
       })
     });
