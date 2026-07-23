@@ -12,22 +12,39 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    await dotenv.load(fileName: '.env');
+    String? supabaseUrl;
+    String? supabaseAnonKey;
 
-    final supabaseUrl = dotenv.env['SUPABASE_URL'];
-    final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
-
-    if (supabaseUrl == null || supabaseUrl.trim().isEmpty) {
-      throw Exception('SUPABASE_URL is missing in .env');
+    try {
+      await dotenv.load(fileName: '.env');
+      supabaseUrl = dotenv.env['SUPABASE_URL'];
+      supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
+    } catch (e) {
+      debugPrint('dotenv load fallback: $e');
     }
 
-    if (supabaseAnonKey == null || supabaseAnonKey.trim().isEmpty) {
-      throw Exception('SUPABASE_ANON_KEY is missing in .env');
+    supabaseUrl = (supabaseUrl != null && supabaseUrl.trim().isNotEmpty)
+        ? supabaseUrl.trim()
+        : const String.fromEnvironment('SUPABASE_URL',
+            defaultValue: 'https://mdhproduction.com');
+
+    supabaseAnonKey = (supabaseAnonKey != null && supabaseAnonKey.trim().isNotEmpty)
+        ? supabaseAnonKey.trim()
+        : const String.fromEnvironment('SUPABASE_ANON_KEY',
+            defaultValue:
+                'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxMzY1OTkwLCJleHAiOjQxMDI0NDQ4MDB9.4ksHkp45OfOVH--8p5ajWnfKUwwDDLUNYbsVV8uFh5Y');
+
+    if (supabaseUrl.isEmpty) {
+      throw Exception('SUPABASE_URL is missing');
+    }
+
+    if (supabaseAnonKey.isEmpty) {
+      throw Exception('SUPABASE_ANON_KEY is missing');
     }
 
     await Supabase.initialize(
-      url: supabaseUrl.trim(),
-      anonKey: supabaseAnonKey.trim(),
+      url: supabaseUrl,
+      anonKey: supabaseAnonKey,
     );
 
     await AppThemeModeController.init();
