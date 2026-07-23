@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/ai_chat_assistant_sheet.dart';
 import '../../../core/theme/app_theme_mode.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../services/auth_service.dart';
@@ -741,6 +742,15 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                           spacing: 12,
                           runSpacing: 12,
                           children: [
+                            actionCard(
+                              icon: Icons.chat_rounded,
+                              label: '💬 TANYA AI ASSISTANT',
+                              onTap: () => AiChatAssistantSheet.show(
+                                context,
+                                title: '🤖 Platform Owner AI Assistant',
+                                subtitle: 'Tanyakan statistik tenant, performa VPS, atau kesehatan server',
+                              ),
+                            ),
                             actionCard(
                               icon: Icons.smart_toy_rounded,
                               label: '🤖 AI INFRASTRUCTURE',
