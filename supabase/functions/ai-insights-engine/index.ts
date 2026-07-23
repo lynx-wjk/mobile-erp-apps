@@ -12,13 +12,22 @@ interface ChatMessage {
 }
 
 interface InsightsRequestBody {
-  action?: "store_insights" | "vps_infra_report" | "chat";
+  action?: "store_insights" | "vps_infra_report" | "chat" | "remember";
   tenant_id?: string;
   model?: string;
   time_range_days?: number;
   prompt?: string;
   messages?: ChatMessage[];
   openrouter_api_key?: string;
+  memory_key?: string;
+  memory_value?: string;
+}
+
+async function sha256(str: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 serve(async (req: Request) => {
@@ -116,6 +125,26 @@ serve(async (req: Request) => {
     let targetTenantId = userProfile.tenant_id;
     if (isPlatformOwner && body.tenant_id) {
       targetTenantId = body.tenant_id;
+    }
+
+    // Persistent Memory Storage Action
+    if (body.action === "remember" && body.memory_key && body.memory_value) {
+      try {
+        await admin.from("ai_chat_memory").upsert({
+          tenant_id: targetTenantId,
+          user_id: user.id,
+          memory_key: body.memory_key,
+          memory_value: body.memory_value,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "tenant_id,memory_key" });
+      } catch (_err) {
+        // Ignore memory write error
+      }
+
+      return new Response(JSON.stringify({ ok: true, memory_stored: true, memory_key: body.memory_key }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
     // Handle VPS Infrastructure AI Agent Report for Platform Owner
@@ -243,31 +272,40 @@ ANALYZE THE VERIFIED TELEMETRY AND REPORT:
       });
     }
 
-    // Call PostgreSQL RPC `get_ai_insights_telemetry` for FULL REAL-TIME DATABASE ACCESS
-    const rpcRes = await admin.rpc("get_ai_insights_telemetry", {
+    const userMessage = body.prompt || body.messages?.[body.messages.length - 1]?.content || "Halo AI";
+    const promptHash = await sha256(`${targetTenantId}:${days}:${userMessage.trim().toLowerCase()}`);
+
+    // Check Postgres AI Cache
+    const { data: cachedRes } = await admin
+      .from("ai_chat_cache")
+      .select("reply_text, telemetry_data, expires_at")
+      .eq("prompt_hash", promptHash)
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+
+    if (cachedRes && body.action === "chat") {
+      return new Response(JSON.stringify({
+        ok: true,
+        source: "vps_postgres_cache",
+        openrouter_key_source: keySource,
+        model: selectedModel,
+        reply: cachedRes.reply_text,
+        telemetry: cachedRes.telemetry_data
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    // Call PostgreSQL RPC `get_ai_insights_telemetry_v2` for FULL DYNAMIC READ ACCESS
+    const rpcRes = await admin.rpc("get_ai_insights_telemetry_v2", {
       p_tenant_id: targetTenantId,
       p_days: days,
       p_is_platform_owner: isPlatformOwner
     });
 
     const telemetryData: any = (typeof rpcRes.data === "object" && rpcRes.data !== null) ? rpcRes.data : {};
-
-    const totalOrdersLifetime = Number(telemetryData.total_orders_lifetime || 0);
-    const totalRevenueLifetime = Number(telemetryData.total_revenue_lifetime || 0);
-    const ordersRange = Number(telemetryData.orders_range || 0);
-    const revenueRange = Number(telemetryData.revenue_range || 0);
-    const shopeeOrdersRange = Number(telemetryData.shopee_orders_range || 0);
-    const tiktokOrdersRange = Number(telemetryData.tiktok_orders_range || 0);
-    const completedOrdersRange = Number(telemetryData.completed_orders_range || 0);
-    const cancelledOrdersRange = Number(telemetryData.cancelled_orders_range || 0);
-    const totalPayoutLifetime = Number(telemetryData.total_payout_lifetime || 0);
-    const payoutRange = Number(telemetryData.payout_range || 0);
-    const unmappedItemsCount = Number(telemetryData.unmapped_items_count || 0);
-    const activeSkuMapsCount = Number(telemetryData.active_sku_maps_count || 0);
-
-    const topSellingSkus = telemetryData.top_selling_skus || [];
-    const lowStockItems = telemetryData.low_stock_items || [];
-    const tenantsOverview = telemetryData.tenants_overview || [];
+    const metrics = telemetryData.summary_metrics || {};
 
     const liveTelemetry = {
       tenant_id: targetTenantId,
@@ -275,55 +313,44 @@ ANALYZE THE VERIFIED TELEMETRY AND REPORT:
       user_role: roleClean,
       is_platform_owner: isPlatformOwner,
       mode: "STRICT_READ_ONLY_FULL_DATABASE_ACCESS",
-      store_metrics: {
-        total_lifetime_orders: totalOrdersLifetime,
-        total_lifetime_revenue_idr: totalRevenueLifetime,
-        total_lifetime_payout_idr: totalPayoutLifetime,
-        orders_in_range: ordersRange,
-        revenue_in_range_idr: revenueRange,
-        payout_in_range_idr: payoutRange,
-        shopee_orders_in_range: shopeeOrdersRange,
-        tiktok_orders_in_range: tiktokOrdersRange,
-        completed_orders_in_range: completedOrdersRange,
-        cancelled_orders_in_range: cancelledOrdersRange,
-        unsettled_estimate_range_idr: Math.max(0, revenueRange - payoutRange),
-        active_sku_mappings: activeSkuMapsCount,
-        unmapped_order_items: unmappedItemsCount
-      },
-      top_selling_skus: topSellingSkus,
-      low_stock_items: lowStockItems,
-      tenants_overview: isPlatformOwner ? tenantsOverview : undefined
+      summary_metrics: metrics,
+      top_selling_skus: telemetryData.top_selling_skus || [],
+      daily_order_trend_14d: telemetryData.daily_order_trend_14d || [],
+      low_stock_items: telemetryData.low_stock_items || [],
+      ai_memories: telemetryData.ai_memories || {},
+      tenants_overview: isPlatformOwner ? (telemetryData.tenants_overview || []) : undefined
     };
 
     // Handle Interactive Chat
     if (body.action === "chat") {
-      const userMessage = body.prompt || body.messages?.[body.messages.length - 1]?.content || "Halo AI";
-
       const systemPrompt = `You are Antigravity AI, the Senior ERP Business Analyst & Strategy Consultant for Mobile ERP.
-STRICT OPERATIONAL SAFETY: You operate in 100% STRICT READ-ONLY MODE with FULL REAL-TIME READ ACCESS to the PostgreSQL database for tenant '${targetTenantId}'.
+STRICT OPERATIONAL SAFETY: You operate in 100% STRICT READ-ONLY MODE with FULL DYNAMIC REAL-TIME READ ACCESS to the PostgreSQL database.
 
-REAL-TIME VERIFIED DATABASE DATA:
-- Rentang Filter Waktu: ${days} Hari
-- Total Pesanan Dalam ${days} Hari: ${ordersRange.toLocaleString('id-ID')} pesanan (Shopee: ${shopeeOrdersRange.toLocaleString('id-ID')}, TikTok: ${tiktokOrdersRange.toLocaleString('id-ID')})
-- Omzet Gross Dalam ${days} Hari: Rp ${revenueRange.toLocaleString('id-ID')}
-- Pencairan (Settled Payout) Dalam ${days} Hari: Rp ${payoutRange.toLocaleString('id-ID')}
-- Total Lifetime Orders: ${totalOrdersLifetime.toLocaleString('id-ID')} pesanan | Revenue: Rp ${totalRevenueLifetime.toLocaleString('id-ID')}
+VERIFIED REAL-TIME DATABASE TELEMETRY & METRICS:
+- Summary (${days} Days): Orders: ${Number(metrics.orders_range || 0).toLocaleString('id-ID')} | Gross Revenue: Rp ${Number(metrics.revenue_range || 0).toLocaleString('id-ID')} | Settled Payout: Rp ${Number(metrics.payout_range || 0).toLocaleString('id-ID')}
+- Shopee Orders: ${Number(metrics.shopee_orders_range || 0).toLocaleString('id-ID')} | TikTok Orders: ${Number(metrics.tiktok_orders_range || 0).toLocaleString('id-ID')}
+- Total Lifetime Orders: ${Number(metrics.total_orders_lifetime || 0).toLocaleString('id-ID')} | Lifetime Revenue: Rp ${Number(metrics.total_revenue_lifetime || 0).toLocaleString('id-ID')}
 
-PRODUK & SKU TERLARIS (TOP SELLING SKUS):
-${JSON.stringify(topSellingSkus, null, 2)}
+PRODUK & SKU TERLARIS (TOP SELLING SKUS REAL-TIME):
+${JSON.stringify(liveTelemetry.top_selling_skus, null, 2)}
 
-PERINGATAN STOK KRITIS (LOW STOCK ITEMS):
-${JSON.stringify(lowStockItems, null, 2)}
+TREN PENJUALAN HARIAN (14 DAYS ORDER TREND):
+${JSON.stringify(liveTelemetry.daily_order_trend_14d, null, 2)}
 
-${isPlatformOwner ? `RINGKASAN MULTI-TENANT (PLATFORM OWNER FULL ACCESS):\n${JSON.stringify(tenantsOverview, null, 2)}` : ""}
+PERINGATAN STOK KRITIS & RAK LOKASI (LOW STOCK ITEMS):
+${JSON.stringify(liveTelemetry.low_stock_items, null, 2)}
 
-RULES:
-1. You HAVE FULL ACCESS to answer questions about top selling SKUs, revenue breakdown, stock levels, and multi-tenant performance using the real-time database telemetry above.
-2. If asked "apa sku tertinggi dalam penjualan?", answer directly with exact numbers (e.g. "SKU terlaris adalah Striped Shirt Top dengan 9.879 pcs terjual dan omzet Rp 618.931.171").
-3. Format money in Indonesian Rupiah cleanly (e.g. "Rp 691.408.646" or "Rp 2,2 Miliar"). NEVER write double "Rp Rp".
-4. Format responses in clean, professional markdown bullet points.`;
+${isPlatformOwner ? `RINGKASAN MULTI-TENANT (PLATFORM OWNER FULL ACCESS):\n${JSON.stringify(liveTelemetry.tenants_overview, null, 2)}` : ""}
+${Object.keys(liveTelemetry.ai_memories).length > 0 ? `MEMORI PERSISTEN AI TERHIMPUN:\n${JSON.stringify(liveTelemetry.ai_memories, null, 2)}` : ""}
 
-      // Slice conversation history to last 3 turns to prevent worker timeout
+RULES FOR DYNAMIC QUESTION ANSWERING:
+1. You have FULL access to answer ANY question about sales trends, top SKUs, daily order spikes, stock levels, rack locations, finance payouts, or multi-tenant summaries using the real-time telemetry provided.
+2. If asked about top SKUs, list exact products (e.g. "Striped Shirt Top: 9.877 pcs sold, Rp 618.781.371").
+3. If asked about daily trends, analyze the 14-day trend (e.g. "Penjualan tertinggi terjadi pada 14 Juli dengan 347 pesanan").
+4. Format money cleanly in Indonesian Rupiah. Never output double "Rp Rp".
+5. Keep answers concise, clear, and structured in markdown bullet points.`;
+
+      // Slice conversation history to last 3 turns
       const rawHistory: ChatMessage[] = (body.messages || []).filter(m => m.role === "user" || m.role === "assistant");
       const history = rawHistory.slice(-3);
 
@@ -356,6 +383,20 @@ RULES:
 
       const aiReply = openRouterJson.choices?.[0]?.message?.content || "Maaf, AI tidak dapat memproses tanggapan saat ini.";
 
+      // Store in Postgres AI Cache (1 hour expiry)
+      try {
+        await admin.from("ai_chat_cache").upsert({
+          tenant_id: targetTenantId,
+          prompt_hash: promptHash,
+          reply_text: aiReply,
+          telemetry_data: liveTelemetry,
+          created_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+        }, { onConflict: "prompt_hash" });
+      } catch (_err) {
+        // Ignore cache write error
+      }
+
       return new Response(JSON.stringify({
         ok: true,
         source: "openrouter_api",
@@ -374,10 +415,10 @@ RULES:
 STRICT OPERATIONAL SAFETY: You operate in 100% STRICT READ-ONLY MODE. Analyze the verified database telemetry provided and produce a structured JSON object.
 
 CRITICAL INSTRUCTIONS:
-- gross_revenue MUST be number ${revenueRange} (for ${days} days).
-- settled_payout MUST be number ${payoutRange} (for ${days} days).
-- active_sku_mappings MUST be number ${activeSkuMapsCount}.
-- unmapped_order_items MUST be number ${unmappedItemsCount}.
+- gross_revenue MUST be number ${metrics.revenue_range || 0} (for ${days} days).
+- settled_payout MUST be number ${metrics.payout_range || 0} (for ${days} days).
+- active_sku_mappings MUST be number ${metrics.active_sku_maps_count || 0}.
+- unmapped_order_items MUST be number ${metrics.unmapped_items_count || 0}.
 - Do NOT output double "Rp Rp" text string in numeric fields.
 Respond strictly in valid JSON format.`;
 
