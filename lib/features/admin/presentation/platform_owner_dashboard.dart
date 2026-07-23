@@ -634,12 +634,17 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('PLATFORM OWNER DASHBOARD',
+        title: const Text('PLATFORM OWNER DASHBOARD',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
         actions: [
           IconButton(
+            tooltip: '🤖 AI Infrastructure Report',
+            icon: const Icon(Icons.smart_toy_rounded, color: Colors.amberAccent),
+            onPressed: _showVpsAiInfraDialog,
+          ),
+          IconButton(
             tooltip: 'Reload data',
-            icon: Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh),
             onPressed: _loadData,
           ),
           ValueListenableBuilder<AppVisualMode>(
@@ -657,7 +662,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
           ),
           IconButton(
             tooltip: 'Logout',
-            icon: Icon(Icons.logout),
+            icon: const Icon(Icons.logout),
             onPressed: _isLoggingOut ? null : _logout,
           ),
         ],
@@ -1195,6 +1200,224 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                 fontWeight: FontWeight.w800,
                 fontSize: 9.5,
                 color: alert ? AppUi.red : null),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showVpsAiInfraDialog() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Center(
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Mengaudit Performa VPS & Infrastruktur via AI Agent...',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final response = await _client.functions.invoke(
+        'ai-insights-engine',
+        body: <String, dynamic>{
+          'action': 'vps_infra_report',
+        },
+      );
+
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+
+      final data = response.data is Map
+          ? Map<String, dynamic>.from(response.data as Map)
+          : <String, dynamic>{};
+
+      if (response.status != 200 || data['ok'] == false) {
+        final err = data['error'] ?? 'Gagal memuat Laporan AI VPS';
+        AppUi.safeSnack(context, 'AI VPS Error: $err');
+        return;
+      }
+
+      final report = data['report'] is Map ? Map<String, dynamic>.from(data['report'] as Map) : <String, dynamic>{};
+      final telemetry = data['telemetry'] is Map ? Map<String, dynamic>.from(data['telemetry'] as Map) : <String, dynamic>{};
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (modalCtx) {
+          return _buildVpsAiInfraBottomSheet(modalCtx, report, telemetry);
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        AppUi.safeSnack(context, 'AI VPS Report gagal: $e');
+      }
+    }
+  }
+
+  Widget _buildVpsAiInfraBottomSheet(
+      BuildContext modalCtx, Map<String, dynamic> report, Map<String, dynamic> telemetry) {
+    final status = report['system_status']?.toString() ?? 'HEALTHY';
+    final cpu = report['cpu_health']?.toString() ?? 'Normal';
+    final ram = report['memory_health']?.toString() ?? 'Normal';
+    final sec = report['security_assessment']?.toString() ?? 'Hardened';
+    final recs = report['recommendations'] is List ? (report['recommendations'] as List) : <dynamic>[];
+
+    final containers = telemetry['active_containers'] is List ? (telemetry['active_containers'] as List) : <dynamic>[];
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(modalCtx).size.height * 0.88,
+      ),
+      decoration: BoxDecoration(
+        color: Theme.of(modalCtx).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 10, bottom: 6),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Theme.of(modalCtx).colorScheme.onSurface.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Row(
+              children: [
+                const Icon(Icons.smart_toy_rounded, color: Colors.amber, size: 26),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '🤖 VPS & Infra AI Agent Health Audit',
+                        style: TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.w800),
+                      ),
+                      Text(
+                        'Host: ${telemetry['hostname'] ?? 'inventory-vps'} • Status: $status',
+                        style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.green,
+                            fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.pop(modalCtx),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Health Overview Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.green.withOpacity(0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: const [
+                            Icon(Icons.verified_user_rounded, color: Colors.green, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              'Ringkasan Kesehatan Server',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text('• Load CPU: $cpu', style: const TextStyle(fontSize: 13)),
+                        Text('• Alokasi RAM: $ram', style: const TextStyle(fontSize: 13)),
+                        Text('• Keamanan: $sec', style: const TextStyle(fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Docker Containers Card
+                  const Text(
+                    '🐳 Docker Microservices Status',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: containers.map((c) => Chip(
+                      avatar: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 16),
+                      label: Text(c.toString(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                      backgroundColor: Theme.of(modalCtx).colorScheme.surfaceVariant,
+                    )).toList(),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // AI Recommendations
+                  const Text(
+                    '🛡️ Rekomendasi DevSecOps AI Agent',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 10),
+                  ...recs.map((rec) => Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(modalCtx).colorScheme.surfaceVariant.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Theme.of(modalCtx).colorScheme.outlineVariant.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.shield_rounded, color: Colors.amber, size: 18),
+                        const SizedBox(width: 10),
+                        Expanded(child: Text(rec.toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+                      ],
+                    ),
+                  )),
+                ],
+              ),
+            ),
           ),
         ],
       ),

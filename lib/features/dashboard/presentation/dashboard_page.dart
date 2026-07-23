@@ -3313,7 +3313,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Future<void> _showAiSmartInsightsDialog() async {
+  Future<void> _showAiSmartInsightsDialog({int days = 30}) async {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -3331,9 +3331,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Mengnalisis Store Data via OpenRouter AI...',
-                style: TextStyle(fontWeight: FontWeight.w700),
+              Text(
+                'Menganalisis Store Data ($days Hari) via OpenRouter AI...',
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -3345,7 +3345,7 @@ class _DashboardPageState extends State<DashboardPage> {
       final response = await _client.functions.invoke(
         'ai-insights-engine',
         body: <String, dynamic>{
-          'time_range_days': 30,
+          'time_range_days': days,
         },
       );
 
@@ -3370,7 +3370,7 @@ class _DashboardPageState extends State<DashboardPage> {
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
         builder: (modalCtx) {
-          return _buildAiInsightsBottomSheet(modalCtx, insights, model);
+          return _buildAiInsightsBottomSheet(modalCtx, insights, model, days);
         },
       );
     } catch (e) {
@@ -3382,10 +3382,11 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildAiInsightsBottomSheet(
-      BuildContext modalCtx, Map<String, dynamic> insights, String model) {
+      BuildContext modalCtx, Map<String, dynamic> insights, String model, int activeDays) {
     final exec = _asMap(insights['executive_summary']);
     final fin = _asMap(insights['financial_health']);
     final inv = _asMap(insights['inventory_insights']);
+    final mkt = _asMap(insights['marketing_and_sales_strategy']);
     final rawRecs = insights['actionable_recommendations'];
     final recs = rawRecs is List ? rawRecs : <dynamic>[];
 
@@ -3394,7 +3395,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(modalCtx).size.height * 0.85,
+        maxHeight: MediaQuery.of(modalCtx).size.height * 0.88,
       ),
       decoration: BoxDecoration(
         color: Theme.of(modalCtx).colorScheme.surface,
@@ -3429,7 +3430,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             fontSize: 17, fontWeight: FontWeight.w800),
                       ),
                       Text(
-                        'Model: $model (Super Admin Only)',
+                        'Model: $model • Rentang Waktu: $activeDays Hari',
                         style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(modalCtx)
@@ -3446,6 +3447,29 @@ class _DashboardPageState extends State<DashboardPage> {
                   onPressed: () => Navigator.pop(modalCtx),
                 ),
               ],
+            ),
+          ),
+          // Time Range Filter Selector
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+            child: Row(
+              children: [7, 30, 60, 90, 180].map((d) {
+                final isSelected = d == activeDays;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text('${d}d'),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      if (selected) {
+                        Navigator.pop(modalCtx);
+                        _showAiSmartInsightsDialog(days: d);
+                      }
+                    },
+                  ),
+                );
+              }).toList(),
             ),
           ),
           const Divider(height: 1),
@@ -3473,9 +3497,9 @@ class _DashboardPageState extends State<DashboardPage> {
                             Icon(Icons.insights_rounded,
                                 color: Theme.of(modalCtx).colorScheme.primary, size: 18),
                             const SizedBox(width: 8),
-                            const Text(
-                              'Ringkasan Eksekutif Store',
-                              style: TextStyle(
+                            Text(
+                              'Ringkasan Eksekutif Store ($activeDays Hari)',
+                              style: const TextStyle(
                                   fontWeight: FontWeight.w800, fontSize: 14),
                             ),
                           ],
@@ -3499,6 +3523,64 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
+
+                  // Marketing & Sales Strategy Card
+                  if (mkt.isNotEmpty) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.amber.withOpacity(0.15),
+                            Colors.orange.withOpacity(0.1),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: const [
+                              Icon(Icons.campaign_rounded, color: Colors.amber, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                '📈 Strategi Marketing & Penjualan Tenant',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w800, fontSize: 14),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          if (mkt['channel_focus'] != null) ...[
+                            Text(
+                              '🎯 Fokus Kanal Sales: ${mkt['channel_focus']}',
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                          if (mkt['promotional_tactic'] != null) ...[
+                            Text(
+                              '💡 Taktik Promosi: ${mkt['promotional_tactic']}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                          if (mkt['cancellation_mitigation'] != null) ...[
+                            Text(
+                              '🛡️ Mitigasi Pembatalan: ${mkt['cancellation_mitigation']}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   
                   // Financial & Inventory Grid
                   Row(
@@ -3506,7 +3588,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       Expanded(
                         child: _aiMetricBox(
                           modalCtx,
-                          'Gross Revenue (30d)',
+                          'Gross Revenue ($activeDays d)',
                           'Rp ${_shortRupiah(AppUi.toNum(fin['gross_revenue']))}',
                           Icons.payments_rounded,
                           Theme.of(modalCtx).colorScheme.tertiary,
