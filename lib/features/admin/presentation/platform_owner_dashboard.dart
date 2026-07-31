@@ -423,7 +423,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
   }
 
   void _showTokenSuccessDialog(String token, AppRole role) {
-    final publicWebUrl = dotenv.env['PUBLIC_WEB_REGISTER_URL']?.trim() ?? '';
+    final publicWebUrl = dotenv.isInitialized ? (dotenv.env['PUBLIC_WEB_REGISTER_URL']?.trim() ?? '') : '';
     final String registerUrl;
     if (publicWebUrl.isNotEmpty) {
       if (publicWebUrl.contains('?')) {

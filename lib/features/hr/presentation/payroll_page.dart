@@ -1,0 +1,1155 @@
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../../core/constants/app_roles.dart';
+import '../../../core/ui/app_ui.dart';
+
+class PayrollPage extends StatefulWidget {
+  const PayrollPage({super.key});
+
+  @override
+  State<PayrollPage> createState() => _PayrollPageState();
+}
+
+class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStateMixin {
+  final _supabase = Supabase.instance.client;
+  late TabController _tabController;
+  bool _isLoading = true;
+  String _userRole = '';
+  String _tenantId = '';
+  List<Map<String, dynamic>> _activeUsers = [];
+  List<Map<String, dynamic>> _payrollHistory = [];
+
+  // Company Settings
+  Map<String, dynamic> _companySettings = {
+    'company_name': 'HAI INVENTORY & APPAREL',
+    'company_address': 'Jl. Raya Industri Kebon Jeruk No. 88, Jakarta Barat',
+    'company_phone': '+62 812-9988-7766',
+    'company_email': 'finance@mdhproduction.com',
+    'logo_url': '',
+    'signatory_name': 'Finance Manager',
+    'signatory_title': 'Manager Keuangan & HR',
+  };
+
+  // Form Fields
+  Map<String, dynamic>? _selectedUser;
+  final _nikController = TextEditingController();
+  final _bankNameController = TextEditingController(text: 'BCA');
+  final _bankNumberController = TextEditingController();
+  final _bankHolderController = TextEditingController();
+  final _invoiceNumberController = TextEditingController();
+
+  DateTime _selectedPeriod = DateTime.now();
+  bool _autoSaveProfile = true;
+
+  // Earnings
+  final _baseSalaryController = TextEditingController(text: '0');
+  final _allowancePosController = TextEditingController(text: '0');
+  final _allowanceMealTransController = TextEditingController(text: '0');
+  final _bonusController = TextEditingController(text: '0');
+  final _overtimeController = TextEditingController(text: '0');
+
+  // Deductions
+  final _bpjsController = TextEditingController(text: '0');
+  final _latePenaltyController = TextEditingController(text: '0');
+  final _loanController = TextEditingController(text: '0');
+  final _taxController = TextEditingController(text: '0');
+
+  final _notesController = TextEditingController();
+
+  final _currencyFormat = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0);
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _loadInitialData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _nikController.dispose();
+    _bankNameController.dispose();
+    _bankNumberController.dispose();
+    _bankHolderController.dispose();
+    _invoiceNumberController.dispose();
+    _baseSalaryController.dispose();
+    _allowancePosController.dispose();
+    _allowanceMealTransController.dispose();
+    _bonusController.dispose();
+    _overtimeController.dispose();
+    _bpjsController.dispose();
+    _latePenaltyController.dispose();
+    _loanController.dispose();
+    _taxController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadInitialData() async {
+    setState(() => _isLoading = true);
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user != null) {
+        final profile = await _supabase.from('users').select('role_id, tenant_id').eq('user_id', user.id).maybeSingle();
+        if (profile != null) {
+          _userRole = AppUi.text(profile['role_id']).toLowerCase();
+          _tenantId = AppUi.text(profile['tenant_id']);
+        }
+      }
+
+      // 1. Fetch Company Settings
+      if (_tenantId.isNotEmpty) {
+        final settingsRes = await _supabase.from('payroll_company_settings').select().eq('tenant_id', _tenantId).maybeSingle();
+        if (settingsRes != null) {
+          _companySettings = Map<String, dynamic>.from(settingsRes);
+        }
+
+        // 2. Fetch Active Users
+        final usersRes = await _supabase.from('users').select('user_id, nama, email, role_id, nomor_hp, status').eq('tenant_id', _tenantId);
+        _activeUsers = List<Map<String, dynamic>>.from(usersRes.where((u) {
+          final role = AppUi.text(u['role_id']).toLowerCase();
+          final status = AppUi.text(u['status']).toLowerCase();
+          return status == 'active' && role != 'platform_owner';
+        }));
+
+        // 3. Fetch Payroll History
+        await _fetchPayrollHistory();
+      }
+
+      _generateNewInvoiceNumber();
+    } catch (e) {
+      debugPrint('Error loading payroll data: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _fetchPayrollHistory() async {
+    if (_tenantId.isEmpty) return;
+    final res = await _supabase.from('payroll_invoices').select().eq('tenant_id', _tenantId).order('created_at', ascending: false).limit(50);
+    _payrollHistory = List<Map<String, dynamic>>.from(res);
+  }
+
+  void _generateNewInvoiceNumber() {
+    final periodStr = DateFormat('yyyyMM').format(_selectedPeriod);
+    final count = _payrollHistory.length + 1;
+    final seq = count.toString().padLeft(4, '0');
+    _invoiceNumberController.text = 'SLP-$periodStr-$seq';
+  }
+
+  Future<void> _onSelectUser(Map<String, dynamic>? user) async {
+    setState(() => _selectedUser = user);
+    if (user == null || _tenantId.isEmpty) return;
+
+    _bankHolderController.text = user['nama'] ?? '';
+
+    // Check saved employee payroll profile
+    try {
+      final profileRes = await _supabase
+          .from('user_payroll_profiles')
+          .select()
+          .eq('tenant_id', _tenantId)
+          .eq('user_id', user['user_id'])
+          .maybeSingle();
+
+      if (profileRes != null) {
+        setState(() {
+          _nikController.text = profileRes['nik'] ?? '';
+          _bankNameController.text = AppUi.text(profileRes['bank_name'], 'BCA');
+          _bankNumberController.text = profileRes['bank_account_number'] ?? '';
+          _bankHolderController.text = AppUi.text(profileRes['bank_account_holder'], user['nama']);
+          _baseSalaryController.text = _formatNumber(profileRes['base_salary']);
+          _allowancePosController.text = _formatNumber(profileRes['allowance_position']);
+          _allowanceMealTransController.text = _formatNumber(profileRes['allowance_meal_transport']);
+          _notesController.text = profileRes['notes'] ?? '';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading user profile: $e');
+    }
+  }
+
+  String _formatNumber(dynamic val) {
+    if (val == null) return '0';
+    final clean = val.toString().replaceAll(RegExp(r'[^\d]'), '');
+    if (clean.isEmpty) return '0';
+    final numVal = int.tryParse(clean) ?? 0;
+    return NumberFormat('#,##0', 'id_ID').format(numVal);
+  }
+
+  void _formatCurrencyController(TextEditingController controller, String value) {
+    final clean = value.replaceAll(RegExp(r'[^\d]'), '');
+    if (clean.isEmpty) {
+      controller.value = const TextEditingValue(
+        text: '0',
+        selection: TextSelection.collapsed(offset: 1),
+      );
+      return;
+    }
+    final numVal = int.tryParse(clean) ?? 0;
+    final formatted = NumberFormat('#,##0', 'id_ID').format(numVal);
+
+    if (controller.text != formatted) {
+      controller.value = TextEditingValue(
+        text: formatted,
+        selection: TextSelection.collapsed(offset: formatted.length),
+      );
+    }
+  }
+
+  double _parseVal(TextEditingController ctrl) {
+    final clean = ctrl.text.replaceAll(RegExp(r'[^\d]'), '');
+    return double.tryParse(clean) ?? 0.0;
+  }
+
+  double get _totalEarnings {
+    return _parseVal(_baseSalaryController) +
+        _parseVal(_allowancePosController) +
+        _parseVal(_allowanceMealTransController) +
+        _parseVal(_bonusController) +
+        _parseVal(_overtimeController);
+  }
+
+  double get _totalDeductions {
+    return _parseVal(_bpjsController) +
+        _parseVal(_latePenaltyController) +
+        _parseVal(_loanController) +
+        _parseVal(_taxController);
+  }
+
+  double get _netSalary => _totalEarnings - _totalDeductions;
+
+  String get _pdfFileName {
+    final cleanName = AppUi.text(_selectedUser?['nama'], 'Karyawan').replaceAll(RegExp(r'\s+'), '');
+    final cleanRole = AppUi.text(_selectedUser?['role_id'], 'Staff').replaceAll(RegExp(r'\s+'), '');
+    final period = DateFormat('MMMM_yyyy').format(_selectedPeriod);
+    return '${cleanName}_${cleanRole}_${period}Slip.pdf';
+  }
+
+  Future<void> _saveAndGeneratePdf() async {
+
+    if (_selectedUser == null) {
+      AppUi.showSnack('Pilih karyawan terlebih dahulu');
+      return;
+    }
+
+    try {
+      setState(() => _isLoading = true);
+
+      final userId = _selectedUser!['user_id'];
+      final employeeName = AppUi.text(_selectedUser!['nama']);
+      final employeeRole = AppUi.text(_selectedUser!['role_id']);
+      final periodLabel = DateFormat('MMMM yyyy').format(_selectedPeriod);
+
+      // 1. Auto-save employee profile if enabled
+      if (_autoSaveProfile && _tenantId.isNotEmpty) {
+        await _supabase.from('user_payroll_profiles').upsert({
+          'tenant_id': _tenantId,
+          'user_id': userId,
+          'nik': _nikController.text.trim(),
+          'bank_name': _bankNameController.text.trim(),
+          'bank_account_number': _bankNumberController.text.trim(),
+          'bank_account_holder': _bankHolderController.text.trim(),
+          'base_salary': _parseVal(_baseSalaryController),
+          'allowance_position': _parseVal(_allowancePosController),
+          'allowance_meal_transport': _parseVal(_allowanceMealTransController),
+          'notes': _notesController.text.trim(),
+          'updated_at': DateTime.now().toIso8601String(),
+        }, onConflict: 'tenant_id, user_id');
+      }
+
+      // 2. Build Earnings & Deductions JSON
+      final earningsList = [
+        if (_parseVal(_baseSalaryController) > 0) {'title': 'Gaji Pokok', 'amount': _parseVal(_baseSalaryController)},
+        if (_parseVal(_allowancePosController) > 0) {'title': 'Tunjangan Jabatan', 'amount': _parseVal(_allowancePosController)},
+        if (_parseVal(_allowanceMealTransController) > 0) {'title': 'Tunjangan Makan & Transport', 'amount': _parseVal(_allowanceMealTransController)},
+        if (_parseVal(_bonusController) > 0) {'title': 'Bonus Kinerja', 'amount': _parseVal(_bonusController)},
+        if (_parseVal(_overtimeController) > 0) {'title': 'Uang Lembur', 'amount': _parseVal(_overtimeController)},
+      ];
+
+      final deductionsList = [
+        if (_parseVal(_bpjsController) > 0) {'title': 'Potongan BPJS', 'amount': _parseVal(_bpjsController)},
+        if (_parseVal(_latePenaltyController) > 0) {'title': 'Denda Keterlambatan', 'amount': _parseVal(_latePenaltyController)},
+        if (_parseVal(_loanController) > 0) {'title': 'Potongan Kasbon', 'amount': _parseVal(_loanController)},
+        if (_parseVal(_taxController) > 0) {'title': 'PPh 21', 'amount': _parseVal(_taxController)},
+      ];
+
+      // 3. Generate PDF Bytes
+      final pdfBytes = await _buildPdfDocument();
+
+      // 4. Upload to Supabase Storage
+      final fileName = _pdfFileName;
+      final storagePath = '$_tenantId/$fileName';
+
+
+      await _supabase.storage.from('payroll_invoices').uploadBinary(
+        storagePath,
+        pdfBytes,
+        fileOptions: const FileOptions(upsert: true, contentType: 'application/pdf'),
+      );
+
+      final pdfUrl = _supabase.storage.from('payroll_invoices').getPublicUrl(storagePath);
+
+      // 5. Insert Record to Database
+      await _supabase.from('payroll_invoices').insert({
+        'tenant_id': _tenantId,
+        'invoice_number': _invoiceNumberController.text.trim(),
+        'user_id': userId,
+        'employee_name': employeeName,
+        'employee_role': employeeRole,
+        'employee_nik': _nikController.text.trim(),
+        'period_month': _selectedPeriod.month,
+        'period_year': _selectedPeriod.year,
+        'period_label': periodLabel,
+        'bank_name': _bankNameController.text.trim(),
+        'bank_account_number': _bankNumberController.text.trim(),
+        'bank_account_holder': _bankHolderController.text.trim(),
+        'earnings_json': earningsList,
+        'deductions_json': deductionsList,
+        'total_earnings': _totalEarnings,
+        'total_deductions': _totalDeductions,
+        'net_salary': _netSalary,
+        'pdf_storage_path': storagePath,
+        'pdf_url': pdfUrl,
+        'status': 'generated',
+      });
+
+      await _fetchPayrollHistory();
+      _generateNewInvoiceNumber();
+
+      AppUi.showSnack('Slip gaji $employeeName berhasil disimpan & PDF dibuat!');
+    } catch (e) {
+      AppUi.showSnack('Gagal menyimpan slip gaji: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<Uint8List> _buildPdfDocument() async {
+    final pdf = pw.Document();
+    final periodLabel = DateFormat('MMMM yyyy').format(_selectedPeriod);
+
+    final earnings = [
+      if (_parseVal(_baseSalaryController) > 0) ['Gaji Pokok', _currencyFormat.format(_parseVal(_baseSalaryController))],
+      if (_parseVal(_allowancePosController) > 0) ['Tunjangan Jabatan', _currencyFormat.format(_parseVal(_allowancePosController))],
+      if (_parseVal(_allowanceMealTransController) > 0) ['Tunjangan Makan & Transport', _currencyFormat.format(_parseVal(_allowanceMealTransController))],
+      if (_parseVal(_bonusController) > 0) ['Bonus Kinerja', _currencyFormat.format(_parseVal(_bonusController))],
+      if (_parseVal(_overtimeController) > 0) ['Uang Lembur', _currencyFormat.format(_parseVal(_overtimeController))],
+    ];
+
+    final deductions = [
+      if (_parseVal(_bpjsController) > 0) ['Potongan BPJS', _currencyFormat.format(_parseVal(_bpjsController))],
+      if (_parseVal(_latePenaltyController) > 0) ['Denda Keterlambatan', _currencyFormat.format(_parseVal(_latePenaltyController))],
+      if (_parseVal(_loanController) > 0) ['Potongan Kasbon', _currencyFormat.format(_parseVal(_loanController))],
+      if (_parseVal(_taxController) > 0) ['PPh 21', _currencyFormat.format(_parseVal(_taxController))],
+    ];
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 40, vertical: 36),
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              // Company Header
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(_companySettings['company_name'] ?? 'HAI INVENTORY', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+                      pw.SizedBox(height: 4),
+                      pw.Text(_companySettings['company_address'] ?? '', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                      pw.Text('${_companySettings['company_phone'] ?? ''}   |   ${_companySettings['company_email'] ?? ''}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Container(
+                        padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: pw.BoxDecoration(color: PdfColors.blue900, borderRadius: pw.BorderRadius.circular(4)),
+                        child: pw.Text('SLIP GAJI', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.Text('No: ${_invoiceNumberController.text}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey800)),
+                      pw.Text('Periode: $periodLabel', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 14),
+              pw.Divider(thickness: 1, color: PdfColors.grey400),
+              pw.SizedBox(height: 12),
+
+              // Employee Metadata Grid
+              pw.Container(
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: pw.BorderRadius.circular(6)),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Nama Karyawan: ${_selectedUser?['nama'] ?? '-'}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                        pw.SizedBox(height: 2),
+                        pw.Text('Role / Jabatan: ${AppUi.text(_selectedUser?['role_id'])}', style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text('NIK / NIP: ${_nikController.text.isEmpty ? '-' : _nikController.text}', style: const pw.TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.end,
+                      children: [
+                        pw.Text('Bank: ${_bankNameController.text}', style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text('No. Rekening: ${_bankNumberController.text}', style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text('Atas Nama: ${_bankHolderController.text}', style: const pw.TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 14),
+
+              // Earnings & Deductions Tables
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  // Pendapatan
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Container(
+                          width: double.infinity,
+                          padding: const pw.EdgeInsets.all(6),
+                          color: PdfColors.green100,
+                          child: pw.Text('PENDAPATAN', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11, color: PdfColors.green900)),
+                        ),
+                        pw.SizedBox(height: 6),
+                        ...earnings.map((e) => pw.Padding(
+                              padding: const pw.EdgeInsets.symmetric(vertical: 3),
+                              child: pw.Row(
+                                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                                children: [
+                                  pw.Text(e[0], style: const pw.TextStyle(fontSize: 10)),
+                                  pw.Text(e[1], style: const pw.TextStyle(fontSize: 10)),
+                                ],
+                              ),
+                            )),
+                        pw.Divider(color: PdfColors.grey300),
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text('Total Pendapatan', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                            pw.Text(_currencyFormat.format(_totalEarnings), style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10, color: PdfColors.green900)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(width: 16),
+
+                  // Potongan
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Container(
+                          width: double.infinity,
+                          padding: const pw.EdgeInsets.all(6),
+                          color: PdfColors.red100,
+                          child: pw.Text('POTONGAN', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11, color: PdfColors.red900)),
+                        ),
+                        pw.SizedBox(height: 6),
+                        ...deductions.map((e) => pw.Padding(
+                              padding: const pw.EdgeInsets.symmetric(vertical: 3),
+                              child: pw.Row(
+                                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                                children: [
+                                  pw.Text(e[0], style: const pw.TextStyle(fontSize: 10)),
+                                  pw.Text(e[1], style: const pw.TextStyle(fontSize: 10)),
+                                ],
+                              ),
+                            )),
+                        pw.Divider(color: PdfColors.grey300),
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text('Total Potongan', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                            pw.Text(_currencyFormat.format(_totalDeductions), style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10, color: PdfColors.red900)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              pw.SizedBox(height: 16),
+
+              // Net Take Home Pay Banner
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.blue50,
+                  border: pw.Border.all(color: PdfColors.blue800, width: 1.5),
+                  borderRadius: pw.BorderRadius.circular(6),
+                ),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('PENERIMAAN BERSIH (TAKE HOME PAY)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11, color: PdfColors.blue900)),
+                    pw.Text(_currencyFormat.format(_netSalary), style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13, color: PdfColors.blue900)),
+                  ],
+                ),
+              ),
+
+              pw.SizedBox(height: 36),
+
+              // Signatures
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    children: [
+                      pw.Text('Penerima,', style: const pw.TextStyle(fontSize: 10)),
+                      pw.SizedBox(height: 45),
+                      pw.Text(_selectedUser?['nama'] ?? '-', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    children: [
+                      pw.Text('${_companySettings['signatory_title'] ?? 'Finance Manager'},', style: const pw.TextStyle(fontSize: 10)),
+                      pw.SizedBox(height: 45),
+                      pw.Text(_companySettings['signatory_name'] ?? 'Manager', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 20),
+              pw.Center(
+                child: pw.Text('Dokumen ini dibuat otomatis oleh Sistem ERP & bersifat rahasia.', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+              ),
+            ],
+          );
+        },
+
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  void _shareViaWhatsApp(Map<String, dynamic> inv) async {
+    final phone = inv['employee_phone'] ?? _selectedUser?['nomor_hp'] ?? '';
+    final name = inv['employee_name'] ?? _selectedUser?['nama'] ?? 'Karyawan';
+    final period = inv['period_label'] ?? DateFormat('MMMM yyyy').format(_selectedPeriod);
+    final net = _currencyFormat.format(inv['net_salary'] ?? _netSalary);
+    final invNum = inv['invoice_number'] ?? _invoiceNumberController.text;
+    final pdfUrl = inv['pdf_url'] ?? '';
+
+    final message = '''
+Halo *$name*,
+
+Berikut kami sampaikan rincian *Slip Gaji Periode $period*:
+
+📄 No. Slip: *$invNum*
+💰 Penerimaan Bersih: *$net*
+📌 Link Download PDF: $pdfUrl
+
+Terima kasih atas kerja keras dan kontribusinya!
+Salam,
+*${_companySettings['company_name']}*
+''';
+
+    final cleanPhone = phone.replaceAll(RegExp(r'[^\d]'), '');
+    final waUrl = Uri.parse('https://wa.me/$cleanPhone?text=${Uri.encodeComponent(message)}');
+
+    if (await canLaunchUrl(waUrl)) {
+      await launchUrl(waUrl, mode: LaunchMode.externalApplication);
+      await _updateInvoiceStatus(invNum, 'sent_wa');
+    } else {
+      AppUi.showSnack('Tidak dapat membuka WhatsApp');
+    }
+  }
+
+  void _shareViaEmail(Map<String, dynamic> inv) async {
+    final email = inv['employee_email'] ?? _selectedUser?['email'] ?? '';
+    final name = inv['employee_name'] ?? _selectedUser?['nama'] ?? 'Karyawan';
+    final period = inv['period_label'] ?? DateFormat('MMMM yyyy').format(_selectedPeriod);
+    final net = _currencyFormat.format(inv['net_salary'] ?? _netSalary);
+    final invNum = inv['invoice_number'] ?? _invoiceNumberController.text;
+    final pdfUrl = inv['pdf_url'] ?? '';
+
+    final subject = 'Slip Gaji Periode $period - $name ($invNum)';
+    final body = '''
+Yth. $name,
+
+Berikut rincian Slip Gaji Anda untuk periode $period:
+
+No. Slip: $invNum
+Penerimaan Bersih (Take Home Pay): $net
+Download PDF: $pdfUrl
+
+Salam hangat,
+Team Finance & HR ${_companySettings['company_name']}
+''';
+
+    final mailUrl = Uri.parse('mailto:$email?subject=${Uri.encodeComponent(subject)}&body=${Uri.encodeComponent(body)}');
+
+    if (await canLaunchUrl(mailUrl)) {
+      await launchUrl(mailUrl);
+      await _updateInvoiceStatus(invNum, 'sent_email');
+    } else {
+      AppUi.showSnack('Tidak dapat membuka aplikasi email');
+    }
+  }
+
+  Future<void> _updateInvoiceStatus(String invoiceNumber, String status) async {
+    if (_tenantId.isEmpty) return;
+    await _supabase.from('payroll_invoices').update({'status': status}).eq('tenant_id', _tenantId).eq('invoice_number', invoiceNumber);
+    await _fetchPayrollHistory();
+  }
+
+  void _openCompanySettingsModal() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final nameCtrl = TextEditingController(text: _companySettings['company_name']);
+    final addrCtrl = TextEditingController(text: _companySettings['company_address']);
+    final phoneCtrl = TextEditingController(text: _companySettings['company_phone']);
+    final emailCtrl = TextEditingController(text: _companySettings['company_email']);
+    final logoCtrl = TextEditingController(text: _companySettings['logo_url']);
+    final signNameCtrl = TextEditingController(text: _companySettings['signatory_name']);
+    final signTitleCtrl = TextEditingController(text: _companySettings['signatory_title']);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 20, spreadRadius: 5),
+            ],
+          ),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+            top: 20,
+            left: 20,
+            right: 20,
+          ),
+          child: StatefulBuilder(
+            builder: (modalCtx, setModalState) {
+              return SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Pengaturan Branding & Perusahaan',
+                            style: GoogleFonts.outfit(color: isDark ? Colors.white : const Color(0xFF0F172A), fontSize: 18, fontWeight: FontWeight.bold)),
+                        IconButton(onPressed: () => Navigator.pop(ctx), icon: Icon(Icons.close_rounded, color: isDark ? Colors.white70 : Colors.black54)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(ctx, 'Nama Perusahaan', nameCtrl),
+                    _buildTextField(ctx, 'Alamat Perusahaan', addrCtrl, maxLines: 2),
+                    _buildTextField(ctx, 'Telepon Perusahaan', phoneCtrl),
+                    _buildTextField(ctx, 'Email Perusahaan', emailCtrl),
+                    _buildTextField(ctx, 'URL Logo (Opsional)', logoCtrl),
+                    _buildTextField(ctx, 'Nama Penandatangan (Finance/HR)', signNameCtrl),
+                    _buildTextField(ctx, 'Jabatan Penandatangan', signTitleCtrl),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38BDF8), foregroundColor: Colors.black),
+                        onPressed: () async {
+                          final updated = {
+                            'tenant_id': _tenantId,
+                            'company_name': nameCtrl.text.trim(),
+                            'company_address': addrCtrl.text.trim(),
+                            'company_phone': phoneCtrl.text.trim(),
+                            'company_email': emailCtrl.text.trim(),
+                            'logo_url': logoCtrl.text.trim(),
+                            'signatory_name': signNameCtrl.text.trim(),
+                            'signatory_title': signTitleCtrl.text.trim(),
+                            'updated_at': DateTime.now().toIso8601String(),
+                          };
+
+                          if (_tenantId.isNotEmpty) {
+                            await _supabase.from('payroll_company_settings').upsert(updated, onConflict: 'tenant_id');
+                          }
+
+                          setState(() => _companySettings = updated);
+                          if (mounted) Navigator.pop(ctx);
+                        },
+                        child: Text('Simpan Pengaturan Live', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTextField(
+    BuildContext context,
+    String label,
+    TextEditingController ctrl, {
+    int maxLines = 1,
+    TextInputType keyboardType = TextInputType.text,
+    bool isCurrency = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: ctrl,
+        maxLines: maxLines,
+        keyboardType: isCurrency ? TextInputType.number : keyboardType,
+        onChanged: (val) {
+          if (isCurrency) {
+            _formatCurrencyController(ctrl, val);
+          }
+          setState(() {}); // Re-trigger live PDF preview & real-time total recalculation
+        },
+        style: GoogleFonts.inter(color: isDark ? Colors.white : const Color(0xFF0F172A), fontSize: 14),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: GoogleFonts.inter(color: isDark ? Colors.white60 : Colors.black54, fontSize: 13),
+          filled: true,
+          fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF38BDF8)),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaffoldBg = Theme.of(context).scaffoldBackgroundColor;
+
+
+    return Scaffold(
+      backgroundColor: scaffoldBg,
+      appBar: AppBar(
+        backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
+        elevation: 0.5,
+        iconTheme: IconThemeData(color: isDark ? Colors.white : const Color(0xFF0F172A)),
+        title: Text('Payroll & Slip Gaji',
+            style: GoogleFonts.outfit(color: isDark ? Colors.white : const Color(0xFF0F172A), fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.settings_rounded, color: isDark ? Colors.white70 : Colors.black87),
+            onPressed: _openCompanySettingsModal,
+            tooltip: 'Pengaturan Branding Perusahaan',
+          ),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: const Color(0xFF38BDF8),
+          labelColor: const Color(0xFF38BDF8),
+          unselectedLabelColor: isDark ? Colors.white60 : Colors.black54,
+          labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+          tabs: const [
+            Tab(text: 'Buat Slip Gaji'),
+            Tab(text: 'Riwayat Slip Gaji'),
+          ],
+        ),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8)))
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _buildCreateSlipTab(),
+                _buildHistoryTab(),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildCreateSlipTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1E293B).withValues(alpha: 0.7) : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final subTextColor = isDark ? Colors.white60 : Colors.black54;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Stat Overview Cards
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatCard('Gaji Bersih', _currencyFormat.format(_netSalary), Icons.account_balance_wallet_rounded, const Color(0xFF10B981)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildStatCard('Total Pendapatan', _currencyFormat.format(_totalEarnings), Icons.trending_up_rounded, const Color(0xFF38BDF8)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildStatCard('Total Potongan', _currencyFormat.format(_totalDeductions), Icons.trending_down_rounded, const Color(0xFFEF4444)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Main Form Card
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.grey.shade200),
+              boxShadow: isDark
+                  ? []
+                  : [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, spreadRadius: 2),
+                    ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Data Karyawan & Periode', style: GoogleFonts.outfit(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+
+                // Employee Dropdown
+                DropdownButtonFormField<Map<String, dynamic>>(
+                  value: _selectedUser,
+                  dropdownColor: isDark ? const Color(0xFF0F172A) : Colors.white,
+                  style: GoogleFonts.inter(color: textColor),
+                  decoration: InputDecoration(
+                    labelText: 'Pilih Karyawan',
+                    labelStyle: GoogleFonts.inter(color: subTextColor),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  items: _activeUsers.map((u) {
+                    return DropdownMenuItem<Map<String, dynamic>>(
+                      value: u,
+                      child: Text('${u['nama']} (${AppUi.text(u['role_id'])})'),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    _onSelectUser(val);
+                    setState(() {});
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                Row(
+                  children: [
+                    Expanded(child: _buildTextField(context, 'No. Slip / Invoice ID', _invoiceNumberController)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildTextField(context, 'NIK / NIP Karyawan', _nikController)),
+                  ],
+                ),
+
+                Row(
+                  children: [
+                    Expanded(child: _buildTextField(context, 'Nama Bank', _bankNameController)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildTextField(context, 'No. Rekening', _bankNumberController)),
+                  ],
+                ),
+
+                _buildTextField(context, 'Nama Pemilik Rekening', _bankHolderController),
+
+                Row(
+                  children: [
+                    Checkbox(
+                      value: _autoSaveProfile,
+                      activeColor: const Color(0xFF38BDF8),
+                      onChanged: (val) => setState(() => _autoSaveProfile = val ?? true),
+                    ),
+                    Expanded(
+                      child: Text('Simpan otomatis profil & rekening karyawan untuk pengajuan berikutnya',
+                          style: GoogleFonts.inter(color: subTextColor, fontSize: 12)),
+                    ),
+                  ],
+                ),
+
+                Divider(color: isDark ? Colors.white12 : Colors.black12, height: 32),
+
+                // Earnings Section
+                Text('PENDAPATAN (EARNINGS)', style: GoogleFonts.outfit(color: const Color(0xFF34D399), fontSize: 15, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _buildTextField(context, 'Gaji Pokok (Rp)', _baseSalaryController, isCurrency: true)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildTextField(context, 'Tunjangan Jabatan (Rp)', _allowancePosController, isCurrency: true)),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(child: _buildTextField(context, 'Tunjangan Makan & Transport (Rp)', _allowanceMealTransController, isCurrency: true)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildTextField(context, 'Bonus Kinerja (Rp)', _bonusController, isCurrency: true)),
+                  ],
+                ),
+                _buildTextField(context, 'Uang Lembur (Rp)', _overtimeController, isCurrency: true),
+
+                Divider(color: isDark ? Colors.white12 : Colors.black12, height: 32),
+
+                // Deductions Section
+                Text('POTONGAN (DEDUCTIONS)', style: GoogleFonts.outfit(color: const Color(0xFFF87171), fontSize: 15, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _buildTextField(context, 'Potongan BPJS (Rp)', _bpjsController, isCurrency: true)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildTextField(context, 'Denda Keterlambatan (Rp)', _latePenaltyController, isCurrency: true)),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(child: _buildTextField(context, 'Potongan Kasbon (Rp)', _loanController, isCurrency: true)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildTextField(context, 'PPh 21 (Rp)', _taxController, isCurrency: true)),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                // Live PDF Preview Container
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Pratinjau PDF Live', style: GoogleFonts.outfit(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text('● Updates Real-time', style: GoogleFonts.inter(color: const Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  height: 440,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: PdfPreview(
+                    key: ValueKey(
+                      'pdf_${_selectedUser?['user_id']}_${_invoiceNumberController.text}_${_companySettings['company_name']}_${_companySettings['company_address']}_${_companySettings['company_phone']}_${_companySettings['company_email']}_${_companySettings['signatory_name']}_${_companySettings['signatory_title']}_${_baseSalaryController.text}_${_allowancePosController.text}_${_allowanceMealTransController.text}_${_bonusController.text}_${_overtimeController.text}_${_bpjsController.text}_${_latePenaltyController.text}_${_loanController.text}_${_taxController.text}_${_nikController.text}_${_bankNameController.text}_${_bankNumberController.text}_${_bankHolderController.text}_${_selectedPeriod.millisecondsSinceEpoch}',
+                    ),
+                    build: (format) => _buildPdfDocument(),
+                    pdfFileName: _pdfFileName,
+                    initialPageFormat: PdfPageFormat.a4,
+                    pageFormats: const {'A4': PdfPageFormat.a4},
+
+                    allowPrinting: true,
+                    allowSharing: true,
+                    canChangeOrientation: false,
+                    canChangePageFormat: false,
+                    maxPageWidth: 700,
+                  ),
+
+                ),
+
+                const SizedBox(height: 24),
+
+                // Save Button
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF38BDF8),
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    icon: const Icon(Icons.picture_as_pdf_rounded),
+                    label: Text('Simpan Slip & Rekam Database', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+                    onPressed: _saveAndGeneratePdf,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final subTextColor = isDark ? Colors.white60 : Colors.black54;
+
+    return _payrollHistory.isEmpty
+        ? Center(
+            child: Text('Belum ada riwayat slip gaji', style: GoogleFonts.inter(color: subTextColor)),
+          )
+        : ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: _payrollHistory.length,
+            itemBuilder: (ctx, idx) {
+              final inv = _payrollHistory[idx];
+              final net = (inv['net_salary'] as num?)?.toDouble() ?? 0.0;
+              final invNum = inv['invoice_number'] ?? '-';
+              final empName = inv['employee_name'] ?? 'Karyawan';
+              final period = inv['period_label'] ?? '-';
+              final status = inv['status'] ?? 'generated';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.grey.shade200),
+                  boxShadow: isDark ? [] : [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8)],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFF38BDF8).withValues(alpha: 0.1), shape: BoxShape.circle),
+                      child: const Icon(Icons.receipt_long_rounded, color: Color(0xFF38BDF8)),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(empName, style: GoogleFonts.outfit(color: textColor, fontWeight: FontWeight.bold, fontSize: 15)),
+                              Text(_currencyFormat.format(net), style: GoogleFonts.outfit(color: const Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 15)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text('$invNum • $period', style: GoogleFonts.inter(color: subTextColor, fontSize: 12)),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: status == 'sent_wa'
+                                      ? Colors.green.withValues(alpha: 0.2)
+                                      : (status == 'sent_email' ? Colors.blue.withValues(alpha: 0.2) : (isDark ? Colors.white10 : Colors.grey.shade200)),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  status == 'sent_wa' ? 'Terkirim WA' : (status == 'sent_email' ? 'Terkirim Email' : 'Tersimpan (90 Hari)'),
+                                  style: GoogleFonts.inter(
+                                    color: status == 'sent_wa' ? Colors.greenAccent : (status == 'sent_email' ? Colors.lightBlueAccent : subTextColor),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.chat_rounded, color: Colors.greenAccent),
+                      onPressed: () => _shareViaWhatsApp(inv),
+                      tooltip: 'Kirim WhatsApp',
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.email_rounded, color: Colors.lightBlueAccent),
+                      onPressed: () => _shareViaEmail(inv),
+                      tooltip: 'Kirim Email',
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+  }
+
+  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1E293B).withValues(alpha: 0.8) : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final subTextColor = isDark ? Colors.white60 : Colors.black54;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+        boxShadow: isDark ? [] : [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8)],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Icon(icon, color: color, size: 20),
+              Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(label, style: GoogleFonts.inter(color: subTextColor, fontSize: 11)),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(value, style: GoogleFonts.outfit(color: textColor, fontWeight: FontWeight.bold, fontSize: 15)),
+          ),
+        ],
+      ),
+    );
+  }
+}

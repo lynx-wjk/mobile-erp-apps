@@ -98,10 +98,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String? _sampleFreeDetailsError;
   final Set<String> _expandedReconciliations = {};
   static const String _financeCacheVersion =
-      'finance_live_20260713_v38_sku_status';
+      'finance_live_20260727_v56_timeout_90s';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
-    'finance_live_20260622_v37_mapping_sources',
   ];
 
   bool get _isDemoSuperAdmin =>
@@ -136,9 +135,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   bool _skuLoadingMore = false;
   int _skuServerTotalPages = 1;
   int _skuServerTotalCount = 0;
-  static const int _skuPageSize = 20;
+  static const int _skuPageSize = 100;
   static const int _skuDetailPageSize = 25;
   String? _skuDetailBusyKey;
+  final Map<String, int> _skuUnpaidCountMap = {};
+  final Map<String, int> _skuPaidCountMap = {};
   List<Map<String, dynamic>> _cashFlow = [];
   List<Map<String, dynamic>> _cashOpeningBalances = [];
   List<Map<String, dynamic>> _cashAdjustments = [];
@@ -453,7 +454,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       try {
         final response = await _client
             .rpc(safeRpcName, params: params)
-            .timeout(const Duration(seconds: 15));
+            .timeout(const Duration(seconds: 90));
         final enrichedResponse = response;
         _lastSnapshotStats =
             '$safeRpcName · ${_snapshotStats(enrichedResponse)}';
@@ -600,8 +601,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Future<void> _refreshFinanceCacheForSelectedPeriod() async {
-    // Jangan hapus semua local cache. Kalau server timeout, cache lama tetap
-    // dipakai sebagai tampilan cepat.
+    _financeLoadCache.clear();
+    _activeFinanceRequests.clear();
+    _operationalCostsLoaded = false;
+    _operationalCostsLoading = false;
+    await _clearFinanceLocalCacheForSelectedPeriod();
     try {
       await _client.rpc('finance_fix_exact_cache_settled_hpp', params: {
         'p_start': _toDateParam(_start),
@@ -1080,28 +1084,54 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<List<Map<String, dynamic>>> _fetchOperationalExpensesPeriod() async {
     List<Map<String, dynamic>> results = [];
     try {
-      dynamic query = _client
-          .from('finance_operational_expenses')
-          .select()
-          .gte('expense_date', _toDateParam(_start))
-          .lte('expense_date', _toDateParam(_end));
-      if (_currentTenantId.trim().isNotEmpty) {
-        query = query.eq('tenant_id', _currentTenantId);
+      final rpcRes = await _client.rpc(
+        'finance_list_manual_operational_expenses',
+        params: {
+          'p_start': _toDateParam(_start),
+          'p_end': _toDateParam(_end),
+          'p_marketplace': _marketplaceRpcParam(),
+          'p_account_id': _accountUuidParam(),
+        },
+      );
+      final rawList = rpcRes is Map ? _asList(rpcRes['rows'] ?? rpcRes['data']) : _asList(rpcRes);
+      if (rawList.isNotEmpty) {
+        results = rawList.map((e) {
+          final map = Map<String, dynamic>.from(e as Map);
+          map['source'] = _text(map['source'], '').trim().isEmpty ||
+                  _text(map['source'], '') == '-'
+              ? 'finance_operational_expenses'
+              : map['source'];
+          map['source_label'] = 'Biaya operasional disetujui';
+          return _normalizeProductionExpenseRow(map);
+        }).toList();
       }
-      final res = await query
-          .order('expense_date', ascending: false)
-          .order('created_at', ascending: false)
-          .range(0, 199);
-      results = _asList(res).map((e) {
-        final map = Map<String, dynamic>.from(e as Map);
-        map['source'] = _text(map['source'], '').trim().isEmpty ||
-                _text(map['source'], '') == '-'
-            ? 'finance_operational_expenses'
-            : map['source'];
-        map['source_label'] = 'Biaya operasional disetujui';
-        return _normalizeProductionExpenseRow(map);
-      }).toList();
     } catch (_) {}
+
+    if (results.isEmpty) {
+      try {
+        dynamic query = _client
+            .from('finance_operational_expenses')
+            .select()
+            .gte('expense_date', _toDateParam(_start))
+            .lte('expense_date', _toDateParam(_end));
+        if (_currentTenantId.trim().isNotEmpty) {
+          query = query.eq('tenant_id', _currentTenantId);
+        }
+        final res = await query
+            .order('expense_date', ascending: false)
+            .order('created_at', ascending: false)
+            .range(0, 199);
+        results = _asList(res).map((e) {
+          final map = Map<String, dynamic>.from(e as Map);
+          map['source'] = _text(map['source'], '').trim().isEmpty ||
+                  _text(map['source'], '') == '-'
+              ? 'finance_operational_expenses'
+              : map['source'];
+          map['source_label'] = 'Biaya operasional disetujui';
+          return _normalizeProductionExpenseRow(map);
+        }).toList();
+      } catch (_) {}
+    }
 
     try {
       dynamic manualQuery = _client
@@ -1164,12 +1194,100 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }).toList();
 
       results.addAll(tailorPayments);
-      results.sort((a, b) {
-        final dateA = a['expense_date']?.toString() ?? '';
-        final dateB = b['expense_date']?.toString() ?? '';
-        return dateB.compareTo(dateA);
-      });
     } catch (_) {}
+
+    try {
+      dynamic prodQuery = _client
+          .from('production_progress')
+          .select()
+          .eq('payment_status', 'sudah_bayar');
+      if (_currentTenantId.trim().isNotEmpty) {
+        prodQuery = prodQuery.eq('tenant_id', _currentTenantId);
+      }
+      final prodRes = await prodQuery.range(0, 199);
+      final prodRows = _asList(prodRes).map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        final statusStr = _text(map['payment_status'] ?? map['status'], '').toLowerCase();
+        if (statusStr == 'belum_bayar' || statusStr == 'unpaid' || statusStr == 'pending') return null;
+        final amt = _num(map['sewing_total_amount']) > 0
+            ? _num(map['sewing_total_amount'])
+            : (_num(map['payment_paid_amount']) > 0
+                ? _num(map['payment_paid_amount'])
+                : _num(map['deposit_amount']));
+        if (amt <= 0) return null;
+        final dateStr = map['production_date'] ?? map['tanggal_mulai'] ?? map['created_at'];
+        final pDate = _parseDate(dateStr);
+        if (pDate != null) {
+          final d = _dateOnly(pDate);
+          if (d.isBefore(_dateOnly(_start)) || d.isAfter(_dateOnly(_end))) return null;
+        }
+        final title = _text(map['product_name'] ?? map['nama_barang'] ?? map['sku'], 'Produksi');
+        final sj = _text(map['surat_jalan_number'], '');
+        final labelNote = sj.isNotEmpty ? 'Produksi SJ: $sj' : 'Produksi $title';
+        return {
+          'expense_id': 'prod_progress_${map['progress_id']}',
+          'category': 'Ongkos Produksi',
+          'amount': amt,
+          'expense_date': _isoDate(pDate ?? _start),
+          'note': '$labelNote - Qty ${_num(map['qty']).toStringAsFixed(0)}',
+          'status': 'paid',
+          'source': 'production_progress',
+          'source_label': 'Ongkos produksi (Page Produksi)',
+          'source_module': 'production',
+          'type': 'production_progress',
+          'flow': 'OUT',
+        };
+      }).whereType<Map<String, dynamic>>().toList();
+      results.addAll(prodRows);
+    } catch (_) {}
+
+    try {
+      dynamic stageQuery = _client
+          .from('production_progress_stages')
+          .select()
+          .eq('payment_status', 'sudah_bayar');
+      if (_currentTenantId.trim().isNotEmpty) {
+        stageQuery = stageQuery.eq('tenant_id', _currentTenantId);
+      }
+      final stageRes = await stageQuery.range(0, 199);
+      final stageRows = _asList(stageRes).map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        final statusStr = _text(map['payment_status'] ?? map['status'], '').toLowerCase();
+        if (statusStr != 'sudah_bayar' && statusStr != 'paid' && statusStr != 'lunas') return null;
+        final amt = _num(map['total_amount']) > 0
+            ? _num(map['total_amount'])
+            : (_num(map['price_per_pcs']) * _num(map['qty_out'] > 0 ? map['qty_out'] : map['qty_in']));
+        if (amt <= 0) return null;
+        final dateStr = map['process_date'] ?? map['started_at'] ?? map['created_at'];
+        final pDate = _parseDate(dateStr);
+        if (pDate != null) {
+          final d = _dateOnly(pDate);
+          if (d.isBefore(_dateOnly(_start)) || d.isAfter(_dateOnly(_end))) return null;
+        }
+        final label = _text(map['stage_label'] ?? map['stage_key'], 'Tahap Produksi');
+        final qty = _num(map['qty_out'] > 0 ? map['qty_out'] : map['qty_in']).toStringAsFixed(0);
+        return {
+          'expense_id': 'prod_stage_${map['progress_stage_id']}',
+          'category': 'Ongkos Produksi',
+          'amount': amt,
+          'expense_date': _isoDate(pDate ?? _start),
+          'note': 'Tahap $label - Qty $qty',
+          'status': 'paid',
+          'source': 'production_progress_stages',
+          'source_label': 'Tahap produksi (Page Produksi)',
+          'source_module': 'production',
+          'type': 'production_stage',
+          'flow': 'OUT',
+        };
+      }).whereType<Map<String, dynamic>>().toList();
+      results.addAll(stageRows);
+    } catch (_) {}
+
+    results.sort((a, b) {
+      final dateA = a['expense_date']?.toString() ?? '';
+      final dateB = b['expense_date']?.toString() ?? '';
+      return dateB.compareTo(dateA);
+    });
 
     return results;
   }
@@ -1503,11 +1621,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           totalPages = 1;
         }
       } else if (response is Map) {
-        rawRowsList =
-            _asList(response['rows'] ?? response['by_sku'] ?? response['sku']);
-        totalCount =
-            response['total_count'] ?? response['total'] ?? rawRowsList.length;
-        totalPages = response['total_pages'] ?? 1;
+        rawRowsList = _asList(
+            response['data'] ??
+            response['items'] ??
+            response['rows'] ??
+            response['by_sku'] ??
+            response['sku']);
+        totalCount = response['total_sku_count'] ??
+            response['total_count'] ??
+            response['total'] ??
+            rawRowsList.length;
+        final calcPages = (totalCount / _skuPageSize).ceil();
+        totalPages = response['total_pages'] ?? (calcPages < 1 ? 1 : calcPages);
       }
       final rows = rawRowsList
           .whereType<Map>()
@@ -1584,7 +1709,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Future<void> _lazyLoadSkuFirstPage() async {
-    if (_skuLoaded || _skuLoadingFirstPage) return;
+    if (_skuLoaded) return;
     setState(() {
       _skuLoadingFirstPage = true;
     });
@@ -1700,9 +1825,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     throw lastError ?? Exception('Proses gagal.');
   }
 
+  Map<String, dynamic> _extractSummaryMap(dynamic response) {
+    final data = _asMap(response);
+    if (data.isEmpty) return <String, dynamic>{};
+    final nested = _asMap(data['summary']);
+    if (nested.isNotEmpty) return nested;
+    return data;
+  }
+
   String _snapshotStats(dynamic response) {
     final data = _asMap(response);
-    final summary = _asMap(data['summary']);
+    final summary = _extractSummaryMap(response);
     final bySku =
         _asList(data['by_sku'] ?? data['sku_margin'] ?? data['sku']).length;
     final paidListCount = _asList(data['paid_orders']).length +
@@ -1781,8 +1914,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _hasUsableFinanceSummary(dynamic response) {
-    final data = _asMap(response);
-    final summary = _asMap(data['summary']);
+    final summary = _extractSummaryMap(response);
     for (final key in const [
       'gross_sales',
       'gross_total',
@@ -1819,7 +1951,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     // Snapshot finance aktif boleh membawa summary + sku.
     // Jangan tolak snapshot valid hanya karena ada list SKU.
-    final summary = _asMap(data['summary']);
+    final summary = _extractSummaryMap(response);
     if (summary.isNotEmpty) return false;
 
     final hasDashboardRows = _asList(data['by_marketplace']).isNotEmpty ||
@@ -1941,6 +2073,66 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         out['net_profit'],
         out['profit'],
       ]);
+      final discount = _numFirstNonZero([
+        out['discount_amount'],
+        out['voucher_amount'],
+        out['discount'],
+        out['voucher'],
+        out['shopee_discount'],
+        out['tiktok_discount'],
+        out['seller_discount'],
+        out['platform_discount'],
+        out['seller_voucher'],
+        out['platform_voucher'],
+      ]);
+      final refund = _numFirstNonZero([
+        out['refund_amount'],
+        out['return_refund_amount'],
+        out['refund'],
+        out['retur'],
+        out['buyer_refund_amount'],
+      ]);
+      final adjustment = _numFirstNonZero([
+        out['adjustment_amount'],
+        out['adjustment'],
+        out['koreksi'],
+        out['settlement_correction'],
+      ]);
+      final platformFee = _numFirstNonZero([
+        out['platform_fee'],
+        out['service_fee'],
+        out['biaya_layanan'],
+        out['platform_service_fee'],
+        out['service_fee_amount'],
+      ]);
+      final commissionFee = _numFirstNonZero([
+        out['commission_fee'],
+        out['commission'],
+        out['biaya_komisi'],
+        out['total_commission'],
+        out['commission_fee_amount'],
+      ]);
+      final affiliateFee = _numFirstNonZero([
+        out['affiliate_fee'],
+        out['affiliate_commission'],
+        out['biaya_afiliasi'],
+        out['affiliate_cost'],
+        out['affiliate_commission_amount'],
+      ]);
+      final shippingFee = _numFirstNonZero([
+        out['shipping_fee'],
+        out['shipping_cost'],
+        out['biaya_pengiriman'],
+        out['ongkir_seller'],
+      ]);
+      final feeAmount = _numFirstNonZero([
+        out['fee_amount'],
+        out['total_fees'],
+        out['total_deductions'],
+        out['biaya'],
+        out['deductions'],
+      ]);
+
       out['gross_sales'] = gross;
       out['omzet_total'] = gross;
       out['gross_total'] = gross;
@@ -1952,6 +2144,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       out['hpp'] = hpp;
       out['net_profit'] = profit != 0 ? profit : payout - hpp;
       out['profit'] = out['net_profit'];
+      out['discount_amount'] = discount;
+      out['voucher_amount'] = discount;
+      out['refund_amount'] = refund;
+      out['adjustment_amount'] = adjustment;
+      out['platform_fee'] = platformFee;
+      out['commission_fee'] = commissionFee;
+      out['affiliate_fee'] = affiliateFee;
+      out['shipping_fee'] = shippingFee;
+      if (feeAmount != 0) out['fee_amount'] = feeAmount;
       out['account_name'] = _text(
         out['account_name'] ?? out['shop_name'] ?? out['store_alias'],
         '-',
@@ -2005,7 +2206,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     if (!mounted) return;
-    final normalizedSummary = _normalizeFinanceSummary(_asMap(data['summary']));
+    final normalizedSummary = _normalizeFinanceSummary(_extractSummaryMap(data));
     final abnormalAggregates = _asMap(data['abnormal_aggregates'] ??
         data['abnormal_summary'] ??
         data['aggregates']);
@@ -2090,9 +2291,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           )
         : <Map<String, dynamic>>[];
 
+    // Tag rows with their payout filter source so _normalizeSkuRows can
+    // avoid misclassifying unpaid rows as fully paid when payout_total > 0.
     final liveSkuRows = _filterSkuRowsBySelectedScope(<Map<String, dynamic>>[
-      ...liveSettledSkuRows,
-      ...liveUnpaidSkuRows,
+      ...liveSettledSkuRows.map((r) => {...r, '_payout_filter': 'settled'}),
+      ...liveUnpaidSkuRows.map((r) => {...r, '_payout_filter': 'unpaid'}),
     ]);
 
     // Live finance SKU order details is the row-level source of truth for
@@ -2481,6 +2684,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       if (!isCurrentFinanceLoad() || !mounted) return;
       await _loadPersistedFinanceProgressFromDb();
+      await _loadOperationalCostsSupplemental();
+      unawaited(_loadAbnormalesPage(silent: true, resetPage: true));
+      unawaited(_loadSampleFreeOrdersSupplemental());
+      unawaited(_loadSampleFreeOrdersDetails(force: true));
     } catch (e) {
       if (!isCurrentFinanceLoad()) return;
       if (!mounted) return;
@@ -2729,7 +2936,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     if (_activeFinanceRequests.containsKey(cacheKey)) {
-      await _activeFinanceRequests[cacheKey];
+      try {
+        await _activeFinanceRequests[cacheKey];
+      } catch (_) {}
+      if (_financeLoadCache.containsKey(cacheKey)) {
+        final cached = _financeLoadCache[cacheKey] as Map<String, dynamic>;
+        if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+          setState(() {
+            _expenses = cached['expenses'] as List<Map<String, dynamic>>;
+            _approvedPurchases =
+                cached['approvedPurchases'] as List<Map<String, dynamic>>;
+            _summary = cached['summary'] as Map<String, dynamic>;
+            _cashFlow = cached['cashFlow'] as List<Map<String, dynamic>>;
+            _profitLoss = cached['profitLoss'] as List<Map<String, dynamic>>;
+            _expenseCategoryOptions =
+                cached['expenseCategoryOptions'] as List<String>;
+            _operationalCostsLoaded = true;
+            _operationalCostsLoading = false;
+            _operationalCostsError = null;
+          });
+        }
+      }
       return;
     }
 
@@ -2976,6 +3203,31 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       final out = <String, Map<String, dynamic>>{};
 
+      void addToMapKey(String key, Map<String, dynamic> row) {
+        final cleanKey = key.trim().toLowerCase();
+        if (cleanKey.isEmpty || cleanKey == '|' || cleanKey == '-') return;
+
+        final existing = out[cleanKey];
+        if (existing == null) {
+          out[cleanKey] = Map<String, dynamic>.from(row);
+        } else {
+          existing['paid_qty'] = _num(existing['paid_qty']) + _num(row['paid_qty']);
+          existing['settled_qty'] = _num(existing['settled_qty']) + _num(row['settled_qty']);
+          existing['paid_rows'] = _num(existing['paid_rows']) + _num(row['paid_rows']);
+          existing['unpaid_qty'] = _num(existing['unpaid_qty']) + _num(row['unpaid_qty']);
+          existing['qty_unpaid'] = _num(existing['qty_unpaid']) + _num(row['qty_unpaid']);
+          existing['unpaid_rows'] = _num(existing['unpaid_rows']) + _num(row['unpaid_rows']);
+          existing['unpaid_count'] = _num(existing['unpaid_count']) + _num(row['unpaid_count']);
+          existing['all_qty'] = _num(existing['all_qty']) + _num(row['all_qty']);
+          existing['qty_total'] = _num(existing['qty_total']) + _num(row['qty_total']);
+          existing['order_count'] = _num(existing['order_count']) + _num(row['order_count']);
+          existing['payout_total'] = _num(existing['payout_total']) + _num(row['payout_total']);
+          existing['payout_amount'] = _num(existing['payout_amount']) + _num(row['payout_amount']);
+          existing['gross_sales'] = _num(existing['gross_sales']) + _num(row['gross_sales']);
+          existing['hpp_total'] = _num(existing['hpp_total']) + _num(row['hpp_total']);
+        }
+      }
+
       for (final item in rawRows) {
         if (item is! Map) continue;
         final row = Map<String, dynamic>.from(item);
@@ -2989,20 +3241,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         final localSku = _firstSkuPayoutCountValue(row, const [
           'local_sku',
           'sku_local',
+          'sku',
         ]);
 
         final skuKey = _skuPayoutCountCleanKey(marketplaceSku);
-        if (skuKey.isEmpty) continue;
-
+        final localKey = _skuPayoutCountCleanKey(localSku);
         final compositeKey =
             _skuPayoutCountCompositeKey(marketplaceSku, localSku);
 
         if (compositeKey.trim() != '|') {
-          out[compositeKey] = row;
+          addToMapKey(compositeKey, row);
         }
-
-        // Fallback utama. Marketplace SKU harus unik untuk variant marketplace.
-        out['$skuKey|'] = row;
+        if (skuKey.isNotEmpty) {
+          addToMapKey('$skuKey|', row);
+        }
+        if (localKey.isNotEmpty) {
+          addToMapKey('|$localKey', row);
+          addToMapKey(localKey, row);
+        }
       }
 
       return out;
@@ -3024,12 +3280,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final localSku = _firstSkuPayoutCountValue(row, const [
       'local_sku',
       'sku_local',
+      'sku',
     ]);
 
     final compositeKey = _skuPayoutCountCompositeKey(marketplaceSku, localSku);
     final skuOnlyKey = '${_skuPayoutCountCleanKey(marketplaceSku)}|';
+    final localOnlyKey = '|${_skuPayoutCountCleanKey(localSku)}';
+    final localKey = _skuPayoutCountCleanKey(localSku);
 
-    final summary = summaryMap[compositeKey] ?? summaryMap[skuOnlyKey];
+    final summary = summaryMap[compositeKey] ??
+        summaryMap[skuOnlyKey] ??
+        summaryMap[localOnlyKey] ??
+        summaryMap[localKey];
     if (summary == null) return row;
 
     final paidQty = _numFirstNonZero([
@@ -3209,6 +3471,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   double _unpaidEstimatedHppTotal() {
     final direct = _numFirstNonZero([
+      _summary['estimated_unpaid_hpp'],
+      _summary['hpp_belum_payout'],
+      _summary['unpaid_hpp'],
+      _summary['unpaid_hpp_total'],
       _summary['unpaid_estimated_hpp_total'],
       _summary['pending_hpp_total'],
       _summary['hpp_unpaid_total'],
@@ -3921,7 +4187,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _filterSkuRowsBySelectedScope(
       List<Map<String, dynamic>> rows) {
     if (!_selectedScopeIsSpecific()) return rows;
-    return rows.where(_rowMatchesSelectedScope).toList();
+    final filtered = rows.where(_rowMatchesSelectedScope).toList();
+    // Aggregated SKU RPC rows already filter by marketplace/account on database level,
+    // so if client-side filtering yields 0 rows due to missing row metadata, preserve server rows.
+    return (filtered.isEmpty && rows.isNotEmpty) ? rows : filtered;
   }
 
   Future<List<Map<String, dynamic>>> _fetchApprovedPurchasesPeriod() async {
@@ -3934,13 +4203,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               row['finance_status'] ??
               '')
           .toString()
-          .toLowerCase();
+          .toLowerCase()
+          .trim();
+      if (status.contains('rejected') ||
+          status.contains('canceled') ||
+          status.contains('cancelled') ||
+          status.contains('void') ||
+          status.contains('draft') ||
+          status.contains('pending') ||
+          status.contains('submitted') ||
+          status.contains('waiting') ||
+          status.contains('menunggu')) {
+        return false;
+      }
       return status.contains('approved') ||
+          status.contains('disetujui') ||
           status.contains('verified') ||
           status.contains('accepted') ||
           status.contains('approve') ||
           status == 'done' ||
-          status == 'paid';
+          status == 'paid' ||
+          status == 'completed' ||
+          status.isEmpty;
     }
 
     double amountOf(Map<String, dynamic> row) {
@@ -4282,6 +4566,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             summary['orders_count'])
         .toInt();
 
+    final commission = _num(summary['commission_fee'] ?? summary['commission'] ?? label['commission_fee'] ?? label['commission']);
+    final platform = _num(summary['platform_fee'] ?? summary['platform'] ?? label['platform_fee'] ?? label['platform']);
+    final affiliate = _num(summary['affiliate_fee'] ?? summary['affiliate'] ?? label['affiliate_fee'] ?? label['affiliate']);
+    final shipping = _num(summary['shipping_fee'] ?? summary['shipping'] ?? summary['ongkir'] ?? label['shipping_fee'] ?? label['shipping']);
+    final discount = _num(summary['discount_amount'] ?? summary['voucher_amount'] ?? summary['discount'] ?? summary['voucher'] ?? label['discount_amount'] ?? label['voucher_amount']);
+    final refund = _num(summary['refund_amount'] ?? summary['return_refund_amount'] ?? summary['refund'] ?? label['refund_amount'] ?? label['return_refund_amount']);
+    final adjustment = _num(summary['adjustment_amount'] ?? summary['adjustment'] ?? label['adjustment_amount'] ?? label['adjustment']);
+    final totalDeductions = _num(summary['total_fees'] ?? summary['fee_amount'] ?? summary['biaya'] ?? summary['deductions'] ?? label['total_fees'] ?? label['fee_amount'] ?? label['biaya']);
+
     // v24.6.60: tab Marketplace wajib mengikuti Ringkasan/SKU.
     // Aggregate mentah dari RPC lama bisa terduplikasi dari join item/HPP, jadi angka nominal utama tidak diambil dari rawRows.
     return [
@@ -4321,6 +4614,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'net_profit': profit,
         'net_margin_percent': margin,
         'margin_percent': margin,
+        'commission_fee': commission,
+        'platform_fee': platform,
+        'affiliate_fee': affiliate,
+        'shipping_fee': shipping,
+        'discount_amount': discount,
+        'voucher_amount': discount,
+        'refund_amount': refund,
+        'return_refund_amount': refund,
+        'adjustment_amount': adjustment,
+        'fee_amount': totalDeductions,
+        'total_fees': totalDeductions,
+        'biaya': totalDeductions,
+        'deductions': totalDeductions,
       },
     ];
   }
@@ -5046,7 +5352,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         negativePayoutQty = _num(row['negative_payout_qty']).toDouble();
         if (positivePayout == 0 && paidPayout > 0) positivePayout = paidPayout;
         if (negativePayout == 0 && paidPayout < 0) negativePayout = paidPayout;
-        if (paidQty <= 0 && paidPayout != 0) paidQty = totalQty;
+        // Only treat payout_total as evidence of settled qty when the row is
+        // NOT tagged as an unpaid row. Rows from p_payout_filter='unpaid' carry
+        // a non-zero payout_total (accumulated), but all their qty is unpaid.
+        final isTaggedUnpaid =
+            _text(row['_payout_filter'], '').toLowerCase() == 'unpaid';
+        if (!isTaggedUnpaid && paidQty <= 0 && paidPayout != 0)
+          paidQty = totalQty;
         if (positivePayoutQty <= 0 && positivePayout > 0)
           positivePayoutQty = paidQty > 0 ? paidQty : totalQty;
         if (negativePayoutQty <= 0 && negativePayout < 0)
@@ -5156,6 +5468,54 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }).toList();
   }
 
+  List<Map<String, dynamic>> _aggregateSkuRowsByLocalSku(
+      List<Map<String, dynamic>> rows) {
+    if (rows.isEmpty) return rows;
+    final map = <String, Map<String, dynamic>>{};
+    final order = <String>[];
+
+    for (final item in rows) {
+      final row = Map<String, dynamic>.from(item);
+      final localSku = _text(row['local_sku'] ?? row['sku'], '').trim();
+      final key = localSku.isNotEmpty && localSku != '-'
+          ? localSku.toUpperCase()
+          : 'UNMAPPED_${_text(row['marketplace_sku_id'] ?? row['marketplace_sku'] ?? row['product_name'])}';
+
+      final existing = map[key];
+      if (existing == null) {
+        row['local_sku'] = localSku.isNotEmpty ? localSku : key;
+        row['sku'] = localSku.isNotEmpty ? localSku : key;
+        map[key] = row;
+        order.add(key);
+      } else {
+        existing['qty'] = _num(existing['qty']) + _num(row['qty']);
+        existing['qty_total'] = _num(existing['qty_total']) + _num(row['qty_total']);
+        existing['total_qty'] = _num(existing['total_qty']) + _num(row['total_qty']);
+        existing['all_qty'] = _num(existing['all_qty']) + _num(row['all_qty']);
+        existing['paid_qty'] = _num(existing['paid_qty']) + _num(row['paid_qty']);
+        existing['settled_qty'] = _num(existing['settled_qty']) + _num(row['settled_qty']);
+        existing['qty_settled'] = _num(existing['qty_settled']) + _num(row['qty_settled']);
+        existing['unpaid_qty'] = _num(existing['unpaid_qty']) + _num(row['unpaid_qty']);
+        existing['qty_unpaid'] = _num(existing['qty_unpaid']) + _num(row['qty_unpaid']);
+        existing['pending_payout_qty'] = _num(existing['pending_payout_qty']) + _num(row['pending_payout_qty']);
+        existing['qty_belum_payout'] = _num(existing['qty_belum_payout']) + _num(row['qty_belum_payout']);
+        existing['belum_payout_qty'] = _num(existing['belum_payout_qty']) + _num(row['belum_payout_qty']);
+        existing['payout_total'] = _num(existing['payout_total']) + _num(row['payout_total']);
+        existing['payout_amount'] = _num(existing['payout_amount']) + _num(row['payout_amount']);
+        existing['gross_sales'] = _num(existing['gross_sales']) + _num(row['gross_sales']);
+        existing['gross_total'] = _num(existing['gross_total']) + _num(row['gross_total']);
+        existing['hpp_total'] = _num(existing['hpp_total']) + _num(row['hpp_total']);
+        existing['order_count'] = _num(existing['order_count']) + _num(row['order_count']);
+        existing['paid_order_count'] = _num(existing['paid_order_count']) + _num(row['paid_order_count']);
+        existing['unpaid_order_count'] = _num(existing['unpaid_order_count']) + _num(row['unpaid_order_count']);
+        existing['unpaid_rows'] = _num(existing['unpaid_rows']) + _num(row['unpaid_rows']);
+        existing['unpaid_count'] = _num(existing['unpaid_count']) + _num(row['unpaid_count']);
+      }
+    }
+
+    return order.map((k) => map[k]!).toList();
+  }
+
   List<Map<String, dynamic>> _sortSkuRowsForDisplay(
       List<Map<String, dynamic>> rows) {
     final out = rows.map((row) => Map<String, dynamic>.from(row)).toList();
@@ -5183,6 +5543,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final byKey = <String, Map<String, dynamic>>{};
 
     List<String> keysOf(Map<String, dynamic> row) {
+      final local =
+          _text(row['local_sku'] ?? row['sku'], '').trim().toLowerCase();
+      if (local.isNotEmpty && local != '-' && local != 'unmapped') {
+        return [local];
+      }
+
       final account =
           _text(row['marketplace_account_id'] ?? row['account_id'], '')
               .trim()
@@ -5204,11 +5570,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         final text = _text(value, '').trim().toLowerCase();
         if (text.isNotEmpty && text != '-') return ['$prefix$text'];
       }
-      final local =
-          _text(row['local_sku'] ?? row['sku'], '').trim().toLowerCase();
-      return local.isEmpty || local == '-'
-          ? ['${prefix}row_${row.hashCode}']
-          : ['$prefix$local'];
+      return ['${prefix}row_${row.hashCode}'];
     }
 
     void addRow(Map<String, dynamic> row) {
@@ -9887,6 +10249,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       totalSettledQty += _num(v['paid_qty'] ?? 0).round();
     }
 
+    if (totalQty == 0) {
+      totalQty = _numFirstNonZero([
+        _summary['total_qty_count'],
+        _summary['qty_total'],
+        _summary['total_qty'],
+        _bySku.fold<num>(0, (sum, row) => sum + _num(row['total_qty'] ?? row['qty_total'] ?? row['qty'])),
+      ]).round();
+    }
+    if (totalSettledQty == 0) {
+      totalSettledQty = _numFirstNonZero([
+        _summary['settled_qty_count'],
+        _summary['qty_settled'],
+        totalQty,
+      ]).round();
+    }
+
     final double margin = totalPayout > 0 ? ((totalPayout - totalHpp) / totalPayout) * 100 : 0.0;
     final marketplaceName = _marketplaceFilter == 'all' ? 'Semua Platform' : _marketplaceName(_marketplaceFilter);
 
@@ -9982,40 +10360,69 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _filteredSkuOrderRows(skuDetailRows, 'paid');
     final unpaidDetailRows =
         _filteredSkuOrderRows(skuDetailRows, 'unpaid');
-    final paidQtyDisplay = _qtyFromOrderRows(paidDetailRows) > 0
-        ? _qtyFromOrderRows(paidDetailRows)
-        : _numFirstNonZero([
-            row['paid_qty_total'],
-            row['settled_qty_total'],
-            row['paid_qty'],
-            row['settled_qty'],
-            row['qty_paid']
-          ]).round();
-    final unpaidQtyDisplay = _qtyFromOrderRows(unpaidDetailRows) > 0
-        ? _qtyFromOrderRows(unpaidDetailRows)
-        : _numFirstNonZero([
-            row['unpaid_qty_total'],
-            row['unpaid_qty'],
-            row['pending_payout_qty'],
-            row['pending_payout_qty_total'],
-            row['qty_unpaid']
-          ]).round();
-    final qtyTotalDisplay = _numFirstNonZero([
+    final rowTotalQty = _numFirstNonZero([
       row['qty'],
       row['qty_total'],
       row['total_qty'],
+    ]).round();
+    final paidKey = _skuDetailBusyKeyV82o(row, 'paid');
+    final unpaidKey = _skuDetailBusyKeyV82o(row, 'unpaid');
+    int paidQtyDisplay = _numFirstNonZero([
+      row['paid_qty_total'],
+      row['settled_qty_total'],
+      row['paid_qty'],
+      row['settled_qty'],
+      row['qty_paid'],
+      row['qty_settled'],
+      row['settled_qty_count'],
+      _skuPaidCountMap[paidKey],
+      _qtyFromOrderRows(paidDetailRows),
+    ]).round();
+    int unpaidQtyDisplay = _numFirstNonZero([
+      row['unpaid_qty'],
+      row['qty_unpaid'],
+      row['unpaid_qty_total'],
+      row['pending_payout_qty'],
+      row['pending_payout_qty_total'],
+      row['qty_pending'],
+      row['qty_belum_payout'],
+      row['belum_payout_qty'],
+      row['unpaid_order_count'],
+      row['unpaid_rows'],
+      row['unpaid_count'],
+      _skuUnpaidCountMap[unpaidKey],
+      _qtyFromOrderRows(unpaidDetailRows),
+    ]).round();
+    if (paidQtyDisplay == 0 && unpaidQtyDisplay == 0 && rowTotalQty > 0) {
+      final payoutVal = _num(row['payout_total'] ?? row['payout_amount'] ?? row['total_payout']);
+      if (payoutVal > 0) {
+        paidQtyDisplay = rowTotalQty;
+      } else {
+        unpaidQtyDisplay = rowTotalQty;
+      }
+    }
+    final qtyTotalDisplay = _numFirstNonZero([
+      rowTotalQty,
       paidQtyDisplay + unpaidQtyDisplay,
     ]).round();
     final displayPayoutPerItem = _numFirstNonZero([
-      row['positive_payout_per_item'],
       row['payout_per_item_paid'],
       row['payout_per_item'],
+      row['positive_payout_per_item'],
       paidQtyDisplay > 0
           ? (_num(row['payout_total'] ??
                   row['payout_amount'] ??
                   row['received_amount']) /
               paidQtyDisplay)
           : 0,
+    ]);
+    final grossPerItem = _numFirstNonZero([
+      row['gross_per_item'],
+      row['unit_gross'],
+      qtyTotalDisplay > 0
+          ? (_num(row['gross_sales'] ?? row['gross_total']) / qtyTotalDisplay)
+          : 0,
+      displayPayoutPerItem,
     ]);
     final payoutRange = _positivePayoutRangeForSku(
       row: row,
@@ -10025,7 +10432,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
     final highestPayout = payoutRange['highest'] ?? 0.0;
     final lowestPayout = payoutRange['lowest'] ?? 0.0;
-    final showPayoutRange = highestPayout > 0 &&
+    final showPayoutRange = paidDetailRows.isNotEmpty &&
+        highestPayout > 0 &&
         lowestPayout > 0 &&
         (highestPayout - lowestPayout).abs() >= 0.5;
     final paidHppTotalForDisplay = _numFirstNonZero([
@@ -10054,9 +10462,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     } else if (hppMissing) {
       actualMargin = 0;
     }
+    final displayTargetMargin = targetMargin > 0 ? targetMargin : 30.0;
     final belowTarget = !hppMissing &&
-        targetMargin > 0 &&
-        actualMargin < targetMargin;
+        displayTargetMargin > 0 &&
+        actualMargin < displayTargetMargin;
     final settledBusy =
         _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'paid');
     final unpaidBusy =
@@ -10073,6 +10482,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       trailing: Wrap(
         spacing: 6,
         children: [
+          OutlinedButton.icon(
+            onPressed: detailBusy
+                ? null
+                : () => _showSkuOrderRefsV82o(
+                      row,
+                      payoutFilter: 'all',
+                    ),
+            icon: const Icon(Icons.info_outline_rounded, size: 15),
+            label: const Text('Detail SKU',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
           TextButton.icon(
             onPressed: detailBusy
                 ? null
@@ -10138,15 +10564,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               _num(row['negative_payout_qty']).toStringAsFixed(0),
               warning: true),
         _miniMetric(
-            'Gross/item', _money(_num(row['gross_per_item']))),
+            'Gross/item', _money(grossPerItem)),
         if (showPayoutRange) ...[
           _miniMetric('Payout tertinggi', _money(highestPayout)),
           _miniMetric('Payout terendah', _money(lowestPayout)),
         ] else
           _miniMetric(
             'Payout settled/item',
-            highestPayout > 0
-                ? _money(highestPayout)
+            displayPayoutPerItem > 0
+                ? _money(displayPayoutPerItem)
                 : 'Belum ada payout',
           ),
         _miniMetric(
@@ -10172,9 +10598,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             warning: belowTarget),
         _miniMetric(
             'Target',
-            targetMargin <= 0
-                ? 'Belum ada target'
-                : '${targetMargin.toStringAsFixed(2)}%'),
+            '${displayTargetMargin.toStringAsFixed(2)}%'),
       ],
     );
   }
@@ -10184,12 +10608,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return Center(child: FuturisticLoader(message: 'Memuat data...'));
 
     if (!_skuLoaded && !_skuLoadingFirstPage) {
+      _skuLoadingFirstPage = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _lazyLoadSkuFirstPage();
       });
     }
 
-    if (_skuLoadingFirstPage && _bySku.isEmpty) {
+    if ((_skuLoadingFirstPage || !_skuLoaded) && _bySku.isEmpty) {
       return Center(child: FuturisticLoader(message: 'Memuat data SKU...'));
     }
 
@@ -10709,14 +11134,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final category =
           _text(row['category'] ?? row['title'] ?? row['source'], '')
               .toLowerCase();
-      final direction =
+      final isMarketplacePayoutRow = category.contains('marketplace') ||
+          category.contains('payout') ||
+          category.contains('shopee') ||
+          category.contains('tiktok');
+      if (isMarketplacePayoutRow && hasMarketplacePayout) {
+        continue;
+      }
+
+      final dir =
           _text(row['direction'] ?? row['cash_type'] ?? row['type'], '')
               .toLowerCase();
 
       if (hasCashAdjustmentId ||
           category.contains('kas masuk') ||
           category.contains('kas manual') ||
-          direction == 'in') {
+          (dir == 'in' && !isMarketplacePayoutRow)) {
         addRow({
           ...row,
           if (hasCashAdjustmentId)
@@ -11285,14 +11718,64 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               row['net_margin_percent'] ??
               (profit / payout * 100))
           : 0;
-      final discount = _num(row['discount_amount'] ?? row['voucher_amount']);
-      final refund = _num(row['refund_amount'] ?? row['return_refund_amount']);
-      final adjustment = _num(row['adjustment_amount']);
-      final platformFee = _num(row['platform_fee']);
-      final commissionFee = _num(row['commission_fee']);
-      final affiliateFee = _num(row['affiliate_fee']);
-      final shippingFee = _num(row['shipping_fee']);
-      final feeAmount = _num(row['fee_amount'] ?? row['total_fees']);
+      final discount = _numFirstNonZero([
+        row['discount_amount'],
+        row['voucher_amount'],
+        row['discount'],
+        row['voucher'],
+        row['shopee_discount'],
+        row['tiktok_discount'],
+        row['seller_discount'],
+        row['platform_discount'],
+        row['seller_voucher'],
+        row['platform_voucher'],
+      ]);
+      final refund = _numFirstNonZero([
+        row['refund_amount'],
+        row['return_refund_amount'],
+        row['refund'],
+        row['retur'],
+        row['buyer_refund_amount'],
+      ]);
+      final adjustment = _numFirstNonZero([
+        row['adjustment_amount'],
+        row['adjustment'],
+        row['koreksi'],
+        row['settlement_correction'],
+      ]);
+      final platformFee = _numFirstNonZero([
+        row['platform_fee'],
+        row['service_fee'],
+        row['biaya_layanan'],
+        row['platform_service_fee'],
+        row['service_fee_amount'],
+      ]);
+      final commissionFee = _numFirstNonZero([
+        row['commission_fee'],
+        row['commission'],
+        row['biaya_komisi'],
+        row['total_commission'],
+        row['commission_fee_amount'],
+      ]);
+      final affiliateFee = _numFirstNonZero([
+        row['affiliate_fee'],
+        row['affiliate_commission'],
+        row['biaya_afiliasi'],
+        row['affiliate_cost'],
+        row['affiliate_commission_amount'],
+      ]);
+      final shippingFee = _numFirstNonZero([
+        row['shipping_fee'],
+        row['shipping_cost'],
+        row['biaya_pengiriman'],
+        row['ongkir_seller'],
+      ]);
+      final feeAmount = _num(row['fee_amount'] ??
+          row['total_fees'] ??
+          row['total_deductions'] ??
+          row['biaya'] ??
+          row['deductions'] ??
+          (gross - payout > 0 ? gross - payout : 0));
       final knownFeesTotal = platformFee.abs() + commissionFee.abs() + affiliateFee.abs() + shippingFee.abs();
       final otherFees = feeAmount.abs() > knownFeesTotal + 0.49 ? feeAmount.abs() - knownFeesTotal : 0.0;
       final subsidy = _num(row['subsidy_amount'] ??
@@ -11420,17 +11903,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             // Detailed Reconciliation Section
             () {
               Widget reconcileItemRow(String label, double val,
-                  {bool bold = false, bool positiveColor = false}) {
+                  {bool bold = false, bool positiveColor = false, bool isDeduction = false}) {
                 if (val == 0 &&
                     !bold &&
+                    !isDeduction &&
                     label != 'Gross before marketplace discount') {
                   return const SizedBox.shrink();
                 }
                 final clr = positiveColor
                     ? Colors.green
-                    : (val < 0
+                    : ((val < 0 || isDeduction)
                         ? Colors.redAccent
                         : Theme.of(context).textTheme.bodyLarge?.color);
+                final formattedVal = isDeduction
+                    ? '- ${_money(val.abs())}'
+                    : (val < 0 ? '- ${_money(val.abs())}' : _money(val));
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 3.0),
                   child: Row(
@@ -11448,7 +11935,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         ),
                       ),
                       Text(
-                        _money(val),
+                        formattedVal,
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: bold ? FontWeight.w800 : FontWeight.w700,
@@ -11460,11 +11947,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 );
               }
 
-              final totalFees = platformFee +
-                  commissionFee +
-                  affiliateFee +
-                  shippingFee +
-                  (otherFees > 0 ? otherFees : _num(row['other_fee']));
+              final subFees = platformFee.abs() +
+                  commissionFee.abs() +
+                  affiliateFee.abs() +
+                  shippingFee.abs() +
+                  (otherFees > 0 ? otherFees.abs() : _num(row['other_fee']).abs());
+              final totalFees = subFees > 0
+                  ? subFees
+                  : _num(row['biaya'] ?? row['total_deductions'] ?? row['deductions'] ?? (gross - payout)).abs();
               final calculatedPayout = gross -
                   discount.abs() -
                   totalFees.abs() -
@@ -11568,22 +12058,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           const SizedBox(height: 8),
                           reconcileItemRow(
                               'Gross before marketplace discount', gross),
-                          reconcileItemRow(
-                              'Marketplace voucher/discount', -discount.abs()),
+                          if (discount.abs() > 0.01)
+                            reconcileItemRow('Marketplace voucher/discount', discount.abs(), isDeduction: true),
                           reconcileItemRow('Omzet normal / customer paid sales',
                               gross - discount.abs(),
                               bold: true),
-                          reconcileItemRow('Commission', -commissionFee.abs()),
-                          reconcileItemRow('Affiliate', -affiliateFee.abs()),
-                          reconcileItemRow('Platform Fee', -platformFee.abs()),
-                          reconcileItemRow(
-                              'Shipping/ongkir', -shippingFee.abs()),
-                          if (otherFees > 0 || _num(row['other_fee']) > 0)
-                            reconcileItemRow(
-                                'Other fee', -(otherFees > 0 ? otherFees : _num(row['other_fee']).abs())),
-                          reconcileItemRow('Refund/return', -refund.abs()),
-                          reconcileItemRow(
-                              'Settlement correction/gap', adjustment),
+                          if (commissionFee.abs() > 0.01)
+                            reconcileItemRow('Biaya Komisi / Commission Fee', commissionFee.abs(), isDeduction: true),
+                          if (affiliateFee.abs() > 0.01)
+                            reconcileItemRow('Biaya Afiliasi / Affiliate Fee', affiliateFee.abs(), isDeduction: true),
+                          if (platformFee.abs() > 0.01)
+                            reconcileItemRow('Biaya Layanan / Platform Fee', platformFee.abs(), isDeduction: true),
+                          if (shippingFee.abs() > 0.01)
+                            reconcileItemRow('Biaya Pengiriman / Shipping Fee', shippingFee.abs(), isDeduction: true),
+                          if (subFees == 0 && totalFees > 0)
+                            reconcileItemRow('Biaya & Potongan Marketplace', totalFees.abs(), isDeduction: true),
+                          if (otherFees > 0.01 || _num(row['other_fee']).abs() > 0.01)
+                            reconcileItemRow('Biaya Lain-lain / Other Fee', (otherFees > 0 ? otherFees : _num(row['other_fee'])).abs(), isDeduction: true),
+                          if (refund.abs() > 0.01)
+                            reconcileItemRow('Refund / Return Pembeli', refund.abs(), isDeduction: true),
+                          if (adjustment != 0)
+                            reconcileItemRow('Settlement correction/gap', adjustment),
                           reconcileItemRow('Net payout (Diterima)', payout,
                               bold: true, positiveColor: true),
                         ],
@@ -11606,7 +12101,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                 .withOpacity(0.2)),
                       ),
                       child: Text(
-                        'Note Rekonsiliasi: Omzet Normal (${_money(gross - discount.abs())}) - Biaya (${_money(totalFees)}) - Refund (${_money(refund.abs())}) ${adjustment >= 0 ? '+' : '-'} Koreksi (${_money(adjustment.abs())}) = ${_money(calculatedPayout)} vs Net Payout ${_money(payout)}.' +
+                        'Note Rekonsiliasi: Omzet Normal (${_money(gross - discount.abs())}) - Biaya (${_money(totalFees.abs())}) - Refund (${_money(refund.abs())}) ${adjustment >= 0 ? '+' : '-'} Koreksi (${_money(adjustment.abs())}) = ${_money(calculatedPayout)} vs Net Payout ${_money(payout)}.' +
                             (diff > 1.0
                                 ? ' (Selisih Gap: ${_money(diff)})'
                                 : ' (Tersegel Rekonsiliasi Cocok 100%)'),
@@ -11727,9 +12222,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _summary['operational_expense'] ??
         _summary['expense_total']);
 
-    final gross = summaryGross > 0 ? summaryGross : paidSkuTotals['gross']!;
-    final payout = summaryPayout > 0 ? summaryPayout : paidSkuTotals['payout']!;
-    final hpp = summaryHpp > 0 ? summaryHpp : paidSkuTotals['hpp']!;
+    final mktGross = _profitLossByMarketplace.fold<double>(
+        0.0, (sum, r) => sum + _num(r['gross_sales'] ?? r['omzet_total'] ?? r['gross_total'] ?? r['gross']));
+    final mktPayout = _profitLossByMarketplace.fold<double>(
+        0.0, (sum, r) => sum + _num(r['payout_total'] ?? r['payout_amount'] ?? r['received_amount'] ?? r['payout']));
+    final mktHpp = _profitLossByMarketplace.fold<double>(
+        0.0, (sum, r) => sum + _num(r['hpp_total'] ?? r['total_hpp'] ?? r['hpp']));
+
+    final gross = summaryGross > 0 ? summaryGross : (mktGross > 0 ? mktGross : paidSkuTotals['gross']!);
+    final payout = summaryPayout > 0 ? summaryPayout : (mktPayout > 0 ? mktPayout : paidSkuTotals['payout']!);
+    final hpp = summaryHpp > 0 ? summaryHpp : (mktHpp > 0 ? mktHpp : paidSkuTotals['hpp']!);
     final profit = payout - hpp - operational;
     final margin = payout > 0 ? (profit / payout) * 100 : 0.0;
 
@@ -14080,6 +14582,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var total = _intFromV82o(pageResult['total'], rows.length);
     var totalPages = _positiveIntV82o(pageResult['total_pages'], 1);
 
+    if (payoutFilter == 'unpaid') {
+      _skuUnpaidCountMap[busyKey] = total;
+    } else if (payoutFilter == 'paid') {
+      _skuPaidCountMap[busyKey] = total;
+    }
+
     // Ensure detail modal always opens even if rows are empty
     if (rows.isEmpty && total <= 0) {
       // Keep going, do not return early so the modal sheet opens cleanly.
@@ -15314,17 +15822,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   bool _isEditableOperationalExpenseRow(Map<String, dynamic> row) {
     if (_isSyntheticExpenseRow(row) ||
         _isPurchaseExpenseRow(row) ||
-        _isCashAdjustmentExpenseRow(row) ||
-        _isProductionTailorFallbackExpense(row)) {
+        _isCashAdjustmentExpenseRow(row)) {
       return false;
     }
-    return _isUuid(_firstStableText([
+    final targetId = _firstStableText([
       row['expense_id'],
       row['finance_operational_expense_id'],
       row['operational_expense_id'],
       row['finance_expense_id'],
       row['manual_expense_id'],
-    ]));
+    ]);
+    if (!_isUuid(targetId)) return false;
+    if (targetId.startsWith('prod_progress_') ||
+        targetId.startsWith('prod_stage_') ||
+        targetId.startsWith('summary_')) {
+      return false;
+    }
+    return true;
   }
 
   String _expenseSourceLabel(Map<String, dynamic> row) {

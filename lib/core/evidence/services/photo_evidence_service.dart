@@ -153,7 +153,7 @@ class PhotoEvidenceService {
     // Android/native lama masih boleh direct ke Apps Script.
     // Web default-nya lewat Vercel proxy supaya tidak kena CORS dan token tidak kebuka di browser.
     if (!kIsWeb && !_isProxyUri(uri)) {
-      final token = dotenv.env['GOOGLE_DRIVE_UPLOAD_TOKEN']?.trim() ?? '';
+      final token = dotenv.isInitialized ? (dotenv.env['GOOGLE_DRIVE_UPLOAD_TOKEN']?.trim() ?? '') : '';
       if (token.isEmpty) {
         throw Exception('GOOGLE_DRIVE_UPLOAD_TOKEN belum diisi di .env');
       }
@@ -191,9 +191,9 @@ class PhotoEvidenceService {
   }
 
   Uri _resolveUploadUri() {
-    final proxyUrl = dotenv.env['PHOTO_UPLOAD_PROXY_URL']?.trim() ?? '';
-    final directUrl = dotenv.env['GOOGLE_DRIVE_UPLOAD_URL']?.trim() ?? '';
-    final supabaseUrl = (dotenv.env['SUPABASE_URL'] ?? '').trim();
+    final proxyUrl = dotenv.isInitialized ? (dotenv.env['PHOTO_UPLOAD_PROXY_URL']?.trim() ?? '') : '';
+    final directUrl = dotenv.isInitialized ? (dotenv.env['GOOGLE_DRIVE_UPLOAD_URL']?.trim() ?? '') : '';
+    final supabaseUrl = dotenv.isInitialized ? ((dotenv.env['SUPABASE_URL'] ?? '').trim()) : '';
     final cleanUrl = supabaseUrl.endsWith('/') ? supabaseUrl.substring(0, supabaseUrl.length - 1) : supabaseUrl;
     final functionsUrl = '$cleanUrl/functions/v1';
 

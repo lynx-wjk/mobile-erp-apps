@@ -197,6 +197,10 @@ class _UserManagementPageState extends State<UserManagementPage> {
   }
 
   bool _canAssignRole(String role) {
+    if (AppRolePermissions.isDemoSuperAdminId(role) ||
+        AppRolePermissions.isPlatformOwnerId(role)) {
+      return false;
+    }
     if (_isSuperAdmin) return roles.contains(role);
     if (_isOperationalAdmin) {
       return AppRolePermissions.operationalAssignableRoles.contains(role);

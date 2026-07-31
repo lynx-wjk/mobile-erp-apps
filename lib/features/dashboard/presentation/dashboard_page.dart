@@ -23,6 +23,8 @@ import '../../finance/services/finance_local_cache.dart';
 import '../../finance/presentation/purchase_verification_page.dart';
 import '../../host_live/presentation/host_live_page.dart';
 import '../../hr/presentation/hr_performance_page.dart';
+import '../../hr/presentation/payroll_page.dart';
+
 import '../../marketplace/presentation/marketplace_accounts_page.dart';
 import '../../marketplace/presentation/marketplace_orders_page.dart';
 import '../../marketplace/presentation/marketplace_dispatcher_monitor_page.dart';
@@ -4434,10 +4436,16 @@ class _DashboardPageState extends State<DashboardPage> {
           'Kelola data supplier pembelian.', () => _open(const SupplierPage())),
       _attendanceMenu(),
       _DashboardMenu(
+          Icons.badge_rounded,
+          'Payroll & Slip Gaji',
+          'Generate slip gaji PDF, simpan 90 hari, dan kirim via WA / Email.',
+          () => _open(const PayrollPage())),
+      _DashboardMenu(
           Icons.analytics_rounded,
           'Performance Monitor',
           'Pantau telat, absen, dan aktivitas karyawan.',
           () => _open(const HrPerformancePage())),
+
       _DashboardMenu(
           Icons.location_on_rounded,
           'Set Lokasi',
@@ -4621,10 +4629,16 @@ class _DashboardPageState extends State<DashboardPage> {
             'Pantau omzet, HPP, biaya, margin, dan laba rugi.',
             () => _open(const FinanceReportPage())),
         _DashboardMenu(
+            Icons.badge_rounded,
+            'Payroll & Slip Gaji',
+            'Generate slip gaji PDF, simpan 90 hari, dan kirim via WA / Email.',
+            () => _open(const PayrollPage())),
+        _DashboardMenu(
             Icons.verified_rounded,
             'Verifikasi Pembelian',
             'Review nota pembelian yang masuk.',
             () => _open(const PurchaseVerificationPage())),
+
         _DashboardMenu(
             Icons.warning_amber_rounded,
             'Abnormal Marketplace',
@@ -4833,6 +4847,8 @@ class _DashboardPageState extends State<DashboardPage> {
         _DashboardMenu(Icons.verified_rounded, 'Verifikasi', '',
             () => _open(const PurchaseVerificationPage()),
             shortTitle: 'Verifikasi'),
+
+
         _DashboardMenu(Icons.warning_amber_rounded, 'Abnormal', '',
             () => _open(const FinanceReportPage(initialTabIndex: 6)),
             shortTitle: 'Abnormal'),

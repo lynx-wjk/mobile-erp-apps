@@ -2,7 +2,7 @@ name: mobile_erp
 description: Mobile ERP Management System
 publish_to: "none"
 
-version: 1.0.0+1
+version: 1.0.0+2026072701
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -28,6 +28,11 @@ dependencies:
   url_launcher: ^6.3.0
   app_links: ^7.0.0
   google_fonts: ^8.1.0
+  pdf: ^3.11.1
+  printing: ^5.13.4
+  intl: ^0.19.0
+
+
 
 
 dev_dependencies:
