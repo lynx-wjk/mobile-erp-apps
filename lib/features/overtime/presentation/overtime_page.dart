@@ -614,16 +614,20 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
 
       for (DateTime d = sDate; !d.isAfter(eDate); d = d.add(const Duration(days: 1))) {
         final dateStr = DateFormat('yyyy-MM-dd').format(d);
-        await _client.from('attendance').upsert({
-          'tenant_id': request['tenant_id'],
+        final Map<String, dynamic> attPayload = {
           'user_id': request['user_id'],
           'user_name': request['user_name'],
           'user_email': request['user_email'],
           'role_id': request['role_id'],
           'date': dateStr,
-          'status': request['leave_type'],
-          'notes': 'Izin disetujui: ${request['reason']}',
-        }, onConflict: 'tenant_id, user_id, date');
+          'status': request['leave_type'] ?? 'izin',
+          'note': 'Izin disetujui: ${request['reason']}',
+        };
+        final rawTenant = request['tenant_id'] ?? _tenantId;
+        if (rawTenant != null && rawTenant.toString().isNotEmpty) {
+          attPayload['tenant_id'] = rawTenant;
+        }
+        await _client.from('attendance').upsert(attPayload, onConflict: 'tenant_id, user_id, date');
       }
 
       AppUi.showSnack('Pengajuan izin disetujui & otomatis dicatat di Absensi!');

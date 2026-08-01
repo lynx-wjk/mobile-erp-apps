@@ -1065,7 +1065,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
                                         'status': 'manual_override',
                                         'check_in_time': checkInStr,
                                         'check_out_time': checkOutStr,
-                                        'notes': overrideNoteCtrl.text.trim(),
+                                        'note': overrideNoteCtrl.text.trim(),
                                       }, onConflict: 'tenant_id, user_id, date');
 
                                       await _client.from('audit_logs').insert({
