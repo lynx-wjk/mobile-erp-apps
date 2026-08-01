@@ -140,7 +140,18 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
       final userProfile = await _client.from('users').select('nama, email, role_id, tenant_id').eq('user_id', user!.id).single();
 
       final tenantId = userProfile['tenant_id'] ?? _tenantId;
-      const hourlyRate = 25000.0;
+      double hourlyRate = 25000.0;
+      try {
+        final prof = await _client
+            .from('user_payroll_profiles')
+            .select('hourly_rate')
+            .eq('user_id', user.id)
+            .maybeSingle();
+        if (prof != null && AppUi.toNum(prof['hourly_rate']) > 0) {
+          hourlyRate = AppUi.toNum(prof['hourly_rate']).toDouble();
+        }
+      } catch (_) {}
+
       final totalAmount = duration * hourlyRate;
 
       await _client.from('overtime_requests').insert({
@@ -172,16 +183,24 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
   }
 
   Future<void> _approveOvertime(Map<String, dynamic> request) async {
-    final double defaultRate = AppUi.toNum(request['hourly_rate']).toDouble() > 0 ? AppUi.toNum(request['hourly_rate']).toDouble() : 25000.0;
     final double duration = AppUi.toNum(request['duration_hours']).toDouble();
+    double hourlyRate = AppUi.toNum(request['hourly_rate']).toDouble() > 0
+        ? AppUi.toNum(request['hourly_rate']).toDouble()
+        : 25000.0;
 
-    final rateController = TextEditingController(text: defaultRate.toStringAsFixed(0));
-    final totalController = TextEditingController(text: (duration * defaultRate).toStringAsFixed(0));
+    try {
+      final prof = await _client
+          .from('user_payroll_profiles')
+          .select('hourly_rate')
+          .eq('user_id', request['user_id'])
+          .maybeSingle();
+      if (prof != null && AppUi.toNum(prof['hourly_rate']) > 0) {
+        hourlyRate = AppUi.toNum(prof['hourly_rate']).toDouble();
+      }
+    } catch (_) {}
 
-    void updateCalculatedTotal() {
-      final rate = double.tryParse(rateController.text.trim()) ?? 0;
-      totalController.text = (duration * rate).toStringAsFixed(0);
-    }
+    final double totalAmount = duration * hourlyRate;
+    final currencyFmt = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0);
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -192,28 +211,16 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Karyawan: ${AppUi.text(request['user_name'])} (${AppUi.text(request['role_id'])})'),
+            const SizedBox(height: 4),
             Text('Tanggal: ${request['overtime_date']} (${request['start_time']} - ${request['end_time']})'),
+            const SizedBox(height: 4),
             Text('Durasi: ${duration.toStringAsFixed(1)} Jam'),
+            const SizedBox(height: 4),
             Text('Alasan: ${AppUi.text(request['reason'])}'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: rateController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Tarif Lembur Per Jam (Rp)',
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (_) => updateCalculatedTotal(),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: totalController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Total Uang Lembur (Rp)',
-                border: OutlineInputBorder(),
-              ),
-            ),
+            const Divider(height: 20),
+            Text('Tarif Lembur (Payroll): ${currencyFmt.format(hourlyRate)} / Jam', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text('Total Uang Lembur: ${currencyFmt.format(totalAmount)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
           ],
         ),
         actions: [
@@ -229,13 +236,11 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
       final user = _client.auth.currentUser;
       final userProfile = await _client.from('users').select('nama').eq('user_id', user!.id).maybeSingle();
       final approvedByName = userProfile?['nama'] ?? 'Approver';
-      final finalRate = double.tryParse(rateController.text.trim()) ?? defaultRate;
-      final finalTotal = double.tryParse(totalController.text.trim()) ?? (duration * finalRate);
 
       await _client.from('overtime_requests').update({
         'status': 'approved',
-        'hourly_rate': finalRate,
-        'total_amount': finalTotal,
+        'hourly_rate': hourlyRate,
+        'total_amount': totalAmount,
         'approved_by': user.id,
         'approved_by_name': approvedByName,
         'approved_at': DateTime.now().toUtc().toIso8601String(),
@@ -292,6 +297,123 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
       await _loadData();
     } catch (e) {
       AppUi.showSnack('Gagal menolak lembur: $e');
+    }
+  }
+
+  Future<void> _editOvertime(Map<String, dynamic> req) async {
+    final dateCtrl = TextEditingController(text: req['overtime_date']);
+    final startCtrl = TextEditingController(text: req['start_time']);
+    final endCtrl = TextEditingController(text: req['end_time']);
+    final reasonCtrl = TextEditingController(text: req['reason']);
+    final rateCtrl = TextEditingController(text: AppUi.toNum(req['hourly_rate']).toStringAsFixed(0));
+    String status = req['status'] ?? 'pending';
+
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          title: Text('Edit Pengajuan Lembur (${AppUi.text(req['user_name'])})'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Tanggal (yyyy-MM-dd)', border: OutlineInputBorder())),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: TextField(controller: startCtrl, decoration: const InputDecoration(labelText: 'Jam Mulai (HH:mm)', border: OutlineInputBorder()))),
+                    const SizedBox(width: 8),
+                    Expanded(child: TextField(controller: endCtrl, decoration: const InputDecoration(labelText: 'Jam Selesai (HH:mm)', border: OutlineInputBorder()))),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(controller: rateCtrl, decoration: const InputDecoration(labelText: 'Tarif Lembur Per Jam (Rp)', border: OutlineInputBorder())),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: status,
+                  decoration: const InputDecoration(labelText: 'Status Approval', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'pending', child: Text('PENDING')),
+                    DropdownMenuItem(value: 'approved', child: Text('APPROVED')),
+                    DropdownMenuItem(value: 'rejected', child: Text('REJECTED')),
+                  ],
+                  onChanged: (v) => setModalState(() => status = v ?? status),
+                ),
+                const SizedBox(height: 10),
+                TextField(controller: reasonCtrl, maxLines: 2, decoration: const InputDecoration(labelText: 'Alasan', border: OutlineInputBorder())),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Simpan Perubahan')),
+          ],
+        ),
+      ),
+    );
+
+    if (updated != true) return;
+
+    try {
+      final sTime = startCtrl.text.trim();
+      final eTime = endCtrl.text.trim();
+      double duration = 0;
+      try {
+        final sParts = sTime.split(':');
+        final eParts = eTime.split(':');
+        final sMin = int.parse(sParts[0]) * 60 + int.parse(sParts[1]);
+        final eMin = int.parse(eParts[0]) * 60 + int.parse(eParts[1]);
+        duration = (eMin - sMin) / 60.0;
+      } catch (_) {}
+      if (duration < 0) duration = 0;
+
+      final hourlyRate = double.tryParse(rateCtrl.text.trim()) ?? 25000;
+      final totalAmount = duration * hourlyRate;
+
+      await _client.from('overtime_requests').update({
+        'overtime_date': dateCtrl.text.trim(),
+        'start_time': sTime,
+        'end_time': eTime,
+        'duration_hours': duration,
+        'hourly_rate': hourlyRate,
+        'total_amount': totalAmount,
+        'status': status,
+        'reason': reasonCtrl.text.trim(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('overtime_id', req['overtime_id']);
+
+      AppUi.showSnack('Data lembur berhasil diperbarui!');
+      _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal mengedit data lembur: $e');
+    }
+  }
+
+  Future<void> _deleteOvertime(Map<String, dynamic> req) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus Pengajuan Lembur'),
+        content: Text('Apakah Anda yakin ingin menghapus data lembur tanggal ${req['overtime_date']} untuk ${AppUi.text(req['user_name'])}?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _client.from('overtime_requests').delete().eq('overtime_id', req['overtime_id']);
+      AppUi.showSnack('Data lembur berhasil dihapus!');
+      _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal menghapus data lembur: $e');
     }
   }
 
@@ -490,8 +612,26 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                     Text('Tanggal: ${req['overtime_date']} (${req['start_time']} - ${req['end_time']}) | Durasi: ${AppUi.toNum(req['duration_hours']).toStringAsFixed(1)} Jam'),
                     Text('Tarif: Rp ${AppUi.toNum(req['hourly_rate']).toStringAsFixed(0)}/jam | Total: Rp ${AppUi.toNum(req['total_amount']).toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                     Text('Alasan: ${AppUi.text(req['reason'])}'),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (_isApprover) ...[
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, color: Colors.blue, size: 20),
+                            onPressed: () => _editOvertime(req),
+                            tooltip: 'Edit Data Lembur',
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                            onPressed: () => _deleteOvertime(req),
+                            tooltip: 'Hapus Data Lembur',
+                          ),
+                        ],
+                      ],
+                    ),
                     if (isPending) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
@@ -507,7 +647,7 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                             child: FilledButton.icon(
                               onPressed: () => _approveOvertime(req),
                               icon: const Icon(Icons.check_rounded, size: 18),
-                              label: const Text('Setujui & Edit Rate'),
+                              label: const Text('Setujui'),
                             ),
                           ),
                         ],

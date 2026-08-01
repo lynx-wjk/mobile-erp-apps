@@ -192,9 +192,120 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
           _absentPenaltyRateController.text = _formatNumber(profileRes['absent_penalty_per_day']);
           _notesController.text = profileRes['notes'] ?? '';
         });
+
+        await _autoCalculatePayrollForPeriod();
       }
     } catch (e) {
       debugPrint('Error loading user profile: $e');
+    }
+  }
+
+  Future<void> _autoCalculatePayrollForPeriod() async {
+    if (_selectedUser == null || _tenantId.isEmpty) return;
+    final userId = _selectedUser!['user_id'];
+    final year = _selectedPeriod.year;
+    final month = _selectedPeriod.month;
+    final firstDayStr = '$year-${month.toString().padLeft(2, '0')}-01';
+    final lastDay = DateTime(year, month + 1, 0).day;
+    final lastDayStr = '$year-${month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}';
+
+    try {
+      final profileRes = await _supabase
+          .from('user_payroll_profiles')
+          .select()
+          .eq('tenant_id', _tenantId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      final salaryType = profileRes?['salary_type']?.toString() ?? _selectedSalaryType;
+      final baseSal = AppUi.toNum(profileRes?['base_salary']).toDouble();
+      final dailyRate = AppUi.toNum(profileRes?['daily_rate']).toDouble();
+      final hourlyRate = AppUi.toNum(profileRes?['hourly_rate']).toDouble();
+      final lateRate = AppUi.toNum(profileRes?['late_penalty_per_minute']).toDouble();
+      final absentRate = AppUi.toNum(profileRes?['absent_penalty_per_day']).toDouble();
+
+      // 1. Overtime calculation
+      final overtimeRes = await _supabase
+          .from('overtime_requests')
+          .select('total_amount')
+          .eq('user_id', userId)
+          .eq('status', 'approved')
+          .gte('overtime_date', firstDayStr)
+          .lte('overtime_date', lastDayStr);
+      double totalOvertime = 0;
+      for (final r in (overtimeRes as List)) {
+        totalOvertime += AppUi.toNum(r['total_amount']).toDouble();
+      }
+
+      // 2. Attendance calculation
+      final attRes = await _supabase
+          .from('attendance')
+          .select('date, check_in_time, status')
+          .eq('user_id', userId)
+          .gte('date', firstDayStr)
+          .lte('date', lastDayStr);
+      final attList = (attRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+      final presentDays = attList.where((a) => a['check_in_time'] != null).length;
+
+      // 3. Late calculation
+      final schedRes = await _supabase
+          .from('user_work_schedules')
+          .select('day_of_week, start_time, late_tolerance_minutes, is_active')
+          .eq('user_id', userId);
+      final schedList = (schedRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+      final activeDays = schedList.where((s) => s['is_active'] == true).map((s) => s['day_of_week']).toSet();
+
+      int lateMinutesTotal = 0;
+      for (final a in attList) {
+        if (a['check_in_time'] != null && a['date'] != null) {
+          try {
+            final dt = DateTime.parse(a['check_in_time']).toUtc().add(const Duration(hours: 7));
+            final dayOfWeek = dt.weekday == 7 ? 0 : dt.weekday;
+            final matchSched = schedList.firstWhere((s) => s['day_of_week'] == dayOfWeek, orElse: () => {});
+            if (matchSched.isNotEmpty && matchSched['start_time'] != null) {
+              final parts = matchSched['start_time'].toString().split(':');
+              final schedStartMin = int.parse(parts[0]) * 60 + int.parse(parts[1]);
+              final checkInMin = dt.hour * 60 + dt.minute;
+              final tolerance = (matchSched['late_tolerance_minutes'] ?? 15) as int;
+              if (checkInMin > (schedStartMin + tolerance)) {
+                lateMinutesTotal += (checkInMin - (schedStartMin + tolerance));
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      int totalScheduledWorkdays = 0;
+      for (int d = 1; d <= lastDay; d++) {
+        final date = DateTime(year, month, d);
+        final dow = date.weekday == 7 ? 0 : date.weekday;
+        if (activeDays.isEmpty || activeDays.contains(dow)) {
+          totalScheduledWorkdays++;
+        }
+      }
+      if (totalScheduledWorkdays == 0) totalScheduledWorkdays = 22;
+      final absentDays = (totalScheduledWorkdays - presentDays) > 0 ? (totalScheduledWorkdays - presentDays) : 0;
+
+      double finalBaseSalary = baseSal;
+      if (salaryType == 'daily') {
+        finalBaseSalary = presentDays * dailyRate;
+      } else if (salaryType == 'hourly') {
+        finalBaseSalary = (presentDays * 8) * hourlyRate;
+      }
+
+      final totalLatePenalty = lateMinutesTotal * lateRate;
+      final totalAbsentDeduction = absentDays * absentRate;
+
+      setState(() {
+        _baseSalaryController.text = _formatNumber(finalBaseSalary);
+        _overtimeController.text = _formatNumber(totalOvertime);
+        _latePenaltyController.text = _formatNumber(totalLatePenalty);
+        _absentDeductionController.text = _formatNumber(totalAbsentDeduction);
+      });
+
+      AppUi.showSnack('Kalkulasi otomatis selesai: $presentDays hari masuk, $absentDays hari absen, $lateMinutesTotal mnt telat, lembur Rp ${_formatNumber(totalOvertime)}');
+    } catch (e) {
+      debugPrint('Error auto-calculating payroll: $e');
     }
   }
 
@@ -1011,17 +1122,6 @@ Team Finance & HR ${_companySettings['company_name']}
                     setState(() {});
                   },
                 ),
-                if (_selectedUser != null) ...[
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => _showPayrollConfigModal(_selectedUser!),
-                      icon: const Icon(Icons.tune_rounded, size: 18),
-                      label: Text('Atur Tarif Gaji & Denda (${_selectedUser!['nama']})'),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 12),
 
                 Row(
@@ -1057,6 +1157,19 @@ Team Finance & HR ${_companySettings['company_name']}
                 ),
 
                 Divider(color: isDark ? Colors.white12 : Colors.black12, height: 32),
+
+                if (_selectedUser != null) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _autoCalculatePayrollForPeriod,
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0EA5E9)),
+                      icon: const Icon(Icons.calculate_rounded),
+                      label: Text('Hitung Otomatis Dari Absensi & Lembur (${_selectedUser!['nama']})'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
 
                 // Earnings Section
                 Text('PENDAPATAN (EARNINGS)', style: GoogleFonts.outfit(color: const Color(0xFF34D399), fontSize: 15, fontWeight: FontWeight.bold)),
@@ -1368,6 +1481,7 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
   final _baseSalaryCtrl = TextEditingController(text: '0');
   final _dailyRateCtrl = TextEditingController(text: '0');
   final _hourlyRateCtrl = TextEditingController(text: '0');
+  final _overtimeRateCtrl = TextEditingController(text: '25.000');
   final _latePenaltyCtrl = TextEditingController(text: '0');
   final _absentPenaltyCtrl = TextEditingController(text: '0');
 
@@ -1382,6 +1496,7 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
     _baseSalaryCtrl.dispose();
     _dailyRateCtrl.dispose();
     _hourlyRateCtrl.dispose();
+    _overtimeRateCtrl.dispose();
     _latePenaltyCtrl.dispose();
     _absentPenaltyCtrl.dispose();
     super.dispose();
@@ -1405,6 +1520,7 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
         _baseSalaryCtrl.text = _fmtNum(prof['base_salary']);
         _dailyRateCtrl.text = _fmtNum(prof['daily_rate']);
         _hourlyRateCtrl.text = _fmtNum(prof['hourly_rate']);
+        _overtimeRateCtrl.text = AppUi.toNum(prof['hourly_rate']).toDouble() > 0 ? _fmtNum(prof['hourly_rate']) : '25.000';
         _latePenaltyCtrl.text = _fmtNum(prof['late_penalty_per_minute']);
         _absentPenaltyCtrl.text = _fmtNum(prof['absent_penalty_per_day']);
       }
@@ -1438,7 +1554,7 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
         'salary_type': _salaryType,
         'base_salary': _parseVal(_baseSalaryCtrl),
         'daily_rate': _parseVal(_dailyRateCtrl),
-        'hourly_rate': _parseVal(_hourlyRateCtrl),
+        'hourly_rate': _parseVal(_overtimeRateCtrl),
         'late_penalty_per_minute': _parseVal(_latePenaltyCtrl),
         'absent_penalty_per_day': _parseVal(_absentPenaltyCtrl),
         'updated_at': DateTime.now().toIso8601String(),
@@ -1506,6 +1622,10 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
             _buildField('Tarif Gaji Per Hari (Rp/Hari)', _dailyRateCtrl)
           else if (_salaryType == 'hourly')
             _buildField('Tarif Gaji Per Jam (Rp/Jam)', _hourlyRateCtrl),
+          const SizedBox(height: 12),
+          Text('Tarif Lembur Per Jam', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+          const SizedBox(height: 8),
+          _buildField('Tarif Lembur Per Jam (Rp/Jam)', _overtimeRateCtrl),
           const SizedBox(height: 12),
           Text('Tarif Denda & Potongan Absensi', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
           const SizedBox(height: 8),
