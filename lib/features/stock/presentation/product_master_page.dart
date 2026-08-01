@@ -1,5 +1,11 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:excel/excel.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/utils/file_download.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProductMasterPage extends StatefulWidget {
@@ -14,6 +20,7 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
   final TextEditingController _searchController = TextEditingController();
 
   bool _isLoading = true;
+  bool _isExporting = false;
   String? _errorMessage;
   List<_ProductItem> _allItems = [];
 
@@ -158,6 +165,192 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
     }
   }
 
+  Future<void> _downloadSemuaStockData() async {
+    if (_allItems.isEmpty) {
+      if (!mounted) return;
+      AppUi.showSnack('Tidak ada data produk untuk di-download');
+      return;
+    }
+
+    setState(() => _isExporting = true);
+
+    try {
+      final progressResponse =
+          await _client.from('production_progress').select('*');
+      final itemsResponse =
+          await _client.from('production_progress_items').select('*');
+
+      final progressList =
+          List<Map<String, dynamic>>.from(progressResponse);
+      final itemsList =
+          List<Map<String, dynamic>>.from(itemsResponse);
+
+      final Map<String, double> prodQtyByProductId = {};
+      final Map<String, double> prodQtyByNameSku = {};
+      final Map<String, double> prodQtyBySku = {};
+      final Set<String> progressIdsWithItems = {};
+
+      for (final row in itemsList) {
+        final progressId = row['progress_id']?.toString().trim();
+        if (progressId != null && progressId.isNotEmpty) {
+          progressIdsWithItems.add(progressId);
+        }
+
+        final qty = AppUi.toNum(row['qty']).toDouble();
+        if (qty <= 0) continue;
+
+        final productId = row['product_id']?.toString().trim();
+        final name = (row['local_product_name'] ?? row['product_name'] ?? row['nama_barang'])
+            ?.toString()
+            .trim()
+            .toLowerCase();
+        final sku = (row['local_sku'] ?? row['sku'] ?? row['kode_sku'])
+            ?.toString()
+            .trim()
+            .toLowerCase();
+
+        if (productId != null && productId.isNotEmpty) {
+          prodQtyByProductId[productId] =
+              (prodQtyByProductId[productId] ?? 0.0) + qty;
+        }
+
+        if (name != null && name.isNotEmpty && sku != null && sku.isNotEmpty && sku != '-') {
+          final nameSkuKey = '$name|$sku';
+          prodQtyByNameSku[nameSkuKey] = (prodQtyByNameSku[nameSkuKey] ?? 0.0) + qty;
+        } else if (sku != null && sku.isNotEmpty && sku != '-') {
+          prodQtyBySku[sku] = (prodQtyBySku[sku] ?? 0.0) + qty;
+        }
+      }
+
+      for (final row in progressList) {
+        final progressId = row['progress_id']?.toString().trim();
+        if (progressId != null && progressIdsWithItems.contains(progressId)) {
+          continue;
+        }
+
+        final qty = AppUi.toNum(row['qty']).toDouble();
+        if (qty <= 0) continue;
+
+        final productId = row['product_id']?.toString().trim();
+        final name = (row['product_name'] ?? row['nama_barang'] ?? row['local_product_name'])
+            ?.toString()
+            .trim()
+            .toLowerCase();
+        final sku = (row['sku'] ?? row['kode_sku'] ?? row['local_sku'])
+            ?.toString()
+            .trim()
+            .toLowerCase();
+
+        if (productId != null && productId.isNotEmpty) {
+          prodQtyByProductId[productId] =
+              (prodQtyByProductId[productId] ?? 0.0) + qty;
+        }
+
+        if (name != null && name.isNotEmpty && sku != null && sku.isNotEmpty && sku != '-') {
+          final nameSkuKey = '$name|$sku';
+          prodQtyByNameSku[nameSkuKey] = (prodQtyByNameSku[nameSkuKey] ?? 0.0) + qty;
+        } else if (sku != null && sku.isNotEmpty && sku != '-') {
+          prodQtyBySku[sku] = (prodQtyBySku[sku] ?? 0.0) + qty;
+        }
+      }
+
+      final workbook = Excel.createExcel();
+      final Sheet sheet = workbook['Semua Stock Data'];
+      final defaultSheet = workbook.getDefaultSheet();
+      if (defaultSheet != null && workbook.tables.length > 1) {
+        workbook.delete(defaultSheet);
+      }
+
+      final headers = <String>[
+        'Tenant ID',
+        'Product ID',
+        'Kode SKU',
+        'Nama Barang',
+        'Stok Saat Ini',
+        'Qty Produksi Berjalan',
+        'Total Stok Akhir',
+      ];
+
+      sheet.appendRow(
+          headers.map<CellValue>((h) => TextCellValue(h)).toList());
+
+      for (final item in _allItems) {
+        final skuKey = item.kodeSku.trim().toLowerCase();
+        final nameKey = item.namaBarang.trim().toLowerCase();
+        final prodIdKey = item.productId.trim();
+        final nameSkuKey = '$nameKey|$skuKey';
+
+        double qtyProduksiBerjalan = 0.0;
+        if (prodIdKey.isNotEmpty &&
+            prodQtyByProductId.containsKey(prodIdKey)) {
+          qtyProduksiBerjalan = prodQtyByProductId[prodIdKey]!;
+        } else if (skuKey.isNotEmpty &&
+            skuKey != '-' &&
+            prodQtyByNameSku.containsKey(nameSkuKey)) {
+          qtyProduksiBerjalan = prodQtyByNameSku[nameSkuKey]!;
+        }
+
+        final totalStokAkhir = item.stockSaatIni + qtyProduksiBerjalan;
+
+        sheet.appendRow([
+          TextCellValue(item.tenantId),
+          TextCellValue(item.productId),
+          TextCellValue(item.kodeSku),
+          TextCellValue(item.namaBarang),
+          DoubleCellValue(item.stockSaatIni.toDouble()),
+          DoubleCellValue(qtyProduksiBerjalan),
+          DoubleCellValue(totalStokAkhir.toDouble()),
+        ]);
+      }
+
+      final bytes = workbook.encode();
+      if (bytes == null) throw Exception('Gagal membuat file XLSX.');
+
+      final data = Uint8List.fromList(bytes);
+      final stamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .split('.')
+          .first;
+      final fileName = 'semua_stock_data_$stamp.xlsx';
+      const mimeType =
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+      final downloaded = await downloadBytesAsFile(
+        bytes: data,
+        fileName: fileName,
+        mimeType: mimeType,
+      );
+
+      if (downloaded) {
+        if (!mounted) return;
+        AppUi.showSnack('Download dimulai: $fileName');
+        return;
+      }
+
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(bytes, flush: true);
+
+      if (!mounted) return;
+      AppUi.showSnack('File Excel berhasil dibuat: $fileName');
+
+      // ignore: deprecated_member_use
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'Download Semua Stock Data',
+        text: 'File export stok master dan produksi berjalan.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      AppUi.showSnack('Gagal export stock data: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
+    }
+  }
+
   Widget _summaryCard() {
     final totalSku = _allItems.length;
     final totalStock = _allItems.fold<num>(
@@ -170,16 +363,45 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
 
     return NiceCard(
       padding: const EdgeInsets.all(16),
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _miniStat(
-              'Total SKU', totalSku.toString(), Icons.inventory_2_outlined),
-          _miniStat('Total Stock', totalStock.toStringAsFixed(0),
-              Icons.warehouse_outlined),
-          _miniStat(
-              'Low Stock', lowStock.toString(), Icons.warning_amber_rounded),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _miniStat(
+                  'Total SKU', totalSku.toString(), Icons.inventory_2_outlined),
+              _miniStat('Total Stock', totalStock.toStringAsFixed(0),
+                  Icons.warehouse_outlined),
+              _miniStat(
+                  'Low Stock', lowStock.toString(), Icons.warning_amber_rounded),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _isExporting ? null : _downloadSemuaStockData,
+              style: FilledButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: _isExporting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.file_download_outlined),
+              label: Text(
+                  _isExporting ? 'Memproses Export...' : 'Download Semua Stock Data'),
+            ),
+          ),
         ],
       ),
     );
@@ -315,6 +537,19 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Master Barang'),
+        actions: [
+          IconButton(
+            icon: _isExporting
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.file_download_outlined),
+            tooltip: 'Download Semua Stock Data',
+            onPressed: _isExporting ? null : _downloadSemuaStockData,
+          ),
+        ],
       ),
       body: _body(),
     );
@@ -322,6 +557,7 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
 }
 
 class _ProductItem {
+  final String tenantId;
   final String productId;
   final String kodeSku;
   final String kodeBarcode;
@@ -330,6 +566,7 @@ class _ProductItem {
   final num lowStockLimit;
 
   const _ProductItem({
+    required this.tenantId,
     required this.productId,
     required this.kodeSku,
     required this.kodeBarcode,
@@ -340,6 +577,7 @@ class _ProductItem {
 
   factory _ProductItem.fromMap(Map<String, dynamic> map) {
     return _ProductItem(
+      tenantId: map['tenant_id']?.toString() ?? '',
       productId: map['product_id']?.toString() ?? '',
       kodeSku: map['kode_sku']?.toString() ??
           map['sku']?.toString() ??
