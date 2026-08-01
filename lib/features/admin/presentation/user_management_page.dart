@@ -293,8 +293,16 @@ class _UserManagementPageState extends State<UserManagementPage> {
             .maybeSingle();
         finalTenantId = currentProfile?['tenant_id']?.toString();
       }
-      if (finalTenantId == null) {
-        throw Exception('Tenant ID tidak ditemukan untuk user saat ini.');
+      if (finalTenantId == null || finalTenantId.isEmpty) {
+        if (_currentRoleId == 'platform_owner') {
+          finalTenantId = widget.tenantId?.trim();
+          if (finalTenantId == null || finalTenantId.isEmpty) {
+            final firstTenant = await _client.from('tenants').select('tenant_id').limit(1).maybeSingle();
+            finalTenantId = firstTenant?['tenant_id']?.toString() ?? 'tenant_main';
+          }
+        } else {
+          throw Exception('Tenant ID tidak ditemukan untuk user saat ini.');
+        }
       }
     }
 

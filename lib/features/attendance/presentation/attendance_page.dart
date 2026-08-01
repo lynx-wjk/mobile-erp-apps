@@ -406,21 +406,10 @@ class _AbsensiPageState extends State<AbsensiPage> {
     if (confirmed != true) return;
 
     try {
-      final res = await _client.rpc('delete_record_for_super_admin', params: {
-        'p_table': 'attendance',
-        'p_id_column': 'attendance_id',
-        'p_id_value': id,
+      await _client.rpc('delete_record_for_super_admin', params: {
+        'p_table_name': 'attendance',
+        'p_record_id': id,
       });
-
-      final isSuccess = res != null &&
-          (res['success'] == true ||
-              res['success'] == 'true' ||
-              res['deleted'] == true);
-
-      if (!isSuccess) {
-        throw Exception(
-            res?['message'] ?? 'Gagal menghapus log absensi di database');
-      }
 
       AppUi.showSnack('Data absensi berhasil dihapus!');
       _loadData();
