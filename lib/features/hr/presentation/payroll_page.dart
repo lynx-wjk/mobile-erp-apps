@@ -237,17 +237,39 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
         totalOvertime += AppUi.toNum(r['total_amount']).toDouble();
       }
 
-      // 2. Attendance calculation
+      // 2. Attendance & Excused/Permit Days Calculation
       final attRes = await _supabase
           .from('attendance')
-          .select('date, check_in_time, status')
+          .select('date, check_in_time, status, notes')
           .eq('user_id', userId)
           .gte('date', firstDayStr)
           .lte('date', lastDayStr);
       final attList = (attRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
-      final presentDays = attList.where((a) => a['check_in_time'] != null).length;
 
-      // 3. Late calculation
+      int presentDays = 0;
+      int excusedDays = 0;
+      for (final a in attList) {
+        final statusStr = (a['status'] ?? '').toString().toLowerCase();
+        final notesStr = (a['notes'] ?? '').toString().toLowerCase();
+
+        final isExcused = statusStr.contains('sakit') ||
+            statusStr.contains('izin') ||
+            statusStr.contains('cuti') ||
+            statusStr.contains('paid_leave') ||
+            notesStr.contains('sakit') ||
+            notesStr.contains('izin') ||
+            notesStr.contains('cuti');
+
+        if (isExcused) {
+          excusedDays++;
+        } else if (a['check_in_time'] != null) {
+          presentDays++;
+        }
+      }
+
+      final totalPayableDays = presentDays + excusedDays;
+
+      // 3. Work Schedule & Scheduled Workdays Calculation
       final schedRes = await _supabase
           .from('user_work_schedules')
           .select('day_of_week, start_time, late_tolerance_minutes, is_active')
@@ -279,22 +301,29 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
       for (int d = 1; d <= lastDay; d++) {
         final date = DateTime(year, month, d);
         final dow = date.weekday == 7 ? 0 : date.weekday;
-        if (activeDays.isEmpty || activeDays.contains(dow)) {
-          totalScheduledWorkdays++;
+        if (activeDays.isNotEmpty) {
+          if (activeDays.contains(dow)) totalScheduledWorkdays++;
+        } else {
+          if (dow >= 1 && dow <= 6) totalScheduledWorkdays++;
         }
       }
-      if (totalScheduledWorkdays == 0) totalScheduledWorkdays = 22;
-      final absentDays = (totalScheduledWorkdays - presentDays) > 0 ? (totalScheduledWorkdays - presentDays) : 0;
 
+      int absentDays = 0;
       double finalBaseSalary = baseSal;
+      double totalAbsentDeduction = 0;
+
       if (salaryType == 'daily') {
-        finalBaseSalary = presentDays * dailyRate;
+        finalBaseSalary = totalPayableDays * dailyRate;
+        totalAbsentDeduction = 0;
       } else if (salaryType == 'hourly') {
-        finalBaseSalary = (presentDays * 8) * hourlyRate;
+        finalBaseSalary = (totalPayableDays * 8) * hourlyRate;
+        totalAbsentDeduction = 0;
+      } else {
+        absentDays = (totalScheduledWorkdays - totalPayableDays) > 0 ? (totalScheduledWorkdays - totalPayableDays) : 0;
+        totalAbsentDeduction = absentDays * absentRate;
       }
 
       final totalLatePenalty = lateMinutesTotal * lateRate;
-      final totalAbsentDeduction = absentDays * absentRate;
 
       setState(() {
         _baseSalaryController.text = _formatNumber(finalBaseSalary);
@@ -303,7 +332,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
         _absentDeductionController.text = _formatNumber(totalAbsentDeduction);
       });
 
-      AppUi.showSnack('Kalkulasi otomatis selesai: $presentDays hari masuk, $absentDays hari absen, $lateMinutesTotal mnt telat, lembur Rp ${_formatNumber(totalOvertime)}');
+      AppUi.showSnack('Kalkulasi otomatis selesai: $presentDays masukan, $excusedDays izin/sakit, $absentDays absen, $lateMinutesTotal mnt telat, lembur Rp ${_formatNumber(totalOvertime)}');
     } catch (e) {
       debugPrint('Error auto-calculating payroll: $e');
     }
