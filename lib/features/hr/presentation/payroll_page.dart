@@ -246,6 +246,21 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
           .lte('date', lastDayStr);
       final attList = (attRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
+      // 2b. Approved Leave/Sick Requests Calculation
+      final leaveRes = await _supabase
+          .from('leave_requests')
+          .select('start_date, end_date, total_days, leave_type')
+          .eq('user_id', userId)
+          .eq('status', 'approved')
+          .gte('start_date', firstDayStr)
+          .lte('start_date', lastDayStr);
+      final leaveList = (leaveRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+
+      int approvedLeaveDays = 0;
+      for (final l in leaveList) {
+        approvedLeaveDays += AppUi.toNum(l['total_days']).toInt();
+      }
+
       int presentDays = 0;
       int excusedDays = 0;
       for (final a in attList) {
@@ -267,9 +282,25 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
         }
       }
 
-      final totalPayableDays = presentDays + excusedDays;
+      final effectiveExcusedDays = excusedDays > approvedLeaveDays ? excusedDays : approvedLeaveDays;
+      final totalPayableDays = presentDays + effectiveExcusedDays;
 
-      // 3. Work Schedule & Scheduled Workdays Calculation
+      // 3. Approved Shift Change Requests for the month
+      final shiftChangeRes = await _supabase
+          .from('shift_change_requests')
+          .select('shift_date, new_start_time, new_end_time')
+          .eq('user_id', userId)
+          .eq('status', 'approved')
+          .gte('shift_date', firstDayStr)
+          .lte('shift_date', lastDayStr);
+      final shiftChangeMap = <String, String>{};
+      for (final sc in (shiftChangeRes as List)) {
+        if (sc['shift_date'] != null && sc['new_start_time'] != null) {
+          shiftChangeMap[sc['shift_date'].toString()] = sc['new_start_time'].toString();
+        }
+      }
+
+      // 4. Work Schedule & Late Minutes Calculation
       final schedRes = await _supabase
           .from('user_work_schedules')
           .select('day_of_week, start_time, late_tolerance_minutes, is_active')
@@ -282,10 +313,19 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
         if (a['check_in_time'] != null && a['date'] != null) {
           try {
             final dt = DateTime.parse(a['check_in_time']).toUtc().add(const Duration(hours: 7));
+            final dateStr = a['date']?.toString() ?? DateFormat('yyyy-MM-dd').format(dt);
             final dayOfWeek = dt.weekday == 7 ? 0 : dt.weekday;
             final matchSched = schedList.firstWhere((s) => s['day_of_week'] == dayOfWeek, orElse: () => {});
-            if (matchSched.isNotEmpty && matchSched['start_time'] != null) {
-              final parts = matchSched['start_time'].toString().split(':');
+
+            String startTimeStr = '';
+            if (shiftChangeMap.containsKey(dateStr)) {
+              startTimeStr = shiftChangeMap[dateStr]!;
+            } else if (matchSched.isNotEmpty && matchSched['start_time'] != null) {
+              startTimeStr = matchSched['start_time'].toString();
+            }
+
+            if (startTimeStr.isNotEmpty) {
+              final parts = startTimeStr.split(':');
               final schedStartMin = int.parse(parts[0]) * 60 + int.parse(parts[1]);
               final checkInMin = dt.hour * 60 + dt.minute;
               final tolerance = (matchSched['late_tolerance_minutes'] ?? 15) as int;
