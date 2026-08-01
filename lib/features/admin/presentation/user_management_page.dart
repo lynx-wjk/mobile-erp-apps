@@ -190,10 +190,13 @@ class _UserManagementPageState extends State<UserManagementPage> {
   bool _canDeleteUser(Map<String, dynamic> user) {
     if (!_isSuperAdmin || _isDemoSuperAdmin) return false;
     final targetRole = AppUi.text(user['role_id']).toLowerCase();
-    if (targetRole == 'platform_owner') {
+    final targetUserId = user['user_id']?.toString();
+    final currentUserId = _client.auth.currentUser?.id;
+
+    if (targetRole == 'platform_owner' || (targetUserId != null && targetUserId == currentUserId)) {
       return false;
     }
-    return !AppRolePermissions.isDemoSuperAdminId(targetRole);
+    return true;
   }
 
   bool _canAssignRole(String role) {
