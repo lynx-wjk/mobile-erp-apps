@@ -223,10 +223,6 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
         baseSal = _parseVal(_baseSalaryController);
       }
       if (baseSal <= 0) {
-        final uRes = await _supabase.from('users').select('gaji_pokok').eq('user_id', userId).maybeSingle();
-        baseSal = AppUi.toNum(uRes?['gaji_pokok']).toDouble();
-      }
-      if (baseSal <= 0) {
         baseSal = 200000;
       }
 
