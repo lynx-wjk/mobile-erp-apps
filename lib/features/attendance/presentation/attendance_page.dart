@@ -1060,9 +1060,13 @@ class _AbsensiPageState extends State<AbsensiPage> {
                                         child: ListTile(
                                           title: Text('${AppUi.text(r['user_name'])} • ${r['report_date']}'),
                                           subtitle: Text('Tipe: ${r['issue_type']}\nKet: ${r['description']}\nStatus: ${r['status']}'),
-                                          trailing: isResolved
-                                              ? const Chip(label: Text('RESOLVED'), backgroundColor: Colors.greenAccent)
-                                              : ElevatedButton(
+                                          trailing: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (isResolved)
+                                                const Chip(label: Text('RESOLVED'), backgroundColor: Colors.greenAccent)
+                                              else
+                                                ElevatedButton(
                                                   onPressed: () async {
                                                     await _client.from('attendance_bug_reports').update({
                                                       'status': 'resolved',
@@ -1077,6 +1081,45 @@ class _AbsensiPageState extends State<AbsensiPage> {
                                                   },
                                                   child: const Text('Resolve'),
                                                 ),
+                                              if (_isSuperAdmin) ...[
+                                                const SizedBox(width: 4),
+                                                IconButton(
+                                                  icon: Icon(Icons.delete_outline, color: AppUi.red),
+                                                  tooltip: 'Hapus Laporan Kendala',
+                                                  onPressed: () async {
+                                                    final confirm = await showDialog<bool>(
+                                                      context: context,
+                                                      builder: (ctx) => AlertDialog(
+                                                        title: const Text('Hapus Laporan Kendala?'),
+                                                        content: const Text('Laporan kendala ini akan dihapus permanen.'),
+                                                        actions: [
+                                                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+                                                          FilledButton(
+                                                            onPressed: () => Navigator.pop(ctx, true),
+                                                            style: FilledButton.styleFrom(backgroundColor: AppUi.red),
+                                                            child: const Text('Hapus'),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    );
+                                                    if (confirm != true) return;
+                                                    try {
+                                                      await _client.rpc('delete_record_for_super_admin', params: {
+                                                        'p_table_name': 'attendance_bug_reports',
+                                                        'p_record_id': r['report_id'],
+                                                      });
+                                                      setModalState(() {
+                                                        bugReports.removeAt(i);
+                                                      });
+                                                      AppUi.showSnack('Laporan kendala berhasil dihapus!');
+                                                    } catch (e) {
+                                                      AppUi.showSnack('Gagal menghapus laporan: $e', isError: true);
+                                                    }
+                                                  },
+                                                ),
+                                              ],
+                                            ],
+                                          ),
                                         ),
                                       );
                                     },
