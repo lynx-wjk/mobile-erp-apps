@@ -546,12 +546,16 @@ class _AbsensiPageState extends State<AbsensiPage> {
     final title = schedule == null
         ? 'Jadwal kerja belum diset'
         : schedule.isWorkday
-            ? 'Jadwal hari ini ${schedule.startLabel} - ${schedule.endLabel}'
+            ? (schedule.hasShiftOverride
+                ? 'Jadwal Hari Ini: ${schedule.startLabel} - ${schedule.endLabel} (Tukar Shift)'
+                : 'Jadwal Hari Ini: ${schedule.startLabel} - ${schedule.endLabel}')
             : 'Tidak ada jadwal aktif hari ini';
     final subtitle = schedule == null
         ? 'Isi jam kerja di Set Lokasi agar check-in bisa otomatis menandai tepat waktu atau telat.'
         : schedule.isWorkday
-            ? '${schedule.isLate ? 'Indikasi sekarang: telat ${schedule.lateMinutes} menit' : 'Indikasi sekarang: tepat waktu'} • toleransi ${schedule.toleranceMinutes} menit'
+            ? (schedule.hasShiftOverride
+                ? 'Jadwal Asli: ${schedule.originalStartLabel} - ${schedule.originalEndLabel} (Ditukar ke ${schedule.startLabel} - ${schedule.endLabel}) • ${schedule.isLate ? 'Indikasi: telat ${schedule.lateMinutes} m' : 'Indikasi: Tepat Waktu'}'
+                : '${schedule.isLate ? 'Indikasi sekarang: telat ${schedule.lateMinutes} menit' : 'Indikasi sekarang: tepat waktu'} • toleransi ${schedule.toleranceMinutes} menit')
             : 'Check-in tetap boleh dilakukan, tetapi tidak ditandai telat.';
     final color =
         schedule != null && schedule.isLate ? AppUi.orange : AppUi.teal;
@@ -1289,6 +1293,9 @@ class _TodayWorkSchedule {
   final int toleranceMinutes;
   final String startLabel;
   final String endLabel;
+  final String originalStartLabel;
+  final String originalEndLabel;
+  final bool hasShiftOverride;
 
   const _TodayWorkSchedule({
     required this.isWorkday,
@@ -1297,6 +1304,9 @@ class _TodayWorkSchedule {
     required this.toleranceMinutes,
     required this.startLabel,
     required this.endLabel,
+    required this.originalStartLabel,
+    required this.originalEndLabel,
+    required this.hasShiftOverride,
   });
 
   factory _TodayWorkSchedule.fromMap(Map<String, dynamic> map) {
@@ -1307,6 +1317,9 @@ class _TodayWorkSchedule {
       toleranceMinutes: _toInt(map['tolerance_minutes']),
       startLabel: _formatTime(map['start_time']),
       endLabel: _formatTime(map['end_time']),
+      originalStartLabel: _formatTime(map['original_start_time']),
+      originalEndLabel: _formatTime(map['original_end_time']),
+      hasShiftOverride: map['has_shift_override'] == true,
     );
   }
 

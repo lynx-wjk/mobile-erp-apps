@@ -179,25 +179,19 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
       _myShiftChangeRequests = (myShiftRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
       if (_isApprover) {
-        final pendingRes = await _client
-            .from('overtime_requests')
-            .select()
-            .order('created_at', ascending: false)
-            .limit(100);
+        var pQuery = _client.from('overtime_requests').select();
+        if (_tenantId != null && _tenantId!.isNotEmpty) pQuery = pQuery.eq('tenant_id', _tenantId!);
+        final pendingRes = await pQuery.order('created_at', ascending: false).limit(100);
         _pendingRequests = (pendingRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
-        final allLeaveRes = await _client
-            .from('leave_requests')
-            .select()
-            .order('created_at', ascending: false)
-            .limit(100);
+        var lQuery = _client.from('leave_requests').select();
+        if (_tenantId != null && _tenantId!.isNotEmpty) lQuery = lQuery.eq('tenant_id', _tenantId!);
+        final allLeaveRes = await lQuery.order('created_at', ascending: false).limit(100);
         _allLeaveRequests = (allLeaveRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
-        final allShiftRes = await _client
-            .from('shift_change_requests')
-            .select()
-            .order('created_at', ascending: false)
-            .limit(100);
+        var sQuery = _client.from('shift_change_requests').select();
+        if (_tenantId != null && _tenantId!.isNotEmpty) sQuery = sQuery.eq('tenant_id', _tenantId!);
+        final allShiftRes = await sQuery.order('created_at', ascending: false).limit(100);
         _allShiftChangeRequests = (allShiftRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
       }
     } catch (e) {
