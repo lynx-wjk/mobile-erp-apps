@@ -4333,6 +4333,15 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  _DashboardMenu _overtimeMenu() {
+    return _DashboardMenu(
+      Icons.more_time_rounded,
+      'Pengajuan Lembur',
+      'Ajukan dan setujui lembur (overtime) karyawan.',
+      () => _open(OvertimePage(currentUser: _requiredAppUser)),
+    );
+  }
+
   List<_DashboardMenu> _superAdminAllRoleMenus() {
     return [
       _DashboardMenu(
@@ -4442,6 +4451,7 @@ class _DashboardPageState extends State<DashboardPage> {
       _DashboardMenu(Icons.store_rounded, 'Supplier',
           'Kelola data supplier pembelian.', () => _open(const SupplierPage())),
       _attendanceMenu(),
+      _overtimeMenu(),
       _DashboardMenu(
           Icons.badge_rounded,
           'Payroll & Slip Gaji',
@@ -4514,6 +4524,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Tambah stok masuk dari produksi atau retur.',
             () => _open(const StockInPage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(
             Icons.history_rounded,
             'Riwayat',
@@ -4602,6 +4613,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Cek pengeluaran barang dan validasi resi.',
             () => _open(const StockHistoryPage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(Icons.task_alt_rounded, 'Monitoring Tugas',
             'Cek progres tugas karyawan.', () => _open(const TaskPage())),
         _DashboardMenu(
@@ -4657,6 +4669,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Pantau mutasi dana masuk dan keluar.',
             () => _open(const FinanceReportPage(initialTabIndex: 3))),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(
             Icons.task_alt_rounded,
             'Tugas Finance',
@@ -4677,6 +4690,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Input kebutuhan barang dan lampirkan nota.',
             () => _open(const PurchaseRequestPage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(
             Icons.task_alt_rounded,
             'Tugas',
@@ -4702,6 +4716,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Upload bukti sesi live sesuai jadwal.',
             () => _open(const HostLivePage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(
             Icons.task_alt_rounded,
             'Tugas',
@@ -4722,6 +4737,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Review konten creator: approve, revisi, atau reject.',
             () => _open(const ContentMonitoringPage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(Icons.live_tv_rounded, 'Verifikasi Live',
             'Review bukti kerja host live.', () => _open(const HostLivePage())),
         _DashboardMenu(Icons.task_alt_rounded, 'Monitoring Tugas',
@@ -4736,6 +4752,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Lihat brief dan upload bukti konten.',
             () => _open(const TaskPage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(
             Icons.video_collection_rounded,
             'Konten',
@@ -4810,6 +4827,7 @@ class _DashboardPageState extends State<DashboardPage> {
           'Pantau update order, payout, dan antrean.',
           () => _open(const MarketplaceDispatcherMonitorPage())),
       _attendanceMenu(),
+      _overtimeMenu(),
       _DashboardMenu(
           Icons.task_alt_rounded,
           'Monitoring Tugas',

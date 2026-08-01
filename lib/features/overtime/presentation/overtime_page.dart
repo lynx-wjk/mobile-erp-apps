@@ -30,12 +30,23 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
   final _endTimeController = TextEditingController(text: '19:00');
   final _reasonController = TextEditingController();
 
+  String _userRoleId = '';
+
   bool get _isApprover {
-    final role = (widget.currentUser?.role ?? _client.auth.currentUser?.appMetadata['role_id'] ?? '').toString().toLowerCase();
+    final role = (_userRoleId.isNotEmpty
+            ? _userRoleId
+            : (widget.currentUser?.role ??
+                _client.auth.currentUser?.userMetadata?['role_id'] ??
+                _client.auth.currentUser?.appMetadata['role_id'] ??
+                ''))
+        .toString()
+        .toLowerCase();
     return role.contains('super_admin') ||
         role.contains('finance') ||
         role.contains('hr') ||
-        role.contains('admin');
+        role.contains('admin') ||
+        role == 'super_admin' ||
+        role == 'demo_super_admin';
   }
 
   @override
@@ -63,6 +74,12 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
 
       final profileRes = await _client.from('users').select('tenant_id, nama, email, role_id').eq('user_id', user.id).maybeSingle();
       _tenantId = profileRes?['tenant_id']?.toString() ?? '';
+      _userRoleId = profileRes?['role_id']?.toString().toLowerCase() ?? '';
+
+      if (_isApprover && _tabController.length != 2) {
+        _tabController.dispose();
+        _tabController = TabController(length: 2, vsync: this);
+      }
 
       final myRes = await _client
           .from('overtime_requests')
