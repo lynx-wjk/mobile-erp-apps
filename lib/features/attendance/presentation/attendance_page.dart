@@ -164,8 +164,31 @@ class _AbsensiPageState extends State<AbsensiPage> {
         'attendance_today_schedule',
         params: {'p_user_id': userId},
       );
-      if (response == null || response is! Map) return null;
-      return _TodayWorkSchedule.fromMap(Map<String, dynamic>.from(response));
+      Map<String, dynamic>? data = response == null || response is! Map
+          ? null
+          : Map<String, dynamic>.from(response);
+
+      final nowWib = DateTime.now().toUtc().add(const Duration(hours: 7));
+      final dateStr = DateFormat('yyyy-MM-dd').format(nowWib);
+      final shiftChange = await _client
+          .from('shift_change_requests')
+          .select('new_start_time, new_end_time')
+          .eq('user_id', userId)
+          .eq('shift_date', dateStr)
+          .eq('status', 'approved')
+          .maybeSingle();
+
+      if (shiftChange != null) {
+        data ??= {'is_workday': true};
+        data['original_start_time'] = data['start_time'];
+        data['original_end_time'] = data['end_time'];
+        data['start_time'] = shiftChange['new_start_time'];
+        data['end_time'] = shiftChange['new_end_time'];
+        data['has_shift_override'] = true;
+      }
+
+      if (data == null) return null;
+      return _TodayWorkSchedule.fromMap(data);
     } catch (_) {
       return null;
     }
