@@ -53,6 +53,14 @@ class _AbsensiPageState extends State<AbsensiPage> {
         role == 'hr';
   }
 
+  bool get _isAuthorizedOverrideRole {
+    final role = AppUi.text(_profile?['role_id']).toLowerCase();
+    return role.contains('super_admin') ||
+        role.contains('finance') ||
+        role.contains('hr') ||
+        role.contains('admin');
+  }
+
   bool get _isSuperAdmin =>
       AppUi.text(_profile?['role_id']).toLowerCase() == 'super_admin';
 
@@ -488,6 +496,313 @@ class _AbsensiPageState extends State<AbsensiPage> {
     );
   }
 
+  Future<void> _showReportBugModal() async {
+    final dateController = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
+    final descController = TextEditingController();
+    String issueType = 'Aplikasi Error / Crash';
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return Container(
+            padding: EdgeInsets.only(
+              left: 20, right: 20, top: 20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+            ),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: Colors.grey.withOpacity(0.4), borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text('Laporkan Kendala Absensi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const Text('Kirim laporan jika HP / GPS / Aplikasi mengalami kendala absensi.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: dateController,
+                  decoration: const InputDecoration(labelText: 'Tanggal Kendala (yyyy-MM-dd)', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: issueType,
+                  decoration: const InputDecoration(labelText: 'Tipe Kendala', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'Aplikasi Error / Crash', child: Text('Aplikasi Error / Crash')),
+                    DropdownMenuItem(value: 'GPS / Lokasi Bermasalah', child: Text('GPS / Lokasi Bermasalah')),
+                    DropdownMenuItem(value: 'HP / Perangkat Bermasalah', child: Text('HP / Perangkat Bermasalah')),
+                    DropdownMenuItem(value: 'Lainnya', child: Text('Lainnya')),
+                  ],
+                  onChanged: (v) => setModalState(() => issueType = v ?? issueType),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Deskripsi Detail Kendala', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () async {
+                      if (descController.text.trim().isEmpty) {
+                        AppUi.showSnack('Deskripsi kendala wajib diisi');
+                        return;
+                      }
+                      try {
+                        final user = _client.auth.currentUser;
+                        final profile = await _currentProfile();
+                        await _client.from('attendance_bug_reports').insert({
+                          'tenant_id': profile?['tenant_id'] ?? _profile?['tenant_id'],
+                          'user_id': user!.id,
+                          'user_name': profile?['nama'] ?? 'Karyawan',
+                          'user_email': profile?['email'] ?? '',
+                          'role_id': profile?['role_id'] ?? 'staff',
+                          'report_date': dateController.text.trim(),
+                          'issue_type': issueType,
+                          'description': descController.text.trim(),
+                          'status': 'pending',
+                          'created_at': DateTime.now().toUtc().toIso8601String(),
+                        });
+                        Navigator.pop(ctx);
+                        AppUi.showSnack('Laporan kendala berhasil dikirim ke Super Admin / HR / Finance.');
+                      } catch (e) {
+                        AppUi.showSnack('Gagal mengirim laporan: $e');
+                      }
+                    },
+                    icon: const Icon(Icons.send_rounded),
+                    label: const Text('Kirim Laporan Kendala'),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showBugReportsAndOverrideModal() async {
+    List<Map<String, dynamic>> bugReports = [];
+    List<Map<String, dynamic>> allUsers = [];
+    bool isLoadingModal = true;
+
+    try {
+      final repRes = await _client.from('attendance_bug_reports').select().order('created_at', ascending: false).limit(50);
+      bugReports = (repRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+
+      final usrRes = await _client.from('users').select('user_id, nama, email, role_id').eq('status', 'active');
+      allUsers = (usrRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+    } catch (e) {
+      debugPrint('Error loading bug reports: $e');
+    }
+    isLoadingModal = false;
+
+    final user = _client.auth.currentUser;
+    final profile = await _currentProfile();
+
+    Map<String, dynamic>? selectedUserForOverride = allUsers.isNotEmpty ? allUsers.first : null;
+    final overrideDateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
+    final overrideInTimeCtrl = TextEditingController(text: '08:00');
+    final overrideOutTimeCtrl = TextEditingController(text: '17:00');
+    final overrideNoteCtrl = TextEditingController(text: 'Manual Override oleh HR / Finance / Super Admin');
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return DefaultTabController(
+            length: 2,
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.85,
+              padding: EdgeInsets.only(
+                left: 16, right: 16, top: 16,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+              ),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0F172A) : Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: Colors.grey.withOpacity(0.4), borderRadius: BorderRadius.circular(2)),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Laporan Kendala & Manual Override Absensi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 8),
+                  const TabBar(
+                    tabs: [
+                      Tab(text: 'Laporan Kendala'),
+                      Tab(text: 'Manual Override Absensi'),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        isLoadingModal
+                            ? const Center(child: CircularProgressIndicator())
+                            : bugReports.isEmpty
+                                ? const Center(child: Text('Belum ada laporan kendala.'))
+                                : ListView.builder(
+                                    itemCount: bugReports.length,
+                                    itemBuilder: (context, i) {
+                                      final r = bugReports[i];
+                                      final isResolved = r['status'] == 'resolved';
+                                      return Card(
+                                        margin: const EdgeInsets.only(bottom: 10),
+                                        child: ListTile(
+                                          title: Text('${AppUi.text(r['user_name'])} • ${r['report_date']}'),
+                                          subtitle: Text('Tipe: ${r['issue_type']}\nKet: ${r['description']}\nStatus: ${r['status']}'),
+                                          trailing: isResolved
+                                              ? const Chip(label: Text('RESOLVED'), backgroundColor: Colors.greenAccent)
+                                              : ElevatedButton(
+                                                  onPressed: () async {
+                                                    await _client.from('attendance_bug_reports').update({
+                                                      'status': 'resolved',
+                                                      'resolved_by': user!.id,
+                                                      'resolved_by_name': profile?['nama'] ?? 'Approver',
+                                                      'resolved_at': DateTime.now().toUtc().toIso8601String(),
+                                                    }).eq('report_id', r['report_id']);
+                                                    setModalState(() {
+                                                      r['status'] = 'resolved';
+                                                    });
+                                                    AppUi.showSnack('Laporan ditandai selesai!');
+                                                  },
+                                                  child: const Text('Resolve'),
+                                                ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                        SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              DropdownButtonFormField<Map<String, dynamic>>(
+                                value: selectedUserForOverride,
+                                decoration: const InputDecoration(labelText: 'Pilih Karyawan', border: OutlineInputBorder()),
+                                items: allUsers.map((u) {
+                                  return DropdownMenuItem(
+                                    value: u,
+                                    child: Text('${u['nama']} (${AppUi.text(u['role_id'])})'),
+                                  );
+                                }).toList(),
+                                onChanged: (val) => setModalState(() => selectedUserForOverride = val),
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: overrideDateCtrl,
+                                decoration: const InputDecoration(labelText: 'Tanggal (yyyy-MM-dd)', border: OutlineInputBorder()),
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: overrideInTimeCtrl,
+                                      decoration: const InputDecoration(labelText: 'Jam Check-In (HH:mm)', border: OutlineInputBorder()),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: overrideOutTimeCtrl,
+                                      decoration: const InputDecoration(labelText: 'Jam Check-Out (HH:mm)', border: OutlineInputBorder()),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: overrideNoteCtrl,
+                                decoration: const InputDecoration(labelText: 'Catatan Manual Override', border: OutlineInputBorder()),
+                              ),
+                              const SizedBox(height: 20),
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: () async {
+                                    if (selectedUserForOverride == null) return;
+                                    try {
+                                      final targetUserId = selectedUserForOverride!['user_id'];
+                                      final dateStr = overrideDateCtrl.text.trim();
+                                      final checkInStr = '${dateStr}T${overrideInTimeCtrl.text.trim()}:00.000Z';
+                                      final checkOutStr = '${dateStr}T${overrideOutTimeCtrl.text.trim()}:00.000Z';
+
+                                      final profileTarget = await _client.from('users').select('tenant_id, nama, email, role_id').eq('user_id', targetUserId).single();
+
+                                      await _client.from('attendance').upsert({
+                                        'tenant_id': profileTarget['tenant_id'],
+                                        'user_id': targetUserId,
+                                        'user_name': profileTarget['nama'],
+                                        'user_email': profileTarget['email'],
+                                        'role_id': profileTarget['role_id'],
+                                        'date': dateStr,
+                                        'status': 'manual_override',
+                                        'check_in_time': checkInStr,
+                                        'check_out_time': checkOutStr,
+                                        'notes': overrideNoteCtrl.text.trim(),
+                                      }, onConflict: 'tenant_id, user_id, date');
+
+                                      await _client.from('audit_logs').insert({
+                                        'user_id': user!.id,
+                                        'nama_user': profile?['nama'],
+                                        'role_id': profile?['role_id'],
+                                        'aktivitas': 'MANUAL_ATTENDANCE_OVERRIDE',
+                                        'modul': 'attendance',
+                                        'data_sesudah': {
+                                          'target_user_id': targetUserId,
+                                          'date': dateStr,
+                                          'check_in': checkInStr,
+                                          'check_out': checkOutStr,
+                                        },
+                                      });
+
+                                      Navigator.pop(ctx);
+                                      _loadData();
+                                      AppUi.showSnack('Manual override absensi berhasil disimpan!');
+                                    } catch (e) {
+                                      AppUi.showSnack('Gagal melakukan manual override: $e');
+                                    }
+                                  },
+                                  icon: const Icon(Icons.save_rounded),
+                                  label: const Text('Simpan Manual Override'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _body() {
     if (_isLoading) return const LoadingState();
     if (_errorMessage != null)
@@ -560,6 +875,27 @@ class _AbsensiPageState extends State<AbsensiPage> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _showReportBugModal,
+                    icon: const Icon(Icons.bug_report_outlined, color: Colors.orange),
+                    label: const Text('Laporkan Kendala Absensi'),
+                  ),
+                ),
+                if (_isAuthorizedOverrideRole) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _showBugReportsAndOverrideModal,
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
+                      icon: const Icon(Icons.verified_user_rounded),
+                      label: const Text('Laporan Kendala & Manual Override Absensi'),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
