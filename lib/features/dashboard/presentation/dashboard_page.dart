@@ -24,6 +24,7 @@ import '../../finance/presentation/purchase_verification_page.dart';
 import '../../host_live/presentation/host_live_page.dart';
 import '../../hr/presentation/hr_performance_page.dart';
 import '../../hr/presentation/payroll_page.dart';
+import '../../overtime/presentation/overtime_page.dart';
 
 import '../../marketplace/presentation/marketplace_accounts_page.dart';
 import '../../marketplace/presentation/marketplace_orders_page.dart';
@@ -3185,6 +3186,12 @@ class _DashboardPageState extends State<DashboardPage> {
             icon: Icons.how_to_reg_rounded,
             color: Theme.of(context).colorScheme.primary,
             onTap: () => _open(AbsensiPage(currentUser: _requiredAppUser))),
+        _OpsMetric(
+            label: 'Pengajuan Lembur',
+            value: 0,
+            icon: Icons.more_time_rounded,
+            color: const Color(0xFFF59E0B),
+            onTap: () => _open(OvertimePage(currentUser: _requiredAppUser))),
       ];
     }
 

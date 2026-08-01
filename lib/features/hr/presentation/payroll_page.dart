@@ -55,6 +55,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
   final _allowancePosController = TextEditingController(text: '0');
   final _allowanceMealTransController = TextEditingController(text: '0');
   final _bonusController = TextEditingController(text: '0');
+  final _annualBonusController = TextEditingController(text: '0');
   final _overtimeController = TextEditingController(text: '0');
 
   // Deductions
@@ -87,6 +88,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
     _allowancePosController.dispose();
     _allowanceMealTransController.dispose();
     _bonusController.dispose();
+    _annualBonusController.dispose();
     _overtimeController.dispose();
     _bpjsController.dispose();
     _latePenaltyController.dispose();
@@ -219,6 +221,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
         _parseVal(_allowancePosController) +
         _parseVal(_allowanceMealTransController) +
         _parseVal(_bonusController) +
+        _parseVal(_annualBonusController) +
         _parseVal(_overtimeController);
   }
 
@@ -277,6 +280,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
         if (_parseVal(_allowancePosController) > 0) {'title': 'Tunjangan Jabatan', 'amount': _parseVal(_allowancePosController)},
         if (_parseVal(_allowanceMealTransController) > 0) {'title': 'Tunjangan Makan & Transport', 'amount': _parseVal(_allowanceMealTransController)},
         if (_parseVal(_bonusController) > 0) {'title': 'Bonus Kinerja', 'amount': _parseVal(_bonusController)},
+        if (_parseVal(_annualBonusController) > 0) {'title': 'Bonus Tahunan', 'amount': _parseVal(_annualBonusController)},
         if (_parseVal(_overtimeController) > 0) {'title': 'Uang Lembur', 'amount': _parseVal(_overtimeController)},
       ];
 
@@ -348,6 +352,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
       if (_parseVal(_allowancePosController) > 0) ['Tunjangan Jabatan', _currencyFormat.format(_parseVal(_allowancePosController))],
       if (_parseVal(_allowanceMealTransController) > 0) ['Tunjangan Makan & Transport', _currencyFormat.format(_parseVal(_allowanceMealTransController))],
       if (_parseVal(_bonusController) > 0) ['Bonus Kinerja', _currencyFormat.format(_parseVal(_bonusController))],
+      if (_parseVal(_annualBonusController) > 0) ['Bonus Tahunan', _currencyFormat.format(_parseVal(_annualBonusController))],
       if (_parseVal(_overtimeController) > 0) ['Uang Lembur', _currencyFormat.format(_parseVal(_overtimeController))],
     ];
 
@@ -936,7 +941,13 @@ Team Finance & HR ${_companySettings['company_name']}
                     Expanded(child: _buildTextField(context, 'Bonus Kinerja (Rp)', _bonusController, isCurrency: true)),
                   ],
                 ),
-                _buildTextField(context, 'Uang Lembur (Rp)', _overtimeController, isCurrency: true),
+                Row(
+                  children: [
+                    Expanded(child: _buildTextField(context, 'Bonus Tahunan (Rp)', _annualBonusController, isCurrency: true)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildTextField(context, 'Uang Lembur (Rp)', _overtimeController, isCurrency: true)),
+                  ],
+                ),
 
                 Divider(color: isDark ? Colors.white12 : Colors.black12, height: 32),
 
@@ -995,7 +1006,7 @@ Team Finance & HR ${_companySettings['company_name']}
                   clipBehavior: Clip.antiAlias,
                   child: PdfPreview(
                     key: ValueKey(
-                      'pdf_${_selectedUser?['user_id']}_${_invoiceNumberController.text}_${_companySettings['company_name']}_${_companySettings['company_address']}_${_companySettings['company_phone']}_${_companySettings['company_email']}_${_companySettings['signatory_name']}_${_companySettings['signatory_title']}_${_baseSalaryController.text}_${_allowancePosController.text}_${_allowanceMealTransController.text}_${_bonusController.text}_${_overtimeController.text}_${_bpjsController.text}_${_latePenaltyController.text}_${_absentDeductionController.text}_${_loanController.text}_${_taxController.text}_${_nikController.text}_${_bankNameController.text}_${_bankNumberController.text}_${_bankHolderController.text}_${_selectedPeriod.millisecondsSinceEpoch}',
+                      'pdf_${_selectedUser?['user_id']}_${_invoiceNumberController.text}_${_companySettings['company_name']}_${_companySettings['company_address']}_${_companySettings['company_phone']}_${_companySettings['company_email']}_${_companySettings['signatory_name']}_${_companySettings['signatory_title']}_${_baseSalaryController.text}_${_allowancePosController.text}_${_allowanceMealTransController.text}_${_bonusController.text}_${_annualBonusController.text}_${_overtimeController.text}_${_bpjsController.text}_${_latePenaltyController.text}_${_absentDeductionController.text}_${_loanController.text}_${_taxController.text}_${_nikController.text}_${_bankNameController.text}_${_bankNumberController.text}_${_bankHolderController.text}_${_selectedPeriod.millisecondsSinceEpoch}',
                     ),
                     build: (format) => _buildPdfDocument(),
                     pdfFileName: _pdfFileName,

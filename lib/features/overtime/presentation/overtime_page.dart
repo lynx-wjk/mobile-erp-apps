@@ -1,0 +1,471 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../../core/ui/app_ui.dart';
+import '../../../models/app_user.dart';
+
+class OvertimePage extends StatefulWidget {
+  final AppUser? currentUser;
+
+  const OvertimePage({super.key, this.currentUser});
+
+  @override
+  State<OvertimePage> createState() => _OvertimePageState();
+}
+
+class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderStateMixin {
+  final SupabaseClient _client = Supabase.instance.client;
+  late TabController _tabController;
+
+  bool _isLoading = true;
+  bool _isSaving = false;
+  String? _tenantId;
+
+  List<Map<String, dynamic>> _myRequests = [];
+  List<Map<String, dynamic>> _pendingRequests = [];
+
+  final _dateController = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
+  final _startTimeController = TextEditingController(text: '17:00');
+  final _endTimeController = TextEditingController(text: '19:00');
+  final _reasonController = TextEditingController();
+
+  bool get _isApprover {
+    final role = (widget.currentUser?.role ?? _client.auth.currentUser?.appMetadata['role_id'] ?? '').toString().toLowerCase();
+    return role.contains('super_admin') ||
+        role.contains('finance') ||
+        role.contains('hr') ||
+        role.contains('admin');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: _isApprover ? 2 : 1, vsync: this);
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _dateController.dispose();
+    _startTimeController.dispose();
+    _endTimeController.dispose();
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      final user = _client.auth.currentUser;
+      if (user == null) return;
+
+      final profileRes = await _client.from('users').select('tenant_id, nama, email, role_id').eq('user_id', user.id).maybeSingle();
+      _tenantId = profileRes?['tenant_id']?.toString() ?? '';
+
+      final myRes = await _client
+          .from('overtime_requests')
+          .select()
+          .eq('user_id', user.id)
+          .order('created_at', ascending: false)
+          .limit(100);
+      _myRequests = (myRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+
+      if (_isApprover) {
+        final pendingRes = await _client
+            .from('overtime_requests')
+            .select()
+            .order('created_at', ascending: false)
+            .limit(100);
+        _pendingRequests = (pendingRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    } catch (e) {
+      debugPrint('Load overtime error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  double _calculateDurationHours() {
+    try {
+      final sParts = _startTimeController.text.trim().split(':');
+      final eParts = _endTimeController.text.trim().split(':');
+      if (sParts.length != 2 || eParts.length != 2) return 0;
+      final startMin = int.parse(sParts[0]) * 60 + int.parse(sParts[1]);
+      final endMin = int.parse(eParts[0]) * 60 + int.parse(eParts[1]);
+      if (endMin <= startMin) return 0;
+      return (endMin - startMin) / 60.0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<void> _submitOvertime() async {
+    final dateStr = _dateController.text.trim();
+    final startTime = _startTimeController.text.trim();
+    final endTime = _endTimeController.text.trim();
+    final reason = _reasonController.text.trim();
+    final duration = _calculateDurationHours();
+
+    if (duration <= 0) {
+      AppUi.showSnack('Jam selesai harus lebih dari jam mulai');
+      return;
+    }
+    if (reason.isEmpty) {
+      AppUi.showSnack('Alasan lembur wajib diisi');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      final user = _client.auth.currentUser;
+      final userProfile = await _client.from('users').select('nama, email, role_id, tenant_id').eq('user_id', user!.id).single();
+
+      final tenantId = userProfile['tenant_id'] ?? _tenantId;
+      const hourlyRate = 25000.0;
+      final totalAmount = duration * hourlyRate;
+
+      await _client.from('overtime_requests').insert({
+        'tenant_id': tenantId,
+        'user_id': user.id,
+        'user_name': userProfile['nama'] ?? 'Karyawan',
+        'user_email': userProfile['email'] ?? '',
+        'role_id': userProfile['role_id'] ?? 'staff',
+        'overtime_date': dateStr,
+        'start_time': startTime,
+        'end_time': endTime,
+        'duration_hours': duration,
+        'reason': reason,
+        'status': 'pending',
+        'hourly_rate': hourlyRate,
+        'total_amount': totalAmount,
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+
+      _reasonController.clear();
+      AppUi.showSnack('Pengajuan lembur berhasil dikirim!');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal mengirim lembur: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _approveOvertime(Map<String, dynamic> request) async {
+    final double defaultRate = AppUi.toNum(request['hourly_rate']).toDouble() > 0 ? AppUi.toNum(request['hourly_rate']).toDouble() : 25000.0;
+    final double duration = AppUi.toNum(request['duration_hours']).toDouble();
+
+    final rateController = TextEditingController(text: defaultRate.toStringAsFixed(0));
+    final totalController = TextEditingController(text: (duration * defaultRate).toStringAsFixed(0));
+
+    void updateCalculatedTotal() {
+      final rate = double.tryParse(rateController.text.trim()) ?? 0;
+      totalController.text = (duration * rate).toStringAsFixed(0);
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Setujui Pengajuan Lembur'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Karyawan: ${AppUi.text(request['user_name'])} (${AppUi.text(request['role_id'])})'),
+            Text('Tanggal: ${request['overtime_date']} (${request['start_time']} - ${request['end_time']})'),
+            Text('Durasi: ${duration.toStringAsFixed(1)} Jam'),
+            Text('Alasan: ${AppUi.text(request['reason'])}'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: rateController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Tarif Lembur Per Jam (Rp)',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => updateCalculatedTotal(),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: totalController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Total Uang Lembur (Rp)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Setujui')),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final user = _client.auth.currentUser;
+      final userProfile = await _client.from('users').select('nama').eq('user_id', user!.id).maybeSingle();
+      final approvedByName = userProfile?['nama'] ?? 'Approver';
+      final finalRate = double.tryParse(rateController.text.trim()) ?? defaultRate;
+      final finalTotal = double.tryParse(totalController.text.trim()) ?? (duration * finalRate);
+
+      await _client.from('overtime_requests').update({
+        'status': 'approved',
+        'hourly_rate': finalRate,
+        'total_amount': finalTotal,
+        'approved_by': user.id,
+        'approved_by_name': approvedByName,
+        'approved_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('overtime_id', request['overtime_id']);
+
+      AppUi.showSnack('Pengajuan lembur disetujui!');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal menyetujui lembur: $e');
+    }
+  }
+
+  Future<void> _rejectOvertime(Map<String, dynamic> request) async {
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Tolak Pengajuan Lembur'),
+        content: TextField(
+          controller: reasonController,
+          decoration: const InputDecoration(
+            labelText: 'Alasan Penolakan',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Tolak'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final user = _client.auth.currentUser;
+      final userProfile = await _client.from('users').select('nama').eq('user_id', user!.id).maybeSingle();
+
+      await _client.from('overtime_requests').update({
+        'status': 'rejected',
+        'rejection_reason': reasonController.text.trim(),
+        'approved_by': user.id,
+        'approved_by_name': userProfile?['nama'] ?? 'Approver',
+        'approved_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('overtime_id', request['overtime_id']);
+
+      AppUi.showSnack('Pengajuan lembur ditolak.');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal menolak lembur: $e');
+    }
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'approved':
+        return Colors.green;
+      case 'rejected':
+        return Colors.red;
+      default:
+        return Colors.orange;
+    }
+  }
+
+  Widget _buildMyTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        NiceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Form Pengajuan Lembur', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _dateController,
+                      decoration: const InputDecoration(labelText: 'Tanggal (yyyy-MM-dd)', border: OutlineInputBorder()),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _startTimeController,
+                      decoration: const InputDecoration(labelText: 'Jam Mulai (HH:mm)', border: OutlineInputBorder()),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _endTimeController,
+                      decoration: const InputDecoration(labelText: 'Jam Selesai (HH:mm)', border: OutlineInputBorder()),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text('Estimasi Durasi: ${_calculateDurationHours().toStringAsFixed(1)} Jam', style: const TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _reasonController,
+                maxLines: 2,
+                decoration: const InputDecoration(labelText: 'Alasan / Deskripsi Pekerjaan Lembur', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _isSaving ? null : _submitOvertime,
+                  icon: const Icon(Icons.send_rounded),
+                  label: Text(_isSaving ? 'Mengirim...' : 'Kirim Pengajuan Lembur'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text('Riwayat Pengajuan Lembur Saya (${_myRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 8),
+        if (_myRequests.isEmpty)
+          const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Belum ada riwayat pengajuan lembur.')))
+        else
+          ..._myRequests.map((req) {
+            final status = req['status']?.toString() ?? 'pending';
+            final color = _getStatusColor(status);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: NiceCard(
+                child: ListTile(
+                  title: Text('Tanggal: ${req['overtime_date']} (${req['start_time']} - ${req['end_time']})'),
+                  subtitle: Text('Durasi: ${AppUi.toNum(req['duration_hours']).toStringAsFixed(1)} Jam | Total: Rp ${AppUi.toNum(req['total_amount']).toStringAsFixed(0)}\nAlasan: ${AppUi.text(req['reason'])}'),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                    child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+                  ),
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  Widget _buildApproverTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text('Daftar Pengajuan Lembur (${_pendingRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 10),
+        if (_pendingRequests.isEmpty)
+          const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Tidak ada pengajuan lembur.')))
+        else
+          ..._pendingRequests.map((req) {
+            final status = req['status']?.toString() ?? 'pending';
+            final color = _getStatusColor(status);
+            final isPending = status == 'pending';
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: NiceCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${AppUi.text(req['user_name'])} • ${AppUi.text(req['role_id'])}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
+                          child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text('Tanggal: ${req['overtime_date']} (${req['start_time']} - ${req['end_time']}) | Durasi: ${AppUi.toNum(req['duration_hours']).toStringAsFixed(1)} Jam'),
+                    Text('Tarif: Rp ${AppUi.toNum(req['hourly_rate']).toStringAsFixed(0)}/jam | Total: Rp ${AppUi.toNum(req['total_amount']).toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                    Text('Alasan: ${AppUi.text(req['reason'])}'),
+                    if (isPending) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _rejectOvertime(req),
+                              style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              label: const Text('Tolak'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () => _approveOvertime(req),
+                              icon: const Icon(Icons.check_rounded, size: 18),
+                              label: const Text('Setujui & Edit Rate'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pengajuan Lembur (Overtime)'),
+        bottom: _isApprover
+            ? TabBar(
+                controller: _tabController,
+                tabs: const [
+                  Tab(text: 'Pengajuan Saya'),
+                  Tab(text: 'Persetujuan Lembur'),
+                ],
+              )
+            : null,
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _isApprover
+              ? TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildMyTab(),
+                    _buildApproverTab(),
+                  ],
+                )
+              : _buildMyTab(),
+    );
+  }
+}

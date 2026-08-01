@@ -177,7 +177,26 @@ class _AbsensiPageState extends State<AbsensiPage> {
       throw Exception('Izin lokasi ditolak');
     }
 
-    return Geolocator.getCurrentPosition();
+    final pos = await Geolocator.getCurrentPosition();
+    if (pos.isMocked) {
+      final profile = await _currentProfile();
+      try {
+        await _client.from('audit_logs').insert({
+          'user_id': profile?['user_id'],
+          'nama_user': profile?['nama'],
+          'role_id': profile?['role_id'],
+          'aktivitas': 'FAKE_LOCATION_DETECTED',
+          'modul': 'attendance',
+          'data_sesudah': {
+            'latitude': pos.latitude,
+            'longitude': pos.longitude,
+            'is_mocked': pos.isMocked,
+          },
+        });
+      } catch (_) {}
+      throw Exception('Aplikasi Fake Location / Mock GPS terdeteksi! Absensi ditolak.');
+    }
+    return pos;
   }
 
   _LocationCheck _checkLocation(Position position) {
