@@ -363,9 +363,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
 
       if (!mounted) return;
       _noteController.clear();
-      rootScaffoldMessengerKey.currentState?.showSnackBar(
-        SnackBar(content: Text('Check-in berhasil (${location.status})')),
-      );
+      AppUi.showSnack('Check-in berhasil (${location.status})');
       _loadData();
     } catch (error) {
       if (!mounted) return;
@@ -373,13 +371,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
       if (userMsg.contains('23505') || userMsg.contains('uq_attendance_tenant_user_date') || userMsg.contains('duplicate key')) {
         userMsg = 'Tidak dapat Check-In dikarenakan data absensi/izin Anda sudah tersedia untuk tanggal hari ini.';
       }
-      rootScaffoldMessengerKey.currentState?.showSnackBar(
-        SnackBar(
-          content: Text(userMsg),
-          backgroundColor: Colors.red.shade700,
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      AppUi.showSnack(userMsg, isError: true);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -394,17 +386,19 @@ class _AbsensiPageState extends State<AbsensiPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Hapus data attendance?'),
+        title: const Text('Hapus data absensi?'),
         content: Text(
-            "Data attendance ${AppUi.text(attendance['user_name'] ?? attendance['nama_user'])} tanggal ${AppUi.date(attendance['date'])} akan dihapus."),
+            'Data absensi ${attendance['user_name']} (${attendance['date']}) akan dihapus permanen.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text('Batal')),
-          FilledButton.icon(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              icon: Icon(Icons.delete_outline),
-              label: Text('Hapus')),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: AppUi.red),
+            child: const Text('Hapus Permanen'),
+          ),
         ],
       ),
     );
@@ -412,14 +406,26 @@ class _AbsensiPageState extends State<AbsensiPage> {
     if (confirmed != true) return;
 
     try {
-      await _client.rpc('delete_record_for_super_admin', params: {
-        'p_table_name': 'attendance',
-        'p_record_id': id,
+      final res = await _client.rpc('delete_record_for_super_admin', params: {
+        'p_table': 'attendance',
+        'p_id_column': 'attendance_id',
+        'p_id_value': id,
       });
-      AppUi.showSnack('Data absensi berhasil dihapus.');
-      await _loadData();
+
+      final isSuccess = res != null &&
+          (res['success'] == true ||
+              res['success'] == 'true' ||
+              res['deleted'] == true);
+
+      if (!isSuccess) {
+        throw Exception(
+            res?['message'] ?? 'Gagal menghapus log absensi di database');
+      }
+
+      AppUi.showSnack('Data absensi berhasil dihapus!');
+      _loadData();
     } catch (error) {
-      AppUi.showSnack('Gagal hapus attendance: $error');
+      AppUi.showSnack('Gagal hapus attendance: $error', isError: true);
     }
   }
 
@@ -430,14 +436,10 @@ class _AbsensiPageState extends State<AbsensiPage> {
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('attendance_id', item['attendance_id']);
 
-      rootScaffoldMessengerKey.currentState?.showSnackBar(
-        const SnackBar(content: Text('Status Pulang Awal berhasil disetujui!')),
-      );
+      AppUi.showSnack('Status Pulang Awal berhasil disetujui!');
       _loadData();
     } catch (e) {
-      rootScaffoldMessengerKey.currentState?.showSnackBar(
-        SnackBar(content: Text('Gagal menyetujui pulang awal: $e')),
-      );
+      AppUi.showSnack('Gagal menyetujui pulang awal: $e', isError: true);
     }
   }
 
@@ -487,53 +489,51 @@ class _AbsensiPageState extends State<AbsensiPage> {
               isEarly = true;
               final remainingMin = endMin - currentMin;
 
-              if (!isAuthorized) {
-                final earlyReasonCtrl = TextEditingController();
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: Row(
-                      children: const [
-                        Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                        SizedBox(width: 8),
-                        Text('Check-out Sebelum Jam Pulang'),
-                      ],
-                    ),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Jadwal kerja selesai pukul $endLabel (tersisa $remainingMin menit).'),
-                        const SizedBox(height: 10),
-                        const Text('Anda melakukan Check-out lebih awal. Wajib isi Alasan Pulang Awal untuk persetujuan HR / Admin:'),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: earlyReasonCtrl,
-                          maxLines: 2,
-                          decoration: const InputDecoration(
-                            labelText: 'Alasan Pulang Awal',
-                            hintText: 'Contoh: Sakit mendadak / Izin urusan keluarga...',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ],
-                    ),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
-                      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Kirim & Check-out')),
+              final earlyReasonCtrl = TextEditingController();
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: Row(
+                    children: const [
+                      Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                      SizedBox(width: 8),
+                      Text('Check-out Sebelum Jam Pulang'),
                     ],
                   ),
-                );
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Jadwal kerja selesai pukul $endLabel (tersisa $remainingMin menit).'),
+                      const SizedBox(height: 10),
+                      const Text('Anda melakukan Check-out lebih awal. Wajib isi Alasan Pulang Awal untuk persetujuan HR / Admin:'),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: earlyReasonCtrl,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Alasan Pulang Awal',
+                          hintText: 'Contoh: Sakit mendadak / Izin urusan keluarga...',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+                    FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Kirim & Check-out')),
+                  ],
+                ),
+              );
 
-                if (confirmed != true) {
-                  setState(() => _isSaving = false);
-                  return;
-                }
+              if (confirmed != true) {
+                setState(() => _isSaving = false);
+                return;
+              }
 
-                earlyReason = earlyReasonCtrl.text.trim();
-                if (earlyReason.isEmpty) {
-                  throw Exception('Alasan Pulang Awal wajib diisi.');
-                }
+              earlyReason = earlyReasonCtrl.text.trim();
+              if (earlyReason.isEmpty) {
+                throw Exception('Alasan Pulang Awal wajib diisi.');
               }
             }
           }
@@ -576,14 +576,12 @@ class _AbsensiPageState extends State<AbsensiPage> {
               ? 'Check-out berhasil (Disetujui otomatis sebagai Atasan)'
               : 'Check-out berhasil (Menunggu persetujuan Pulang Awal oleh HR/Admin)')
           : 'Check-out berhasil (${location.status})';
-      rootScaffoldMessengerKey.currentState?.showSnackBar(
-        SnackBar(content: Text(msg)),
-      );
+      AppUi.showSnack(msg);
       _loadData();
     } catch (error) {
       if (!mounted) return;
-      rootScaffoldMessengerKey.currentState
-          ?.showSnackBar(SnackBar(content: Text('Check out gagal: $error')));
+      String errStr = error.toString().replaceAll('Exception: ', '');
+      AppUi.showSnack('Check out gagal: $errStr', isError: true);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
