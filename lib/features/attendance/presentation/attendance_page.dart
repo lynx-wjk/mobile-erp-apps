@@ -379,6 +379,24 @@ class _AbsensiPageState extends State<AbsensiPage> {
     }
   }
 
+  Future<void> _approveEarlyLeave(Map<String, dynamic> item) async {
+    try {
+      await _client.from('attendance').update({
+        'status': 'valid',
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('attendance_id', item['attendance_id']);
+
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(content: Text('Status Pulang Awal berhasil disetujui!')),
+      );
+      _loadData();
+    } catch (e) {
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text('Gagal menyetujui pulang awal: $e')),
+      );
+    }
+  }
+
   Future<void> _checkOut() async {
     setState(() => _isSaving = true);
 
@@ -402,29 +420,116 @@ class _AbsensiPageState extends State<AbsensiPage> {
             'Di luar area ${location.locationName} ($distance meter). Check out ditolak.');
       }
 
+      // Check Early Check-out Guard against today's work schedule end_time
+      final schedule = _todaySchedule;
+      final isAuthorized = _isAuthorizedOverrideRole;
+
+      bool isEarly = false;
+      String earlyReason = '';
+
+      if (schedule != null && schedule.isWorkday && schedule.endLabel != '-') {
+        try {
+          final nowWib = DateTime.now().toUtc().add(const Duration(hours: 7));
+          final currentMin = nowWib.hour * 60 + nowWib.minute;
+          final endParts = schedule.endLabel.split(':');
+          if (endParts.length == 2) {
+            final endMin = int.parse(endParts[0]) * 60 + int.parse(endParts[1]);
+
+            if (currentMin < endMin) {
+              isEarly = true;
+              final remainingMin = endMin - currentMin;
+
+              if (!isAuthorized) {
+                final earlyReasonCtrl = TextEditingController();
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Row(
+                      children: const [
+                        Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Text('Check-out Sebelum Jam Pulang'),
+                      ],
+                    ),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Jadwal kerja selesai pukul ${schedule.endLabel} (tersisa $remainingMin menit).'),
+                        const SizedBox(height: 10),
+                        const Text('Anda melakukan Check-out lebih awal. Wajib isi Alasan Pulang Awal untuk persetujuan HR / Admin:'),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: earlyReasonCtrl,
+                          maxLines: 2,
+                          decoration: const InputDecoration(
+                            labelText: 'Alasan Pulang Awal',
+                            hintText: 'Contoh: Sakit mendadak / Izin urusan keluarga...',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+                      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Kirim & Check-out')),
+                    ],
+                  ),
+                );
+
+                if (confirmed != true) {
+                  setState(() => _isSaving = false);
+                  return;
+                }
+
+                earlyReason = earlyReasonCtrl.text.trim();
+                if (earlyReason.isEmpty) {
+                  throw Exception('Alasan Pulang Awal wajib diisi.');
+                }
+              }
+            }
+          }
+        } catch (e) {
+          if (e is Exception) rethrow;
+        }
+      }
+
       final nowUtc = DateTime.now().toUtc().toIso8601String();
+
+      final statusStr = isEarly
+          ? (isAuthorized ? 'valid' : 'early_leave_pending')
+          : (location.status == 'valid'
+              ? (AppUi.text(today['status']) == 'late' ? 'late' : 'valid')
+              : 'outside_area');
+
+      final finalNote = [
+        if (note.isNotEmpty) note,
+        if (isEarly && earlyReason.isNotEmpty) 'PULANG AWAL: $earlyReason',
+        'Lokasi checkout: ${location.locationName}',
+      ].join(' | ');
 
       await _client.from('attendance').update({
         'check_out_time': nowUtc,
         'check_out_lat': position.latitude,
         'check_out_lng': position.longitude,
         'check_out_distance_meter': location.distanceMeter,
-        'status': location.status == 'valid'
-            ? (AppUi.text(today['status']) == 'late' ? 'late' : 'valid')
-            : 'outside_area',
-        'note': note.isEmpty
-            ? today['note']
-            : '$note | Lokasi checkout: ${location.locationName}',
+        'status': statusStr,
+        'note': finalNote,
         'updated_at': nowUtc,
       }).eq('attendance_id', today['attendance_id']);
 
       await _insertLog(
-          profile: profile, type: 'CHECK_OUT', position: position, note: note);
+          profile: profile, type: 'CHECK_OUT', position: position, note: finalNote);
 
       if (!mounted) return;
       _noteController.clear();
+      final msg = isEarly
+          ? (isAuthorized
+              ? 'Check-out berhasil (Disetujui otomatis sebagai Atasan)'
+              : 'Check-out berhasil (Menunggu persetujuan Pulang Awal oleh HR/Admin)')
+          : 'Check-out berhasil (${location.status})';
       rootScaffoldMessengerKey.currentState?.showSnackBar(
-        SnackBar(content: Text('Check-out berhasil (${location.status})')),
+        SnackBar(content: Text(msg)),
       );
       _loadData();
     } catch (error) {
@@ -928,13 +1033,26 @@ class _AbsensiPageState extends State<AbsensiPage> {
                     'IN: ${AppUi.dateTime(item['check_in_time'])} (${AppUi.toNum(item['check_in_distance_meter']).toStringAsFixed(0)}m)\n'
                     'OUT: ${AppUi.dateTime(item['check_out_time'])} (${AppUi.toNum(item['check_out_distance_meter']).toStringAsFixed(0)}m)',
                   ),
-                  trailing: _isSuperAdmin
-                      ? IconButton(
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_isAuthorizedOverrideRole && status == 'early_leave_pending') ...[
+                        FilledButton.icon(
+                          onPressed: () => _approveEarlyLeave(item),
+                          style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.symmetric(horizontal: 8)),
+                          icon: const Icon(Icons.check_rounded, size: 16),
+                          label: const Text('Setujui Pulang Awal', style: TextStyle(fontSize: 11)),
+                        ),
+                      ],
+                      if (_isSuperAdmin) ...[
+                        IconButton(
                           tooltip: 'Hapus attendance',
                           onPressed: () => _deleteAbsensi(item),
                           icon: Icon(Icons.delete_outline, color: AppUi.red),
-                        )
-                      : null,
+                        ),
+                      ],
+                    ],
+                  ),
                   isThreeLine: true,
                 ),
               );
