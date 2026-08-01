@@ -922,7 +922,7 @@ Team Finance & HR ${_companySettings['company_name']}
           labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
           tabs: const [
             Tab(text: 'Buat Slip Gaji'),
-            Tab(text: 'Tarif & Jam Kerja'),
+            Tab(text: 'Tarif & Tipe Gaji'),
             Tab(text: 'Riwayat Slip Gaji'),
           ],
         ),
@@ -1315,12 +1315,12 @@ Team Finance & HR ${_companySettings['company_name']}
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          'Pengaturan Tarif & Jam Kerja Karyawan (${_activeUsers.length})',
+          'Pengaturan Tarif & Tipe Gaji Karyawan (${_activeUsers.length})',
           style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
         Text(
-          'Atur tipe gaji, tarif per hari/jam, jam kerja (start/end time), toleransi telat, dan tarif denda per karyawan.',
+          'Atur tipe gaji (Bulanan, Harian, Per Jam), tarif dasar, denda Keterlambatan (Rp/Menit), dan potongan Tidak Hadir (Rp/Hari) per karyawan.',
           style: GoogleFonts.inter(fontSize: 13, color: Colors.grey),
         ),
         const SizedBox(height: 16),
@@ -1371,10 +1371,6 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
   final _latePenaltyCtrl = TextEditingController(text: '0');
   final _absentPenaltyCtrl = TextEditingController(text: '0');
 
-  final _startTimeCtrl = TextEditingController(text: '08:00');
-  final _endTimeCtrl = TextEditingController(text: '17:00');
-  final _lateToleranceCtrl = TextEditingController(text: '15');
-
   @override
   void initState() {
     super.initState();
@@ -1388,9 +1384,6 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
     _hourlyRateCtrl.dispose();
     _latePenaltyCtrl.dispose();
     _absentPenaltyCtrl.dispose();
-    _startTimeCtrl.dispose();
-    _endTimeCtrl.dispose();
-    _lateToleranceCtrl.dispose();
     super.dispose();
   }
 
@@ -1414,22 +1407,6 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
         _hourlyRateCtrl.text = _fmtNum(prof['hourly_rate']);
         _latePenaltyCtrl.text = _fmtNum(prof['late_penalty_per_minute']);
         _absentPenaltyCtrl.text = _fmtNum(prof['absent_penalty_per_day']);
-      }
-
-      final sched = await widget.supabase
-          .from('user_work_schedules')
-          .select()
-          .eq('tenant_id', tenantId)
-          .eq('user_id', userId)
-          .limit(1)
-          .maybeSingle();
-
-      if (sched != null) {
-        final sTime = sched['start_time']?.toString() ?? '08:00:00';
-        final eTime = sched['end_time']?.toString() ?? '17:00:00';
-        _startTimeCtrl.text = sTime.length >= 5 ? sTime.substring(0, 5) : '08:00';
-        _endTimeCtrl.text = eTime.length >= 5 ? eTime.substring(0, 5) : '17:00';
-        _lateToleranceCtrl.text = (sched['late_tolerance_minutes'] ?? 15).toString();
       }
     } catch (e) {
       debugPrint('Error loading user config: $e');
@@ -1467,27 +1444,7 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'tenant_id, user_id');
 
-      final startTime = _startTimeCtrl.text.trim();
-      final endTime = _endTimeCtrl.text.trim();
-      final formattedStartTime = startTime.length == 5 ? '$startTime:00' : startTime;
-      final formattedEndTime = endTime.length == 5 ? '$endTime:00' : endTime;
-      final lateTolerance = int.tryParse(_lateToleranceCtrl.text.trim()) ?? 15;
-
-      for (int dow = 1; dow <= 6; dow++) {
-        await widget.supabase.from('user_work_schedules').upsert({
-          'tenant_id': tenantId,
-          'user_id': userId,
-          'day_of_week': dow,
-          'start_time': formattedStartTime,
-          'end_time': formattedEndTime,
-          'late_tolerance_minutes': lateTolerance,
-          'timezone': 'Asia/Jakarta',
-          'is_active': true,
-          'updated_at': DateTime.now().toIso8601String(),
-        }, onConflict: 'tenant_id, user_id, day_of_week');
-      }
-
-      AppUi.showSnack('Tarif & Jam Kerja ${widget.user['nama']} berhasil disimpan!');
+      AppUi.showSnack('Tarif & Tipe Gaji ${widget.user['nama']} berhasil disimpan!');
       widget.onSaved();
     } catch (e) {
       AppUi.showSnack('Gagal menyimpan: $e');
@@ -1550,19 +1507,7 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
           else if (_salaryType == 'hourly')
             _buildField('Tarif Gaji Per Jam (Rp/Jam)', _hourlyRateCtrl),
           const SizedBox(height: 12),
-          Text('Jam Kerja Per User & Toleransi', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(child: _buildField('Jam Mulai (HH:mm)', _startTimeCtrl)),
-              const SizedBox(width: 8),
-              Expanded(child: _buildField('Jam Selesai (HH:mm)', _endTimeCtrl)),
-              const SizedBox(width: 8),
-              Expanded(child: _buildField('Toleransi (Menit)', _lateToleranceCtrl)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text('Tarif Denda & Potongan', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
+          Text('Tarif Denda & Potongan Absensi', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -1577,7 +1522,7 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
             child: FilledButton.icon(
               onPressed: _isSaving ? null : _saveUserConfig,
               icon: const Icon(Icons.save_rounded),
-              label: Text(_isSaving ? 'Menyimpan...' : 'Simpan Tarif & Jam Kerja'),
+              label: Text(_isSaving ? 'Menyimpan...' : 'Simpan Tarif & Tipe Gaji'),
             ),
           ),
         ],
