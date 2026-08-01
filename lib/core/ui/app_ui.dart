@@ -244,72 +244,85 @@ class AppUi {
 
   static void showSnack(String message, {bool isError = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final overlay = rootNavigatorKey.currentState?.overlay;
-      if (overlay != null) {
-        late OverlayEntry entry;
-        entry = OverlayEntry(
-          builder: (ctx) => Positioned(
-            top: MediaQuery.of(ctx).padding.top + 16,
-            left: 16,
-            right: 16,
-            child: Material(
-              color: Colors.transparent,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: isError ? const Color(0xFFB91C1C) : const Color(0xFF0F172A),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: isError ? Colors.redAccent : Colors.lightBlueAccent.withOpacity(0.5),
-                    width: 1.2,
-                  ),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black45, blurRadius: 18, offset: Offset(0, 8)),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
-                      color: Colors.white,
-                      size: 22,
+      final context = rootNavigatorKey.currentContext;
+      if (context == null) return;
+
+      showDialog(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            elevation: 16,
+            backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: isError
+                          ? (isDark ? const Color(0xFF450A0A) : const Color(0xFFFEF2F2))
+                          : (isDark ? const Color(0xFF075985) : const Color(0xFFF0F9FF)),
+                      shape: BoxShape.circle,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        message,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13.5,
-                        ),
+                    child: Icon(
+                      isError ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                      color: isError
+                          ? (isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626))
+                          : (isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7)),
+                      size: 38,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    isError ? 'Perhatian / Kendala' : 'Informasi Absensi',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: isError
+                          ? (isDark ? const Color(0xFFF87171) : const Color(0xFFB91C1C))
+                          : (isDark ? const Color(0xFF38BDF8) : const Color(0xFF0369A1)),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    message,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.45,
+                      color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155),
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: isError
+                            ? (isDark ? const Color(0xFFDC2626) : const Color(0xFFB91C1C))
+                            : const Color(0xFF4F46E5),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                      ),
+                      child: const Text(
+                        'Mengerti',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ),
-        );
-        overlay.insert(entry);
-        Future.delayed(Duration(seconds: isError ? 5 : 4), () {
-          try {
-            entry.remove();
-          } catch (_) {}
-        });
-        return;
-      }
-
-      final messenger = rootScaffoldMessengerKey.currentState;
-      if (messenger == null) return;
-      messenger.clearSnackBars();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: isError ? const Color(0xFFB91C1C) : const Color(0xFF0F172A),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.only(bottom: 140, left: 16, right: 16),
-        ),
+          );
+        },
       );
     });
   }
