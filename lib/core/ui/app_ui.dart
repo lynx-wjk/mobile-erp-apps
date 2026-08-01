@@ -242,51 +242,97 @@ class AppUi {
     return text;
   }
 
+  static OverlayEntry? _activeSnackOverlay;
+
   static void showSnack(String message, {bool isError = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final messenger = rootScaffoldMessengerKey.currentState;
-      if (messenger == null) return;
-      final context = rootScaffoldMessengerKey.currentContext;
-      final theme = context == null ? null : Theme.of(context);
-      final isDark = theme?.brightness == Brightness.dark;
-      messenger.clearSnackBars();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(
-                isError ? Icons.error_outline_rounded : Icons.info_outline_rounded,
-                color: isError ? Colors.redAccent : (isDark ? const Color(0xFF2563EB) : const Color(0xFF38BDF8)),
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  message,
-                  style: TextStyle(
-                    color: isDark ? const Color(0xFFF3F4F6) : Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
+      final context = rootNavigatorKey.currentContext;
+      if (context == null) return;
+
+      try {
+        _activeSnackOverlay?.remove();
+        _activeSnackOverlay = null;
+      } catch (_) {}
+
+      final overlayState = Overlay.of(context, rootOverlay: true);
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+
+      late OverlayEntry entry;
+      entry = OverlayEntry(
+        builder: (ctx) => Positioned(
+          top: MediaQuery.of(ctx).padding.top + 16,
+          left: 16,
+          right: 16,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: isError
+                    ? (isDark ? const Color(0xFF7F1D1D) : const Color(0xFFB91C1C))
+                    : (isDark ? const Color(0xFF0F172A) : const Color(0xFF1E293B)),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isError
+                      ? Colors.redAccent
+                      : (isDark ? const Color(0xFF38BDF8) : const Color(0xFF60A5FA)),
+                  width: 1.2,
                 ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black45,
+                    blurRadius: 18,
+                    offset: Offset(0, 8),
+                  ),
+                ],
               ),
-            ],
-          ),
-          backgroundColor: isError
-              ? (isDark ? const Color(0xFF450A0A) : const Color(0xFF991B1B))
-              : (isDark ? const Color(0xFF1E293B) : const Color(0xFF0F172A)),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.only(bottom: 70, left: 16, right: 16),
-          elevation: 12,
-          duration: Duration(seconds: isError ? 5 : 4),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(
-              color: isError ? Colors.red.withOpacity(0.5) : (isDark ? Colors.white24 : Colors.white10),
+              child: Row(
+                children: [
+                  Icon(
+                    isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+                    color: isError ? Colors.white : Colors.lightBlueAccent,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      message,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13.5,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
+                      try {
+                        entry.remove();
+                        if (_activeSnackOverlay == entry) _activeSnackOverlay = null;
+                      } catch (_) {}
+                    },
+                    child: const Icon(Icons.close_rounded, color: Colors.white70, size: 20),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       );
+
+      _activeSnackOverlay = entry;
+      overlayState.insert(entry);
+
+      Future.delayed(Duration(seconds: isError ? 5 : 4), () {
+        try {
+          if (_activeSnackOverlay == entry) {
+            entry.remove();
+            _activeSnackOverlay = null;
+          }
+        } catch (_) {}
+      });
     });
   }
 
