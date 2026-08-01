@@ -486,6 +486,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
       bool isEarly = false;
       String earlyReason = '';
 
+      final startLabel = (schedule != null && schedule.startLabel != '-') ? schedule.startLabel : '08:00';
       final endLabel = (schedule != null && schedule.endLabel != '-') ? schedule.endLabel : '17:00';
       final isWorkday = (schedule != null) ? schedule.isWorkday : true;
 
@@ -493,14 +494,35 @@ class _AbsensiPageState extends State<AbsensiPage> {
         try {
           final nowWib = DateTime.now().toUtc().add(const Duration(hours: 7));
           final currentMin = nowWib.hour * 60 + nowWib.minute;
+          final startParts = startLabel.split(':');
           final endParts = endLabel.split(':');
-          if (endParts.length == 2) {
+
+          if (startParts.length == 2 && endParts.length == 2) {
+            final startMin = int.parse(startParts[0]) * 60 + int.parse(startParts[1]);
             final endMin = int.parse(endParts[0]) * 60 + int.parse(endParts[1]);
 
-            if (currentMin < endMin) {
-              isEarly = true;
-              final remainingMin = endMin - currentMin;
+            int remainingMin = 0;
 
+            if (startMin > endMin) {
+              // OVERNIGHT SHIFT (e.g. 21:00 - 05:00)
+              if (currentMin >= startMin) {
+                // Currently in evening leg of overnight shift (e.g. 21:16 WIB)
+                isEarly = true;
+                remainingMin = (1440 - currentMin) + endMin;
+              } else if (currentMin < endMin) {
+                // Currently in morning leg of overnight shift (e.g. 04:30 WIB)
+                isEarly = true;
+                remainingMin = endMin - currentMin;
+              }
+            } else {
+              // STANDARD SHIFT (e.g. 08:00 - 17:00)
+              if (currentMin < endMin) {
+                isEarly = true;
+                remainingMin = endMin - currentMin;
+              }
+            }
+
+            if (isEarly) {
               final earlyReasonCtrl = TextEditingController();
               final confirmed = await showDialog<bool>(
                 context: context,
