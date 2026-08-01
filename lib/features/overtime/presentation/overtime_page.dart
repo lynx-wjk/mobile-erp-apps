@@ -295,6 +295,55 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
     }
   }
 
+  Future<void> _pickDate() async {
+    DateTime initialDate = DateTime.tryParse(_dateController.text) ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 90)),
+      lastDate: DateTime.now().add(const Duration(days: 180)),
+    );
+    if (picked != null) {
+      setState(() {
+        _dateController.text = DateFormat('yyyy-MM-dd').format(picked);
+      });
+    }
+  }
+
+  Future<void> _pickStartTime() async {
+    final parts = _startTimeController.text.split(':');
+    final initialTime = parts.length == 2
+        ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 17, minute: int.tryParse(parts[1]) ?? 0)
+        : const TimeOfDay(hour: 17, minute: 0);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+    );
+    if (picked != null) {
+      setState(() {
+        _startTimeController.text =
+            '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      });
+    }
+  }
+
+  Future<void> _pickEndTime() async {
+    final parts = _endTimeController.text.split(':');
+    final initialTime = parts.length == 2
+        ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 20, minute: int.tryParse(parts[1]) ?? 0)
+        : const TimeOfDay(hour: 20, minute: 0);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+    );
+    if (picked != null) {
+      setState(() {
+        _endTimeController.text =
+            '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      });
+    }
+  }
+
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'approved':
@@ -321,23 +370,39 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                   Expanded(
                     child: TextField(
                       controller: _dateController,
-                      decoration: const InputDecoration(labelText: 'Tanggal (yyyy-MM-dd)', border: OutlineInputBorder()),
+                      readOnly: true,
+                      onTap: _pickDate,
+                      decoration: const InputDecoration(
+                        labelText: 'Tanggal',
+                        suffixIcon: Icon(Icons.calendar_today_rounded, size: 20),
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _startTimeController,
-                      decoration: const InputDecoration(labelText: 'Jam Mulai (HH:mm)', border: OutlineInputBorder()),
-                      onChanged: (_) => setState(() {}),
+                      readOnly: true,
+                      onTap: _pickStartTime,
+                      decoration: const InputDecoration(
+                        labelText: 'Jam Mulai',
+                        suffixIcon: Icon(Icons.access_time_rounded, size: 20),
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _endTimeController,
-                      decoration: const InputDecoration(labelText: 'Jam Selesai (HH:mm)', border: OutlineInputBorder()),
-                      onChanged: (_) => setState(() {}),
+                      readOnly: true,
+                      onTap: _pickEndTime,
+                      decoration: const InputDecoration(
+                        labelText: 'Jam Selesai',
+                        suffixIcon: Icon(Icons.access_time_rounded, size: 20),
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                   ),
                 ],
