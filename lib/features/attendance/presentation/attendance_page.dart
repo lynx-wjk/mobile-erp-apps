@@ -443,8 +443,11 @@ class _AbsensiPageState extends State<AbsensiPage> {
 
   Future<void> _approveEarlyLeave(Map<String, dynamic> item) async {
     try {
+      final noteText = AppUi.text(item['note']).toLowerCase();
+      final approvedStatus = noteText.contains('telat') || item['is_late'] == true ? 'late' : 'valid';
+
       await _client.from('attendance').update({
-        'status': 'valid',
+        'status': approvedStatus,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('attendance_id', item['attendance_id']);
 
