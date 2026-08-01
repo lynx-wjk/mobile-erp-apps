@@ -593,10 +593,169 @@ class _AbsensiPageState extends State<AbsensiPage> {
                             .colorScheme
                             .onSurfaceVariant
                             .withOpacity(0.85))),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _showShiftChangeModal,
+                  icon: const Icon(Icons.published_with_changes_rounded, size: 16),
+                  label: const Text('Ajukan Tukar Shift / Ubah Jam Kerja', style: TextStyle(fontSize: 12)),
+                ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showShiftChangeModal() async {
+    final dateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
+    final startCtrl = TextEditingController(text: '12:00');
+    final endCtrl = TextEditingController(text: '20:00');
+    final reasonCtrl = TextEditingController();
+    bool isSubmitting = false;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return Container(
+            padding: EdgeInsets.only(
+              left: 20, right: 20, top: 20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+            ),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40, height: 4,
+                      decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Pengajuan Tukar Shift / Ubah Jam Kerja', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  const Text('Pengajuan ini akan dikirim ke Super Admin / HR / Finance. Setelah disetujui, jam kerja hari tersebut otomatis diperbarui.', style: TextStyle(fontSize: 12.5, color: Colors.grey)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: dateCtrl,
+                    readOnly: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Tanggal Shift',
+                      border: OutlineInputBorder(),
+                      suffixIcon: Icon(Icons.calendar_today_rounded),
+                    ),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.tryParse(dateCtrl.text) ?? DateTime.now(),
+                        firstDate: DateTime.now().subtract(const Duration(days: 30)),
+                        lastDate: DateTime.now().add(const Duration(days: 90)),
+                      );
+                      if (picked != null) {
+                        setModalState(() => dateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: startCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Jam Mulai Baru',
+                            hintText: '12:00',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: endCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Jam Selesai Baru',
+                            hintText: '20:00',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'Alasan Tukar Shift',
+                      hintText: 'Contoh: Keperluan mendesak pagi hari...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: isSubmitting ? null : () async {
+                        final reason = reasonCtrl.text.trim();
+                        if (reason.isEmpty) {
+                          rootScaffoldMessengerKey.currentState?.showSnackBar(
+                            const SnackBar(content: Text('Alasan tukar shift wajib diisi')),
+                          );
+                          return;
+                        }
+                        setModalState(() => isSubmitting = true);
+                        try {
+                          final user = _client.auth.currentUser;
+                          final profile = await _currentProfile();
+                          await _client.from('shift_change_requests').insert({
+                            'tenant_id': profile?['tenant_id'] ?? _profile?['tenant_id'],
+                            'user_id': user!.id,
+                            'user_name': profile?['nama'] ?? 'Karyawan',
+                            'user_email': profile?['email'] ?? '',
+                            'role_id': profile?['role_id'] ?? 'staff',
+                            'shift_date': dateCtrl.text.trim(),
+                            'new_start_time': startCtrl.text.trim(),
+                            'new_end_time': endCtrl.text.trim(),
+                            'reason': reason,
+                            'status': 'pending',
+                            'created_at': DateTime.now().toUtc().toIso8601String(),
+                            'updated_at': DateTime.now().toUtc().toIso8601String(),
+                          });
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          rootScaffoldMessengerKey.currentState?.showSnackBar(
+                            const SnackBar(content: Text('Pengajuan Tukar Shift dikirim! Menunggu persetujuan HR/Admin.')),
+                          );
+                          _loadData();
+                        } catch (e) {
+                          rootScaffoldMessengerKey.currentState?.showSnackBar(
+                            SnackBar(content: Text('Gagal mengirim pengajuan tukar shift: $e')),
+                          );
+                        } finally {
+                          setModalState(() => isSubmitting = false);
+                        }
+                      },
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
+                      icon: isSubmitting
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.send_rounded),
+                      label: Text(isSubmitting ? 'Mengirim...' : 'Kirim Pengajuan Tukar Shift'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

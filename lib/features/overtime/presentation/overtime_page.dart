@@ -36,11 +36,19 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
   List<Map<String, dynamic>> _myLeaveRequests = [];
   List<Map<String, dynamic>> _allLeaveRequests = [];
 
+  List<Map<String, dynamic>> _myShiftChangeRequests = [];
+  List<Map<String, dynamic>> _allShiftChangeRequests = [];
+
   String _selectedLeaveType = 'sakit';
   final _leaveStartDateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
   final _leaveEndDateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
   final _leaveReasonCtrl = TextEditingController();
   final _leaveAttachmentCtrl = TextEditingController();
+
+  final _shiftDateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
+  final _shiftNewStartCtrl = TextEditingController(text: '12:00');
+  final _shiftNewEndCtrl = TextEditingController(text: '20:00');
+  final _shiftReasonCtrl = TextEditingController();
 
   String _userRoleId = '';
 
@@ -64,7 +72,7 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _loadData();
   }
 
@@ -79,6 +87,10 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
     _leaveEndDateCtrl.dispose();
     _leaveReasonCtrl.dispose();
     _leaveAttachmentCtrl.dispose();
+    _shiftDateCtrl.dispose();
+    _shiftNewStartCtrl.dispose();
+    _shiftNewEndCtrl.dispose();
+    _shiftReasonCtrl.dispose();
     super.dispose();
   }
 
@@ -137,9 +149,9 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
       _tenantId = profileRes?['tenant_id']?.toString() ?? '';
       _userRoleId = profileRes?['role_id']?.toString().toLowerCase() ?? '';
 
-      if (_isApprover && _tabController.length != 2) {
+      if (_tabController.length != 3) {
         _tabController.dispose();
-        _tabController = TabController(length: 2, vsync: this);
+        _tabController = TabController(length: 3, vsync: this);
       }
 
       final myRes = await _client
@@ -158,6 +170,14 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
           .limit(100);
       _myLeaveRequests = (myLeaveRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
+      final myShiftRes = await _client
+          .from('shift_change_requests')
+          .select()
+          .eq('user_id', user.id)
+          .order('created_at', ascending: false)
+          .limit(100);
+      _myShiftChangeRequests = (myShiftRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+
       if (_isApprover) {
         final pendingRes = await _client
             .from('overtime_requests')
@@ -172,6 +192,13 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
             .order('created_at', ascending: false)
             .limit(100);
         _allLeaveRequests = (allLeaveRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+
+        final allShiftRes = await _client
+            .from('shift_change_requests')
+            .select()
+            .order('created_at', ascending: false)
+            .limit(100);
+        _allShiftChangeRequests = (allShiftRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
       }
     } catch (e) {
       debugPrint('Load overtime error: $e');
@@ -683,6 +710,99 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
     }
   }
 
+  Future<void> _submitShiftChangeRequest() async {
+    final dateStr = _shiftDateCtrl.text.trim();
+    final newStart = _shiftNewStartCtrl.text.trim();
+    final newEnd = _shiftNewEndCtrl.text.trim();
+    final reason = _shiftReasonCtrl.text.trim();
+
+    if (reason.isEmpty) {
+      AppUi.showSnack('Alasan perubahan/tukar shift wajib diisi');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      final user = _client.auth.currentUser;
+      final userProfile = await _client.from('users').select('nama, email, role_id, tenant_id').eq('user_id', user!.id).maybeSingle();
+
+      final tenantId = userProfile?['tenant_id'] ?? _tenantId;
+
+      await _client.from('shift_change_requests').insert({
+        'tenant_id': tenantId,
+        'user_id': user.id,
+        'user_name': userProfile?['nama'] ?? 'Karyawan',
+        'user_email': userProfile?['email'] ?? '',
+        'role_id': userProfile?['role_id'] ?? 'staff',
+        'shift_date': dateStr,
+        'new_start_time': newStart,
+        'new_end_time': newEnd,
+        'reason': reason,
+        'status': 'pending',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+
+      _shiftReasonCtrl.clear();
+      AppUi.showSnack('Pengajuan tukar shift berhasil dikirim! Menunggu persetujuan Super Admin / HR / Finance.');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal mengirim pengajuan tukar shift: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _approveShiftChangeRequest(Map<String, dynamic> req) async {
+    try {
+      final user = _client.auth.currentUser;
+      final userProfile = await _client.from('users').select('nama').eq('user_id', user!.id).maybeSingle();
+
+      await _client.from('shift_change_requests').update({
+        'status': 'approved',
+        'approved_by': user.id,
+        'approved_by_name': userProfile?['nama'] ?? 'Approver',
+        'approved_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('request_id', req['request_id']);
+
+      AppUi.showSnack('Pengajuan tukar shift disetujui! Jam kerja hari tersebut otomatis diperbarui.');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal menyetujui tukar shift: $e');
+    }
+  }
+
+  Future<void> _rejectShiftChangeRequest(Map<String, dynamic> req) async {
+    try {
+      final user = _client.auth.currentUser;
+      final userProfile = await _client.from('users').select('nama').eq('user_id', user!.id).maybeSingle();
+
+      await _client.from('shift_change_requests').update({
+        'status': 'rejected',
+        'approved_by': user.id,
+        'approved_by_name': userProfile?['nama'] ?? 'Approver',
+        'approved_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('request_id', req['request_id']);
+
+      AppUi.showSnack('Pengajuan tukar shift ditolak.');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal menolak tukar shift: $e');
+    }
+  }
+
+  Future<void> _deleteShiftChangeRequest(Map<String, dynamic> req) async {
+    try {
+      await _client.from('shift_change_requests').delete().eq('request_id', req['request_id']);
+      AppUi.showSnack('Data tukar shift berhasil dihapus!');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal menghapus data tukar shift: $e');
+    }
+  }
+
   Future<void> _pickDate() async {
     DateTime initialDate = DateTime.tryParse(_dateController.text) ?? DateTime.now();
     final picked = await showDatePicker(
@@ -1175,16 +1295,201 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
     ];
   }
 
+  List<Widget> _buildShiftChangeTabChildren() {
+    return [
+      NiceCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Form Pengajuan Tukar Shift / Ubah Jam Kerja', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _shiftDateCtrl,
+                    readOnly: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Tanggal Shift',
+                      border: OutlineInputBorder(),
+                      suffixIcon: Icon(Icons.calendar_today_rounded),
+                    ),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.tryParse(_shiftDateCtrl.text) ?? DateTime.now(),
+                        firstDate: DateTime.now().subtract(const Duration(days: 30)),
+                        lastDate: DateTime.now().add(const Duration(days: 90)),
+                      );
+                      if (picked != null) {
+                        setState(() => _shiftDateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _shiftNewStartCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Jam Mulai Baru',
+                      hintText: '12:00',
+                      border: OutlineInputBorder(),
+                      suffixIcon: Icon(Icons.access_time_rounded),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _shiftNewEndCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Jam Selesai Baru',
+                      hintText: '20:00',
+                      border: OutlineInputBorder(),
+                      suffixIcon: Icon(Icons.access_time_rounded),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _shiftReasonCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Alasan Tukar Shift / Ubah Jam Kerja',
+                hintText: 'Contoh: Ada keperluan mendesak pagi hari, kerja dialihkan ke jam 12:00 - 20:00...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isSaving ? null : _submitShiftChangeRequest,
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
+                icon: _isSaving
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.send_rounded),
+                label: Text(_isSaving ? 'Mengirim...' : 'Kirim Pengajuan Tukar Shift'),
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 20),
+
+      if (_isApprover) ...[
+        Text('Daftar Persetujuan Tukar Shift Karyawan (${_allShiftChangeRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 8),
+        if (_allShiftChangeRequests.isEmpty)
+          const Center(child: Padding(padding: EdgeInsets.all(16), child: Text('Belum ada pengajuan tukar shift.')))
+        else
+          ..._allShiftChangeRequests.map((req) {
+            final status = req['status']?.toString() ?? 'pending';
+            final color = _getStatusColor(status);
+            final isPending = status == 'pending';
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: NiceCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${AppUi.text(req['user_name'])} • ${AppUi.text(req['role_id'])}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
+                          child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text('Tanggal Shift: ${req['shift_date']} | Jam Baru: ${req['new_start_time']} s/d ${req['new_end_time']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text('Alasan: ${AppUi.text(req['reason'])}'),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                          onPressed: () => _deleteShiftChangeRequest(req),
+                          tooltip: 'Hapus Pengajuan',
+                        ),
+                      ],
+                    ),
+                    if (isPending) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _rejectShiftChangeRequest(req),
+                              style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              label: const Text('Tolak'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () => _approveShiftChangeRequest(req),
+                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+                              icon: const Icon(Icons.check_rounded, size: 18),
+                              label: const Text('Setujui Tukar Shift'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+        const SizedBox(height: 20),
+      ],
+
+      Text('Riwayat Pengajuan Tukar Shift Saya (${_myShiftChangeRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+      const SizedBox(height: 8),
+      if (_myShiftChangeRequests.isEmpty)
+        const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Belum ada riwayat pengajuan tukar shift.')))
+      else
+        ..._myShiftChangeRequests.map((req) {
+          final status = req['status']?.toString() ?? 'pending';
+          final color = _getStatusColor(status);
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: NiceCard(
+              child: ListTile(
+                title: Text('Shift ${req['shift_date']}: ${req['new_start_time']} - ${req['new_end_time']}'),
+                subtitle: Text('Alasan: ${AppUi.text(req['reason'])}'),
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                  child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+                ),
+              ),
+            ),
+          );
+        }),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pengajuan Lembur & Izin'),
+        title: const Text('Pengajuan Lembur, Izin & Tukar Shift'),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
-            Tab(icon: Icon(Icons.more_time_rounded), text: 'Pengajuan Lembur'),
-            Tab(icon: Icon(Icons.event_note_rounded), text: 'Pengajuan Izin & Sakit'),
+            Tab(icon: Icon(Icons.more_time_rounded), text: 'Lembur'),
+            Tab(icon: Icon(Icons.event_note_rounded), text: 'Izin & Sakit'),
+            Tab(icon: Icon(Icons.published_with_changes_rounded), text: 'Tukar Shift'),
           ],
         ),
       ),
@@ -1207,6 +1512,10 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                 ListView(
                   padding: const EdgeInsets.all(16),
                   children: _buildLeaveTabChildren(),
+                ),
+                ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: _buildShiftChangeTabChildren(),
                 ),
               ],
             ),
