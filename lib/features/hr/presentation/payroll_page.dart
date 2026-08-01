@@ -67,6 +67,12 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
 
   final _notesController = TextEditingController();
 
+  String _selectedSalaryType = 'monthly';
+  final _dailyRateController = TextEditingController(text: '0');
+  final _hourlyRateController = TextEditingController(text: '0');
+  final _latePenaltyRateController = TextEditingController(text: '0');
+  final _absentPenaltyRateController = TextEditingController(text: '0');
+
   final _currencyFormat = NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0);
 
   @override
@@ -95,6 +101,10 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
     _absentDeductionController.dispose();
     _loanController.dispose();
     _taxController.dispose();
+    _dailyRateController.dispose();
+    _hourlyRateController.dispose();
+    _latePenaltyRateController.dispose();
+    _absentPenaltyRateController.dispose();
     _notesController.dispose();
     super.dispose();
   }
@@ -175,12 +185,123 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
           _baseSalaryController.text = _formatNumber(profileRes['base_salary']);
           _allowancePosController.text = _formatNumber(profileRes['allowance_position']);
           _allowanceMealTransController.text = _formatNumber(profileRes['allowance_meal_transport']);
+          _selectedSalaryType = profileRes['salary_type']?.toString() ?? 'monthly';
+          _dailyRateController.text = _formatNumber(profileRes['daily_rate']);
+          _hourlyRateController.text = _formatNumber(profileRes['hourly_rate']);
+          _latePenaltyRateController.text = _formatNumber(profileRes['late_penalty_per_minute']);
+          _absentPenaltyRateController.text = _formatNumber(profileRes['absent_penalty_per_day']);
           _notesController.text = profileRes['notes'] ?? '';
         });
       }
     } catch (e) {
       debugPrint('Error loading user profile: $e');
     }
+  }
+
+  void _showPayrollConfigModal(Map<String, dynamic> user) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return Container(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+            ),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Konfigurasi Tarif & Tipe Gaji',
+                    style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'Karyawan: ${user['nama']} (${AppUi.text(user['role_id'])})',
+                    style: GoogleFonts.inter(fontSize: 13, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: _selectedSalaryType,
+                    decoration: const InputDecoration(
+                      labelText: 'Tipe Gaji Utama',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'monthly', child: Text('Bulanan (Gaji Pokok Bulanan)')),
+                      DropdownMenuItem(value: 'daily', child: Text('Harian (Per Hari Masuk)')),
+                      DropdownMenuItem(value: 'hourly', child: Text('Per Jam (Per Jam Kerja)')),
+                    ],
+                    onChanged: (val) {
+                      setModalState(() => _selectedSalaryType = val ?? 'monthly');
+                      setState(() {});
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  if (_selectedSalaryType == 'daily') ...[
+                    _buildTextField(context, 'Tarif Gaji Per Hari (Rp/Hari)', _dailyRateController, isCurrency: true),
+                    const SizedBox(height: 12),
+                  ] else if (_selectedSalaryType == 'hourly') ...[
+                    _buildTextField(context, 'Tarif Gaji Per Jam (Rp/Jam)', _hourlyRateController, isCurrency: true),
+                    const SizedBox(height: 12),
+                  ],
+                  _buildTextField(context, 'Denda Keterlambatan Per Menit (Rp/Menit)', _latePenaltyRateController, isCurrency: true),
+                  const SizedBox(height: 12),
+                  _buildTextField(context, 'Potongan Tidak Hadir Per Hari (Rp/Hari)', _absentPenaltyRateController, isCurrency: true),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () async {
+                        try {
+                          await _supabase.from('user_payroll_profiles').upsert({
+                            'tenant_id': _tenantId,
+                            'user_id': user['user_id'],
+                            'salary_type': _selectedSalaryType,
+                            'daily_rate': _parseVal(_dailyRateController),
+                            'hourly_rate': _parseVal(_hourlyRateController),
+                            'late_penalty_per_minute': _parseVal(_latePenaltyRateController),
+                            'absent_penalty_per_day': _parseVal(_absentPenaltyRateController),
+                            'updated_at': DateTime.now().toIso8601String(),
+                          }, onConflict: 'tenant_id, user_id');
+                          Navigator.pop(ctx);
+                          AppUi.showSnack('Tarif & Tipe Gaji ${user['nama']} berhasil disimpan!');
+                        } catch (e) {
+                          AppUi.showSnack('Gagal menyimpan profil tarif: $e');
+                        }
+                      },
+                      icon: const Icon(Icons.save_rounded),
+                      label: const Text('Simpan Pengaturan Tarif'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   String _formatNumber(dynamic val) {
@@ -888,6 +1009,17 @@ Team Finance & HR ${_companySettings['company_name']}
                     setState(() {});
                   },
                 ),
+                if (_selectedUser != null) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showPayrollConfigModal(_selectedUser!),
+                      icon: const Icon(Icons.tune_rounded, size: 18),
+                      label: Text('Atur Tarif Gaji & Denda (${_selectedUser!['nama']})'),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
 
                 Row(
