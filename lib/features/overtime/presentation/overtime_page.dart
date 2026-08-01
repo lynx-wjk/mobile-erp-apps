@@ -30,6 +30,14 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
   final _endTimeController = TextEditingController(text: '19:00');
   final _reasonController = TextEditingController();
 
+  List<Map<String, dynamic>> _myLeaveRequests = [];
+  List<Map<String, dynamic>> _allLeaveRequests = [];
+
+  String _selectedLeaveType = 'sakit';
+  final _leaveStartDateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
+  final _leaveEndDateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
+  final _leaveReasonCtrl = TextEditingController();
+
   String _userRoleId = '';
 
   bool get _isApprover {
@@ -52,7 +60,7 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: _isApprover ? 2 : 1, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
     _loadData();
   }
 
@@ -63,6 +71,9 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
     _startTimeController.dispose();
     _endTimeController.dispose();
     _reasonController.dispose();
+    _leaveStartDateCtrl.dispose();
+    _leaveEndDateCtrl.dispose();
+    _leaveReasonCtrl.dispose();
     super.dispose();
   }
 
@@ -89,6 +100,14 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
           .limit(100);
       _myRequests = (myRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
+      final myLeaveRes = await _client
+          .from('leave_requests')
+          .select()
+          .eq('user_id', user.id)
+          .order('created_at', ascending: false)
+          .limit(100);
+      _myLeaveRequests = (myLeaveRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+
       if (_isApprover) {
         final pendingRes = await _client
             .from('overtime_requests')
@@ -96,6 +115,13 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
             .order('created_at', ascending: false)
             .limit(100);
         _pendingRequests = (pendingRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+
+        final allLeaveRes = await _client
+            .from('leave_requests')
+            .select()
+            .order('created_at', ascending: false)
+            .limit(100);
+        _allLeaveRequests = (allLeaveRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
       }
     } catch (e) {
       debugPrint('Load overtime error: $e');
@@ -417,6 +443,194 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
     }
   }
 
+  Future<void> _submitLeaveRequest() async {
+    final startDateStr = _leaveStartDateCtrl.text.trim();
+    final endDateStr = _leaveEndDateCtrl.text.trim();
+    final reason = _leaveReasonCtrl.text.trim();
+
+    if (reason.isEmpty) {
+      AppUi.showSnack('Alasan izin / sakit wajib diisi');
+      return;
+    }
+
+    DateTime sDate = DateTime.tryParse(startDateStr) ?? DateTime.now();
+    DateTime eDate = DateTime.tryParse(endDateStr) ?? DateTime.now();
+    if (eDate.isBefore(sDate)) {
+      AppUi.showSnack('Tanggal selesai tidak boleh sebelum tanggal mulai');
+      return;
+    }
+
+    final totalDays = eDate.difference(sDate).inDays + 1;
+
+    setState(() => _isSaving = true);
+    try {
+      final user = _client.auth.currentUser;
+      final userProfile = await _client.from('users').select('nama, email, role_id, tenant_id').eq('user_id', user!.id).maybeSingle();
+
+      final tenantId = userProfile?['tenant_id'] ?? _tenantId;
+
+      await _client.from('leave_requests').insert({
+        'tenant_id': tenantId,
+        'user_id': user.id,
+        'user_name': userProfile?['nama'] ?? 'Karyawan',
+        'user_email': userProfile?['email'] ?? '',
+        'role_id': userProfile?['role_id'] ?? 'staff',
+        'leave_type': _selectedLeaveType,
+        'start_date': startDateStr,
+        'end_date': endDateStr,
+        'total_days': totalDays,
+        'reason': reason,
+        'status': 'pending',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+
+      _leaveReasonCtrl.clear();
+      AppUi.showSnack('Pengajuan izin / sakit berhasil dikirim!');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal mengirim pengajuan izin: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _approveLeaveRequest(Map<String, dynamic> request) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Setujui Pengajuan Izin / Sakit'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Karyawan: ${AppUi.text(request['user_name'])} (${AppUi.text(request['role_id'])})'),
+            const SizedBox(height: 4),
+            Text('Tipe Izin: ${request['leave_type']?.toString().toUpperCase()}'),
+            const SizedBox(height: 4),
+            Text('Periode: ${request['start_date']} s/d ${request['end_date']} (${request['total_days']} Hari)'),
+            const SizedBox(height: 4),
+            Text('Alasan: ${AppUi.text(request['reason'])}'),
+            const SizedBox(height: 12),
+            const Text('Hari izin yang disetujui akan otomatis dicatat ke Absensi sehingga gaji karyawan tidak dipotong saat payroll.', style: TextStyle(fontSize: 12, color: Colors.blue)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Setujui Izin')),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final user = _client.auth.currentUser;
+      final userProfile = await _client.from('users').select('nama').eq('user_id', user!.id).maybeSingle();
+
+      await _client.from('leave_requests').update({
+        'status': 'approved',
+        'approved_by': user.id,
+        'approved_by_name': userProfile?['nama'] ?? 'Approver',
+        'approved_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('request_id', request['request_id']);
+
+      DateTime sDate = DateTime.tryParse(request['start_date']) ?? DateTime.now();
+      DateTime eDate = DateTime.tryParse(request['end_date']) ?? DateTime.now();
+
+      for (DateTime d = sDate; !d.isAfter(eDate); d = d.add(const Duration(days: 1))) {
+        final dateStr = DateFormat('yyyy-MM-dd').format(d);
+        await _client.from('attendance').upsert({
+          'tenant_id': request['tenant_id'],
+          'user_id': request['user_id'],
+          'user_name': request['user_name'],
+          'user_email': request['user_email'],
+          'role_id': request['role_id'],
+          'date': dateStr,
+          'status': request['leave_type'],
+          'notes': 'Izin disetujui: ${request['reason']}',
+        }, onConflict: 'tenant_id, user_id, date');
+      }
+
+      AppUi.showSnack('Pengajuan izin disetujui & otomatis dicatat di Absensi!');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal menyetujui izin: $e');
+    }
+  }
+
+  Future<void> _rejectLeaveRequest(Map<String, dynamic> request) async {
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Tolak Pengajuan Izin'),
+        content: TextField(
+          controller: reasonCtrl,
+          decoration: const InputDecoration(labelText: 'Alasan Penolakan', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Tolak'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final user = _client.auth.currentUser;
+      final userProfile = await _client.from('users').select('nama').eq('user_id', user!.id).maybeSingle();
+
+      await _client.from('leave_requests').update({
+        'status': 'rejected',
+        'rejection_reason': reasonCtrl.text.trim(),
+        'approved_by': user.id,
+        'approved_by_name': userProfile?['nama'] ?? 'Approver',
+        'approved_at': DateTime.now().toUtc().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('request_id', request['request_id']);
+
+      AppUi.showSnack('Pengajuan izin ditolak.');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal menolak izin: $e');
+    }
+  }
+
+  Future<void> _deleteLeaveRequest(Map<String, dynamic> request) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus Pengajuan Izin'),
+        content: Text('Hapus pengajuan izin ${request['start_date']} s/d ${request['end_date']} untuk ${AppUi.text(request['user_name'])}?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _client.from('leave_requests').delete().eq('request_id', request['request_id']);
+      AppUi.showSnack('Pengajuan izin berhasil dihapus!');
+      await _loadData();
+    } catch (e) {
+      AppUi.showSnack('Gagal menghapus izin: $e');
+    }
+  }
+
   Future<void> _pickDate() async {
     DateTime initialDate = DateTime.tryParse(_dateController.text) ?? DateTime.now();
     final picked = await showDatePicker(
@@ -662,32 +876,236 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
     );
   }
 
+  Widget _buildLeaveTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        NiceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Form Pengajuan Izin / Sakit / Cuti', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _selectedLeaveType,
+                decoration: const InputDecoration(labelText: 'Tipe Izin', border: OutlineInputBorder()),
+                items: const [
+                  DropdownMenuItem(value: 'sakit', child: Text('Sakit (Dengan Surat Dokter)')),
+                  DropdownMenuItem(value: 'izin', child: Text('Izin / Permisi')),
+                  DropdownMenuItem(value: 'cuti', child: Text('Cuti Tahunan')),
+                  DropdownMenuItem(value: 'cuti_melahirkan', child: Text('Cuti Melahirkan / Duka')),
+                  DropdownMenuItem(value: 'lainnya', child: Text('Lainnya')),
+                ],
+                onChanged: (v) => setState(() => _selectedLeaveType = v ?? 'sakit'),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _leaveStartDateCtrl,
+                      readOnly: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Tanggal Mulai',
+                        border: OutlineInputBorder(),
+                        suffixIcon: Icon(Icons.calendar_today_rounded),
+                      ),
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: DateTime.tryParse(_leaveStartDateCtrl.text) ?? DateTime.now(),
+                          firstDate: DateTime.now().subtract(const Duration(days: 90)),
+                          lastDate: DateTime.now().add(const Duration(days: 180)),
+                        );
+                        if (picked != null) {
+                          setState(() => _leaveStartDateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _leaveEndDateCtrl,
+                      readOnly: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Tanggal Selesai',
+                        border: OutlineInputBorder(),
+                        suffixIcon: Icon(Icons.calendar_today_rounded),
+                      ),
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: DateTime.tryParse(_leaveEndDateCtrl.text) ?? DateTime.now(),
+                          firstDate: DateTime.now().subtract(const Duration(days: 90)),
+                          lastDate: DateTime.now().add(const Duration(days: 180)),
+                        );
+                        if (picked != null) {
+                          setState(() => _leaveEndDateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _leaveReasonCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Alasan Izin / Sakit',
+                  hintText: 'Contoh: Sakit demam tinggi / Keperluan mendesak...',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _isSaving ? null : _submitLeaveRequest,
+                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+                  icon: _isSaving
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.send_rounded),
+                  label: Text(_isSaving ? 'Mengirim...' : 'Kirim Pengajuan Izin'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        if (_isApprover) ...[
+          Text('Daftar Persetujuan Izin Karyawan (${_allLeaveRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 8),
+          if (_allLeaveRequests.isEmpty)
+            const Center(child: Padding(padding: EdgeInsets.all(16), child: Text('Belum ada pengajuan izin karyawan.')))
+          else
+            ..._allLeaveRequests.map((req) {
+              final status = req['status']?.toString() ?? 'pending';
+              final color = _getStatusColor(status);
+              final isPending = status == 'pending';
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: NiceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('${AppUi.text(req['user_name'])} • ${AppUi.text(req['role_id'])}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
+                            child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text('Tipe: ${req['leave_type']?.toString().toUpperCase()} | Periode: ${req['start_date']} s/d ${req['end_date']} (${req['total_days']} Hari)', style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Text('Alasan: ${AppUi.text(req['reason'])}'),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                            onPressed: () => _deleteLeaveRequest(req),
+                            tooltip: 'Hapus Pengajuan Izin',
+                          ),
+                        ],
+                      ),
+                      if (isPending) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () => _rejectLeaveRequest(req),
+                                style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                                icon: const Icon(Icons.close_rounded, size: 18),
+                                label: const Text('Tolak'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: () => _approveLeaveRequest(req),
+                                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+                                icon: const Icon(Icons.check_rounded, size: 18),
+                                label: const Text('Setujui Izin'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            }),
+          const SizedBox(height: 20),
+        ],
+
+        Text('Riwayat Pengajuan Izin Saya (${_myLeaveRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 8),
+        if (_myLeaveRequests.isEmpty)
+          const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Belum ada riwayat pengajuan izin.')))
+        else
+          ..._myLeaveRequests.map((req) {
+            final status = req['status']?.toString() ?? 'pending';
+            final color = _getStatusColor(status);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: NiceCard(
+                child: ListTile(
+                  title: Text('${req['leave_type']?.toString().toUpperCase()}: ${req['start_date']} s/d ${req['end_date']} (${req['total_days']} Hari)'),
+                  subtitle: Text('Alasan: ${AppUi.text(req['reason'])}'),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                    child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+                  ),
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pengajuan Lembur (Overtime)'),
-        bottom: _isApprover
-            ? TabBar(
-                controller: _tabController,
-                tabs: const [
-                  Tab(text: 'Pengajuan Saya'),
-                  Tab(text: 'Persetujuan Lembur'),
-                ],
-              )
-            : null,
+        title: const Text('Pengajuan Lembur & Izin'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(icon: Icon(Icons.more_time_rounded), text: 'Pengajuan Lembur'),
+            Tab(icon: Icon(Icons.event_note_rounded), text: 'Pengajuan Izin & Sakit'),
+          ],
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _isApprover
-              ? TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildMyTab(),
-                    _buildApproverTab(),
-                  ],
-                )
-              : _buildMyTab(),
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _isApprover
+                    ? ListView(
+                        padding: const EdgeInsets.only(bottom: 24),
+                        children: [
+                          _buildMyTab(),
+                          const Divider(height: 32),
+                          _buildApproverTab(),
+                        ],
+                      )
+                    : _buildMyTab(),
+                _buildLeaveTab(),
+              ],
+            ),
     );
   }
 }

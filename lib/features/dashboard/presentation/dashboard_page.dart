@@ -3187,7 +3187,7 @@ class _DashboardPageState extends State<DashboardPage> {
             color: Theme.of(context).colorScheme.primary,
             onTap: () => _open(AbsensiPage(currentUser: _requiredAppUser))),
         _OpsMetric(
-            label: 'Pengajuan Lembur',
+            label: 'Pengajuan Lembur & Izin',
             value: 0,
             icon: Icons.more_time_rounded,
             color: const Color(0xFFF59E0B),
@@ -4336,8 +4336,8 @@ class _DashboardPageState extends State<DashboardPage> {
   _DashboardMenu _overtimeMenu() {
     return _DashboardMenu(
       Icons.more_time_rounded,
-      'Pengajuan Lembur',
-      'Ajukan dan setujui lembur (overtime) karyawan.',
+      'Pengajuan Lembur & Izin',
+      'Ajukan dan setujui lembur (overtime) serta izin/sakit/cuti karyawan.',
       () => _open(OvertimePage(currentUser: _requiredAppUser)),
     );
   }
