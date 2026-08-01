@@ -1,6 +1,7 @@
 // ignore_for_file: unused_element, unnecessary_non_null_assertion, unused_local_variable
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
@@ -230,7 +231,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
         'longitude': position.longitude,
         'accuracy': position.accuracy,
         'catatan': note,
-        'created_at': DateTime.now().toIso8601String(),
+        'created_at': DateTime.now().toUtc().toIso8601String(),
       });
     } catch (_) {
       // Log tambahan tidak boleh menggagalkan absensi utama.
@@ -244,7 +245,9 @@ class _AbsensiPageState extends State<AbsensiPage> {
       final profile = await _currentProfile();
       final position = await _position();
       final location = _checkLocation(position);
-      final now = DateTime.now().toIso8601String();
+      final nowUtc = DateTime.now().toUtc();
+      final now = nowUtc.toIso8601String();
+      final wibDateStr = DateFormat('yyyy-MM-dd').format(nowUtc.add(const Duration(hours: 7)));
       final note = _noteController.text.trim();
       final schedule = profile?['user_id'] == null
           ? null
@@ -279,7 +282,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
         'user_name': profile?['nama'],
         'user_email': profile?['email'],
         'role_id': profile?['role_id'],
-        'date': now.substring(0, 10),
+        'date': wibDateStr,
         'check_in_time': now,
         'check_in_lat': position.latitude,
         'check_in_lng': position.longitude,
@@ -350,18 +353,16 @@ class _AbsensiPageState extends State<AbsensiPage> {
   }
 
   Future<void> _checkOut() async {
-    final today = _todayAbsensi;
-    if (today == null) {
-      rootScaffoldMessengerKey.currentState?.showSnackBar(
-        const SnackBar(content: Text('Check in dulu sebelum check out')),
-      );
-      return;
-    }
-
     setState(() => _isSaving = true);
 
     try {
       final profile = await _currentProfile();
+      final today = _todayAbsensi;
+
+      if (today == null) {
+        throw Exception('Anda belum melakukan check-in hari ini.');
+      }
+
       final position = await _position();
       final location = _checkLocation(position);
       final note = _noteController.text.trim();
@@ -374,8 +375,10 @@ class _AbsensiPageState extends State<AbsensiPage> {
             'Di luar area ${location.locationName} ($distance meter). Check out ditolak.');
       }
 
+      final nowUtc = DateTime.now().toUtc().toIso8601String();
+
       await _client.from('attendance').update({
-        'check_out_time': DateTime.now().toIso8601String(),
+        'check_out_time': nowUtc,
         'check_out_lat': position.latitude,
         'check_out_lng': position.longitude,
         'check_out_distance_meter': location.distanceMeter,
@@ -385,7 +388,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
         'note': note.isEmpty
             ? today['note']
             : '$note | Lokasi checkout: ${location.locationName}',
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': nowUtc,
       }).eq('attendance_id', today['attendance_id']);
 
       await _insertLog(

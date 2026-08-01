@@ -60,6 +60,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
   // Deductions
   final _bpjsController = TextEditingController(text: '0');
   final _latePenaltyController = TextEditingController(text: '0');
+  final _absentDeductionController = TextEditingController(text: '0');
   final _loanController = TextEditingController(text: '0');
   final _taxController = TextEditingController(text: '0');
 
@@ -89,6 +90,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
     _overtimeController.dispose();
     _bpjsController.dispose();
     _latePenaltyController.dispose();
+    _absentDeductionController.dispose();
     _loanController.dispose();
     _taxController.dispose();
     _notesController.dispose();
@@ -223,6 +225,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
   double get _totalDeductions {
     return _parseVal(_bpjsController) +
         _parseVal(_latePenaltyController) +
+        _parseVal(_absentDeductionController) +
         _parseVal(_loanController) +
         _parseVal(_taxController);
   }
@@ -280,6 +283,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
       final deductionsList = [
         if (_parseVal(_bpjsController) > 0) {'title': 'Potongan BPJS', 'amount': _parseVal(_bpjsController)},
         if (_parseVal(_latePenaltyController) > 0) {'title': 'Denda Keterlambatan', 'amount': _parseVal(_latePenaltyController)},
+        if (_parseVal(_absentDeductionController) > 0) {'title': 'Tidak Hadir', 'amount': _parseVal(_absentDeductionController)},
         if (_parseVal(_loanController) > 0) {'title': 'Potongan Kasbon', 'amount': _parseVal(_loanController)},
         if (_parseVal(_taxController) > 0) {'title': 'PPh 21', 'amount': _parseVal(_taxController)},
       ];
@@ -329,7 +333,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
 
       AppUi.showSnack('Slip gaji $employeeName berhasil disimpan & PDF dibuat!');
     } catch (e) {
-      AppUi.showSnack('Gagal menyimpan slip gaji: $e');
+      AppUi.showSnack('Gagal membuat slip gaji: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -350,6 +354,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
     final deductions = [
       if (_parseVal(_bpjsController) > 0) ['Potongan BPJS', _currencyFormat.format(_parseVal(_bpjsController))],
       if (_parseVal(_latePenaltyController) > 0) ['Denda Keterlambatan', _currencyFormat.format(_parseVal(_latePenaltyController))],
+      if (_parseVal(_absentDeductionController) > 0) ['Tidak Hadir', _currencyFormat.format(_parseVal(_absentDeductionController))],
       if (_parseVal(_loanController) > 0) ['Potongan Kasbon', _currencyFormat.format(_parseVal(_loanController))],
       if (_parseVal(_taxController) > 0) ['PPh 21', _currencyFormat.format(_parseVal(_taxController))],
     ];
@@ -947,9 +952,16 @@ Team Finance & HR ${_companySettings['company_name']}
                 ),
                 Row(
                   children: [
-                    Expanded(child: _buildTextField(context, 'Potongan Kasbon (Rp)', _loanController, isCurrency: true)),
+                    Expanded(child: _buildTextField(context, 'Tidak Hadir (Rp)', _absentDeductionController, isCurrency: true)),
                     const SizedBox(width: 12),
+                    Expanded(child: _buildTextField(context, 'Potongan Kasbon (Rp)', _loanController, isCurrency: true)),
+                  ],
+                ),
+                Row(
+                  children: [
                     Expanded(child: _buildTextField(context, 'PPh 21 (Rp)', _taxController, isCurrency: true)),
+                    const SizedBox(width: 12),
+                    const Expanded(child: SizedBox()),
                   ],
                 ),
 
@@ -983,7 +995,7 @@ Team Finance & HR ${_companySettings['company_name']}
                   clipBehavior: Clip.antiAlias,
                   child: PdfPreview(
                     key: ValueKey(
-                      'pdf_${_selectedUser?['user_id']}_${_invoiceNumberController.text}_${_companySettings['company_name']}_${_companySettings['company_address']}_${_companySettings['company_phone']}_${_companySettings['company_email']}_${_companySettings['signatory_name']}_${_companySettings['signatory_title']}_${_baseSalaryController.text}_${_allowancePosController.text}_${_allowanceMealTransController.text}_${_bonusController.text}_${_overtimeController.text}_${_bpjsController.text}_${_latePenaltyController.text}_${_loanController.text}_${_taxController.text}_${_nikController.text}_${_bankNameController.text}_${_bankNumberController.text}_${_bankHolderController.text}_${_selectedPeriod.millisecondsSinceEpoch}',
+                      'pdf_${_selectedUser?['user_id']}_${_invoiceNumberController.text}_${_companySettings['company_name']}_${_companySettings['company_address']}_${_companySettings['company_phone']}_${_companySettings['company_email']}_${_companySettings['signatory_name']}_${_companySettings['signatory_title']}_${_baseSalaryController.text}_${_allowancePosController.text}_${_allowanceMealTransController.text}_${_bonusController.text}_${_overtimeController.text}_${_bpjsController.text}_${_latePenaltyController.text}_${_absentDeductionController.text}_${_loanController.text}_${_taxController.text}_${_nikController.text}_${_bankNameController.text}_${_bankNumberController.text}_${_bankHolderController.text}_${_selectedPeriod.millisecondsSinceEpoch}',
                     ),
                     build: (format) => _buildPdfDocument(),
                     pdfFileName: _pdfFileName,

@@ -82,11 +82,7 @@ class _AbsensiManagementPageState extends State<AbsensiManagementPage> {
   }
 
   String _formatDateTime(DateTime dateTime) {
-    final d = dateTime.toLocal();
-
-    String two(int value) => value.toString().padLeft(2, '0');
-
-    return '${two(d.day)}/${two(d.month)}/${d.year} ${two(d.hour)}:${two(d.minute)}';
+    return AppUi.formatWibDateTime(dateTime);
   }
 
   Widget _buildBody() {
