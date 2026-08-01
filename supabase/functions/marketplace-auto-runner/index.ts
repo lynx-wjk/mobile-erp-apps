@@ -1,5 +1,5 @@
-﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const FUNCTION_VERSION = "marketplace-auto-runner-status-finance-reconciliation-v52-2026-06-10";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+const FUNCTION_VERSION = "marketplace-auto-runner-finance-unpaid-backlog-90d-v53-2026-06-11";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-marketplace-cron-secret, x-stock-sync-cron-secret",
@@ -51,6 +51,8 @@ Deno.serve(async (req)=>{
     const maxFinanceJobs = clampInt(body.max_finance_jobs ?? Deno.env.get("FINANCE_SYNC_MAX_JOBS"), 1, 3, 3);
     const maxFinanceOrders = clampInt(body.max_finance_orders ?? Deno.env.get("FINANCE_SYNC_MAX_ORDERS"), 1, 80, 50);
     const maxFinanceBatches = clampInt(body.max_finance_batches ?? Deno.env.get("FINANCE_SYNC_MAX_BATCHES"), 1, 3, 3);
+    const financeBacklogDays = clampInt(body.finance_backlog_days ?? body.finance_unpaid_backlog_days ?? Deno.env.get("FINANCE_SYNC_BACKLOG_DAYS"), 3, 90, 90);
+    const runFinanceBacklog = body.run_finance_backlog !== false;
     const cleanupStale = body.cleanup_stale !== false;
     const runStock = body.run_stock === true;
     const runOrder = body.run_order !== false;
@@ -117,6 +119,8 @@ Deno.serve(async (req)=>{
         maxFinanceJobs,
         maxFinanceOrders,
         maxFinanceBatches,
+        financeBacklogDays,
+        runFinanceBacklog,
         cleanupStale
       })) : {
       skipped: true,
@@ -587,7 +591,11 @@ async function runAutoFinanceStatementJobs(args) {
     action: "process_finance_sync_jobs",
     params: {
       mode: "recent_unpaid",
-      days_back: args.force ? 7 : 3,
+      days_back: args.runFinanceBacklog === false ? (args.force ? 7 : 3) : args.financeBacklogDays,
+      unpaid_backlog_days: args.financeBacklogDays,
+      include_unpaid_backlog: args.runFinanceBacklog !== false,
+      auto_unpaid_backlog_90d: args.runFinanceBacklog !== false,
+      job_type_hint: args.runFinanceBacklog === false ? "recent_unpaid" : "auto_unpaid_backlog_90d",
       enqueue: true,
       process: true,
       max_jobs: args.maxFinanceJobs,
@@ -603,7 +611,7 @@ async function runAutoFinanceStatementJobs(args) {
       missing_payout_limit: args.maxFinanceOrders,
       include_negative_refund_check: true,
       skip_settled_with_payout: true,
-      source: "marketplace-auto-runner-v24-6-82o-finance-force-7d-unpaid"
+      source: "marketplace-auto-runner-v53-finance-unpaid-backlog-90d-bounded"
     }
   };
   if (args.tenantFilter) body.params = {
@@ -1049,4 +1057,3 @@ function json(payload, status = 200) {
     }
   });
 }
-
