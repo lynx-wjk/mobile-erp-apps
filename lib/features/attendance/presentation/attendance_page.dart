@@ -671,22 +671,50 @@ class _AbsensiPageState extends State<AbsensiPage> {
                       Expanded(
                         child: TextField(
                           controller: startCtrl,
+                          readOnly: true,
                           decoration: const InputDecoration(
                             labelText: 'Jam Mulai Baru',
                             hintText: '12:00',
                             border: OutlineInputBorder(),
+                            suffixIcon: Icon(Icons.access_time_rounded),
                           ),
+                          onTap: () async {
+                            final parts = startCtrl.text.split(':');
+                            final initTime = parts.length == 2
+                                ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 12, minute: int.tryParse(parts[1]) ?? 0)
+                                : const TimeOfDay(hour: 12, minute: 0);
+                            final picked = await showTimePicker(context: context, initialTime: initTime);
+                            if (picked != null) {
+                              setModalState(() {
+                                startCtrl.text = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                              });
+                            }
+                          },
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: TextField(
                           controller: endCtrl,
+                          readOnly: true,
                           decoration: const InputDecoration(
                             labelText: 'Jam Selesai Baru',
                             hintText: '20:00',
                             border: OutlineInputBorder(),
+                            suffixIcon: Icon(Icons.access_time_rounded),
                           ),
+                          onTap: () async {
+                            final parts = endCtrl.text.split(':');
+                            final initTime = parts.length == 2
+                                ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 20, minute: int.tryParse(parts[1]) ?? 0)
+                                : const TimeOfDay(hour: 20, minute: 0);
+                            final picked = await showTimePicker(context: context, initialTime: initTime);
+                            if (picked != null) {
+                              setModalState(() {
+                                endCtrl.text = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                              });
+                            }
+                          },
                         ),
                       ),
                     ],
@@ -717,8 +745,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
                         try {
                           final user = _client.auth.currentUser;
                           final profile = await _currentProfile();
-                          await _client.from('shift_change_requests').insert({
-                            'tenant_id': profile?['tenant_id'] ?? _profile?['tenant_id'],
+                          final Map<String, dynamic> payload = {
                             'user_id': user!.id,
                             'user_name': profile?['nama'] ?? 'Karyawan',
                             'user_email': profile?['email'] ?? '',
@@ -730,7 +757,12 @@ class _AbsensiPageState extends State<AbsensiPage> {
                             'status': 'pending',
                             'created_at': DateTime.now().toUtc().toIso8601String(),
                             'updated_at': DateTime.now().toUtc().toIso8601String(),
-                          });
+                          };
+                          final rawTenant = profile?['tenant_id'] ?? _profile?['tenant_id'];
+                          if (rawTenant != null && rawTenant.toString().isNotEmpty) {
+                            payload['tenant_id'] = rawTenant;
+                          }
+                          await _client.from('shift_change_requests').insert(payload);
                           if (ctx.mounted) Navigator.pop(ctx);
                           rootScaffoldMessengerKey.currentState?.showSnackBar(
                             const SnackBar(content: Text('Pengajuan Tukar Shift dikirim! Menunggu persetujuan HR/Admin.')),

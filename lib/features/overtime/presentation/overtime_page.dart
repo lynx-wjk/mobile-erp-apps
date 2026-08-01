@@ -726,10 +726,7 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
       final user = _client.auth.currentUser;
       final userProfile = await _client.from('users').select('nama, email, role_id, tenant_id').eq('user_id', user!.id).maybeSingle();
 
-      final tenantId = userProfile?['tenant_id'] ?? _tenantId;
-
-      await _client.from('shift_change_requests').insert({
-        'tenant_id': tenantId,
+      final Map<String, dynamic> insertPayload = {
         'user_id': user.id,
         'user_name': userProfile?['nama'] ?? 'Karyawan',
         'user_email': userProfile?['email'] ?? '',
@@ -741,7 +738,13 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
         'status': 'pending',
         'created_at': DateTime.now().toUtc().toIso8601String(),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
-      });
+      };
+      final rawTenant = userProfile?['tenant_id'] ?? _tenantId;
+      if (rawTenant != null && rawTenant.toString().isNotEmpty) {
+        insertPayload['tenant_id'] = rawTenant;
+      }
+
+      await _client.from('shift_change_requests').insert(insertPayload);
 
       _shiftReasonCtrl.clear();
       AppUi.showSnack('Pengajuan tukar shift berhasil dikirim! Menunggu persetujuan Super Admin / HR / Finance.');
@@ -847,6 +850,40 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
     if (picked != null) {
       setState(() {
         _endTimeController.text =
+            '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      });
+    }
+  }
+
+  Future<void> _pickShiftStartTime() async {
+    final parts = _shiftNewStartCtrl.text.split(':');
+    final initialTime = parts.length == 2
+        ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 12, minute: int.tryParse(parts[1]) ?? 0)
+        : const TimeOfDay(hour: 12, minute: 0);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+    );
+    if (picked != null) {
+      setState(() {
+        _shiftNewStartCtrl.text =
+            '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      });
+    }
+  }
+
+  Future<void> _pickShiftEndTime() async {
+    final parts = _shiftNewEndCtrl.text.split(':');
+    final initialTime = parts.length == 2
+        ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 20, minute: int.tryParse(parts[1]) ?? 0)
+        : const TimeOfDay(hour: 20, minute: 0);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+    );
+    if (picked != null) {
+      setState(() {
+        _shiftNewEndCtrl.text =
             '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
       });
     }
@@ -1331,6 +1368,8 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                 Expanded(
                   child: TextField(
                     controller: _shiftNewStartCtrl,
+                    readOnly: true,
+                    onTap: _pickShiftStartTime,
                     decoration: const InputDecoration(
                       labelText: 'Jam Mulai Baru',
                       hintText: '12:00',
@@ -1343,6 +1382,8 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                 Expanded(
                   child: TextField(
                     controller: _shiftNewEndCtrl,
+                    readOnly: true,
+                    onTap: _pickShiftEndTime,
                     decoration: const InputDecoration(
                       labelText: 'Jam Selesai Baru',
                       hintText: '20:00',
