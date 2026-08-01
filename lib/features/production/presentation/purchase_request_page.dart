@@ -15,7 +15,8 @@ class PurchaseRequestPage extends StatefulWidget {
 class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
   final SupabaseClient _client = Supabase.instance.client;
 
-  final TextEditingController _supplierManualController = TextEditingController();
+  final TextEditingController _supplierManualController =
+      TextEditingController();
   final TextEditingController _noteController = TextEditingController();
 
   bool _isLoading = true;
@@ -55,13 +56,11 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
       if (!mounted) return;
 
       setState(() {
-        _suppliers = (data as List)
-            .map((e) => Map<String, dynamic>.from(e))
-            .where((e) {
-              final status = AppUi.text(e['status'], 'active').toLowerCase();
-              return status == 'active' || status == '-';
-            })
-            .toList();
+        _suppliers =
+            (data as List).map((e) => Map<String, dynamic>.from(e)).where((e) {
+          final status = AppUi.text(e['status'], 'active').toLowerCase();
+          return status == 'active' || status == '-';
+        }).toList();
       });
     } on PostgrestException catch (error) {
       if (!mounted) return;
@@ -83,10 +82,14 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
   Future<void> _openItemForm([int? editIndex]) async {
     final current = editIndex == null ? null : _items[editIndex];
 
-    final nameController = TextEditingController(text: current?.namaBarang ?? '');
-    final qtyController = TextEditingController(text: current == null ? '' : current.qty.toStringAsFixed(0));
-    final unitController = TextEditingController(text: current?.satuan ?? 'pcs');
-    final priceController = TextEditingController(text: current == null ? '' : AppUi.moneyInput(current.hargaItem));
+    final nameController =
+        TextEditingController(text: current?.namaBarang ?? '');
+    final qtyController = TextEditingController(
+        text: current == null ? '' : current.qty.toStringAsFixed(0));
+    final unitController =
+        TextEditingController(text: current?.satuan ?? 'pcs');
+    final priceController = TextEditingController(
+        text: current == null ? '' : AppUi.moneyInput(current.hargaItem));
     final noteController = TextEditingController(text: current?.catatan ?? '');
     String? formError;
 
@@ -97,11 +100,14 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
           builder: (dialogContext, setDialogState) {
             void submit() {
               final name = nameController.text.trim();
-              final qty = num.tryParse(qtyController.text.trim().replaceAll(',', '.')) ?? 0;
+              final qty = num.tryParse(
+                      qtyController.text.trim().replaceAll(',', '.')) ??
+                  0;
               final price = AppUi.parseMoneyInput(priceController.text);
 
               if (name.isEmpty || qty <= 0) {
-                setDialogState(() => formError = 'Nama barang dan qty wajib valid');
+                setDialogState(
+                    () => formError = 'Nama barang dan qty wajib valid');
                 return;
               }
 
@@ -110,7 +116,9 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
                 _PurchaseItemDraft(
                   namaBarang: name,
                   qty: qty,
-                  satuan: unitController.text.trim().isEmpty ? 'pcs' : unitController.text.trim(),
+                  satuan: unitController.text.trim().isEmpty
+                      ? 'pcs'
+                      : unitController.text.trim(),
                   hargaItem: price,
                   catatan: noteController.text.trim(),
                 ),
@@ -118,39 +126,74 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
             }
 
             return AlertDialog(
-              title: Text(editIndex == null ? 'Tambah Item Pembelian' : 'Edit Item Pembelian'),
+              title: Text(editIndex == null
+                  ? 'Tambah Item Pembelian'
+                  : 'Edit Item Pembelian'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('Barang/bahan pembelian tidak harus berasal dari Master SKU.'),
+                    const Text(
+                        'Barang/bahan pembelian tidak harus berasal dari Master SKU.'),
                     const SizedBox(height: 14),
-                    TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Nama Barang / Bahan', border: OutlineInputBorder())),
+                    TextField(
+                        controller: nameController,
+                        decoration: const InputDecoration(
+                            labelText: 'Nama Barang / Bahan',
+                            border: OutlineInputBorder())),
                     const SizedBox(height: 12),
                     Row(children: [
-                      Expanded(child: TextField(controller: qtyController, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Qty', border: OutlineInputBorder()))),
+                      Expanded(
+                          child: TextField(
+                              controller: qtyController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              decoration: const InputDecoration(
+                                  labelText: 'Qty',
+                                  border: OutlineInputBorder()))),
                       const SizedBox(width: 10),
-                      Expanded(child: TextField(controller: unitController, decoration: const InputDecoration(labelText: 'Satuan', border: OutlineInputBorder()))),
+                      Expanded(
+                          child: TextField(
+                              controller: unitController,
+                              decoration: const InputDecoration(
+                                  labelText: 'Satuan',
+                                  border: OutlineInputBorder()))),
                     ]),
                     const SizedBox(height: 12),
                     TextField(
                       controller: priceController,
                       keyboardType: TextInputType.number,
                       inputFormatters: const [AppMoneyInputFormatter()],
-                      decoration: const InputDecoration(labelText: 'Harga per Item', prefixText: 'Rp ', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                          labelText: 'Harga per Item',
+                          prefixText: 'Rp ',
+                          border: OutlineInputBorder()),
                     ),
                     const SizedBox(height: 12),
-                    TextField(controller: noteController, maxLines: 2, decoration: const InputDecoration(labelText: 'Catatan Item', border: OutlineInputBorder())),
+                    TextField(
+                        controller: noteController,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                            labelText: 'Catatan Item',
+                            border: OutlineInputBorder())),
                     if (formError != null) ...[
                       const SizedBox(height: 10),
-                      Text(formError!, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700)),
+                      Text(formError!,
+                          style: const TextStyle(
+                              color: Colors.red, fontWeight: FontWeight.w700)),
                     ],
                   ],
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => AppUi.safePop(dialogContext), child: const Text('Batal')),
-                FilledButton.icon(onPressed: submit, icon: const Icon(Icons.add), label: Text(editIndex == null ? 'Tambah' : 'Update')),
+                TextButton(
+                    onPressed: () => AppUi.safePop(dialogContext),
+                    child: const Text('Batal')),
+                FilledButton.icon(
+                    onPressed: submit,
+                    icon: const Icon(Icons.add),
+                    label: Text(editIndex == null ? 'Tambah' : 'Update')),
               ],
             );
           },
@@ -197,8 +240,10 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
 
     try {
       final manualSupplier = _supplierManualController.text.trim();
-      final selectedSupplierName = _selectedSupplier == null ? '' : _supplierName(_selectedSupplier!);
-      final supplierName = manualSupplier.isNotEmpty ? manualSupplier : selectedSupplierName;
+      final selectedSupplierName =
+          _selectedSupplier == null ? '' : _supplierName(_selectedSupplier!);
+      final supplierName =
+          manualSupplier.isNotEmpty ? manualSupplier : selectedSupplierName;
 
       final items = _items.map((item) => item.toJson()).toList();
 
@@ -227,7 +272,8 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
       );
     } on PostgrestException catch (error) {
       if (!mounted) return;
-      rootScaffoldMessengerKey.currentState?.showSnackBar(SnackBar(content: Text(error.message)));
+      rootScaffoldMessengerKey.currentState
+          ?.showSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
       if (!mounted) return;
       rootScaffoldMessengerKey.currentState?.showSnackBar(
@@ -253,7 +299,8 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
           FuturisticHeader(
             icon: Icons.shopping_cart_checkout_outlined,
             title: 'Pembelian',
-            subtitle: 'Item pembelian bebas, tidak wajib Master SKU. Foto nota pakai kamera, GPS, tanggal, dan jam otomatis.',
+            subtitle:
+                'Item pembelian bebas, tidak wajib Master SKU. Foto nota pakai kamera, GPS, tanggal, dan jam otomatis.',
             stats: [
               StatPill(label: 'Item', value: _items.length.toString()),
               StatPill(label: 'Total', value: 'Rp ${AppUi.money(_total)}'),
@@ -357,7 +404,8 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
                 child: ListTile(
                   contentPadding: const EdgeInsets.all(14),
                   leading: CircleAvatar(child: Text('${index + 1}')),
-                  title: Text(item.namaBarang, style: const TextStyle(fontWeight: FontWeight.w900)),
+                  title: Text(item.namaBarang,
+                      style: const TextStyle(fontWeight: FontWeight.w800)),
                   subtitle: Text(
                     '${item.qty.toStringAsFixed(0)} ${item.satuan} x Rp ${AppUi.money(item.hargaItem)}\n'
                     'Subtotal: Rp ${AppUi.money(item.subtotal)}',
@@ -373,7 +421,10 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
           FilledButton.icon(
             onPressed: _isSaving ? null : _save,
             icon: _isSaving
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.save_outlined),
             label: Text(_isSaving ? 'Menyimpan...' : 'Submit Pembelian'),
           ),
@@ -388,7 +439,8 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
       appBar: AppBar(
         title: const Text('Pembelian'),
         actions: [
-          IconButton(onPressed: _loadMasterData, icon: const Icon(Icons.refresh)),
+          IconButton(
+              onPressed: _loadMasterData, icon: const Icon(Icons.refresh)),
         ],
       ),
       body: _body(),

@@ -1,5 +1,6 @@
 enum AppRole {
   unassigned,
+  platformOwner,
   superAdmin,
   demoSuperAdmin,
   admin,
@@ -16,6 +17,8 @@ extension AppRoleExtension on AppRole {
     switch (this) {
       case AppRole.unassigned:
         return 'Belum aktif';
+      case AppRole.platformOwner:
+        return 'Platform Owner';
       case AppRole.superAdmin:
         return 'Super Admin';
       case AppRole.demoSuperAdmin:
@@ -41,6 +44,8 @@ extension AppRoleExtension on AppRole {
     switch (this) {
       case AppRole.unassigned:
         return 'unassigned';
+      case AppRole.platformOwner:
+        return 'platform_owner';
       case AppRole.superAdmin:
         return 'super_admin';
       case AppRole.demoSuperAdmin:
@@ -63,7 +68,7 @@ extension AppRoleExtension on AppRole {
   }
 
   bool get isSuperRole {
-    return this == AppRole.superAdmin || this == AppRole.demoSuperAdmin;
+    return this == AppRole.superAdmin || this == AppRole.demoSuperAdmin || this == AppRole.platformOwner;
   }
 
   bool get isDemoSuperAdmin => this == AppRole.demoSuperAdmin;
@@ -82,6 +87,9 @@ AppRole appRoleFromRoleId(String? roleId) {
     case null:
     case '':
       return AppRole.unassigned;
+    case 'platform_owner':
+    case 'platformowner':
+      return AppRole.platformOwner;
     case 'super_admin':
     case 'superadmin':
     case 'owner':
@@ -118,11 +126,16 @@ class AppRolePermissions {
     return roleId?.trim().toLowerCase().replaceAll(' ', '_') ?? '';
   }
 
+  static bool isPlatformOwnerId(String? roleId) {
+    return normalizeRoleId(roleId) == 'platform_owner';
+  }
+
   static bool isSuperRoleId(String? roleId) {
     final role = normalizeRoleId(roleId);
     return role == 'super_admin' ||
         role == 'superadmin' ||
         role == 'owner' ||
+        role == 'platform_owner' ||
         role == 'platform_super_admin';
   }
 

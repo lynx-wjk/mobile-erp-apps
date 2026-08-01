@@ -5,8 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/ai_chat_assistant_sheet.dart';
 import '../../../core/theme/app_theme_mode.dart';
 import '../../../core/constants/app_roles.dart';
+import '../../subscription/services/tenant_entitlement_service.dart';
+import '../../subscription/presentation/feature_gate_page.dart';
 import '../../../models/app_user.dart';
 
 import '../../attendance/presentation/attendance_page.dart';
@@ -20,9 +23,12 @@ import '../../finance/services/finance_local_cache.dart';
 import '../../finance/presentation/purchase_verification_page.dart';
 import '../../host_live/presentation/host_live_page.dart';
 import '../../hr/presentation/hr_performance_page.dart';
+import '../../hr/presentation/payroll_page.dart';
+import '../../overtime/presentation/overtime_page.dart';
+
 import '../../marketplace/presentation/marketplace_accounts_page.dart';
 import '../../marketplace/presentation/marketplace_orders_page.dart';
-import '../../marketplace/presentation/marketplace_job_monitor_page.dart';
+import '../../marketplace/presentation/marketplace_dispatcher_monitor_page.dart';
 import '../../marketplace/presentation/marketplace_refund_monitor_page.dart';
 import '../../marketplace/presentation/marketplace_sku_mapping_page.dart';
 import '../../marketplace/presentation/marketplace_stock_difference_page.dart';
@@ -73,12 +79,18 @@ class _DashboardPageState extends State<DashboardPage> {
   int _financeOrderCount = 0;
   List<_TrendPoint> _financeTrend = const <_TrendPoint>[];
   int? _selectedTrendIndex;
+  String _dashboardFinanceMarketplaceFilter = 'all';
+  static const String _dashboardFinanceCacheVersion =
+      'finance_live_20260620_v31_dashboard_mtd_order_date_wib';
+  static const String _dashboardFinanceCacheTab = 'dashboard';
   List<_AppNotification> _notifications = const <_AppNotification>[];
   int _contentTotal = 0;
   int _contentDueSoon = 0;
   int _lateAttendance = 0;
   int _absentAttendance = 0;
   String _myAttendanceLabel = 'Belum';
+  _TenantSubscriptionInfo? _tenantSubscriptionInfo;
+  TenantEntitlementSnapshot? _entitlement;
 
   String get _role =>
       (_appUser?.role.roleId ?? _user?.role ?? '').trim().toLowerCase();
@@ -89,7 +101,17 @@ class _DashboardPageState extends State<DashboardPage> {
       _isAdmin || _isOperationalAdmin || _role == 'hr';
   bool get _canOpenSuperSettings =>
       AppRolePermissions.canOpenSuperSettings(_role);
-  bool get _canAccessFinance => AppRolePermissions.canAccessFinance(_role);
+  bool get _isPlatformOwner =>
+      AppRolePermissions.isPlatformOwnerId(_role) ||
+      (_entitlement?.isPlatformOwner ?? false);
+  bool _planHasFeature(String featureKey) {
+    if (_isPlatformOwner) return true;
+    return _entitlement?.isFeatureEnabled(featureKey) == true;
+  }
+
+  bool get _canAccessFinance =>
+      AppRolePermissions.canAccessFinance(_role) &&
+      _planHasFeature('finance_basic');
   bool get _isDemoSuperAdmin => AppRolePermissions.isDemoSuperAdminId(_role);
   bool get _isFinance => _role == 'finance';
   bool get _isWarehouse => _role == 'warehouse';
@@ -147,6 +169,8 @@ class _DashboardPageState extends State<DashboardPage> {
           appUser = AppUser.fromMap(profile);
         }
       }
+
+      final entitlement = await TenantEntitlementService(_client).load();
 
       final now = DateTime.now();
       final start = DateTime(now.year, now.month, now.day).toIso8601String();
@@ -242,8 +266,16 @@ class _DashboardPageState extends State<DashboardPage> {
       final isManagementRole =
           AppRolePermissions.canManageOperationalWork(roleId) ||
               roleId == 'finance';
-      final financeSummary = AppRolePermissions.canAccessFinance(roleId)
-          ? await _safeFinanceSummary(now)
+      final tenantSubscriptionInfo = await _safeTenantSubscriptionInfo(
+          appUser?.tenantId ?? profile?['tenant_id']);
+      final financeTenantId =
+          (appUser?.tenantId ?? profile?['tenant_id']?.toString() ?? '').trim();
+      final canLoadFinanceSummary =
+          AppRolePermissions.isPlatformOwnerId(roleId) ||
+              (AppRolePermissions.canAccessFinance(roleId) &&
+                  entitlement.isFeatureEnabled('finance_basic'));
+      final financeSummary = canLoadFinanceSummary
+          ? await _safeFinanceSummary(now, tenantId: financeTenantId)
           : <String, dynamic>{};
       final notifications = _withLowStockNotificationFallback(
         await _safeNotifications(),
@@ -324,11 +356,13 @@ class _DashboardPageState extends State<DashboardPage> {
         _allOpenTasks = allOpenTasks;
         _myTodayLive = myTodayLive;
         _pendingLiveReview = pendingLiveReview;
-        _financeAbnormalCount =
-            AppUi.toNum(financeSummary['abnormal_count'] ?? financeSummary['anomaly_count']).toInt();
+        _financeAbnormalCount = AppUi.toNum(financeSummary['abnormal_count'] ??
+                financeSummary['anomaly_count'])
+            .toInt();
         _financeNetProfit = AppUi.toNum(financeSummary['net_profit']);
         _financeOmzet = AppUi.toNum(financeSummary['omzet_total']);
-        _financeOrderCount = AppUi.toNum(financeSummary['orders_count']).toInt();
+        _financeOrderCount =
+            AppUi.toNum(financeSummary['orders_count']).toInt();
         _financeTrend = (financeSummary['trend'] as List<_TrendPoint>?) ??
             const <_TrendPoint>[];
         _notifications = notifications;
@@ -337,6 +371,8 @@ class _DashboardPageState extends State<DashboardPage> {
         _lateAttendance = lateAttendance;
         _absentAttendance = absentAttendance;
         _myAttendanceLabel = myAttendanceLabel;
+        _tenantSubscriptionInfo = tenantSubscriptionInfo;
+        _entitlement = entitlement;
         _loading = false;
       });
     } catch (e) {
@@ -356,106 +392,144 @@ class _DashboardPageState extends State<DashboardPage> {
     return <String, dynamic>{};
   }
 
-  Future<Map<String, dynamic>> _safeRawFinanceSummary(DateTime now) async {
-    final startDate = _ymd(DateTime(now.year, now.month, 1));
-    final endDate = _ymd(now);
+  Future<Map<String, dynamic>> _safeRawFinanceSummary(DateTime now,
+      {String? marketplaceFilter}) async {
+    final effectiveMarketplace =
+        marketplaceFilter ?? _dashboardFinanceMarketplaceParam();
     try {
-      dynamic query = _client
-          .from('marketplace_finance_reports')
-          .select(
-              'finance_report_id, order_id, marketplace_order_id, period_start, gross_amount, gross_sales, payout_amount, received_amount, net_settlement, total_hpp')
-          .gte('period_start', startDate)
-          .lte('period_start', endDate);
-      final response = await query.limit(10000);
-      final rows = response is List
-          ? response
-              .whereType<Map>()
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList()
-          : <Map<String, dynamic>>[];
-      if (rows.isEmpty) return <String, dynamic>{};
-
-      final orderKeys = <String>{};
-      final daily = <String, Map<String, dynamic>>{};
-      var gross = 0.0;
-      var payout = 0.0;
-      var hpp = 0.0;
-      var negativeCount = 0;
-      var negativeAbs = 0.0;
-
-      for (final row in rows) {
-        final orderKey = AppUi.text(row['order_id'] ?? row['marketplace_order_id']);
-        if (orderKey.trim().isNotEmpty) orderKeys.add(orderKey);
-        final rowGross = AppUi.toNum(row['gross_amount'] ?? row['gross_sales']);
-        final rowPayout = AppUi.toNum(row['payout_amount'] ??
-            row['received_amount'] ??
-            row['net_settlement']);
-        final rowHpp = AppUi.toNum(row['total_hpp']);
-        gross += rowGross;
-        payout += rowPayout;
-        hpp += rowHpp;
-        if (rowPayout < 0) {
-          negativeCount += 1;
-          negativeAbs += rowPayout.abs();
-        }
-
-        final rawDate = AppUi.text(row['period_start']);
-        if (rawDate.trim().isEmpty) continue;
-        final dateKey = rawDate.length >= 10 ? rawDate.substring(0, 10) : rawDate;
-        final bucket = daily.putIfAbsent(dateKey, () => <String, dynamic>{
-              'date': dateKey,
-              'gross': 0.0,
-              'orders': <String>{},
-            });
-        bucket['gross'] = AppUi.toNum(bucket['gross']) + rowGross;
-        if (orderKey.trim().isNotEmpty) {
-          (bucket['orders'] as Set<String>).add(orderKey);
-        }
-      }
-
-      final trend = daily.entries.map((entry) {
-        final date = DateTime.tryParse(entry.key) ?? DateTime(now.year, now.month, now.day);
-        final orders = entry.value['orders'] is Set<String>
-            ? (entry.value['orders'] as Set<String>).length
-            : 0;
-        return _TrendPoint(
-          date: date,
-          omzet: AppUi.toNum(entry.value['gross']),
-          orders: orders,
-        );
-      }).toList()
-        ..sort((a, b) => a.date.compareTo(b.date));
-
-      final orders = orderKeys.length;
-      return <String, dynamic>{
-        'abnormal_count': negativeCount,
-        'anomaly_count': negativeCount,
-        'negative_payout_total_abs': negativeAbs,
-        'payout_minus_total_abs': negativeAbs,
-        'minus_payout_total_abs': negativeAbs,
-        'net_profit': payout - hpp,
-        'omzet_total': gross,
-        'orders_count': orders,
-        'trend': _monthToDateTrend(now, trend),
-      };
+      final response = await _client.rpc(
+        'dashboard_marketplace_order_analytics_90d',
+        params: {
+          'p_marketplace': effectiveMarketplace,
+          'p_days': now.day,
+        },
+      );
+      final parsed = _dashboardOrderAnalyticsFromRpc(now, _asMap(response));
+      if (_dashboardFinanceSummaryUsable(parsed)) return parsed;
     } catch (e) {
       debugPrint('Dashboard raw finance summary failed: $e');
-      return <String, dynamic>{};
     }
+    return <String, dynamic>{};
   }
 
-  Future<Map<String, dynamic>> _safeFinanceSummary(DateTime now) async {
+  Map<String, dynamic> _dashboardOrderAnalyticsFromRpc(
+    DateTime now,
+    Map<String, dynamic> data,
+  ) {
+    if (data.isEmpty || data['ok'] == false) return <String, dynamic>{};
+
+    final summary = _asMap(data['summary']);
+    final rawDaily = data['daily'] is List ? data['daily'] as List : const [];
+    final points = <_TrendPoint>[];
+
+    for (final item in rawDaily) {
+      final row = _asMap(item);
+      final dateText = AppUi.text(
+        row['date'] ?? row['report_date'] ?? row['order_date'],
+        '',
+      );
+      if (dateText.isEmpty) continue;
+
+      final date = DateTime.tryParse(
+        dateText.length >= 10 ? dateText.substring(0, 10) : dateText,
+      );
+      if (date == null) continue;
+
+      points.add(
+        _TrendPoint(
+          date: date,
+          omzet: AppUi.toNum(
+            row['omzet_total'] ??
+                row['gross_sales'] ??
+                row['gross_total'] ??
+                row['amount'],
+          ),
+          orders: AppUi.toNum(
+            row['orders_count'] ?? row['order_count'] ?? row['orders'],
+          ).toInt(),
+        ),
+      );
+    }
+
+    points.sort((a, b) => a.date.compareTo(b.date));
+
+    final omzet = AppUi.toNum(
+      summary['omzet_total'] ??
+          summary['gross_sales'] ??
+          summary['gross_total'] ??
+          data['omzet_total'],
+    );
+    final orders = AppUi.toNum(
+      summary['orders_count'] ?? summary['order_count'] ?? data['orders_count'],
+    ).toInt();
+    final payout = AppUi.toNum(
+      summary['payout_total'] ??
+          summary['payout_amount'] ??
+          summary['received_amount'] ??
+          data['payout_total'],
+    );
+    final hpp = AppUi.toNum(
+      summary['hpp_total'] ?? summary['total_hpp'] ?? data['hpp_total'],
+    );
+    final netProfit = AppUi.toNum(
+      summary['net_profit'] ?? data['net_profit'] ?? (payout - hpp),
+    );
+    final abnormalCount = AppUi.toNum(
+      summary['abnormal_count'] ??
+          summary['anomaly_count'] ??
+          data['abnormal_count'] ??
+          data['anomaly_count'],
+    ).toInt();
+    final negativePayoutTotalAbs = AppUi.toNum(
+      summary['negative_payout_total_abs'] ??
+          summary['payout_minus_total_abs'] ??
+          data['negative_payout_total_abs'],
+    );
+
+    if (omzet <= 0 && orders <= 0 && points.every((p) => p.orders <= 0)) {
+      return <String, dynamic>{};
+    }
+
+    return <String, dynamic>{
+      'abnormal_count': abnormalCount,
+      'anomaly_count': abnormalCount,
+      'negative_payout_total_abs': negativePayoutTotalAbs,
+      'payout_minus_total_abs': negativePayoutTotalAbs,
+      'net_profit': netProfit,
+      'omzet_total': omzet,
+      'orders_count': orders,
+      'trend': points,
+      'source_rpc': AppUi.text(
+          data['source'], 'dashboard_marketplace_order_analytics_90d'),
+    };
+  }
+
+  Future<Map<String, dynamic>> _safeFinanceSummary(
+    DateTime now, {
+    String tenantId = '',
+  }) async {
     final startDate = _ymd(DateTime(now.year, now.month, 1));
     final endDate = _ymd(now);
+    final marketplaceFilter = _dashboardFinanceMarketplaceParam();
 
-    final live = await _safeFinanceSummaryFromSnapshot(now, startDate, endDate);
-    if (_dashboardFinanceSummaryUsable(live)) return live;
+    final rawSummary = await _safeRawFinanceSummary(
+      now,
+      marketplaceFilter: marketplaceFilter,
+    );
+    if (_dashboardFinanceSummaryUsable(rawSummary)) {
+      return rawSummary;
+    }
 
-    final cached = await _safeFinanceSummaryFromLocalCache(now, startDate, endDate);
-    if (_dashboardFinanceSummaryUsable(cached)) return cached;
-
-    final rawSummary = await _safeRawFinanceSummary(now);
-    if (_dashboardFinanceSummaryUsable(rawSummary)) return rawSummary;
+    final cached = await _safeFinanceSummaryFromLocalCache(
+      now,
+      startDate,
+      endDate,
+      marketplaceFilter,
+      tenantId: tenantId,
+    );
+    if (_dashboardFinanceSummaryUsable(cached)) {
+      return cached;
+    }
 
     return <String, dynamic>{
       'abnormal_count': 0,
@@ -474,121 +548,30 @@ class _DashboardPageState extends State<DashboardPage> {
         AppUi.toNum(data['abnormal_count'] ?? data['anomaly_count']).abs() > 0;
   }
 
-  Future<Map<String, dynamic>> _safeFinanceSummaryFromSnapshot(
-    DateTime now,
-    String startDate,
-    String endDate,
-  ) async {
-    final rpcCandidates = <String>[
-      'finance_customer_dashboard_snapshot_v24_6_82o',
-      'finance_customer_dashboard_snapshot_v24_6_82f',
-      'finance_customer_dashboard_snapshot_v24_6_82e',
-      'finance_customer_dashboard_snapshot_v24_6_82d',
-      'finance_customer_dashboard_snapshot_v24_6_82',
-      'finance_customer_dashboard_snapshot_v24_6_80m',
-      'finance_customer_dashboard_snapshot_v24_6_80l',
-      'finance_customer_dashboard_snapshot_v24_6_80j',
-      'finance_customer_dashboard_snapshot_v24_6_79',
-      'finance_customer_dashboard_snapshot_v24_6_71',
-    ];
-
-    Object? lastError;
-    for (final rpcName in rpcCandidates) {
-      for (final rpcParams
-          in _dashboardFinanceSnapshotParamVariants(rpcName, startDate, endDate)) {
-        try {
-          final response = await _client.rpc(rpcName, params: rpcParams);
-          final parsed =
-              _financeSummaryFromSnapshot(now, _asMap(response), rpcName);
-          if (_dashboardFinanceSummaryUsable(parsed)) {
-            try {
-              final keyBase = FinanceLocalCache.snapshotKey(
-                start: DateTime(now.year, now.month, 1),
-                end: DateTime(now.year, now.month, now.day),
-                marketplace: 'all',
-                accountId: 'all',
-              );
-              final cacheKey = '$keyBase::finance_live_20260606_local_cache_fast_v20';
-              await FinanceLocalCache.writeJson(cacheKey, _asMap(response));
-            } catch (_) {}
-            return parsed;
-          }
-          break;
-        } catch (error) {
-          lastError = error;
-          if (!_isDashboardRpcParamMismatch(error)) break;
-        }
-      }
-    }
-
-    if (lastError != null) {
-      debugPrint('Dashboard finance snapshot failed: $lastError');
-    }
-    return <String, dynamic>{};
-  }
-
-  List<Map<String, dynamic>> _dashboardFinanceSnapshotParamVariants(
-    String rpcName,
-    String startDate,
-    String endDate,
-  ) {
-    if (rpcName.endsWith('82o')) {
-      return [
-        {
-          'p_start': startDate,
-          'p_end': endDate,
-          'p_marketplace': null,
-          'p_account_id': null,
-        },
-        {
-          'p_start_date': startDate,
-          'p_end_date': endDate,
-          'p_marketplace_filter': null,
-          'p_account_id_filter': null,
-        },
-      ];
-    }
-    return [
-      {
-        'p_start': startDate,
-        'p_end': endDate,
-        'p_marketplace': null,
-        'p_account_id': null,
-      }
-    ];
-  }
-
-  bool _isDashboardRpcParamMismatch(Object error) {
-    final lower = error.toString().toLowerCase();
-    return lower.contains('could not find the function') ||
-        lower.contains('function public.') ||
-        lower.contains('does not exist') ||
-        lower.contains('pgrst202') || lower.contains('pgrst204') || lower.contains('pgrst301');
-  }
-
   Future<Map<String, dynamic>> _safeFinanceSummaryFromLocalCache(
     DateTime now,
     String startDate,
     String endDate,
-  ) async {
+    String? marketplaceFilter, {
+    required String tenantId,
+  }) async {
     final versions = <String>[
-      'finance_live_20260606_local_cache_fast_v20',
-      'finance_live_20260606_local_cache_fast_v19',
-      'finance_live_20260606_local_cache_fast_v18',
-      'finance_live_20260606_local_cache_fast_v17',
-      'finance_live_20260606_truth_abnormal_raw_v15',
-      'finance_live_20260606_no_local_cache_server_rpc_v16',
+      _dashboardFinanceCacheVersion,
     ];
-    final keyBase = FinanceLocalCache.snapshotKey(
-      start: DateTime(now.year, now.month, 1),
-      end: DateTime(now.year, now.month, now.day),
-      marketplace: 'all',
-      accountId: 'all',
-    );
 
     for (final version in versions) {
       try {
-        final cached = await FinanceLocalCache.readJson('$keyBase::$version', ttlDays: 90);
+        final cacheKey = FinanceLocalCache.snapshotKey(
+          start: DateTime(now.year, now.month, 1),
+          end: DateTime(now.year, now.month, now.day),
+          marketplace: marketplaceFilter ?? 'all',
+          accountId: 'all',
+          tenantId: tenantId.trim().isEmpty ? 'unknown' : tenantId.trim(),
+          tab: _dashboardFinanceCacheTab,
+          page: 1,
+          cacheVersion: version,
+        );
+        final cached = await FinanceLocalCache.readJson(cacheKey, ttlDays: 90);
         if (cached == null || cached.isEmpty) continue;
         final parsed = _financeSummaryFromSnapshot(now, cached, 'local_cache');
         if (_dashboardFinanceSummaryUsable(parsed)) return parsed;
@@ -606,6 +589,24 @@ class _DashboardPageState extends State<DashboardPage> {
 
     final summary = _asMap(data['summary']);
     if (summary.isEmpty) return <String, dynamic>{};
+
+    final snapshotSource = AppUi.text(data['source'], '').toLowerCase();
+    final snapshotReason = AppUi.text(data['reason'], '').toLowerCase();
+    final snapshotVersion = AppUi.text(data['version'], '').toLowerCase();
+    if (snapshotSource == 'tenant_runtime_guard' ||
+        snapshotReason == 'tenant_has_no_finance_data' ||
+        snapshotVersion.contains('tenant_empty_finance_snapshot')) {
+      return <String, dynamic>{
+        '_tenant_empty_finance': true,
+        'abnormal_count': 0,
+        'anomaly_count': 0,
+        'net_profit': 0,
+        'omzet_total': 0,
+        'orders_count': 0,
+        'trend': _monthToDateTrend(now, const <_TrendPoint>[]),
+        'source_rpc': source,
+      };
+    }
     final abnormals = data['abnormals'] ?? data['anomalies'];
     final rawTrend = _trendFromFinanceSnapshot(data);
     final abnormalCount = summary['abnormal_count'] ??
@@ -760,8 +761,8 @@ class _DashboardPageState extends State<DashboardPage> {
     for (var date = monthStart;
         !date.isAfter(today);
         date = date.add(const Duration(days: 1))) {
-      result.add(grouped[_ymd(date)] ??
-          _TrendPoint(date: date, omzet: 0, orders: 0));
+      result.add(
+          grouped[_ymd(date)] ?? _TrendPoint(date: date, omzet: 0, orders: 0));
     }
     return result;
   }
@@ -788,6 +789,34 @@ class _DashboardPageState extends State<DashboardPage> {
     return const <dynamic>[];
   }
 
+  Future<_TenantSubscriptionInfo?> _safeTenantSubscriptionInfo(
+      dynamic tenantIdValue) async {
+    final tenantId = tenantIdValue?.toString().trim() ?? '';
+    if (tenantId.isEmpty) return null;
+
+    try {
+      final response = await _client
+          .from('tenant_subscriptions')
+          .select(
+            'status, trial_ends_at, current_period_end, created_at, '
+            'subscription_plans(plan_name, plan_code, billing_period, price_amount, currency)',
+          )
+          .eq('tenant_id', tenantId)
+          .order('created_at', ascending: false)
+          .limit(1);
+
+      final rows = response is List ? response : const <dynamic>[];
+      if (rows.isEmpty || rows.first is! Map) return null;
+
+      return _TenantSubscriptionInfo.fromMap(
+        Map<String, dynamic>.from(rows.first as Map),
+      );
+    } catch (e) {
+      debugPrint('Dashboard tenant subscription lookup failed: $e');
+      return null;
+    }
+  }
+
   Future<void> _logout() async {
     await _client.auth.signOut();
     if (!mounted) return;
@@ -797,9 +826,148 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  String? _featureForPage(Widget page) {
+    final type = page.runtimeType.toString();
+
+    if (type.contains('FinanceReportPage') ||
+        type.contains('PurchaseVerificationPage') ||
+        type.contains('DataExportImportPage')) {
+      return 'finance_basic';
+    }
+
+    if (type.contains('StockProgressPage')) return 'production_basic';
+    if (type.contains('PurchaseRequestPage')) return 'purchase_requests';
+    if (type.contains('SupplierPage')) return 'production_basic';
+
+    if (type.contains('MarketplaceAccountsPage')) return 'marketplace_accounts';
+    if (type.contains('MarketplaceOrdersPage')) return 'marketplace_order_sync';
+    if (type.contains('MarketplaceSkuMappingPage')) {
+      return 'marketplace_product_sync';
+    }
+    if (type.contains('MarketplaceStockSyncPage') ||
+        type.contains('MarketplaceSyncMonitorPage') ||
+        type.contains('MarketplaceStockDifferencePage')) {
+      return 'marketplace_stock_sync';
+    }
+    if (type.contains('MarketplaceRefundMonitorPage') ||
+        type.contains('MarketplaceStockOutReviewPage')) {
+      return 'marketplace_return_refund';
+    }
+    if (type.contains('MarketplaceDispatcherMonitorPage') ||
+        type.contains('MarketplaceJobMonitorPage')) {
+      return 'marketplace_job_monitor';
+    }
+
+    if (type.contains('ProductListPage') ||
+        type.contains('StockOutPage') ||
+        type.contains('StockInPage') ||
+        type.contains('StockHistoryPage') ||
+        type.contains('LowStockPage')) {
+      return 'stock_basic';
+    }
+
+    if (type.contains('AttendancePage') ||
+        type.contains('AbsensiPage') ||
+        type.contains('HrPerformancePage') ||
+        type.contains('WorkLocationPage')) {
+      return 'attendance_basic';
+    }
+
+    if (type.contains('HostLivePage')) return 'live_schedule_basic';
+    if (type.contains('ContentMonitoringPage')) return 'content_task_basic';
+    if (type.contains('TaskPage')) return 'task_basic';
+
+    if (type.contains('UserManagementPage')) return 'invite_management';
+    if (type.contains('AuditLogPage')) return 'tenant_management';
+
+    return null;
+  }
+
+  String? _featureForMenu(_DashboardMenu menu) {
+    final title = menu.title.toLowerCase();
+
+    if (title.contains('keuangan') ||
+        title.contains('laporan') ||
+        title.contains('verifikasi pembelian') ||
+        title.contains('abnormal') ||
+        title.contains('arus kas') ||
+        title.contains('export')) {
+      return 'finance_basic';
+    }
+
+    if (title.contains('produksi berjalan') || title == 'produksi') {
+      return 'production_basic';
+    }
+    if (title.contains('pembelian barang') || title == 'pembelian') {
+      return 'purchase_requests';
+    }
+    if (title.contains('supplier')) return 'production_basic';
+
+    if (title.contains('akun marketplace')) return 'marketplace_accounts';
+    if (title.contains('order marketplace')) return 'marketplace_order_sync';
+    if (title.contains('mapping sku')) return 'marketplace_product_sync';
+    if (title.contains('sync stock') || title.contains('selisih')) {
+      return 'marketplace_stock_sync';
+    }
+    if (title.contains('refund') ||
+        title.contains('retur') ||
+        title.contains('review stock out')) {
+      return 'marketplace_return_refund';
+    }
+    if (title.contains('monitor job')) return 'marketplace_job_monitor';
+
+    if (title.contains('stok') ||
+        title.contains('stock') ||
+        title.contains('master sku') ||
+        title.contains('riwayat')) {
+      return 'stock_basic';
+    }
+
+    if (title.contains('absensi') ||
+        title.contains('performance') ||
+        title.contains('people')) {
+      return 'attendance_basic';
+    }
+
+    if (title.contains('live')) return 'live_schedule_basic';
+    if (title.contains('konten')) return 'content_task_basic';
+    if (title.contains('tugas')) return 'task_basic';
+    if (title.contains('user')) return 'invite_management';
+
+    return null;
+  }
+
+  List<_DashboardMenu> _filterMenusByPlan(List<_DashboardMenu> menus) {
+    if (_isPlatformOwner) return menus;
+
+    return menus.where((menu) {
+      final feature = _featureForMenu(menu);
+      if (feature == null) return true;
+      return _planHasFeature(feature);
+    }).toList(growable: false);
+  }
+
   void _open(Widget page) {
+    final feature = _featureForPage(page);
+    if (feature != null && !_planHasFeature(feature)) {
+      final planName = _entitlement?.planName ?? 'paket aktif';
+      AppUi.safeSnack(
+        context,
+        'Fitur ini tidak aktif di $planName.',
+      );
+      return;
+    }
+
+    final guardedPage = feature == null
+        ? page
+        : FeatureGatePage(
+            featureKey: feature,
+            featureLabel: feature.replaceAll('_', ' '),
+            child: page,
+          );
+
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => page))
+        .push(MaterialPageRoute(builder: (_) => guardedPage))
         .then((_) {
       if (!mounted) return;
       _loadDashboard();
@@ -837,15 +1005,19 @@ class _DashboardPageState extends State<DashboardPage> {
                       onRefresh: _loadDashboard,
                       child: ListView(
                         padding: EdgeInsets.fromLTRB(
-                          16,
-                          16,
-                          16,
+                          wide ? 24 : 16,
+                          wide ? 24 : 16,
+                          wide ? 24 : 16,
                           wide ? 32 : 132,
                         ),
                         children: [
                           _topBar(),
                           const SizedBox(height: 16),
                           _profileCard(_user),
+                          if (_isAdmin) ...[
+                            const SizedBox(height: 12),
+                            _subscriptionOverviewCard(),
+                          ],
                           if (_isDemoSuperAdmin) ...[
                             const SizedBox(height: 12),
                             _demoReadOnlyBanner(),
@@ -853,9 +1025,9 @@ class _DashboardPageState extends State<DashboardPage> {
                           const SizedBox(height: 14),
                           _summaryGrid(),
                           const SizedBox(height: 20),
-                          if (_isAdmin &&
-                              _canAccessFinance &&
-                              _financeTrend.isNotEmpty) ...[
+                          if (_isFinance ||
+                              _isAdmin ||
+                              _canAccessFinance) ...[
                             _adminAnalyticsCard(),
                             const SizedBox(height: 20),
                           ],
@@ -881,7 +1053,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // ── Top bar ─────────────────────────────────────────────────────────────────
   Widget _sidebarNavigation() {
-    final menus = _roleMenus();
+    final menus = _filterMenusByPlan(_roleMenus());
     return SafeArea(
       right: false,
       child: Container(
@@ -889,18 +1061,16 @@ class _DashboardPageState extends State<DashboardPage> {
         margin: const EdgeInsets.fromLTRB(14, 14, 0, 14),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.zero,
+          borderRadius: BorderRadius.circular(22),
           color: Theme.of(context).cardColor,
-          border: Border.all(color: Colors.black, width: 3),
-          boxShadow: const [
-            BoxShadow(
-              color: Colors.black,
-              blurRadius: 0,
-              offset: Offset(6, 6),
-            ),
-          ],
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                  Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.48,
+                ),
+            width: 0.8,
+          ),
+          boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
         ),
-
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -910,20 +1080,21 @@ class _DashboardPageState extends State<DashboardPage> {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.zero,
-                    color: Theme.of(context).colorScheme.primary,
-                    border:
-                        Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Theme.of(context).colorScheme.tertiary,
-                        blurRadius: 0,
-                        offset: const Offset(3, 3),
-                      ),
-                    ],
+                    borderRadius: BorderRadius.circular(14),
+                    color: Theme.of(context).colorScheme.primary.withOpacity(
+                          Theme.of(context).brightness == Brightness.dark
+                              ? 0.18
+                              : 0.10,
+                        ),
+                    border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withOpacity(0.24),
+                    ),
                   ),
                   child: Icon(Icons.grid_view_rounded,
-                      color: Colors.white, size: 22),
+                      color: Theme.of(context).colorScheme.primary, size: 22),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -933,12 +1104,11 @@ class _DashboardPageState extends State<DashboardPage> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 17,
                     ),
                   ),
                 ),
-
               ],
             ),
             const SizedBox(height: 14),
@@ -951,15 +1121,15 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 10),
             Text(
-              'MENU',
+              'Menu',
               style: TextStyle(
-                color: Theme.of(context).colorScheme.outline,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.9,
+                color:
+                    Theme.of(context).colorScheme.onSurface.withOpacity(0.62),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0,
               ),
             ),
-
             const SizedBox(height: 8),
             Expanded(
               child: ListView(
@@ -987,47 +1157,53 @@ class _DashboardPageState extends State<DashboardPage> {
     required bool selected,
     required VoidCallback onTap,
   }) {
-    final accent = AppUi
-        .playfulPalette[(title.hashCode.abs()) % AppUi.playfulPalette.length];
+    final theme = Theme.of(context);
+    final selectedBg = theme.colorScheme.primary.withOpacity(0.08);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Material(
         color: Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
         child: InkWell(
           onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
           child: Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.zero,
-              color: selected ? accent : Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(14),
+              color: selected ? selectedBg : Colors.transparent,
               border: Border.all(
-                color: Colors.black,
-                width: 2,
+                color: selected
+                    ? theme.colorScheme.primary.withOpacity(0.18)
+                    : Colors.transparent,
+                width: 0.8,
               ),
-              boxShadow: selected ? [
-                const BoxShadow(
-                  color: Colors.black,
-                  offset: Offset(3, 3),
-                )
-              ] : null,
             ),
             child: Row(
               children: [
-                Icon(icon, color: selected ? Colors.black : accent, size: 20),
+                Icon(
+                  icon,
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
+                  size: 20,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        title.toUpperCase(),
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: selected ? Colors.black : Theme.of(context).colorScheme.onSurface,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 12,
-                          letterSpacing: 0.5,
+                          color: selected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w600,
+                          fontSize: 14.5,
                         ),
                       ),
                       if (subtitle.trim().isNotEmpty)
@@ -1036,12 +1212,12 @@ class _DashboardPageState extends State<DashboardPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.outline,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                            color:
+                                theme.colorScheme.onSurface.withOpacity(0.62),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
-
                     ],
                   ),
                 ),
@@ -1070,9 +1246,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 _greeting(),
                 style: TextStyle(
                   fontSize: 12,
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.85),
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.0,
+                  color:
+                      Theme.of(context).colorScheme.primary.withOpacity(0.85),
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
                 ),
               ),
               const SizedBox(height: 2),
@@ -1081,12 +1258,11 @@ class _DashboardPageState extends State<DashboardPage> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
                   letterSpacing: 0,
                   color: Theme.of(context).colorScheme.onSurface,
                 ),
-
               ),
             ],
           ),
@@ -1141,8 +1317,7 @@ class _DashboardPageState extends State<DashboardPage> {
               padding: const EdgeInsets.symmetric(horizontal: 5),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.error,
-                borderRadius: BorderRadius.zero,
-                border: Border.all(color: (Theme.of(context).dividerColor), width: 1),
+                borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 count > 99 ? '99+' : count.toString(),
@@ -1150,12 +1325,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 10,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
-
-
           ),
       ],
     );
@@ -1174,19 +1347,7 @@ class _DashboardPageState extends State<DashboardPage> {
         return Container(
           margin: const EdgeInsets.all(12),
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
-          decoration: BoxDecoration(
-            color: (Theme.of(context).cardColor),
-            borderRadius: BorderRadius.zero,
-            border: Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(context).dividerColor.withOpacity(0.16),
-                blurRadius: 0,
-                offset: const Offset(4, 4),
-              ),
-            ],
-          ),
-
+          decoration: AppUi.modernCardDecoration(context, radius: 22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1197,13 +1358,21 @@ class _DashboardPageState extends State<DashboardPage> {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.secondary,
-                      borderRadius: BorderRadius.zero,
-                      border:
-                          Border.all(color: (Theme.of(context).dividerColor), width: 1),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .secondary
+                          .withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .secondary
+                            .withOpacity(0.22),
+                        width: 0.8,
+                      ),
                     ),
                     child: Icon(Icons.notifications_active_rounded,
-                        color: Theme.of(context).colorScheme.onSurface),
+                        color: Theme.of(context).colorScheme.secondary),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1212,11 +1381,10 @@ class _DashboardPageState extends State<DashboardPage> {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 18,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
-
                   TextButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
@@ -1248,9 +1416,9 @@ class _DashboardPageState extends State<DashboardPage> {
                           final isRead = item.readAt != null;
                           return Material(
                             color: Colors.transparent,
-                            borderRadius: BorderRadius.zero,
+                            borderRadius: BorderRadius.circular(14),
                             child: InkWell(
-                              borderRadius: BorderRadius.zero,
+                              borderRadius: BorderRadius.circular(14),
                               onTap: () async {
                                 Navigator.pop(context);
                                 await _markNotificationRead(item);
@@ -1264,17 +1432,24 @@ class _DashboardPageState extends State<DashboardPage> {
                                 decoration: BoxDecoration(
                                   color: Color.alphaBlend(
                                     (isRead
-                                            ? Theme.of(context).colorScheme.surfaceVariant
-                                            : Theme.of(context).colorScheme.secondary)
+                                            ? Theme.of(context)
+                                                .colorScheme
+                                                .surfaceVariant
+                                            : Theme.of(context)
+                                                .colorScheme
+                                                .secondary)
                                         .withOpacity(isRead ? 0.20 : 0.12),
                                     (Theme.of(context).cardColor),
                                   ),
-                                  borderRadius: BorderRadius.zero,
+                                  borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
-                                      color: (Theme.of(context).dividerColor)
-                                          .withOpacity(isRead ? 0.18 : 0.42)),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outlineVariant
+                                        .withOpacity(isRead ? 0.28 : 0.48),
+                                    width: 0.8,
+                                  ),
                                 ),
-
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -1293,15 +1468,18 @@ class _DashboardPageState extends State<DashboardPage> {
                                           Text(
                                             item.title,
                                             style: TextStyle(
-                                              color: Theme.of(context).colorScheme.onSurface,
-                                              fontWeight: FontWeight.w900,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface,
+                                              fontWeight: FontWeight.w800,
                                             ),
                                           ),
                                           const SizedBox(height: 3),
                                           Text(
                                             item.body,
                                             style: TextStyle(
-                                              color: Theme.of(context).colorScheme.outline,
+                                              color: AppUi.mutedText(
+                                                  context, 0.92),
                                               fontWeight: FontWeight.w600,
                                               height: 1.32,
                                             ),
@@ -1310,13 +1488,13 @@ class _DashboardPageState extends State<DashboardPage> {
                                           Text(
                                             'Update ${AppUi.dateTime(item.lastTriggeredAt)}',
                                             style: TextStyle(
-                                              color: Theme.of(context).colorScheme.outline
-                                                  ?.withOpacity(0.78),
+                                              color:
+                                                  AppUi.mutedText(context, 0.92)
+                                                      ?.withOpacity(0.78),
                                               fontSize: 11,
                                               fontWeight: FontWeight.w700,
                                             ),
                                           ),
-
                                         ],
                                       ),
                                     ),
@@ -1350,42 +1528,31 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   BoxDecoration _pixelDecoration(Color accent) {
-    return BoxDecoration(
-      color: Theme.of(context).cardColor,
-      borderRadius: BorderRadius.zero,
-      border: Border.all(color: Colors.black, width: 2.5),
-      boxShadow: const [
-        BoxShadow(
-          color: Colors.black,
-          offset: Offset(4, 4),
-        ),
-      ],
-    );
+    return AppUi.modernCardDecoration(context, radius: 16);
   }
 
   Widget _iconBtn(IconData icon, VoidCallback onTap) {
+    final theme = Theme.of(context);
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.zero,
+      borderRadius: BorderRadius.circular(999),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(999),
         child: Container(
           width: 42,
           height: 42,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.zero,
-            color: Theme.of(context).cardColor,
-            border: Border.all(color: Colors.black, width: 2),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black,
-                offset: Offset(3, 3),
+            borderRadius: BorderRadius.circular(999),
+            color: theme.cardColor,
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withOpacity(
+                theme.brightness == Brightness.dark ? 0.28 : 0.48,
               ),
-            ],
+              width: 0.8,
+            ),
           ),
-          child: Icon(icon, size: 20, color: Theme.of(context).colorScheme.onSurface),
-
+          child: Icon(icon, size: 20, color: theme.colorScheme.onSurface),
         ),
       ),
     );
@@ -1395,9 +1562,12 @@ class _DashboardPageState extends State<DashboardPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(14),
         color: Theme.of(context).colorScheme.secondary.withOpacity(0.10),
-        border: Border.all(color: Theme.of(context).colorScheme.secondary.withOpacity(0.28)),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.secondary.withOpacity(0.22),
+          width: 0.8,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1439,17 +1609,17 @@ class _DashboardPageState extends State<DashboardPage> {
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
             decoration: BoxDecoration(
               color: (Theme.of(context).cardColor),
-              borderRadius: BorderRadius.zero,
-              border: Border.all(color: (Theme.of(context).dividerColor)),
-              boxShadow: [
-                BoxShadow(
-                  color: Theme.of(context).dividerColor.withOpacity(0.16),
-                  blurRadius: 0,
-                  offset: const Offset(4, -4),
-                ),
-              ],
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                      Theme.of(context).brightness == Brightness.dark
+                          ? 0.28
+                          : 0.48,
+                    ),
+                width: 0.8,
+              ),
+              boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
             ),
-
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1460,13 +1630,21 @@ class _DashboardPageState extends State<DashboardPage> {
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.zero,
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(12),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withOpacity(0.12),
                         border: Border.all(
-                            color: Theme.of(context).colorScheme.primary.withOpacity(0.24)),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withOpacity(0.18),
+                            width: 0.8),
                       ),
                       child: Icon(Icons.settings_rounded,
-                          color: Theme.of(context).colorScheme.primary, size: 20),
+                          color: Theme.of(context).colorScheme.primary,
+                          size: 20),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -1478,15 +1656,18 @@ class _DashboardPageState extends State<DashboardPage> {
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.onSurface,
                               fontSize: 16,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             'Kelola akses, lokasi kerja, dan backup data.',
                             style: TextStyle(
-                              color: Theme.of(context).colorScheme.outline,
-                              fontSize: 12,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.66),
+                              fontSize: 12.5,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -1496,7 +1677,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   ],
                 ),
                 const SizedBox(height: 14),
-
                 _settingsTile(
                   icon: Icons.manage_accounts_rounded,
                   title: 'User Management',
@@ -1545,7 +1725,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       'Status order pull, finance payout, retry, dan reset job macet.',
                   onTap: () {
                     Navigator.of(sheetContext).pop();
-                    _open(const MarketplaceJobMonitorPage());
+                    _open(const MarketplaceDispatcherMonitorPage());
                   },
                 ),
               ],
@@ -1568,7 +1748,7 @@ class _DashboardPageState extends State<DashboardPage> {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: _pixelDecoration(color),
@@ -1578,9 +1758,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.zero,
-                  color: color.withOpacity(0.14),
-                  border: Border.all(color: color.withOpacity(0.28)),
+                  borderRadius: BorderRadius.circular(12),
+                  color: color.withOpacity(0.10),
+                  border:
+                      Border.all(color: color.withOpacity(0.20), width: 0.8),
                 ),
                 child: Icon(icon, color: color, size: 21),
               ),
@@ -1595,7 +1776,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 14,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -1604,8 +1785,11 @@ class _DashboardPageState extends State<DashboardPage> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline,
-                        fontSize: 11.5,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.64),
+                        fontSize: 12,
                         height: 1.25,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1614,7 +1798,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
               Icon(Icons.chevron_right_rounded,
-                  color: Theme.of(context).colorScheme.outline, size: 20),
+                  color: AppUi.mutedText(context, 0.92), size: 20),
             ],
           ),
         ),
@@ -1629,18 +1813,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Container(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 3),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black,
-            blurRadius: 0,
-            offset: Offset(6, 6),
-          ),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Row(
         children: [
           // Avatar
@@ -1648,18 +1821,18 @@ class _DashboardPageState extends State<DashboardPage> {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.zero,
-              color: Theme.of(context).colorScheme.primary,
-              border: Border.all(color: Colors.black, width: 2.5),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black,
-                  offset: Offset(4, 4),
-                ),
-              ],
+              borderRadius: BorderRadius.circular(16),
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                width: 0.8,
+              ),
             ),
-            child:
-                Icon(Icons.person_rounded, color: Colors.black, size: 30),
+            child: Icon(
+              Icons.person_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              size: 30,
+            ),
           ),
           const SizedBox(width: 14),
           // Info
@@ -1684,7 +1857,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.50),
+                    color: AppUi.mutedText(context, 0.90),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1703,21 +1876,89 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _roleBadge(String label) {
+  Widget _subscriptionOverviewCard() {
+    final info = _tenantSubscriptionInfo;
+    final status = info?.status ?? 'unassigned';
+    final planName = info?.planName ?? 'Belum ada paket';
+    final billing = info?.billingPeriod ?? '-';
+    final price = info == null ? '-' : info.priceLabel;
+    final periodLabel = info?.periodLabel ?? 'Belum diset';
+    final statusColor = _subscriptionStatusColor(status);
+
+    return NiceCard(
+      borderColor: statusColor,
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.12),
+              border:
+                  Border.all(color: statusColor.withOpacity(0.24), width: 0.8),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.workspace_premium_rounded,
+                color: statusColor, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'PAKET SUBSCRIPTION',
+                  style: TextStyle(
+                    color: AppUi.mutedText(context, 0.92),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  planName.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _subscriptionPill('BILLING $billing', statusColor),
+                    _subscriptionPill(price, statusColor),
+                    _subscriptionPill(periodLabel, statusColor),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _subscriptionPill(String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.28)),
+        color: color.withOpacity(0.08),
+        border: Border.all(color: color.withOpacity(0.24), width: 0.8),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
         label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: Theme.of(context).colorScheme.primary,
-          fontSize: 11,
+          color: color,
+          fontSize: 10,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.3,
         ),
@@ -1725,8 +1966,52 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  Color _subscriptionStatusColor(String status) {
+    final clean = status.toLowerCase();
+    if (clean == 'active' || clean == 'trialing') {
+      return Theme.of(context).colorScheme.primary;
+    }
+    if (clean == 'unassigned') {
+      return Theme.of(context).colorScheme.secondary;
+    }
+    if (clean == 'expired' ||
+        clean == 'suspended' ||
+        clean == 'canceled' ||
+        clean == 'past_due') {
+      return Theme.of(context).colorScheme.error;
+    }
+    return AppUi.mutedText(context, 0.92);
+  }
+
+  Widget _roleBadge(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
+          width: 0.8,
+        ),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.primary,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0,
+        ),
+      ),
+    );
+  }
+
   Widget _statusDot(bool active) {
-    final color = active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.error;
+    final color = active
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.error;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1748,22 +2033,121 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-
   List<_TrendPoint> _financeTrendForChart() {
-    if (_financeTrend.length >= 2) return _financeTrend;
     final now = DateTime.now();
-    return <_TrendPoint>[
-      _TrendPoint(date: DateTime(now.year, now.month, 1), omzet: 0, orders: 0),
+    if (_financeTrend.isNotEmpty) {
+      return _monthToDateTrend(now, _financeTrend);
+    }
+
+    return _monthToDateTrend(now, <_TrendPoint>[
       _TrendPoint(date: now, omzet: _financeOmzet, orders: _financeOrderCount),
+    ]);
+  }
+
+  String? _dashboardFinanceMarketplaceParam() {
+    final clean = _dashboardFinanceMarketplaceFilter.trim().toLowerCase();
+    if (clean == 'shopee') return 'shopee';
+    if (clean == 'tiktok') return 'tiktok_shop';
+    return null;
+  }
+
+  String _dashboardFinanceMarketplaceLabel() {
+    switch (_dashboardFinanceMarketplaceFilter.trim().toLowerCase()) {
+      case 'shopee':
+        return 'Shopee';
+      case 'tiktok':
+        return 'TikTok';
+      default:
+        return 'Semua';
+    }
+  }
+
+  void _setDashboardFinanceMarketplaceFilter(String value) {
+    final clean = value.trim().toLowerCase();
+    final next = clean == 'shopee' || clean == 'tiktok' ? clean : 'all';
+    if (_dashboardFinanceMarketplaceFilter == next) return;
+
+    setState(() {
+      _dashboardFinanceMarketplaceFilter = next;
+      _selectedTrendIndex = null;
+    });
+
+    unawaited(_loadDashboard());
+  }
+
+  Widget _dashboardFinanceMarketplaceFilterCards() {
+    final items = <({String value, String label})>[
+      (value: 'all', label: 'Semua'),
+      (value: 'shopee', label: 'Shopee'),
+      (value: 'tiktok', label: 'TikTok'),
     ];
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: items.map((item) {
+        final selected = _dashboardFinanceMarketplaceFilter == item.value ||
+            (item.value == 'all' &&
+                _dashboardFinanceMarketplaceFilter.trim().isEmpty);
+        final accent = selected
+            ? Theme.of(context).colorScheme.primary
+            : AppUi.mutedText(context, 0.92).withOpacity(0.55);
+
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _setDashboardFinanceMarketplaceFilter(item.value),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+              decoration: BoxDecoration(
+                color: selected
+                    ? Theme.of(context).colorScheme.primary.withOpacity(0.12)
+                    : Theme.of(context)
+                        .colorScheme
+                        .surfaceVariant
+                        .withOpacity(0.4),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: selected
+                      ? Theme.of(context).colorScheme.primary.withOpacity(0.26)
+                      : Theme.of(context).colorScheme.outlineVariant,
+                  width: 0.8,
+                ),
+              ),
+              child: Text(
+                item.label,
+                style: TextStyle(
+                  color: selected
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.onSurface,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(growable: false),
+    );
+  }
+
+  int _defaultFinanceTrendIndex(List<_TrendPoint> points) {
+    if (points.isEmpty) return 0;
+    for (var i = points.length - 1; i >= 0; i--) {
+      final point = points[i];
+      if (point.orders > 0 || point.omzet.abs() > 0) return i;
+    }
+    return points.length - 1;
   }
 
   // ── Summary 2×2 grid ────────────────────────────────────────────────────────
   Widget _adminAnalyticsCard() {
     final points = _financeTrendForChart();
+    final defaultSelectedIndex = _defaultFinanceTrendIndex(points);
     final selected = points.isEmpty
         ? null
-        : points[(_selectedTrendIndex ?? points.length - 1)
+        : points[(_selectedTrendIndex ?? defaultSelectedIndex)
             .clamp(0, points.length - 1)
             .toInt()];
     final totalOrders = points.fold<int>(0, (sum, point) => sum + point.orders);
@@ -1780,18 +2164,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 2.5),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black,
-            blurRadius: 0,
-            offset: Offset(5, 5),
-          ),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1802,8 +2175,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   'Analytics Finance',
                   style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800),
                 ),
               ),
               _miniBadge('Omzet ${_shortRupiah(totalOmzet)}'),
@@ -1812,35 +2185,82 @@ class _DashboardPageState extends State<DashboardPage> {
             ],
           ),
           const SizedBox(height: 10),
+          _dashboardFinanceMarketplaceFilterCards(),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _miniBadge('Filter ${_dashboardFinanceMarketplaceLabel()}'),
+          ),
+          const SizedBox(height: 10),
           if (selected != null)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.zero,
-                color: Colors.white.withOpacity(0.055),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                borderRadius: AppTheme.radiusMd,
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceVariant
+                    .withOpacity(0.3),
+                border: Border.all(
+                  color:
+                      Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                            Theme.of(context).brightness == Brightness.dark
+                                ? 0.3
+                                : 0.5,
+                          ),
+                  width: 0.8,
+                ),
               ),
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      _shortRupiah(selected.omzet),
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
-                        height: 1,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Omzet hari terpilih',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _shortRupiah(selected.omzet),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            height: 1,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Text(
-                    '${selected.orders} pesanan',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        AppUi.date(selected.date),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${selected.orders} pesanan',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1872,39 +2292,37 @@ class _DashboardPageState extends State<DashboardPage> {
           const SizedBox(height: 10),
           Row(
             children: [
-              _legendDot(Theme.of(context).colorScheme.primary, 'Omzet per hari'),
+              _legendDot(
+                  Theme.of(context).colorScheme.primary, 'Omzet per hari'),
               const SizedBox(width: 14),
-              _legendDot(Theme.of(context).colorScheme.tertiary, 'Pesanan per hari'),
+              _legendDot(
+                  Theme.of(context).colorScheme.tertiary, 'Pesanan per hari'),
             ],
           ),
-          if (selected != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              '${AppUi.date(selected.date)} · omzet ${_shortRupiah(selected.omzet)} · ${selected.orders} pesanan',
-              style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800),
-            ),
-          ],
         ],
       ),
     );
   }
 
   Widget _miniBadge(String text) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color:
+              theme.colorScheme.outlineVariant.withOpacity(isDark ? 0.3 : 0.5),
+          width: 0.8,
+        ),
       ),
       child: Text(text,
           style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurface,
-              fontSize: 11,
-              fontWeight: FontWeight.w800)),
+              color: theme.colorScheme.onSurface,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600)),
     );
   }
 
@@ -1919,7 +2337,7 @@ class _DashboardPageState extends State<DashboardPage> {
         const SizedBox(width: 6),
         Text(label,
             style: TextStyle(
-                color: Theme.of(context).colorScheme.outline,
+                color: AppUi.mutedText(context, 0.92),
                 fontSize: 11,
                 fontWeight: FontWeight.w700)),
       ],
@@ -1935,32 +2353,33 @@ class _DashboardPageState extends State<DashboardPage> {
       itemCount: items.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        mainAxisExtent: 88,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        mainAxisExtent: 96,
       ),
       itemBuilder: (context, index) {
         final item = items[index];
+        final theme = Theme.of(context);
         return Material(
           color: Colors.transparent,
           child: InkWell(
             onTap: item.onTap,
-            borderRadius: BorderRadius.zero,
+            borderRadius: AppTheme.radiusMd,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: _pixelDecoration(item.color),
-            child: Row(
+              child: Row(
                 children: [
                   Container(
-                    width: 38,
-                    height: 38,
+                    width: 42,
+                    height: 42,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.zero,
-                      color: item.color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      color: item.color.withOpacity(0.10),
                     ),
                     child: Icon(item.icon, color: item.color, size: 20),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1969,21 +2388,23 @@ class _DashboardPageState extends State<DashboardPage> {
                         Text(
                           item.value,
                           style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w900,
-                            color: item.color,
-                            height: 1,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: theme.brightness == Brightness.dark
+                                ? Colors.white
+                                : theme.colorScheme.onSurface,
+                            height: 1.1,
                           ),
                         ),
-                        const SizedBox(height: 3),
+                        const SizedBox(height: 4),
                         Text(
                           item.label,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 10.5,
+                            fontSize: 13,
                             height: 1.2,
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                            color: AppUi.mutedText(context, 0.90),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -2030,7 +2451,7 @@ class _DashboardPageState extends State<DashboardPage> {
       return () => _open(ProductListPage(currentUser: _requiredAppUser));
     }
     if (normalized.contains('pembelian')) {
-      if (_canAccessFinance || _isAdmin || _isOperationalAdmin) {
+      if (_canAccessFinance || _isAdmin) {
         return () => _open(const PurchaseVerificationPage());
       }
       return () => _open(const PurchaseRequestPage());
@@ -2101,8 +2522,12 @@ class _DashboardPageState extends State<DashboardPage> {
             _pendingPurchase.toString(),
             Theme.of(context).colorScheme.secondary,
             _summaryTap('pembelian')),
-        _summaryItem(Icons.task_alt_rounded, 'Task Saya',
-            _myOpenTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
+        _summaryItem(
+            Icons.task_alt_rounded,
+            'Task Saya',
+            _myOpenTasks.toString(),
+            Theme.of(context).colorScheme.secondary,
+            _summaryTap('task')),
         _summaryItem(
             Icons.warning_amber_rounded,
             'Abnormal Finance',
@@ -2131,10 +2556,18 @@ class _DashboardPageState extends State<DashboardPage> {
             _runningProduction.toString(),
             Theme.of(context).colorScheme.primary,
             _summaryTap('produksi')),
-        _summaryItem(Icons.task_alt_rounded, 'Task Saya',
-            _myOpenTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
-        _summaryItem(Icons.how_to_reg_rounded, 'Absensi Saya',
-            _myAttendanceLabel, Theme.of(context).colorScheme.primary, _summaryTap('absensi')),
+        _summaryItem(
+            Icons.task_alt_rounded,
+            'Task Saya',
+            _myOpenTasks.toString(),
+            Theme.of(context).colorScheme.secondary,
+            _summaryTap('task')),
+        _summaryItem(
+            Icons.how_to_reg_rounded,
+            'Absensi Saya',
+            _myAttendanceLabel,
+            Theme.of(context).colorScheme.primary,
+            _summaryTap('absensi')),
       ];
     }
     if (role == 'host_live') {
@@ -2145,10 +2578,18 @@ class _DashboardPageState extends State<DashboardPage> {
             _myTodayLive.toString(),
             Theme.of(context).colorScheme.primary,
             _summaryTap('live')),
-        _summaryItem(Icons.task_alt_rounded, 'Task Saya',
-            _myOpenTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
-        _summaryItem(Icons.how_to_reg_rounded, 'Absensi Saya',
-            _myAttendanceLabel, Theme.of(context).colorScheme.primary, _summaryTap('absensi')),
+        _summaryItem(
+            Icons.task_alt_rounded,
+            'Task Saya',
+            _myOpenTasks.toString(),
+            Theme.of(context).colorScheme.secondary,
+            _summaryTap('task')),
+        _summaryItem(
+            Icons.how_to_reg_rounded,
+            'Absensi Saya',
+            _myAttendanceLabel,
+            Theme.of(context).colorScheme.primary,
+            _summaryTap('absensi')),
         _summaryItem(
             Icons.fact_check_rounded,
             'Bukti Perlu Cek',
@@ -2165,8 +2606,12 @@ class _DashboardPageState extends State<DashboardPage> {
             _todayAttendance.toString(),
             Theme.of(context).colorScheme.primary,
             _summaryTap('absensi')),
-        _summaryItem(Icons.task_alt_rounded, 'Task Review',
-            managedTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
+        _summaryItem(
+            Icons.task_alt_rounded,
+            'Task Review',
+            managedTasks.toString(),
+            Theme.of(context).colorScheme.secondary,
+            _summaryTap('task')),
         _summaryItem(
             Icons.live_tv_rounded,
             'Live Review',
@@ -2183,16 +2628,24 @@ class _DashboardPageState extends State<DashboardPage> {
     }
     if (role == 'content_creator') {
       return [
-        _summaryItem(Icons.task_alt_rounded, 'Task Saya',
-            _myOpenTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
+        _summaryItem(
+            Icons.task_alt_rounded,
+            'Task Saya',
+            _myOpenTasks.toString(),
+            Theme.of(context).colorScheme.secondary,
+            _summaryTap('task')),
         _summaryItem(
             Icons.video_collection_rounded,
             'Konten',
             _contentTotal.toString(),
             Theme.of(context).colorScheme.primary,
             _summaryTap('konten')),
-        _summaryItem(Icons.how_to_reg_rounded, 'Absensi Saya',
-            _myAttendanceLabel, Theme.of(context).colorScheme.primary, _summaryTap('absensi')),
+        _summaryItem(
+            Icons.how_to_reg_rounded,
+            'Absensi Saya',
+            _myAttendanceLabel,
+            Theme.of(context).colorScheme.primary,
+            _summaryTap('absensi')),
         _summaryItem(
             Icons.schedule_rounded,
             'Deadline',
@@ -2214,8 +2667,12 @@ class _DashboardPageState extends State<DashboardPage> {
           _lowStock.toString(),
           Theme.of(context).colorScheme.secondary,
           _summaryTap('stok rendah')),
-      _summaryItem(Icons.task_alt_rounded, 'Task Review',
-          managedTasks.toString(), Theme.of(context).colorScheme.secondary, _summaryTap('task')),
+      _summaryItem(
+          Icons.task_alt_rounded,
+          'Task Review',
+          managedTasks.toString(),
+          Theme.of(context).colorScheme.secondary,
+          _summaryTap('task')),
       _summaryItem(
           Icons.verified_rounded,
           'Pembelian Pending',
@@ -2227,7 +2684,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // ── Menu content ─────────────────────────────────────────────────────────────
   List<Widget> _menuContent() {
-    final menus = _roleMenus();
+    final menus = _filterMenusByPlan(_roleMenus());
     if (menus.isEmpty) return [];
     return [
       _sectionHeader('Menu Utama'),
@@ -2243,24 +2700,17 @@ class _DashboardPageState extends State<DashboardPage> {
     ];
   }
 
-
   Widget _metricsAnalyticsChartCard(
     String title,
     List<_OpsMetric> metrics, {
     String badge = 'Realtime',
   }) {
-    final maxValue = metrics.fold<int>(1, (max, item) => math.max(max, item.value));
+    final maxValue =
+        metrics.fold<int>(1, (max, item) => math.max(max, item.value));
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 2.5),
-        boxShadow: const [
-          BoxShadow(color: Colors.black, blurRadius: 0, offset: Offset(5, 5)),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2273,7 +2723,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 16,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
@@ -2338,21 +2788,24 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _opsBar(_OpsMetric item, int maxValue) {
-    final fraction = maxValue <= 0 ? 0.0 : (item.value / maxValue).clamp(0.06, 1.0).toDouble();
+    final fraction = maxValue <= 0
+        ? 0.0
+        : (item.value / maxValue).clamp(0.06, 1.0).toDouble();
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: InkWell(
         onTap: item.onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(14),
         child: Row(
           children: [
             Container(
               width: 34,
               height: 34,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.zero,
+                borderRadius: BorderRadius.circular(10),
                 color: item.color.withOpacity(0.12),
-                border: Border.all(color: item.color.withOpacity(0.30)),
+                border:
+                    Border.all(color: item.color.withOpacity(0.22), width: 0.8),
               ),
               child: Icon(item.icon, color: item.color, size: 18),
             ),
@@ -2370,8 +2823,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.onSurface,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w900,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
@@ -2380,7 +2833,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         style: TextStyle(
                           color: item.color,
                           fontSize: 13,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
@@ -2391,8 +2844,11 @@ class _DashboardPageState extends State<DashboardPage> {
                       Container(
                         height: 9,
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.zero,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(999),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.08),
                         ),
                       ),
                       FractionallySizedBox(
@@ -2400,7 +2856,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         child: Container(
                           height: 9,
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.zero,
+                            borderRadius: BorderRadius.circular(999),
                             color: item.color,
                           ),
                         ),
@@ -2414,6 +2870,88 @@ class _DashboardPageState extends State<DashboardPage> {
             Icon(Icons.chevron_right_rounded, color: item.color, size: 18),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _financeTrendChartCard() {
+    final color = Theme.of(context).colorScheme.primary;
+    final source = _financeTrend.isNotEmpty
+        ? _financeTrend
+        : <_TrendPoint>[
+            _TrendPoint(
+              date: DateTime.now(),
+              omzet: _financeOmzet,
+              orders: _financeOrderCount,
+            ),
+          ];
+    final points = _monthToDateTrend(DateTime.now(), source);
+    final maxOmzet = points.fold<num>(
+      1,
+      (max, point) => math.max(max.toDouble(), point.omzet.toDouble()),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppUi.modernCardDecoration(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.show_chart_rounded, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Trend Finance Bulan Ini',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _miniBadge('${points.length} hari'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 96,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final point in points) ...[
+                  Expanded(
+                    child: Tooltip(
+                      message:
+                          '${AppUi.date(point.date)} · ${_shortRupiah(point.omzet)} · ${point.orders} order',
+                      child: Container(
+                        height: (point.omzet / maxOmzet * 88)
+                            .clamp(8, 88)
+                            .toDouble(),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.85),
+                          borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(4)),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 3),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Omzet ${_shortRupiah(_financeOmzet)} · Laba ${_shortRupiah(_financeNetProfit)} · Order $_financeOrderCount',
+            style: TextStyle(
+              color: AppUi.mutedText(context, 0.92),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2469,55 +3007,185 @@ class _DashboardPageState extends State<DashboardPage> {
       }
       if (_isAdmin || _isOperationalAdmin) {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Stock Out', value: _todayStockOut, icon: Icons.local_shipping_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const StockOutPage())),
-          _OpsMetric(label: 'Stok Rendah', value: _lowStock, icon: Icons.warning_amber_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const LowStockPage())),
-          _OpsMetric(label: 'Task Review', value: _allOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.tertiary, onTap: () => _open(const TaskPage())),
-          _OpsMetric(label: 'Pembelian', value: _pendingPurchase, icon: Icons.verified_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const PurchaseVerificationPage())),
-          _OpsMetric(label: 'Produksi', value: _runningProduction, icon: Icons.precision_manufacturing_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const StockProgressPage())),
-          _OpsMetric(label: 'People Ops', value: _todayAttendance, icon: Icons.groups_rounded, color: Theme.of(context).colorScheme.tertiary, onTap: () => _open(const HrPerformancePage())),
+          _OpsMetric(
+              label: 'Stock Out',
+              value: _todayStockOut,
+              icon: Icons.local_shipping_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const StockOutPage())),
+          _OpsMetric(
+              label: 'Stok Rendah',
+              value: _lowStock,
+              icon: Icons.warning_amber_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const LowStockPage())),
+          _OpsMetric(
+              label: 'Task Review',
+              value: _allOpenTasks,
+              icon: Icons.task_alt_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              onTap: () => _open(const TaskPage())),
+          _OpsMetric(
+              label: 'Pembelian',
+              value: _pendingPurchase,
+              icon: Icons.verified_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const PurchaseVerificationPage())),
+          _OpsMetric(
+              label: 'Produksi',
+              value: _runningProduction,
+              icon: Icons.precision_manufacturing_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const StockProgressPage())),
+          _OpsMetric(
+              label: 'People Ops',
+              value: _todayAttendance,
+              icon: Icons.groups_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              onTap: () => _open(const HrPerformancePage())),
         ];
       }
       if (role == 'warehouse') {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Stock Out Hari Ini', value: _todayStockOut, icon: Icons.qr_code_scanner_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const StockOutPage())),
-          _OpsMetric(label: 'Stock In Hari Ini', value: _todayStockIn, icon: Icons.qr_code_scanner_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const StockInPage())),
-          _OpsMetric(label: 'Stok Rendah', value: _lowStock, icon: Icons.warning_amber_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const LowStockPage())),
-          _OpsMetric(label: 'SKU Aktif', value: _activeProducts, icon: Icons.inventory_2_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const ProductListPage())),
+          _OpsMetric(
+              label: 'Stock Out Hari Ini',
+              value: _todayStockOut,
+              icon: Icons.qr_code_scanner_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const StockOutPage())),
+          _OpsMetric(
+              label: 'Stock In Hari Ini',
+              value: _todayStockIn,
+              icon: Icons.qr_code_scanner_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const StockInPage())),
+          _OpsMetric(
+              label: 'Stok Rendah',
+              value: _lowStock,
+              icon: Icons.warning_amber_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const LowStockPage())),
+          _OpsMetric(
+              label: 'SKU Aktif',
+              value: _activeProducts,
+              icon: Icons.inventory_2_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const ProductListPage())),
         ];
       }
       if (role == 'production' || role == 'produksi') {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Produksi Aktif', value: _runningProduction, icon: Icons.precision_manufacturing_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const StockProgressPage())),
-          _OpsMetric(label: 'Pembelian Pending', value: _pendingPurchase, icon: Icons.shopping_cart_checkout_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const PurchaseVerificationPage())),
-          _OpsMetric(label: 'Task Saya', value: _myOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const TaskPage())),
-          _OpsMetric(label: 'Supplier', value: _pendingPurchase, icon: Icons.storefront_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const SupplierPage())),
+          _OpsMetric(
+              label: 'Produksi Aktif',
+              value: _runningProduction,
+              icon: Icons.precision_manufacturing_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const StockProgressPage())),
+          _OpsMetric(
+              label: 'Pembelian Pending',
+              value: _pendingPurchase,
+              icon: Icons.shopping_cart_checkout_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const PurchaseVerificationPage())),
+          _OpsMetric(
+              label: 'Task Saya',
+              value: _myOpenTasks,
+              icon: Icons.task_alt_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const TaskPage())),
+          _OpsMetric(
+              label: 'Supplier',
+              value: _pendingPurchase,
+              icon: Icons.storefront_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const SupplierPage())),
         ];
       }
       if (role == 'hr') {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Absensi Hari Ini', value: _todayAttendance, icon: Icons.how_to_reg_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(AbsensiPage(currentUser: _requiredAppUser))),
-          _OpsMetric(label: 'Telat', value: _lateAttendance, icon: Icons.schedule_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const HrPerformancePage())),
-          _OpsMetric(label: 'Absen', value: _absentAttendance, icon: Icons.person_off_rounded, color: Theme.of(context).colorScheme.error, onTap: () => _open(const HrPerformancePage())),
-          _OpsMetric(label: 'Task Review', value: _allOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.tertiary, onTap: () => _open(const TaskPage())),
+          _OpsMetric(
+              label: 'Absensi Hari Ini',
+              value: _todayAttendance,
+              icon: Icons.how_to_reg_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(AbsensiPage(currentUser: _requiredAppUser))),
+          _OpsMetric(
+              label: 'Telat',
+              value: _lateAttendance,
+              icon: Icons.schedule_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const HrPerformancePage())),
+          _OpsMetric(
+              label: 'Absen',
+              value: _absentAttendance,
+              icon: Icons.person_off_rounded,
+              color: Theme.of(context).colorScheme.error,
+              onTap: () => _open(const HrPerformancePage())),
+          _OpsMetric(
+              label: 'Task Review',
+              value: _allOpenTasks,
+              icon: Icons.task_alt_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              onTap: () => _open(const TaskPage())),
         ];
       }
       if (role == 'host_live') {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Live Hari Ini', value: _myTodayLive, icon: Icons.live_tv_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const HostLivePage())),
-          _OpsMetric(label: 'Live Review', value: _pendingLiveReview, icon: Icons.fact_check_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const HostLivePage())),
-          _OpsMetric(label: 'Task Saya', value: _myOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.tertiary, onTap: () => _open(const TaskPage())),
+          _OpsMetric(
+              label: 'Live Hari Ini',
+              value: _myTodayLive,
+              icon: Icons.live_tv_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const HostLivePage())),
+          _OpsMetric(
+              label: 'Live Review',
+              value: _pendingLiveReview,
+              icon: Icons.fact_check_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const HostLivePage())),
+          _OpsMetric(
+              label: 'Task Saya',
+              value: _myOpenTasks,
+              icon: Icons.task_alt_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              onTap: () => _open(const TaskPage())),
         ];
       }
       if (role == 'content_creator') {
         return <_OpsMetric>[
-          _OpsMetric(label: 'Konten Aktif', value: _contentTotal, icon: Icons.video_collection_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(const ContentMonitoringPage())),
-          _OpsMetric(label: 'Deadline Dekat', value: _contentDueSoon, icon: Icons.schedule_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const ContentMonitoringPage())),
-          _OpsMetric(label: 'Task Saya', value: _myOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.tertiary, onTap: () => _open(const TaskPage())),
+          _OpsMetric(
+              label: 'Konten Aktif',
+              value: _contentTotal,
+              icon: Icons.video_collection_rounded,
+              color: Theme.of(context).colorScheme.primary,
+              onTap: () => _open(const ContentMonitoringPage())),
+          _OpsMetric(
+              label: 'Deadline Dekat',
+              value: _contentDueSoon,
+              icon: Icons.schedule_rounded,
+              color: Theme.of(context).colorScheme.secondary,
+              onTap: () => _open(const ContentMonitoringPage())),
+          _OpsMetric(
+              label: 'Task Saya',
+              value: _myOpenTasks,
+              icon: Icons.task_alt_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              onTap: () => _open(const TaskPage())),
         ];
       }
       return <_OpsMetric>[
-        _OpsMetric(label: 'Task Saya', value: _myOpenTasks, icon: Icons.task_alt_rounded, color: Theme.of(context).colorScheme.secondary, onTap: () => _open(const TaskPage())),
-        _OpsMetric(label: 'Absensi Saya', value: _myAttendanceLabel == 'Belum' ? 0 : 1, icon: Icons.how_to_reg_rounded, color: Theme.of(context).colorScheme.primary, onTap: () => _open(AbsensiPage(currentUser: _requiredAppUser))),
+        _OpsMetric(
+            label: 'Task Saya',
+            value: _myOpenTasks,
+            icon: Icons.task_alt_rounded,
+            color: Theme.of(context).colorScheme.secondary,
+            onTap: () => _open(const TaskPage())),
+        _OpsMetric(
+            label: 'Absensi Saya',
+            value: _myAttendanceLabel == 'Belum' ? 0 : 1,
+            icon: Icons.how_to_reg_rounded,
+            color: Theme.of(context).colorScheme.primary,
+            onTap: () => _open(AbsensiPage(currentUser: _requiredAppUser))),
       ];
     }
 
@@ -2526,6 +3194,12 @@ class _DashboardPageState extends State<DashboardPage> {
       metricsForRole(),
       badge: _isAdmin || _isOperationalAdmin ? 'Realtime' : _roleLabel(role),
     ));
+
+    if (_isFinance && !_isAdmin && !_isOperationalAdmin) {
+      cards
+        ..add(const SizedBox(height: 12))
+        ..add(_financeTrendChartCard());
+    }
 
     if (_isAdmin || _isOperationalAdmin) {
       cards
@@ -2539,12 +3213,14 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _roleScopeInfoCard() {
     final role = _role;
     final isSuper = AppRolePermissions.isSuperRoleId(role) || _isDemoSuperAdmin;
-    final title = isSuper ? 'Analytics Super Admin' : 'Analytics ${_roleLabel(role)}';
+    final title =
+        isSuper ? 'Analytics Super Admin' : 'Analytics ${_roleLabel(role)}';
     final subtitle = isSuper
         ? 'Ringkasan lintas finance, stock, marketplace, produksi, dan people ops.'
         : 'Ringkasan data disesuaikan dengan role aktif.';
     final items = <String>[
-      'Finance ${_shortRupiah(_financeNetProfit)}',
+      if (_financeOmzet > 0) 'Omzet ${_shortRupiah(_financeOmzet)}',
+      'Laba Net ${_shortRupiah(_financeNetProfit)}',
       'Order $_financeOrderCount',
       'Stock risk $_lowStock',
       'Task ${_isManagementRole ? _allOpenTasks : _myOpenTasks}',
@@ -2568,7 +3244,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       title,
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurface,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         fontSize: 15,
                       ),
                     ),
@@ -2576,7 +3252,10 @@ class _DashboardPageState extends State<DashboardPage> {
                     Text(
                       subtitle,
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.64),
                         fontWeight: FontWeight.w600,
                         fontSize: 12,
                       ),
@@ -2584,15 +3263,535 @@ class _DashboardPageState extends State<DashboardPage> {
                   ],
                 ),
               ),
+              if (isSuper) ...[
+                const SizedBox(width: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => AiChatAssistantSheet.show(context),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF2563EB).withOpacity(0.35),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.chat_rounded, color: Colors.white, size: 14),
+                              SizedBox(width: 6),
+                              Text(
+                                'Tanya AI Chat',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => _showAiSmartInsightsDialog(),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF7C3AED), Color(0xFF6D28D9)],
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF7C3AED).withOpacity(0.35),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 14),
+                              SizedBox(width: 6),
+                              Text(
+                                'AI Insights',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: items
-                .map((item) => _miniBadge(item))
-                .toList(),
+            children: items.map((item) => _miniBadge(item)).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAiSmartInsightsDialog({int days = 30}) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Center(
+        child: Container(
+          width: 320,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Menganalisis Store Data ($days Hari)\nvia OpenRouter AI...',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final response = await _client.functions.invoke(
+        'ai-insights-engine',
+        body: <String, dynamic>{
+          'time_range_days': days,
+        },
+      );
+
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop(); // dismiss loading
+
+      final data = response.data is Map
+          ? Map<String, dynamic>.from(response.data as Map)
+          : <String, dynamic>{};
+
+      if (response.status != 200 || data['ok'] == false) {
+        final err = data['error'] ?? 'Gagal memuat AI Insights';
+        AppUi.safeSnack(context, 'AI Error: $err');
+        return;
+      }
+
+      final insights = _asMap(data['insights']);
+      final model = data['model']?.toString() ?? 'OpenRouter AI';
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (modalCtx) {
+          return _buildAiInsightsBottomSheet(modalCtx, insights, model, days);
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        AppUi.safeSnack(context, 'AI Insights gagal: $e');
+      }
+    }
+  }
+
+  Widget _buildAiInsightsBottomSheet(
+      BuildContext modalCtx, Map<String, dynamic> insights, String model, int activeDays) {
+    final exec = _asMap(insights['executive_summary']);
+    final fin = _asMap(insights['financial_health']);
+    final inv = _asMap(insights['inventory_insights']);
+    final mkt = _asMap(insights['marketing_and_sales_strategy']);
+    final rawRecs = insights['actionable_recommendations'];
+    final recs = rawRecs is List ? rawRecs : <dynamic>[];
+
+    final storePerf = AppUi.text(exec['store_performance'] ?? exec['summary'] ?? exec.values.firstOrNull, 'Analisis toko lengkap.');
+    final challenges = AppUi.text(exec['key_challenges'], '');
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(modalCtx).size.height * 0.88,
+      ),
+      decoration: BoxDecoration(
+        color: Theme.of(modalCtx).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 10, bottom: 6),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Theme.of(modalCtx).colorScheme.onSurface.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Row(
+              children: [
+                Icon(Icons.auto_awesome_rounded,
+                    color: Theme.of(modalCtx).colorScheme.primary, size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'OpenRouter AI Smart Insights',
+                        style: TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.w800),
+                      ),
+                      Text(
+                        'Model: $model • Rentang Waktu: $activeDays Hari',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(modalCtx)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.6),
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.pop(modalCtx),
+                ),
+              ],
+            ),
+          ),
+          // Time Range Filter Selector
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+            child: Row(
+              children: [7, 30, 60, 90, 180].map((d) {
+                final isSelected = d == activeDays;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text('${d}d'),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      if (selected) {
+                        Navigator.pop(modalCtx);
+                        _showAiSmartInsightsDialog(days: d);
+                      }
+                    },
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Executive Summary Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(modalCtx).colorScheme.primaryContainer.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                          color: Theme.of(modalCtx).colorScheme.primary.withOpacity(0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.insights_rounded,
+                                color: Theme.of(modalCtx).colorScheme.primary, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Ringkasan Eksekutif Store ($activeDays Hari)',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          storePerf,
+                          style: const TextStyle(fontSize: 13, height: 1.4),
+                        ),
+                        if (challenges.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            '⚠️ Tantangan Utama: $challenges',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(modalCtx).colorScheme.error,
+                                fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Marketing & Sales Strategy Card
+                  if (mkt.isNotEmpty) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.amber.withOpacity(0.15),
+                            Colors.orange.withOpacity(0.1),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: const [
+                              Icon(Icons.campaign_rounded, color: Colors.amber, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                '📈 Strategi Marketing & Penjualan Tenant',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w800, fontSize: 14),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          if (mkt['channel_focus'] != null) ...[
+                            Text(
+                              '🎯 Fokus Kanal Sales: ${mkt['channel_focus']}',
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                          if (mkt['promotional_tactic'] != null) ...[
+                            Text(
+                              '💡 Taktik Promosi: ${mkt['promotional_tactic']}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                          if (mkt['cancellation_mitigation'] != null) ...[
+                            Text(
+                              '🛡️ Mitigasi Pembatalan: ${mkt['cancellation_mitigation']}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  
+                  // Financial & Inventory Grid
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _aiMetricBox(
+                          modalCtx,
+                          'Gross Revenue ($activeDays d)',
+                          'Rp ${_shortRupiah(AppUi.toNum(fin['gross_revenue']))}',
+                          Icons.payments_rounded,
+                          Theme.of(modalCtx).colorScheme.tertiary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _aiMetricBox(
+                          modalCtx,
+                          'Settled Payout',
+                          'Rp ${_shortRupiah(AppUi.toNum(fin['settled_payout']))}',
+                          Icons.account_balance_wallet_rounded,
+                          Theme.of(modalCtx).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _aiMetricBox(
+                          modalCtx,
+                          'Mapped SKU Status',
+                          AppUi.text(inv['inventory_coverage'], '${inv['active_sku_mappings'] ?? 0} SKUs Active'),
+                          Icons.inventory_2_rounded,
+                          Colors.green,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _aiMetricBox(
+                          modalCtx,
+                          'Unmapped SKUs',
+                          '${inv['unmapped_order_items'] ?? 0} Item',
+                          Icons.warning_amber_rounded,
+                          AppUi.toNum(inv['unmapped_order_items']) > 0 ? Colors.orange : Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Actionable Recommendations
+                  const Text(
+                    '🎯 Rekomendasi Aksi Prioritas Super Admin',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 10),
+                  ...recs.map((rec) {
+                    final recMap = rec is Map ? rec : <String, dynamic>{'recommendation': rec.toString()};
+                    final title = AppUi.text(recMap['recommendation'] ?? recMap['title'], rec.toString());
+                    final actions = recMap['action_items'] is List ? recMap['action_items'] as List : <dynamic>[];
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Theme.of(modalCtx).colorScheme.surfaceVariant.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Theme.of(modalCtx).colorScheme.outlineVariant.withOpacity(0.4),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.check_circle_rounded,
+                                  color: Theme.of(modalCtx).colorScheme.primary, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (actions.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            ...actions.map((act) => Padding(
+                                  padding: const EdgeInsets.only(left: 26, top: 3),
+                                  child: Text(
+                                    '• ${act.toString()}',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Theme.of(modalCtx)
+                                            .colorScheme
+                                            .onSurface
+                                            .withOpacity(0.8)),
+                                  ),
+                                )),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _aiMetricBox(BuildContext ctx, String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Theme.of(ctx).colorScheme.onSurface),
           ),
         ],
       ),
@@ -2619,12 +3818,17 @@ class _DashboardPageState extends State<DashboardPage> {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  border: Border.all(color: Colors.black, width: 2),
-                  borderRadius: BorderRadius.zero,
+                  color:
+                      Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                  border: Border.all(
+                    color:
+                        Theme.of(context).colorScheme.primary.withOpacity(0.20),
+                    width: 0.8,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(Icons.auto_awesome_rounded,
-                    color: Theme.of(context).colorScheme.onPrimary),
+                    color: Theme.of(context).colorScheme.primary),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -2634,13 +3838,16 @@ class _DashboardPageState extends State<DashboardPage> {
                     Text(
                       'Rekomendasi Super Admin',
                       style:
-                          TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                          TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                     ),
                     SizedBox(height: 2),
                     Text(
                       'Ide fitur berikutnya untuk kontrol sistem.',
                       style: TextStyle(
-                          color: Theme.of(context).colorScheme.outline,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.64),
                           fontWeight: FontWeight.w600),
                     ),
                   ],
@@ -2674,7 +3881,7 @@ class _DashboardPageState extends State<DashboardPage> {
           height: 14,
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.zero,
+            borderRadius: BorderRadius.circular(999),
           ),
         ),
         const SizedBox(width: 8),
@@ -2682,9 +3889,9 @@ class _DashboardPageState extends State<DashboardPage> {
           text,
           style: TextStyle(
             fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: Theme.of(context).colorScheme.outline,
-            letterSpacing: 0.5,
+            fontWeight: FontWeight.w700,
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.72),
+            letterSpacing: 0,
           ),
         ),
       ],
@@ -2752,7 +3959,7 @@ class _DashboardPageState extends State<DashboardPage> {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.all(18),
           decoration: _pixelDecoration(color),
@@ -2762,9 +3969,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 width: 52,
                 height: 52,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.zero,
-                  color: color.withOpacity(0.12),
-                  border: Border.all(color: color.withOpacity(0.25)),
+                  borderRadius: BorderRadius.circular(14),
+                  color: color.withOpacity(0.10),
+                  border:
+                      Border.all(color: color.withOpacity(0.20), width: 0.8),
                 ),
                 child: Icon(icon, color: color, size: 26),
               ),
@@ -2775,10 +3983,10 @@ class _DashboardPageState extends State<DashboardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title.toUpperCase(),
+                      title,
                       style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
@@ -2789,7 +3997,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12.5,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.60),
+                        color: AppUi.mutedText(context, 0.90),
                         height: 1.35,
                       ),
                     ),
@@ -2811,21 +4019,22 @@ class _DashboardPageState extends State<DashboardPage> {
       color: Colors.transparent,
       child: InkWell(
         onTap: item.onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: _pixelDecoration(color),
           child: Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.zero,
-                  color: color.withOpacity(0.14),
-                  border: Border.all(color: Colors.black, width: 2),
+                  borderRadius: BorderRadius.circular(10),
+                  color: color.withOpacity(0.10),
+                  border:
+                      Border.all(color: color.withOpacity(0.18), width: 0.8),
                 ),
-                child: Icon(item.icon, color: color, size: 24),
+                child: Icon(item.icon, color: color, size: 22),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -2834,10 +4043,10 @@ class _DashboardPageState extends State<DashboardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item.title.toUpperCase(),
+                      item.title,
                       style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
                         color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
@@ -2848,7 +4057,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.60),
+                        color: AppUi.mutedText(context, 0.90),
                         height: 1.3,
                         fontWeight: FontWeight.w600,
                       ),
@@ -2857,15 +4066,16 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
               Container(
-                width: 30,
-                height: 30,
+                width: 28,
+                height: 28,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.zero,
-                  color: color.withOpacity(0.10),
-                  border: Border.all(color: Colors.black, width: 1.5),
+                  borderRadius: BorderRadius.circular(8),
+                  color: color.withOpacity(0.06),
+                  border:
+                      Border.all(color: color.withOpacity(0.12), width: 0.8),
                 ),
-                child: Icon(Icons.chevron_right_rounded,
-                    color: color, size: 19),
+                child:
+                    Icon(Icons.chevron_right_rounded, color: color, size: 18),
               ),
             ],
           ),
@@ -2911,23 +4121,12 @@ class _DashboardPageState extends State<DashboardPage> {
                 right: 0,
                 bottom: 0,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.zero,
+                  borderRadius: BorderRadius.circular(16),
                   child: Container(
                     height: 70,
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.zero,
-                      border: Border.all(color: Colors.black, width: 2.5),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Colors.black,
-                          blurRadius: 0,
-                          offset: Offset(4, 4),
-                        ),
-                      ],
-                    ),
+                    decoration: AppUi.modernCardDecoration(context, radius: 16),
                     child: Row(
                       children: [
                         for (final item in leftItems)
@@ -2955,11 +4154,11 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _stockOutBottomButton() {
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.zero,
+      borderRadius: BorderRadius.circular(999),
       elevation: 14,
       shadowColor: Theme.of(context).colorScheme.primary.withOpacity(0.30),
       child: InkWell(
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(999),
         onTap: () => _open(const StockOutPage()),
         child: Container(
           width: 72,
@@ -2967,12 +4166,11 @@ class _DashboardPageState extends State<DashboardPage> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: Theme.of(context).colorScheme.primary,
-            border: Border.all(color: Colors.black, width: 3),
             boxShadow: [
               BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.28),
-                blurRadius: 0,
-                offset: const Offset(0, 8),
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.24),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
@@ -3004,9 +4202,10 @@ class _DashboardPageState extends State<DashboardPage> {
                     width: 34,
                     height: 30,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.zero,
-                      color: color.withOpacity(0.14),
-                      border: Border.all(color: color.withOpacity(0.20)),
+                      borderRadius: BorderRadius.circular(8),
+                      color: color.withOpacity(0.10),
+                      border: Border.all(
+                          color: color.withOpacity(0.16), width: 0.8),
                     ),
                     child: Icon(item.icon, size: 19, color: color),
                   ),
@@ -3017,8 +4216,8 @@ class _DashboardPageState extends State<DashboardPage> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
                       letterSpacing: 0,
                     ),
                   ),
@@ -3032,7 +4231,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _showMoreMenu() {
-    final menus = _roleMenus();
+    final menus = _filterMenusByPlan(_roleMenus());
     showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
@@ -3042,19 +4241,7 @@ class _DashboardPageState extends State<DashboardPage> {
         return Container(
           margin: const EdgeInsets.all(12),
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
-          decoration: BoxDecoration(
-            color: (Theme.of(context).cardColor),
-            borderRadius: BorderRadius.zero,
-            border: Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(context).dividerColor.withOpacity(0.16),
-                blurRadius: 0,
-                offset: const Offset(4, 4),
-              ),
-            ],
-          ),
-
+          decoration: AppUi.modernCardDecoration(context, radius: 22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3065,10 +4252,16 @@ class _DashboardPageState extends State<DashboardPage> {
                     width: 36,
                     height: 36,
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.secondary,
-                      borderRadius: BorderRadius.zero,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .secondary
+                          .withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(Icons.apps_rounded, color: Colors.white),
+                    child: Icon(
+                      Icons.apps_rounded,
+                      color: Theme.of(context).colorScheme.secondary,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -3077,7 +4270,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 18,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
@@ -3096,7 +4289,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           leading: Icon(menu.icon, color: _menuAccent(menu)),
                           title: Text(
                             menu.title,
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                            style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                           subtitle: menu.subtitle.isEmpty
                               ? null
@@ -3134,9 +4327,178 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  _DashboardMenu _overtimeMenu() {
+    return _DashboardMenu(
+      Icons.more_time_rounded,
+      'Pengajuan Lembur & Izin',
+      'Ajukan dan setujui lembur (overtime) serta izin/sakit/cuti karyawan.',
+      () => _open(OvertimePage(currentUser: _requiredAppUser)),
+    );
+  }
+
+  List<_DashboardMenu> _superAdminAllRoleMenus() {
+    return [
+      _DashboardMenu(
+          Icons.account_balance_wallet_rounded,
+          'Keuangan',
+          'Pantau omzet, HPP, biaya, margin, dan laba rugi.',
+          () => _open(const FinanceReportPage())),
+      _DashboardMenu(
+          Icons.verified_rounded,
+          'Verifikasi Pembelian',
+          'Review nota pembelian yang masuk.',
+          () => _open(const PurchaseVerificationPage())),
+      _DashboardMenu(
+          Icons.warning_amber_rounded,
+          'Abnormal Marketplace',
+          'Temukan pesanan dengan payout atau margin di luar batas.',
+          () => _open(const FinanceReportPage(initialTabIndex: 6))),
+      _DashboardMenu(
+          Icons.receipt_long_rounded,
+          'Arus Kas',
+          'Pantau mutasi dana masuk dan keluar.',
+          () => _open(const FinanceReportPage(initialTabIndex: 3))),
+      _DashboardMenu(
+          Icons.file_download_rounded,
+          'Export / Import Data',
+          'Backup data tenant, export finance, dan import data operasional.',
+          () => _open(const DataExportImportPage())),
+      _DashboardMenu(
+          Icons.inventory_2_rounded,
+          'Master SKU',
+          'Kelola barang, barcode, stok minimum, dan HPP.',
+          () => _open(ProductListPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.qr_code_scanner_rounded,
+          'Stok Keluar',
+          'Scan barcode pesanan untuk update stok keluar.',
+          () => _open(const StockOutPage())),
+      _DashboardMenu(
+          Icons.add_box_rounded,
+          'Stock In',
+          'Tambah stok masuk dari produksi, retur, atau adjustment.',
+          () => _open(const StockInPage())),
+      _DashboardMenu(
+          Icons.history_rounded,
+          'Riwayat Stock Out',
+          'Cek pengeluaran barang dan validasi resi.',
+          () => _open(const StockHistoryPage())),
+      _DashboardMenu(
+          Icons.warning_amber_rounded,
+          'Stok Rendah',
+          'Pantau produk yang sudah di bawah batas minimum.',
+          () => _open(const LowStockPage())),
+      _DashboardMenu(
+          Icons.storefront_rounded,
+          'Akun Marketplace',
+          'Kelola akun Shopee/TikTok dan sinkronisasi.',
+          () => _open(MarketplaceAccountsPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.receipt_long_rounded,
+          'Order Marketplace',
+          'Tarik dan cek order aktif untuk packing.',
+          () => _open(MarketplaceOrdersPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.link_rounded,
+          'Mapping SKU',
+          'Cocokkan SKU lokal dengan varian marketplace.',
+          () =>
+              _open(MarketplaceSkuMappingPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.sync_rounded,
+          'Sync Stock',
+          'Simulasi dan kirim stok real ke marketplace.',
+          () => _open(MarketplaceStockSyncPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.compare_arrows_rounded,
+          'Selisih Stock',
+          'Bandingkan stok lokal dengan stok marketplace.',
+          () => _open(
+              MarketplaceStockDifferencePage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.rule_rounded,
+          'Review Stock Out',
+          'Review stock out tanpa mode match marketplace.',
+          () => _open(
+              MarketplaceStockOutReviewPage(currentUser: _requiredAppUser))),
+      _DashboardMenu(
+          Icons.assignment_return_rounded,
+          'Refund & Retur',
+          'Pantau retur/cancel dan keputusan stok masuk.',
+          () => _open(MarketplaceRefundMonitorPage(
+              currentUser: _requiredAppUser, accounts: const []))),
+      _DashboardMenu(
+          Icons.sync_problem_rounded,
+          'Monitor Job',
+          'Pantau update order, payout, dan antrean.',
+          () => _open(const MarketplaceDispatcherMonitorPage())),
+      _DashboardMenu(
+          Icons.shopping_cart_checkout_rounded,
+          'Pembelian Barang / Bahan',
+          'Buat dan pantau pembelian barang atau bahan.',
+          () => _open(const PurchaseRequestPage())),
+      _DashboardMenu(
+          Icons.precision_manufacturing_rounded,
+          'Produksi Berjalan',
+          'Pantau stok dalam proses produksi.',
+          () => _open(const StockProgressPage())),
+      _DashboardMenu(Icons.store_rounded, 'Supplier',
+          'Kelola data supplier pembelian.', () => _open(const SupplierPage())),
+      _attendanceMenu(),
+      _overtimeMenu(),
+      _DashboardMenu(
+          Icons.badge_rounded,
+          'Payroll & Slip Gaji',
+          'Generate slip gaji PDF, simpan 90 hari, dan kirim via WA / Email.',
+          () => _open(const PayrollPage())),
+      _DashboardMenu(
+          Icons.analytics_rounded,
+          'Performance Monitor',
+          'Pantau telat, absen, dan aktivitas karyawan.',
+          () => _open(const HrPerformancePage())),
+
+      _DashboardMenu(
+          Icons.location_on_rounded,
+          'Set Lokasi',
+          'Atur titik lokasi kerja untuk absensi.',
+          () => _open(const WorkLocationPage())),
+      _DashboardMenu(
+          Icons.manage_accounts_rounded,
+          'User Management',
+          'Kelola akun, role, dan status user.',
+          () => _open(const UserManagementPage())),
+      _DashboardMenu(
+          Icons.manage_search_rounded,
+          'Audit Log',
+          'Lihat dan hapus riwayat aktivitas sistem.',
+          () => _open(const AuditLogPage())),
+      _DashboardMenu(
+          Icons.task_alt_rounded,
+          'Monitoring Tugas',
+          'Buat, cek, dan verifikasi task seluruh role.',
+          () => _open(const TaskPage())),
+      _DashboardMenu(
+          Icons.video_collection_rounded,
+          'Verifikasi Konten',
+          'Review konten creator: approve, revisi, atau reject.',
+          () => _open(const ContentMonitoringPage())),
+      _DashboardMenu(Icons.live_tv_rounded, 'Verifikasi Live',
+          'Review bukti kerja host live.', () => _open(const HostLivePage())),
+      _DashboardMenu(
+          Icons.live_tv_rounded,
+          'Host Live',
+          'Upload bukti sesi live sesuai jadwal.',
+          () => _open(const HostLivePage())),
+    ];
+  }
+
   // ── Role menus ───────────────────────────────────────────────────────────────
   List<_DashboardMenu> _roleMenus() {
     final role = _role;
+
+    if (_isAdmin || _isPlatformOwner) {
+      return _superAdminAllRoleMenus();
+    }
 
     if (role == 'warehouse') {
       return [
@@ -3156,6 +4518,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Tambah stok masuk dari produksi atau retur.',
             () => _open(const StockInPage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(
             Icons.history_rounded,
             'Riwayat',
@@ -3227,7 +4590,7 @@ class _DashboardPageState extends State<DashboardPage> {
             Icons.sync_problem_rounded,
             'Monitor Job',
             'Pantau pembaruan order, payout, dan status antrean.',
-            () => _open(const MarketplaceJobMonitorPage())),
+            () => _open(const MarketplaceDispatcherMonitorPage())),
         _DashboardMenu(
             Icons.manage_accounts_rounded,
             'User Operasional',
@@ -3244,6 +4607,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Cek pengeluaran barang dan validasi resi.',
             () => _open(const StockHistoryPage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(Icons.task_alt_rounded, 'Monitoring Tugas',
             'Cek progres tugas karyawan.', () => _open(const TaskPage())),
         _DashboardMenu(
@@ -3272,23 +4636,42 @@ class _DashboardPageState extends State<DashboardPage> {
     }
     if (role == 'finance') {
       return [
-        _DashboardMenu(Icons.account_balance_wallet_rounded, 'Laporan Keuangan',
+        _DashboardMenu(
+            Icons.account_balance_wallet_rounded,
+            'Laporan Keuangan',
             'Pantau omzet, HPP, biaya, margin, dan laba rugi.',
             () => _open(const FinanceReportPage())),
-        _DashboardMenu(Icons.verified_rounded, 'Verifikasi Pembelian',
+        _DashboardMenu(
+            Icons.badge_rounded,
+            'Payroll & Slip Gaji',
+            'Generate slip gaji PDF, simpan 90 hari, dan kirim via WA / Email.',
+            () => _open(const PayrollPage())),
+        _DashboardMenu(
+            Icons.verified_rounded,
+            'Verifikasi Pembelian',
             'Review nota pembelian yang masuk.',
             () => _open(const PurchaseVerificationPage())),
-        _DashboardMenu(Icons.warning_amber_rounded, 'Abnormal Marketplace',
+
+        _DashboardMenu(
+            Icons.warning_amber_rounded,
+            'Abnormal Marketplace',
             'Temukan pesanan dengan payout atau margin di luar batas.',
             () => _open(const FinanceReportPage(initialTabIndex: 6))),
-        _DashboardMenu(Icons.receipt_long_rounded, 'Arus Kas',
+        _DashboardMenu(
+            Icons.receipt_long_rounded,
+            'Arus Kas',
             'Pantau mutasi dana masuk dan keluar.',
             () => _open(const FinanceReportPage(initialTabIndex: 3))),
         _attendanceMenu(),
-        _DashboardMenu(Icons.task_alt_rounded, 'Tugas Finance',
+        _overtimeMenu(),
+        _DashboardMenu(
+            Icons.task_alt_rounded,
+            'Tugas Finance',
             'Lihat task yang ditugaskan ke akun finance.',
             () => _open(const TaskPage())),
-        _DashboardMenu(Icons.file_download_rounded, 'Export Data',
+        _DashboardMenu(
+            Icons.file_download_rounded,
+            'Export Data',
             'Download data finance ke Excel.',
             () => _open(const DataExportImportPage())),
       ];
@@ -3301,6 +4684,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Input kebutuhan barang dan lampirkan nota.',
             () => _open(const PurchaseRequestPage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(
             Icons.task_alt_rounded,
             'Tugas',
@@ -3326,6 +4710,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Upload bukti sesi live sesuai jadwal.',
             () => _open(const HostLivePage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(
             Icons.task_alt_rounded,
             'Tugas',
@@ -3346,6 +4731,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Review konten creator: approve, revisi, atau reject.',
             () => _open(const ContentMonitoringPage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(Icons.live_tv_rounded, 'Verifikasi Live',
             'Review bukti kerja host live.', () => _open(const HostLivePage())),
         _DashboardMenu(Icons.task_alt_rounded, 'Monitoring Tugas',
@@ -3360,6 +4746,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Lihat brief dan upload bukti konten.',
             () => _open(const TaskPage())),
         _attendanceMenu(),
+        _overtimeMenu(),
         _DashboardMenu(
             Icons.video_collection_rounded,
             'Konten',
@@ -3403,7 +4790,8 @@ class _DashboardPageState extends State<DashboardPage> {
           Icons.link_rounded,
           'Mapping SKU',
           'Cocokkan SKU lokal dengan varian marketplace.',
-          () => _open(MarketplaceSkuMappingPage(currentUser: _requiredAppUser))),
+          () =>
+              _open(MarketplaceSkuMappingPage(currentUser: _requiredAppUser))),
       _DashboardMenu(
           Icons.sync_rounded,
           'Sync Stock',
@@ -3413,12 +4801,14 @@ class _DashboardPageState extends State<DashboardPage> {
           Icons.compare_arrows_rounded,
           'Selisih Stock',
           'Bandingkan stok lokal dengan stok marketplace.',
-          () => _open(MarketplaceStockDifferencePage(currentUser: _requiredAppUser))),
+          () => _open(
+              MarketplaceStockDifferencePage(currentUser: _requiredAppUser))),
       _DashboardMenu(
           Icons.rule_rounded,
           'Review Stock Out',
           'Review stock out tanpa mode match marketplace.',
-          () => _open(MarketplaceStockOutReviewPage(currentUser: _requiredAppUser))),
+          () => _open(
+              MarketplaceStockOutReviewPage(currentUser: _requiredAppUser))),
       _DashboardMenu(
           Icons.assignment_return_rounded,
           'Refund & Retur',
@@ -3429,8 +4819,9 @@ class _DashboardPageState extends State<DashboardPage> {
           Icons.sync_problem_rounded,
           'Monitor Job',
           'Pantau update order, payout, dan antrean.',
-          () => _open(const MarketplaceJobMonitorPage())),
+          () => _open(const MarketplaceDispatcherMonitorPage())),
       _attendanceMenu(),
+      _overtimeMenu(),
       _DashboardMenu(
           Icons.task_alt_rounded,
           'Monitoring Tugas',
@@ -3451,6 +4842,22 @@ class _DashboardPageState extends State<DashboardPage> {
 
   List<_DashboardMenu> _bottomMenus() {
     final role = _role;
+    if (_isAdmin || _isPlatformOwner) {
+      return [
+        _DashboardMenu(Icons.account_balance_wallet_rounded, 'Keuangan', '',
+            () => _open(const FinanceReportPage()),
+            shortTitle: 'Finance'),
+        _DashboardMenu(Icons.receipt_long_rounded, 'Order', '',
+            () => _open(MarketplaceOrdersPage(currentUser: _requiredAppUser)),
+            shortTitle: 'Order'),
+        _DashboardMenu(Icons.inventory_2_rounded, 'Master SKU', '',
+            () => _open(ProductListPage(currentUser: _requiredAppUser)),
+            shortTitle: 'SKU'),
+        _DashboardMenu(Icons.analytics_rounded, 'Performance', '',
+            () => _open(const HrPerformancePage()),
+            shortTitle: 'People'),
+      ];
+    }
     if (role == 'finance') {
       return [
         _DashboardMenu(Icons.account_balance_wallet_rounded, 'Laporan', '',
@@ -3459,6 +4866,8 @@ class _DashboardPageState extends State<DashboardPage> {
         _DashboardMenu(Icons.verified_rounded, 'Verifikasi', '',
             () => _open(const PurchaseVerificationPage()),
             shortTitle: 'Verifikasi'),
+
+
         _DashboardMenu(Icons.warning_amber_rounded, 'Abnormal', '',
             () => _open(const FinanceReportPage(initialTabIndex: 6)),
             shortTitle: 'Abnormal'),
@@ -3495,9 +4904,6 @@ class _DashboardPageState extends State<DashboardPage> {
         _DashboardMenu(Icons.shopping_cart_checkout_rounded, 'Pembelian', '',
             () => _open(const PurchaseRequestPage()),
             shortTitle: 'Beli'),
-        _DashboardMenu(Icons.precision_manufacturing_rounded, 'Produksi', '',
-            () => _open(const StockProgressPage()),
-            shortTitle: 'Produksi'),
         _DashboardMenu(Icons.storefront_rounded, 'Supplier', '',
             () => _open(const SupplierPage()),
             shortTitle: 'Supplier'),
@@ -3576,9 +4982,6 @@ class _DashboardPageState extends State<DashboardPage> {
       _DashboardMenu(Icons.verified_rounded, 'Verifikasi', '',
           () => _open(const PurchaseVerificationPage()),
           shortTitle: 'Verif'),
-      _DashboardMenu(Icons.precision_manufacturing_rounded, 'Produksi', '',
-          () => _open(const StockProgressPage()),
-          shortTitle: 'Produksi'),
     ];
   }
 
@@ -3610,6 +5013,71 @@ class _DashboardPageState extends State<DashboardPage> {
 }
 
 // ── Data classes ─────────────────────────────────────────────────────────────
+
+class _TenantSubscriptionInfo {
+  final String status;
+  final String planName;
+  final String planCode;
+  final String billingPeriod;
+  final num priceAmount;
+  final String currency;
+  final DateTime? trialEndsAt;
+  final DateTime? currentPeriodEnd;
+  final DateTime? createdAt;
+
+  const _TenantSubscriptionInfo({
+    required this.status,
+    required this.planName,
+    required this.planCode,
+    required this.billingPeriod,
+    required this.priceAmount,
+    required this.currency,
+    this.trialEndsAt,
+    this.currentPeriodEnd,
+    this.createdAt,
+  });
+
+  factory _TenantSubscriptionInfo.fromMap(Map<String, dynamic> map) {
+    DateTime? parseDate(dynamic value) {
+      final raw = value?.toString().trim() ?? '';
+      if (raw.isEmpty) return null;
+      return DateTime.tryParse(raw)?.toLocal();
+    }
+
+    final plan = map['subscription_plans'] is Map
+        ? Map<String, dynamic>.from(map['subscription_plans'] as Map)
+        : <String, dynamic>{};
+
+    return _TenantSubscriptionInfo(
+      status: AppUi.text(map['status'], 'unassigned'),
+      planName: AppUi.text(plan['plan_name'], 'Belum ada paket'),
+      planCode: AppUi.text(plan['plan_code'], '-'),
+      billingPeriod: AppUi.text(plan['billing_period'], '-'),
+      priceAmount: AppUi.toNum(plan['price_amount']),
+      currency: AppUi.text(plan['currency'], 'IDR'),
+      trialEndsAt: parseDate(map['trial_ends_at']),
+      currentPeriodEnd: parseDate(map['current_period_end']),
+      createdAt: parseDate(map['created_at']),
+    );
+  }
+
+  String get priceLabel {
+    if (priceAmount <= 0)
+      return currency.toUpperCase() == 'IDR'
+          ? 'Rp 0'
+          : '0 ${currency.toUpperCase()}';
+    if (currency.toUpperCase() == 'IDR') return AppUi.rupiah(priceAmount);
+    return '${AppUi.money(priceAmount)} ${currency.toUpperCase()}';
+  }
+
+  String get periodLabel {
+    final cleanStatus = status.toLowerCase();
+    final target = cleanStatus == 'trialing' ? trialEndsAt : currentPeriodEnd;
+    if (target == null) return 'PERIODE -';
+    if (cleanStatus == 'trialing') return 'TRIAL S/D ${AppUi.date(target)}';
+    return 'AKTIF S/D ${AppUi.date(target)}';
+  }
+}
 
 class _OpsMetric {
   final String label;

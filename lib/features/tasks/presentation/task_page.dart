@@ -94,6 +94,7 @@ class _TaskPageState extends State<TaskPage> {
           .from('users')
           .select('user_id, nama, email, role_id, status')
           .eq('status', 'active')
+          .neq('role_id', 'platform_owner')
           .order('nama', ascending: true);
 
       final allUsers = (userData as List)
@@ -284,7 +285,7 @@ class _TaskPageState extends State<TaskPage> {
                         style: Theme.of(context)
                             .textTheme
                             .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w900)),
+                            ?.copyWith(fontWeight: FontWeight.w800)),
                     const SizedBox(height: 14),
                     TextField(
                       controller: titleController,
@@ -393,7 +394,7 @@ class _TaskPageState extends State<TaskPage> {
                   children: [
                     Text(item['title']?.toString() ?? '-',
                         style: const TextStyle(
-                            fontWeight: FontWeight.w900, fontSize: 16)),
+                            fontWeight: FontWeight.w800, fontSize: 16)),
                     const SizedBox(height: 4),
                     Text('PIC: ${item['assigned_to_name'] ?? '-'}'),
                     Text('Deadline: ${AppUi.date(item['deadline_date'])}'),

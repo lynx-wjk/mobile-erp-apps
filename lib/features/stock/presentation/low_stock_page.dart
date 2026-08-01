@@ -118,7 +118,7 @@ class _LowStockPageState extends State<LowStockPage> {
               decoration: BoxDecoration(
                 color: accent.withOpacity(0.14),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: accent.withOpacity(0.45)),
+                border: Border.all(color: accent.withOpacity(0.24), width: 0.8),
               ),
               child: Icon(Icons.inventory_2_rounded, color: accent),
             ),
@@ -133,7 +133,7 @@ class _LowStockPageState extends State<LowStockPage> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w800,
                       fontSize: 15,
                     ),
                   ),
@@ -141,7 +141,7 @@ class _LowStockPageState extends State<LowStockPage> {
                   Text(
                     'SKU ${product.kodeSku} · ${product.satuan}',
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.outline,
+                      color: AppUi.mutedText(context, 0.92),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -151,9 +151,11 @@ class _LowStockPageState extends State<LowStockPage> {
                     runSpacing: 8,
                     children: [
                       _miniStat('Stok', stockText, accent),
-                      _miniStat('Limit', limitText, Theme.of(context).colorScheme.primary),
+                      _miniStat('Limit', limitText,
+                          Theme.of(context).colorScheme.primary),
                       if (location != null && location.isNotEmpty)
-                        _miniStat('Rak', location, Theme.of(context).colorScheme.secondary),
+                        _miniStat('Rak', location,
+                            Theme.of(context).colorScheme.secondary),
                     ],
                   ),
                 ],
@@ -171,14 +173,14 @@ class _LowStockPageState extends State<LowStockPage> {
       decoration: BoxDecoration(
         color: color.withOpacity(0.10),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.35)),
+        border: Border.all(color: color.withOpacity(0.22), width: 0.8),
       ),
       child: Text(
         '$label $value',
         style: TextStyle(
           color: color,
           fontSize: 12,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );
@@ -194,12 +196,12 @@ class _LowStockPageState extends State<LowStockPage> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Stock Low'),
+        title: Text('Stock Low'),
         actions: [
           IconButton(
             tooltip: 'Refresh',
             onPressed: _isLoading ? null : _loadLowStock,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: Icon(Icons.refresh_rounded),
           ),
         ],
       ),

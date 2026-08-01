@@ -1,0 +1,229 @@
+-- Migration: 20260724200000_restore_stable_overlay_non_destructive.sql
+-- Restores non-destructive overlay RPC so original positive profit, margin %, payout total, and reconciliation breakdown are preserved intact.
+
+CREATE OR REPLACE FUNCTION public.finance_snapshot_order_omzet_settlement_overlay_20260623(
+  p_base jsonb,
+  p_start date DEFAULT NULL::date,
+  p_end date DEFAULT NULL::date,
+  p_marketplace text DEFAULT NULL::text,
+  p_account_id uuid DEFAULT NULL::uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+declare
+  v_start date := coalesce(p_start, current_date - 30);
+  v_end date := coalesce(p_end, current_date);
+  v_tenant_id uuid := coalesce(
+    public.app_current_tenant_id_or_default(),
+    (select tenant_id from public.users where tenant_id is not null limit 1)
+  );
+  v_marketplace text := lower(trim(coalesce(p_marketplace, '')));
+  v_mp_arr jsonb := coalesce(p_base->'marketplace_breakdown', p_base->'by_marketplace', p_base->'marketplaces', '[]'::jsonb);
+  v_new_mp_arr jsonb := '[]'::jsonb;
+  v_summary jsonb := coalesce(p_base->'summary', p_base);
+
+  v_sample_order_count integer := 0;
+  v_total_sample_hpp numeric := 0;
+  v_unpaid_order_count integer := 0;
+  v_total_unpaid_hpp numeric := 0;
+  v_total_settled_hpp numeric := 0;
+  v_total_gross_hpp numeric := 0;
+begin
+  if v_tenant_id is null or p_base is null then
+    return p_base;
+  end if;
+
+  if v_marketplace in ('all', 'semua', 'semua platform', '-') then
+    v_marketplace := null;
+  else
+    v_marketplace := case
+      when lower(regexp_replace(coalesce(p_marketplace, ''), '[^a-z0-9]+', '', 'g')) like '%tiktok%' then 'tiktok_shop'
+      when lower(regexp_replace(coalesce(p_marketplace, ''), '[^a-z0-9]+', '', 'g')) like '%shopee%' then 'shopee'
+      else lower(regexp_replace(coalesce(p_marketplace, 'unknown'), '[^a-z0-9]+', '', 'g'))
+    end;
+  end if;
+
+  if jsonb_typeof(v_mp_arr) is distinct from 'array' then
+    v_mp_arr := '[]'::jsonb;
+  end if;
+
+  with hpp_sku as (
+    select tenant_id, lower(nullif(marketplace_sku_id, '')) as marketplace_sku_id,
+           max(coalesce(hpp_amount, hpp, hpp_per_item, 0))::numeric as hpp
+    from public.marketplace_variant_hpp_mappings
+    where coalesce(is_active, true) = true and tenant_id = v_tenant_id and nullif(marketplace_sku_id, '') is not null
+    group by tenant_id, lower(nullif(marketplace_sku_id, ''))
+  ),
+  hpp_seller as (
+    select tenant_id, lower(nullif(marketplace_seller_sku, '')) as marketplace_seller_sku,
+           max(coalesce(hpp_amount, hpp, hpp_per_item, 0))::numeric as hpp
+    from public.marketplace_variant_hpp_mappings
+    where coalesce(is_active, true) = true and tenant_id = v_tenant_id and nullif(marketplace_seller_sku, '') is not null
+    group by tenant_id, lower(nullif(marketplace_seller_sku, ''))
+  ),
+  hpp_local as (
+    select tenant_id, lower(nullif(local_sku, '')) as local_sku,
+           max(coalesce(hpp_amount, hpp, hpp_per_item, 0))::numeric as hpp
+    from public.marketplace_variant_hpp_mappings
+    where coalesce(is_active, true) = true and tenant_id = v_tenant_id and nullif(local_sku, '') is not null
+    group by tenant_id, lower(nullif(local_sku, ''))
+  ),
+  valid_orders as (
+    select
+      o.tenant_id,
+      o.marketplace_account_id,
+      o.marketplace_order_id,
+      coalesce(nullif(o.external_order_id, ''), nullif(o.order_sn, ''), o.marketplace_order_id::text) as order_key,
+      case
+        when lower(regexp_replace(coalesce(o.marketplace, ''), '[^a-z0-9]+', '', 'g')) like '%tiktok%' then 'tiktok_shop'
+        when lower(regexp_replace(coalesce(o.marketplace, ''), '[^a-z0-9]+', '', 'g')) like '%shopee%' then 'shopee'
+        else lower(regexp_replace(coalesce(o.marketplace, 'unknown'), '[^a-z0-9]+', '', 'g'))
+      end as marketplace_clean,
+      (
+        (o.raw_order->>'is_sample_order')::boolean is true
+        or (o.raw_order->>'is_sample')::boolean is true
+        or upper(coalesce(o.raw_order->>'order_type', '')) like '%SAMPLE%'
+        or o.raw_order->>'sample_type' is not null
+        or (coalesce(o.paid_amount, o.gross_amount, 0) = 0 and lower(coalesce(o.order_status, '')) not like '%unpaid%')
+      ) as is_sample
+    from public.marketplace_orders o
+    where o.tenant_id = v_tenant_id
+      and (p_account_id is null or o.marketplace_account_id = p_account_id)
+      and (coalesce(o.order_created_at, o.created_at) at time zone 'Asia/Jakarta')::date between v_start and v_end
+      and not (lower(concat_ws(' ', o.order_status, o.status, o.raw_order->>'status')) ~ '(cancel|canceled|cancelled|batal|dibatalkan|returned|return|refund|rts|gagal|failed|closed)')
+      and (
+        v_marketplace is null or
+        case
+          when lower(regexp_replace(coalesce(o.marketplace, ''), '[^a-z0-9]+', '', 'g')) like '%tiktok%' then 'tiktok_shop'
+          when lower(regexp_replace(coalesce(o.marketplace, ''), '[^a-z0-9]+', '', 'g')) like '%shopee%' then 'shopee'
+          else lower(regexp_replace(coalesce(o.marketplace, 'unknown'), '[^a-z0-9]+', '', 'g'))
+        end = v_marketplace
+      )
+  ),
+  finance_payout as (
+    select
+      fr.tenant_id,
+      coalesce(nullif(fr.order_id, ''), fr.marketplace_order_id::text) as order_key,
+      sum(coalesce(fr.payout_amount, fr.net_settlement, fr.received_amount, 0)) as payout_total
+    from public.marketplace_finance_reports fr
+    where fr.tenant_id = v_tenant_id
+      and (p_account_id is null or fr.marketplace_account_id = p_account_id)
+    group by fr.tenant_id, 2
+  ),
+  order_items_enrich as (
+    select
+      vo.order_key,
+      vo.marketplace_clean,
+      vo.is_sample,
+      coalesce(fp.payout_total, 0) > 0 as is_paid,
+      coalesce(oi.quantity, oi.qty, 1)::numeric as qty,
+      coalesce(hs.hpp, hsel.hpp, hl.hpp, 0)::numeric as unit_hpp
+    from valid_orders vo
+    join public.marketplace_order_items oi on oi.marketplace_order_id = vo.marketplace_order_id
+    left join finance_payout fp on fp.order_key = vo.order_key
+    left join hpp_sku hs on hs.tenant_id = vo.tenant_id and hs.marketplace_sku_id = lower(nullif(oi.marketplace_sku_id, ''))
+    left join hpp_seller hsel on hsel.tenant_id = vo.tenant_id and hsel.marketplace_seller_sku = lower(nullif(oi.marketplace_seller_sku, ''))
+    left join hpp_local hl on hl.tenant_id = vo.tenant_id and hl.local_sku = lower(nullif(coalesce(oi.mapped_local_sku, oi.local_sku), ''))
+  ),
+  overall_stats as (
+    select
+      count(distinct order_key) filter (where is_sample)::integer as sample_count,
+      coalesce(sum(qty * unit_hpp) filter (where is_sample), 0)::numeric as sample_hpp,
+      count(distinct order_key) filter (where not is_paid and not is_sample)::integer as unpaid_count,
+      coalesce(sum(qty * unit_hpp) filter (where not is_paid and not is_sample), 0)::numeric as unpaid_hpp,
+      coalesce(sum(qty * unit_hpp) filter (where is_paid and not is_sample), 0)::numeric as settled_hpp,
+      coalesce(sum(qty * unit_hpp), 0)::numeric as gross_hpp
+    from order_items_enrich
+  ),
+  mp_hpp_totals as (
+    select
+      marketplace_clean as mp_norm,
+      coalesce(sum(qty * unit_hpp) filter (where is_paid and not is_sample), 0)::numeric as settled_hpp,
+      coalesce(sum(qty * unit_hpp) filter (where is_sample), 0)::numeric as sample_hpp,
+      coalesce(sum(qty * unit_hpp) filter (where not is_paid and not is_sample), 0)::numeric as unpaid_hpp,
+      coalesce(sum(qty * unit_hpp), 0)::numeric as total_hpp
+    from order_items_enrich
+    group by marketplace_clean
+  ),
+  mp_rows as (
+    select elem, (elem->>'marketplace')::text as mp_key
+    from jsonb_array_elements(v_mp_arr) elem
+  ),
+  mp_enriched as (
+    select
+      r.elem,
+      coalesce(h.settled_hpp, 0)::numeric as settled_hpp_val,
+      coalesce(h.sample_hpp, 0)::numeric as sample_hpp_val,
+      coalesce(h.unpaid_hpp, 0)::numeric as unpaid_hpp_val,
+      coalesce(h.total_hpp, 0)::numeric as total_hpp_val
+    from mp_rows r
+    left join mp_hpp_totals h on h.mp_norm = case
+      when lower(regexp_replace(coalesce(r.mp_key, ''), '[^a-z0-9]+', '', 'g')) like '%tiktok%' then 'tiktok_shop'
+      when lower(regexp_replace(coalesce(r.mp_key, ''), '[^a-z0-9]+', '', 'g')) like '%shopee%' then 'shopee'
+      else lower(regexp_replace(coalesce(r.mp_key, 'unknown'), '[^a-z0-9]+', '', 'g'))
+    end
+  )
+  select
+    os.sample_count,
+    os.sample_hpp,
+    os.unpaid_count,
+    os.unpaid_hpp,
+    os.settled_hpp,
+    os.gross_hpp,
+    coalesce(
+      jsonb_agg(
+        jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  me.elem,
+                  '{hpp_total}', to_jsonb(case when me.settled_hpp_val > 0 then me.settled_hpp_val else me.total_hpp_val end), true
+                ),
+                '{settled_hpp}', to_jsonb(me.settled_hpp_val), true
+              ),
+              '{total_hpp}', to_jsonb(case when me.settled_hpp_val > 0 then me.settled_hpp_val else me.total_hpp_val end), true
+            ),
+            '{sample_hpp}', to_jsonb(me.sample_hpp_val), true
+          ),
+          '{gross_all_hpp}', to_jsonb(me.total_hpp_val), true
+        )
+      ),
+      '[]'::jsonb
+    )
+  into v_sample_order_count, v_total_sample_hpp, v_unpaid_order_count, v_total_unpaid_hpp, v_total_settled_hpp, v_total_gross_hpp, v_new_mp_arr
+  from overall_stats os, mp_enriched me
+  group by os.sample_count, os.sample_hpp, os.unpaid_count, os.unpaid_hpp, os.settled_hpp, os.gross_hpp;
+
+  if v_total_settled_hpp > 0 then
+    v_summary := jsonb_set(v_summary, '{hpp_total}', to_jsonb(v_total_settled_hpp), true);
+    v_summary := jsonb_set(v_summary, '{total_hpp}', to_jsonb(v_total_settled_hpp), true);
+    v_summary := jsonb_set(v_summary, '{settled_hpp_total}', to_jsonb(v_total_settled_hpp), true);
+  end if;
+
+  v_summary := jsonb_set(v_summary, '{gross_all_hpp_total}', to_jsonb(v_total_gross_hpp), true);
+  v_summary := jsonb_set(v_summary, '{all_orders_hpp_total}', to_jsonb(v_total_gross_hpp), true);
+
+  v_summary := jsonb_set(v_summary, '{sample_order_count}', to_jsonb(v_sample_order_count), true);
+  v_summary := jsonb_set(v_summary, '{abnormal_sample_count}', to_jsonb(v_sample_order_count), true);
+  v_summary := jsonb_set(v_summary, '{sample_hpp}', to_jsonb(v_total_sample_hpp), true);
+  v_summary := jsonb_set(v_summary, '{sample_hpp_total}', to_jsonb(v_total_sample_hpp), true);
+  v_summary := jsonb_set(v_summary, '{abnormal_sample_hpp}', to_jsonb(v_total_sample_hpp), true);
+  v_summary := jsonb_set(v_summary, '{hpp_sample_total}', to_jsonb(v_total_sample_hpp), true);
+
+  v_summary := jsonb_set(v_summary, '{unpaid_order_count}', to_jsonb(v_unpaid_order_count), true);
+  v_summary := jsonb_set(v_summary, '{estimated_unpaid_hpp_total}', to_jsonb(v_total_unpaid_hpp), true);
+  v_summary := jsonb_set(v_summary, '{unpaid_estimated_hpp_total}', to_jsonb(v_total_unpaid_hpp), true);
+  v_summary := jsonb_set(v_summary, '{unpaid_hpp}', to_jsonb(v_total_unpaid_hpp), true);
+
+  p_base := jsonb_set(p_base, '{summary}', v_summary, true);
+  p_base := jsonb_set(p_base, '{marketplace_breakdown}', v_new_mp_arr, true);
+  p_base := jsonb_set(p_base, '{by_marketplace}', v_new_mp_arr, true);
+  p_base := jsonb_set(p_base, '{marketplaces}', v_new_mp_arr, true);
+
+  return p_base;
+end;
+$function$;

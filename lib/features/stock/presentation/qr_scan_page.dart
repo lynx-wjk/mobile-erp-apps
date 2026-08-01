@@ -23,6 +23,16 @@ class QrScanPage extends StatefulWidget {
 class _QrScanPageState extends State<QrScanPage> {
   bool _hasScanned = false;
   late ScanMode _mode = widget.scanMode;
+  final MobileScannerController _controller = MobileScannerController(
+    facing: CameraFacing.back,
+    detectionSpeed: DetectionSpeed.normal,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   void _handleDetect(BarcodeCapture capture) {
     if (_hasScanned) return;
@@ -69,6 +79,7 @@ class _QrScanPageState extends State<QrScanPage> {
           return Stack(
             children: [
               MobileScanner(
+                controller: _controller,
                 scanWindow: window,
                 onDetect: _handleDetect,
               ),
@@ -91,9 +102,9 @@ class _QrScanPageState extends State<QrScanPage> {
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(color: Colors.black.withOpacity(0.68), borderRadius: BorderRadius.circular(14)),
                   child: Text(
-                    '${widget.instruction}\nMode: ${_mode == ScanMode.barcode ? 'Barcode' : _mode == ScanMode.qr ? 'QR Code' : 'Auto'}',
+                    '${widget.instruction}\nMode: ${_mode == ScanMode.barcode ? 'Barcode' : _mode == ScanMode.qr ? 'QR Code' : 'Auto'}\n\nTips: Jika kamera buram pada iPhone, jauhkan HP 15-20cm dari barcode.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: Colors.white, height: 1.4),
                   ),
                 ),
               ),

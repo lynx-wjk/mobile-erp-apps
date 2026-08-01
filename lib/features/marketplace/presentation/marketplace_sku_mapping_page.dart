@@ -1,15 +1,15 @@
 // ignore_for_file: unused_element
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/constants/marketplace_providers.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../models/app_user.dart';
+import '../../../core/constants/app_roles.dart';
 import '../../stock/models/product.dart';
 import '../models/marketplace_account_public.dart';
 import '../models/marketplace_sku_map.dart';
@@ -30,6 +30,11 @@ class MarketplaceSkuMappingPage extends StatefulWidget {
 }
 
 class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
+  String get _roleId => widget.currentUser.role.roleId;
+  bool get _canManageHppMapping =>
+      AppRolePermissions.isSuperRoleId(_roleId) &&
+      !AppRolePermissions.isDemoSuperAdminId(_roleId);
+
   final MarketplaceService _service = MarketplaceService();
 
   final TextEditingController _variantCariController = TextEditingController();
@@ -43,6 +48,11 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
   bool _isSearchingProduct = false;
   bool _isHppLoading = false;
   bool _isHppSaving = false;
+  bool _isSyncingHppFromSkuMap = false;
+  bool _isRefreshingFinanceAfterHpp = false;
+  bool _isSkuExcelBusy = false;
+  bool _isSyncingHpp = false;
+  bool _isRecalculatingFinance = false;
   bool _hppMissingOnly = false;
   bool _unmappedOnly = false;
   bool _formSyncEnabled = true;
@@ -227,6 +237,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
   }
 
   Future<void> _loadHpp({bool resetPage = false}) async {
+    if (!_canManageHppMapping) return;
     final accountId = _selectedAccountId;
     if (accountId == null || accountId.isEmpty) {
       setState(() {
@@ -409,7 +420,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                       style: Theme.of(context)
                           .textTheme
                           .titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w900)),
+                          ?.copyWith(fontWeight: FontWeight.w800)),
                   SizedBox(height: 10),
                   Text(
                       _rowText(row,
@@ -488,7 +499,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                                       fallback: _selectedAccountId ?? ''),
                                   'marketplace': _rowText(
                                       row, const ['marketplace'],
-                                      fallback: _selectedAccount?.marketplace ?? 'tiktok_shop'),
+                                      fallback: _selectedAccount?.marketplace ??
+                                          'tiktok_shop'),
                                   'marketplace_product_id': _rowText(
                                       row, const ['marketplace_product_id']),
                                   'marketplace_sku_id': _rowText(
@@ -585,6 +597,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
   }
 
   Future<void> _exportHppExcel() async {
+    if (!_canManageHppMapping) return;
     if (_isHppSaving) return;
     setState(() => _isHppSaving = true);
     try {
@@ -617,7 +630,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
             _rowDouble(row, const ['hpp', 'hpp_amount', 'hpp_per_item']);
         sheet.appendRow([
           _rowText(row, const ['marketplace_account_id']),
-          _rowText(row, const ['marketplace'], fallback: _selectedAccount?.marketplace ?? 'tiktok_shop'),
+          _rowText(row, const ['marketplace'],
+              fallback: _selectedAccount?.marketplace ?? 'tiktok_shop'),
           _rowText(row, const ['marketplace_product_id']),
           _rowText(row, const ['marketplace_sku_id']),
           _rowText(row, const ['marketplace_seller_sku', 'seller_sku']),
@@ -630,21 +644,31 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
           hpp.toStringAsFixed(0),
           _rowDouble(row, const ['target_margin_percent', 'target_margin'])
               .toStringAsFixed(0),
-        ].map(TextCellValue.new).toList());
+        ].map((value) {
+          final s = value?.toString() ?? '';
+          return s.trim().isEmpty ? null : TextCellValue(s);
+        }).toList());
       }
       final bytes = excel.encode();
       if (bytes == null) return;
-      final dir = await getTemporaryDirectory();
-      final file = File(
-          '${dir.path}/hpp_mapping_${DateTime.now().millisecondsSinceEpoch}.xlsx');
-      await file.writeAsBytes(bytes, flush: true);
+      final filename =
+          'hpp_mapping_${DateTime.now().millisecondsSinceEpoch}.xlsx';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
                 'Export HPP ${exportRows.length} varian. Sheet aktif: hpp_mapping.')));
       }
-      await Share.shareXFiles([XFile(file.path)],
-          text: 'Template bulk update HPP marketplace');
+      await Share.shareXFiles(
+        [
+          XFile.fromData(
+            Uint8List.fromList(bytes),
+            name: filename,
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ),
+        ],
+        text: 'Template bulk update HPP marketplace',
+      );
     } catch (error) {
       if (mounted)
         ScaffoldMessenger.of(context)
@@ -655,6 +679,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
   }
 
   Future<void> _importHppExcel() async {
+    if (!_canManageHppMapping) return;
     final selectedAccountId = _selectedAccountId?.trim();
     final picked = await fs.openFile(
       acceptedTypeGroups: const <fs.XTypeGroup>[
@@ -664,12 +689,11 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         ),
       ],
     );
-    final path = picked?.path;
-    if (path == null) return;
+    if (picked == null) return;
 
     setState(() => _isHppSaving = true);
     try {
-      final excel = Excel.decodeBytes(await File(path).readAsBytes());
+      final excel = Excel.decodeBytes(await picked.readAsBytes());
       final sheet = _findHppMappingSheet(excel);
       if (sheet == null || sheet.rows.length < 2) {
         throw Exception(
@@ -698,14 +722,18 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
             cellFrom(r, const ['marketplace_sku_id', 'sku_id']);
         final sellerSku =
             cellFrom(r, const ['marketplace_seller_sku', 'seller_sku']);
+        final marketplaceProductId = cellFrom(
+            r, const ['marketplace_product_id', 'product_id_marketplace']);
         final productName =
             cellFrom(r, const ['product_name', 'marketplace_product_name']);
         final variantName =
             cellFrom(r, const ['variant_name', 'marketplace_variant_name']);
-        if (marketplaceSkuId.isEmpty &&
-            sellerSku.isEmpty &&
-            productName.isEmpty &&
-            variantName.isEmpty) continue;
+        final hppRaw = cellFrom(r, const ['hpp', 'hpp_amount', 'hpp_per_item']);
+        if (marketplaceProductId.isEmpty ||
+            marketplaceSkuId.isEmpty ||
+            hppRaw.isEmpty) {
+          continue;
+        }
 
         final rowAccountId =
             cellFrom(r, const ['marketplace_account_id', 'account_id']);
@@ -719,8 +747,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         final product = localProductIdFromFile.isNotEmpty
             ? _productById(localProductIdFromFile)
             : _productBySku(localSku);
-        final hpp = _parseNumberText(
-            cellFrom(r, const ['hpp', 'hpp_amount', 'hpp_per_item']));
+        final hpp = _parseNumberText(hppRaw);
         final targetMargin = _parseNumberText(
             cellFrom(r, const ['target_margin_percent', 'target_margin']));
 
@@ -729,8 +756,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
           'marketplace': cellFrom(r, const ['marketplace']).isEmpty
               ? (_selectedAccount?.marketplace ?? 'tiktok_shop')
               : cellFrom(r, const ['marketplace']),
-          'marketplace_product_id': cellFrom(
-              r, const ['marketplace_product_id', 'product_id_marketplace']),
+          'marketplace_product_id': marketplaceProductId,
           'marketplace_sku_id': marketplaceSkuId,
           'marketplace_seller_sku': sellerSku,
           'marketplace_product_name': productName,
@@ -748,7 +774,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
 
       if (rows.isEmpty) {
         throw Exception(
-            'Tidak ada baris HPP valid yang bisa diimport. Pastikan sheet hpp_mapping berisi marketplace_sku_id/seller_sku dan kolom hpp.');
+            'Tidak ada baris HPP valid yang bisa diimport. Pastikan sheet hpp_mapping berisi marketplace_product_id, marketplace_sku_id, dan kolom hpp.');
       }
 
       final result = await _service.hppUpsertBulk(rows);
@@ -790,6 +816,316 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
     return null;
   }
 
+  Future<void> _exportSkuMappingExcel() async {
+    final accountId = _selectedAccountId;
+    if (accountId == null || accountId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pilih marketplace account dulu.')),
+      );
+      return;
+    }
+    if (_isSkuExcelBusy) return;
+    setState(() => _isSkuExcelBusy = true);
+    try {
+      final payload = await _service.skuMappingExportSnapshot(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: accountId,
+      );
+      final variants = (payload['variants'] is List)
+          ? List<Map<String, dynamic>>.from((payload['variants'] as List)
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e)))
+          : <Map<String, dynamic>>[];
+      final localProducts = (payload['local_products'] is List)
+          ? List<Map<String, dynamic>>.from((payload['local_products'] as List)
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e)))
+          : <Map<String, dynamic>>[];
+
+      final excel = Excel.createExcel();
+      const mapSheetName = 'sku_mapping';
+      const localSheetName = 'local_products';
+      final mapSheet = excel[mapSheetName];
+      final localSheet = excel[localSheetName];
+      if (excel.tables.containsKey('Sheet1')) excel.delete('Sheet1');
+      excel.setDefaultSheet(mapSheetName);
+
+      mapSheet.appendRow([
+        'tenant_id',
+        'marketplace_account_id',
+        'marketplace',
+        'marketplace_variant_snapshot_id',
+        'marketplace_product_id',
+        'marketplace_sku_id',
+        'marketplace_sku_code',
+        'marketplace_seller_sku',
+        'marketplace_product_name',
+        'marketplace_variant_name',
+        'local_product_id',
+        'local_sku',
+        'local_product_name',
+        'sync_enabled',
+      ].map(TextCellValue.new).toList());
+
+      for (final row in variants) {
+        mapSheet.appendRow([
+          row['tenant_id'],
+          row['marketplace_account_id'],
+          row['marketplace'],
+          row['marketplace_variant_snapshot_id'],
+          row['marketplace_product_id'],
+          row['marketplace_sku_id'],
+          row['marketplace_sku_code'],
+          row['marketplace_seller_sku'],
+          row['marketplace_product_name'],
+          row['marketplace_variant_name'],
+          row['local_product_id'],
+          row['local_sku'],
+          row['local_product_name'],
+          row['sync_enabled'] == true ? 'TRUE' : 'TRUE',
+        ].map((value) {
+          final s = value?.toString() ?? '';
+          return s.trim().isEmpty ? null : TextCellValue(s);
+        }).toList());
+      }
+
+      localSheet.appendRow([
+        'local_product_id',
+        'local_sku',
+        'barcode',
+        'local_product_name',
+        'kategori',
+        'hpp_default',
+        'stock_saat_ini',
+      ].map(TextCellValue.new).toList());
+      for (final row in localProducts) {
+        localSheet.appendRow([
+          row['product_id'],
+          row['kode_sku'],
+          row['kode_barcode'],
+          row['nama_barang'],
+          row['kategori'],
+          row['harga_hpp_default'],
+          row['stock_saat_ini'],
+        ].map((value) {
+          final s = value?.toString() ?? '';
+          return s.trim().isEmpty ? null : TextCellValue(s);
+        }).toList());
+      }
+
+      final bytes = excel.encode();
+      if (bytes == null) return;
+      final filename =
+          'sku_mapping_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Export SKU mapping ${variants.length} varian dan ${localProducts.length} SKU lokal.')));
+      }
+      await Share.shareXFiles(
+        [
+          XFile.fromData(
+            Uint8List.fromList(bytes),
+            name: filename,
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ),
+        ],
+        text: 'Template mapping SKU marketplace',
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _isSkuExcelBusy = false);
+    }
+  }
+
+  Future<void> _importSkuMappingExcel() async {
+    final selectedAccountId = _selectedAccountId?.trim();
+    final picked = await fs.openFile(
+      acceptedTypeGroups: const <fs.XTypeGroup>[
+        fs.XTypeGroup(label: 'Excel', extensions: <String>['xlsx']),
+      ],
+    );
+    if (picked == null) return;
+
+    setState(() => _isSkuExcelBusy = true);
+    try {
+      final excel = Excel.decodeBytes(await picked.readAsBytes());
+      final sheet = excel.tables['sku_mapping'] ?? excel.tables['SKU_MAPPING'];
+      if (sheet == null || sheet.rows.length < 2) {
+        throw Exception(
+            'Sheet sku_mapping tidak ditemukan atau file Excel kosong. Export template dari aplikasi dulu.');
+      }
+      final header = sheet.rows.first
+          .map((cell) => cell?.value.toString().trim() ?? '')
+          .toList();
+      int col(String name) =>
+          header.indexWhere((h) => h.toLowerCase() == name.toLowerCase());
+      String cellFrom(List<dynamic> r, List<String> names) {
+        for (final name in names) {
+          final idx = col(name);
+          if (idx >= 0 && idx < r.length) {
+            final value = r[idx]?.value.toString().trim() ?? '';
+            if (value.isNotEmpty && value.toLowerCase() != 'null') return value;
+          }
+        }
+        return '';
+      }
+
+      final rows = <Map<String, dynamic>>[];
+      for (final r in sheet.rows.skip(1)) {
+        final marketplaceProductId =
+            cellFrom(r, const ['marketplace_product_id']);
+        final marketplaceSkuId = cellFrom(r, const ['marketplace_sku_id']);
+        final sellerSku =
+            cellFrom(r, const ['marketplace_seller_sku', 'seller_sku']);
+        final snapshotId =
+            cellFrom(r, const ['marketplace_variant_snapshot_id']);
+        final localProductId =
+            cellFrom(r, const ['local_product_id', 'product_id']);
+        final localSku = cellFrom(r, const ['local_sku']);
+        if ((marketplaceProductId.isEmpty || marketplaceSkuId.isEmpty) &&
+            snapshotId.isEmpty) {
+          continue;
+        }
+        if (localProductId.isEmpty && localSku.isEmpty) continue;
+        final rowAccountId =
+            cellFrom(r, const ['marketplace_account_id', 'account_id']);
+        final effectiveAccountId =
+            rowAccountId.isNotEmpty ? rowAccountId : (selectedAccountId ?? '');
+        if (effectiveAccountId.isEmpty) continue;
+        rows.add({
+          'tenant_id': cellFrom(r, const ['tenant_id']).isEmpty
+              ? widget.currentUser.tenantId
+              : cellFrom(r, const ['tenant_id']),
+          'marketplace_account_id': effectiveAccountId,
+          'marketplace': cellFrom(r, const ['marketplace']).isEmpty
+              ? (_selectedAccount?.marketplace ?? 'tiktok_shop')
+              : cellFrom(r, const ['marketplace']),
+          'marketplace_variant_snapshot_id': snapshotId,
+          'marketplace_product_id': marketplaceProductId,
+          'marketplace_sku_id': marketplaceSkuId,
+          'marketplace_sku':
+              cellFrom(r, const ['marketplace_sku', 'marketplace_sku_code']),
+          'marketplace_seller_sku': sellerSku,
+          'marketplace_product_name':
+              cellFrom(r, const ['marketplace_product_name', 'product_name']),
+          'marketplace_variant_name':
+              cellFrom(r, const ['marketplace_variant_name', 'variant_name']),
+          'local_product_id': localProductId,
+          'local_sku': localSku,
+          'local_product_name': cellFrom(r, const ['local_product_name']),
+        });
+      }
+      if (rows.isEmpty) {
+        throw Exception(
+            'Tidak ada baris SKU mapping valid. Isi local_product_id atau local_sku pada sheet sku_mapping.');
+      }
+      final result = await _service.importSkuMappingBulk(
+        rows,
+        syncEnabled: _formSyncEnabled,
+      );
+      if (result['ok'] != true) {
+        throw Exception(
+            result['message']?.toString() ?? 'Import SKU mapping gagal.');
+      }
+      await _applySkuMapsToOrderItemsForSelectedAccount();
+      await _refreshAll();
+      if (mounted) {
+        final upserted = _resultInt(result, 'upserted');
+        final skipped = _resultInt(result, 'skipped_invalid');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Import SKU mapping selesai. Tersimpan: $upserted · Dilewati: $skipped')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _isSkuExcelBusy = false);
+    }
+  }
+
+  Future<void> _syncHppFromSkuMaps({bool overwrite = false}) async {
+    if (!_canManageHppMapping) return;
+    if (_isSyncingHpp) return;
+    setState(() => _isSyncingHpp = true);
+    try {
+      final result = await _service.syncHppFromSkuMaps(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: _selectedAccountId,
+        overwrite: overwrite,
+      );
+      await _applySkuMapsToOrderItemsForSelectedAccount();
+      await _loadHpp(resetPage: true);
+      if (mounted) {
+        final upserted = _resultInt(result, 'upserted');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Sync HPP dari SKU mapping selesai. Tersimpan: $upserted')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncingHpp = false);
+    }
+  }
+
+  Future<Map<String, dynamic>?> _applySkuMapsToOrderItemsForSelectedAccount({
+    int daysBack = 90,
+  }) async {
+    final accountId = _selectedAccountId?.trim();
+    if (accountId == null || accountId.isEmpty || accountId == 'all') {
+      return null;
+    }
+
+    final result = await _service.applySkuMapsToOrderItems(
+      tenantId: widget.currentUser.tenantId,
+      marketplaceAccountId: accountId,
+      daysBack: daysBack,
+    );
+    if (result['ok'] == false) {
+      throw Exception(result['message']?.toString() ??
+          'Apply SKU mapping ke order item gagal.');
+    }
+    return result;
+  }
+
+  Future<void> _recalculateFinanceAfterHpp() async {
+    if (!_canManageHppMapping) return;
+    if (_isRecalculatingFinance) return;
+    setState(() => _isRecalculatingFinance = true);
+    try {
+      final result = await _service.recalculateFinanceAfterHppMapping(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: _selectedAccountId,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(result['ok'] == true
+                ? 'Finance refresh dikirim. Buka ulang halaman Finance untuk melihat hasil terbaru.'
+                : (result['message']?.toString() ??
+                    'Finance refresh selesai.'))));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _isRecalculatingFinance = false);
+    }
+  }
+
   Future<void> _pullMarketplaceProducts() async {
     final accountId = _selectedAccountId;
     if (accountId == null || accountId.isEmpty) {
@@ -826,6 +1162,75 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
     }
   }
 
+  Future<void> _syncHppFromSkuMappings({bool overwrite = false}) async {
+    if (!_canManageHppMapping) return;
+    final accountId = _selectedAccountId;
+    if (accountId == null || accountId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pilih marketplace account dulu.')),
+      );
+      return;
+    }
+
+    setState(() => _isSyncingHppFromSkuMap = true);
+    try {
+      final result = await _service.syncHppFromSkuMaps(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: accountId,
+        overwrite: overwrite,
+      );
+      await _applySkuMapsToOrderItemsForSelectedAccount();
+      await _refreshAll();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']?.toString() ??
+              '${_resultInt(result, 'upserted')} HPP mapping disinkronkan.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _isSyncingHppFromSkuMap = false);
+    }
+  }
+
+  Future<void> _refreshFinanceAfterHppMapping() async {
+    final accountId = _selectedAccountId;
+    if (accountId == null || accountId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pilih marketplace account dulu.')),
+      );
+      return;
+    }
+
+    setState(() => _isRefreshingFinanceAfterHpp = true);
+    try {
+      final now = DateTime.now();
+      final result = await _service.refreshFinanceAfterHppMapping(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: accountId,
+        startDate: DateTime(now.year, now.month, 1),
+        endDate: DateTime(now.year, now.month, now.day),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']?.toString() ??
+              'Finance siap dibaca ulang setelah sinkron HPP.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _isRefreshingFinanceAfterHpp = false);
+    }
+  }
+
   Future<void> _clearCache() async {
     final accountId = _selectedAccountId;
     if (accountId == null || accountId.isEmpty) return;
@@ -834,7 +1239,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('Bersihkan cache produk marketplace?'),
+          title: Text('Clear product cache only?'),
           content: Text(
             'Ini hanya menghapus daftar produk yang sudah diambil. Mapping yang sudah dibuat tidak ikut dihapus.',
           ),
@@ -864,7 +1269,63 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text('Cache dibersihkan. $count varian cache dihapus.')),
+            content: Text(
+                'Product cache dibersihkan. $count varian cache dihapus.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    } finally {
+      if (mounted) setState(() => _isPulling = false);
+    }
+  }
+
+  Future<void> _clearSkuHppMappings() async {
+    final accountId = _selectedAccountId;
+    if (accountId == null || accountId.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Clear SKU + HPP mapping?'),
+          content: Text(
+            'Ini menghapus mapping SKU dan HPP untuk account marketplace yang dipilih saja. Order, finance, payout, dan produk lokal tidak disentuh.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text('Clear Mapping'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _isPulling = true);
+    try {
+      final result = await _service.clearSkuHppMapping(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceAccountId: accountId,
+        marketplace: _selectedAccount?.marketplace,
+      );
+      await _refreshAll();
+      if (!mounted) return;
+      final skuCleared = _resultInt(result, 'sku_cleared');
+      final hppCleared = _resultInt(result, 'hpp_cleared');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']?.toString() ??
+              'SKU mapping dibersihkan: $skuCleared | HPP mapping dibersihkan: $hppCleared.'),
+        ),
       );
     } catch (error) {
       if (!mounted) return;
@@ -1012,18 +1473,6 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       return;
     }
 
-    final alreadyUsed = _maps.any((item) =>
-        item.productId == product.productId &&
-        item.marketplaceSkuId != variant.marketplaceSkuId);
-    if (alreadyUsed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text(
-                'Produk lokal ini sudah dipakai mapping lain. Pilih produk lokal berbeda agar tidak double source.')),
-      );
-      return;
-    }
-
     setState(() => _isSaving = true);
 
     try {
@@ -1032,6 +1481,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         product: product,
         syncEnabled: _formSyncEnabled,
       );
+      await _applySkuMapsToOrderItemsForSelectedAccount();
 
       if (!mounted) return;
       setState(() {
@@ -1088,22 +1538,6 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
       return;
     }
 
-    final localProductUsage = <String, int>{};
-    for (final pair in pairs) {
-      localProductUsage[pair.value.productId] =
-          (localProductUsage[pair.value.productId] ?? 0) + 1;
-    }
-    final hasDuplicateSelection =
-        localProductUsage.values.any((count) => count > 1);
-    if (hasDuplicateSelection) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text(
-                'Satu produk lokal tidak boleh dipakai untuk lebih dari satu varian marketplace dalam satu batch.')),
-      );
-      return;
-    }
-
     setState(() => _isSaving = true);
 
     var saved = 0;
@@ -1117,6 +1551,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         saved += 1;
       }
 
+      await _applySkuMapsToOrderItemsForSelectedAccount();
       await _refreshAll();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1169,7 +1604,10 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
     if (confirmed != true) return;
 
     try {
-      await _service.deleteSkuMap(item.marketplaceSkuMapId);
+      await _service.deleteSkuMap(
+        tenantId: widget.currentUser.tenantId,
+        marketplaceSkuMapId: item.marketplaceSkuMapId,
+      );
       await _refreshAll();
     } catch (error) {
       if (!mounted) return;
@@ -1327,15 +1765,84 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                 label: Text('Clear Cache'),
               ),
               OutlinedButton.icon(
+                onPressed: _isPulling ? null : _clearSkuHppMappings,
+                icon: Icon(Icons.link_off_rounded),
+                label: Text('Clear SKU + HPP Mapping'),
+              ),
+              OutlinedButton.icon(
                 onPressed: _refreshAll,
                 icon: Icon(Icons.refresh),
                 label: Text('Refresh'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isSkuExcelBusy ? null : _exportSkuMappingExcel,
+                icon: _isSkuExcelBusy
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(Icons.file_download_outlined),
+                label: Text('Export SKU Mapping'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isSkuExcelBusy ? null : _importSkuMappingExcel,
+                icon: Icon(Icons.file_upload_outlined),
+                label: Text('Import SKU Mapping'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isSyncingHpp ? null : () => _syncHppFromSkuMaps(),
+                icon: _isSyncingHpp
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(Icons.price_check_outlined),
+                label: Text('Sync HPP dari Mapping'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isRecalculatingFinance
+                    ? null
+                    : _recalculateFinanceAfterHpp,
+                icon: Icon(Icons.calculate_outlined),
+                label: Text('Refresh Finance'),
               ),
             ],
           ),
         ],
       ),
     );
+  }
+
+  _MarketplaceProductOption? _selectedMarketplaceProductOption() {
+    final selectedId = _selectedMarketplaceProductId;
+    if (selectedId == null || selectedId.trim().isEmpty) return null;
+    for (final option in _marketplaceProductOptions) {
+      if (option.productId == selectedId) return option;
+    }
+    return null;
+  }
+
+  Future<void> _pickMarketplaceProduct() async {
+    if (_isSaving) return;
+    final options = _marketplaceProductOptions;
+    if (options.isEmpty) return;
+
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => _MarketplaceProductPicker(
+        options: options,
+        selectedProductId: _selectedMarketplaceProductId,
+      ),
+    );
+
+    if (!mounted || picked == null) return;
+
+    setState(() {
+      _selectedMarketplaceProductId = picked.trim().isEmpty ? null : picked;
+      _bulkLocalProductByVariantId.clear();
+    });
   }
 
   Widget _variantFilterCard() {
@@ -1392,45 +1899,59 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
               icon: Icons.cloud_off_outlined,
             )
           else ...[
-            DropdownButtonFormField<String>(
-              isExpanded: true,
-              value: _selectedMarketplaceProductId,
-              decoration: const InputDecoration(
-                labelText: 'Pilih produk marketplace',
-                border: OutlineInputBorder(),
-              ),
-              selectedItemBuilder: (context) {
-                return options.map((option) {
-                  return Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      option.dropdownLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+            Builder(
+              builder: (context) {
+                final selectedOption = _selectedMarketplaceProductOption();
+                return InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: _isSaving ? null : _pickMarketplaceProduct,
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Pilih produk marketplace',
+                      border: OutlineInputBorder(),
                     ),
-                  );
-                }).toList();
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                selectedOption?.productName ??
+                                    'Pilih produk marketplace',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                selectedOption == null
+                                    ? '${options.length} produk marketplace tersedia'
+                                    : '${selectedOption.variantCount} varian | ID Produk: ${selectedOption.productId}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.color,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.arrow_drop_down_rounded),
+                      ],
+                    ),
+                  ),
+                );
               },
-              items: options
-                  .map(
-                    (option) => DropdownMenuItem(
-                      value: option.productId,
-                      child: Text(
-                        option.dropdownLabel,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  )
-                  .toList(),
-              onChanged: _isSaving
-                  ? null
-                  : (value) {
-                      setState(() {
-                        _selectedMarketplaceProductId = value;
-                        _bulkLocalProductByVariantId.clear();
-                      });
-                    },
             ),
             SizedBox(height: 14),
             Row(
@@ -1509,6 +2030,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
   }
 
   Widget _hppMappingCard() {
+    if (!_canManageHppMapping) return const SizedBox.shrink();
+    if (!_canManageHppMapping) return const SizedBox.shrink();
     final pageMax =
         _hppTotal <= 0 ? 1 : ((_hppTotal + _hppPageSize - 1) ~/ _hppPageSize);
     return NiceCard(
@@ -1612,8 +2135,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                                     fallback: '-'),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w900))),
+                                style: TextStyle(fontWeight: FontWeight.w800))),
                         TextButton.icon(
                             onPressed: () => _editHppRow(row),
                             icon: Icon(Icons.edit_outlined, size: 16),
@@ -1785,7 +2307,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            fontWeight: FontWeight.w900, fontSize: 17),
+                            fontWeight: FontWeight.w800, fontSize: 17),
                       ),
                       SizedBox(height: 4),
                       Text(
@@ -1865,8 +2387,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
             if (hasError) ...[
               SizedBox(height: 10),
               Text(item.lastError!,
-                  style: TextStyle(
-                      color: AppUi.red, fontWeight: FontWeight.w800)),
+                  style:
+                      TextStyle(color: AppUi.red, fontWeight: FontWeight.w800)),
             ],
           ],
         ),
@@ -1924,6 +2446,232 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
         ],
       ),
       body: _body(),
+    );
+  }
+}
+
+class _MarketplaceProductPicker extends StatefulWidget {
+  final List<_MarketplaceProductOption> options;
+  final String? selectedProductId;
+
+  const _MarketplaceProductPicker({
+    required this.options,
+    required this.selectedProductId,
+  });
+
+  @override
+  State<_MarketplaceProductPicker> createState() =>
+      _MarketplaceProductPickerState();
+}
+
+class _MarketplaceProductPickerState extends State<_MarketplaceProductPicker> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  List<_MarketplaceProductOption> get _filtered {
+    final keyword = _controller.text.trim().toLowerCase();
+    if (keyword.isEmpty) return widget.options;
+
+    return widget.options.where((option) {
+      final haystack =
+          '${option.productName} ${option.productId} ${option.variantCount}'
+              .toLowerCase();
+      return haystack.contains(keyword);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filtered;
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.82,
+      minChildSize: 0.45,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) {
+        return SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 42,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).dividerColor.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Pilih Produk Marketplace',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Tutup',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+                child: TextField(
+                  controller: _controller,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: _controller.text.trim().isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear',
+                            onPressed: () {
+                              setState(() => _controller.clear());
+                            },
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                    labelText: 'Cari produk / ID produk marketplace',
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              if (widget.selectedProductId != null &&
+                  widget.selectedProductId!.trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(context, ''),
+                    icon: const Icon(Icons.clear_rounded),
+                    label: const Text('Kosongkan pilihan'),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${filtered.length} dari ${widget.options.length} produk marketplace',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: Theme.of(context).textTheme.bodySmall?.color,
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: filtered.isEmpty
+                    ? const EmptyState(
+                        title: 'Produk marketplace tidak ditemukan',
+                        subtitle:
+                            'Coba keyword lain atau klik Ambil Produk & Varian untuk refresh cache marketplace.',
+                        icon: Icons.search_off_rounded,
+                      )
+                    : ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final option = filtered[index];
+                          final selected =
+                              option.productId == widget.selectedProductId;
+
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(18),
+                            onTap: () =>
+                                Navigator.pop(context, option.productId),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? AppUi.blue.withOpacity(0.14)
+                                    : Theme.of(context)
+                                        .colorScheme
+                                        .surfaceVariant
+                                        .withOpacity(0.28),
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(
+                                  color: selected
+                                      ? AppUi.blue.withOpacity(0.70)
+                                      : Theme.of(context)
+                                          .dividerColor
+                                          .withOpacity(0.35),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    selected
+                                        ? Icons.check_circle_rounded
+                                        : Icons.inventory_2_outlined,
+                                    color: selected
+                                        ? AppUi.blue
+                                        : Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.color,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          option.productName,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          '${option.variantCount} varian | ID Produk: ${option.productId}',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.color,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -1986,14 +2734,14 @@ class _BulkMappingTable extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Varian Marketplace',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
               SizedBox(width: 10),
               Expanded(
                 child: Text(
                   'Varian Lokal',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
             ],
@@ -2059,7 +2807,7 @@ class _BulkMappingRow extends StatelessWidget {
                   variant.displayVariant,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
                 SizedBox(height: 4),
                 Text(
@@ -2174,7 +2922,7 @@ class _CariableLocalProductPicker extends StatelessWidget {
                       selected.kodeSku,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontWeight: FontWeight.w900),
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                     SizedBox(height: 2),
                     Text(
@@ -2274,7 +3022,7 @@ class _LocalProductCariSheetState extends State<_LocalProductCariSheet> {
                     child: Text(
                       'Pilih Produk Lokal',
                       style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                     ),
                   ),
                   IconButton(
@@ -2395,7 +3143,7 @@ class _LocalProductCariSheetState extends State<_LocalProductCariSheet> {
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
-                                            fontWeight: FontWeight.w900),
+                                            fontWeight: FontWeight.w800),
                                       ),
                                       SizedBox(height: 3),
                                       Text(
@@ -2492,7 +3240,7 @@ class _VariantSelectableCard extends StatelessWidget {
                     variant.marketplaceProductName,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
               ],
@@ -2574,7 +3322,7 @@ class _VariantPreviewCard extends StatelessWidget {
                   variant.marketplaceProductName,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
             ],
@@ -2624,7 +3372,7 @@ class _MappingLine extends StatelessWidget {
             label.toUpperCase(),
             style: TextStyle(
               color: Theme.of(context).textTheme.bodySmall?.color,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
               fontSize: 11,
               letterSpacing: 0.4,
             ),
@@ -2638,7 +3386,7 @@ class _MappingLine extends StatelessWidget {
                 title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontWeight: FontWeight.w900),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
               SizedBox(height: 3),
               Text(
@@ -2677,7 +3425,7 @@ class _SmallStatusChip extends StatelessWidget {
       child: Text(
         label,
         style:
-            TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 12),
+            TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 12),
       ),
     );
   }

@@ -225,7 +225,8 @@ class _EvidenceCameraFieldState extends State<EvidenceCameraField> {
     var text = error.toString().trim();
     text = text.replaceFirst(RegExp(r'^Exception:\s*'), '');
     if (text.contains('No host specified') ||
-        text.contains('file:///api/upload-drive')) {
+        text.contains('file:///api/upload-drive') ||
+        text.contains('file:///functions/v1/upload-drive')) {
       return 'Endpoint upload foto belum memakai URL lengkap. Isi GOOGLE_DRIVE_UPLOAD_URL atau PHOTO_UPLOAD_PROXY_URL dengan URL https absolut.';
     }
     return text.length > 420 ? '${text.substring(0, 420)}...' : text;
@@ -255,7 +256,7 @@ class _EvidenceCameraFieldState extends State<EvidenceCameraField> {
             Text(
               widget.label,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                   ),
             ),
             if ((widget.helperText ?? '').trim().isNotEmpty) ...[

@@ -153,7 +153,7 @@ class PhotoEvidenceService {
     // Android/native lama masih boleh direct ke Apps Script.
     // Web default-nya lewat Vercel proxy supaya tidak kena CORS dan token tidak kebuka di browser.
     if (!kIsWeb && !_isProxyUri(uri)) {
-      final token = dotenv.env['GOOGLE_DRIVE_UPLOAD_TOKEN']?.trim() ?? '';
+      final token = dotenv.isInitialized ? (dotenv.env['GOOGLE_DRIVE_UPLOAD_TOKEN']?.trim() ?? '') : '';
       if (token.isEmpty) {
         throw Exception('GOOGLE_DRIVE_UPLOAD_TOKEN belum diisi di .env');
       }
@@ -191,8 +191,11 @@ class PhotoEvidenceService {
   }
 
   Uri _resolveUploadUri() {
-    final proxyUrl = dotenv.env['PHOTO_UPLOAD_PROXY_URL']?.trim() ?? '';
-    final directUrl = dotenv.env['GOOGLE_DRIVE_UPLOAD_URL']?.trim() ?? '';
+    final proxyUrl = dotenv.isInitialized ? (dotenv.env['PHOTO_UPLOAD_PROXY_URL']?.trim() ?? '') : '';
+    final directUrl = dotenv.isInitialized ? (dotenv.env['GOOGLE_DRIVE_UPLOAD_URL']?.trim() ?? '') : '';
+    final supabaseUrl = dotenv.isInitialized ? ((dotenv.env['SUPABASE_URL'] ?? '').trim()) : '';
+    final cleanUrl = supabaseUrl.endsWith('/') ? supabaseUrl.substring(0, supabaseUrl.length - 1) : supabaseUrl;
+    final functionsUrl = '$cleanUrl/functions/v1';
 
     if (kIsWeb) {
       if (proxyUrl.isNotEmpty) {
@@ -202,7 +205,7 @@ class PhotoEvidenceService {
         );
       }
       return _validateHttpUri(
-        Uri.base.resolve('/api/upload-drive'),
+        Uri.parse('$functionsUrl/upload-drive'),
         envName: 'PHOTO_UPLOAD_PROXY_URL',
       );
     }
@@ -228,9 +231,10 @@ class PhotoEvidenceService {
       return _validateHttpUri(parsed, envName: 'PHOTO_UPLOAD_PROXY_URL');
     }
 
-    throw Exception(
-      'Endpoint upload foto belum dikonfigurasi. Isi GOOGLE_DRIVE_UPLOAD_URL untuk Android/iOS, '
-      'atau isi PHOTO_UPLOAD_PROXY_URL dengan URL https absolut.',
+    // Default to the Supabase Edge Function URL as fallback for native
+    return _validateHttpUri(
+      Uri.parse('$functionsUrl/upload-drive'),
+      envName: 'PHOTO_UPLOAD_PROXY_URL',
     );
   }
 
@@ -258,7 +262,7 @@ class PhotoEvidenceService {
   }
 
   bool _isProxyUri(Uri uri) {
-    return uri.path.contains('/api/upload-drive');
+    return uri.path.contains('/api/upload-drive') || uri.path.contains('/functions/v1/upload-drive');
   }
 
   Future<String> _postJson({

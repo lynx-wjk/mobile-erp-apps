@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../../core/ui/app_ui.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/ui/app_ui.dart';
 import '../models/work_location.dart';
 import '../repositories/master_data_repository.dart';
 
@@ -35,7 +37,7 @@ class _WorkLocationPageState extends State<WorkLocationPage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Lokasi & Jam Kerja'),
+        title: const Text('Lokasi & Jam Kerja'),
         bottom: TabBar(
           controller: _tabCtrl,
           tabs: const [
@@ -56,7 +58,7 @@ class _WorkLocationPageState extends State<WorkLocationPage>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tab 1 — Lokasi Kerja (existing logic, unchanged)
+// Tab 1 — Lokasi Kerja
 // ─────────────────────────────────────────────────────────────────────────────
 class _LocationTab extends StatefulWidget {
   const _LocationTab();
@@ -66,13 +68,13 @@ class _LocationTab extends StatefulWidget {
 }
 
 class _LocationTabState extends State<_LocationTab> {
-  final _repository   = MasterDataRepository();
-  final _searchCtrl   = TextEditingController();
+  final _repository = MasterDataRepository();
+  final _searchCtrl = TextEditingController();
 
-  bool _isLoading       = true;
-  bool _isSuperAdmin    = false;
+  bool _isLoading = true;
+  bool _isSuperAdmin = false;
   bool _isDemoSuperAdmin = false;
-  bool get _canManage   => _isSuperAdmin && !_isDemoSuperAdmin;
+  bool get _canManage => _isSuperAdmin && !_isDemoSuperAdmin;
   String? _error;
   List<WorkLocation> _locations = [];
 
@@ -90,7 +92,10 @@ class _LocationTabState extends State<_LocationTab> {
 
   Future<void> _load() async {
     if (!mounted) return;
-    setState(() { _isLoading = true; _error = null; });
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
       final uid = Supabase.instance.client.auth.currentUser?.id;
       if (uid != null) {
@@ -99,9 +104,10 @@ class _LocationTabState extends State<_LocationTab> {
             .select('role_id, is_demo_account, username, email')
             .eq('user_id', uid)
             .maybeSingle();
-        final role     = profile?['role_id']?.toString().toLowerCase().trim() ?? '';
-        final username = profile?['username']?.toString().toLowerCase().trim() ?? '';
-        final email    = profile?['email']?.toString().toLowerCase().trim() ?? '';
+        final role = profile?['role_id']?.toString().toLowerCase().trim() ?? '';
+        final username =
+            profile?['username']?.toString().toLowerCase().trim() ?? '';
+        final email = profile?['email']?.toString().toLowerCase().trim() ?? '';
         _isDemoSuperAdmin = role == 'demo_super_admin' ||
             profile?['is_demo_account'] == true ||
             username == 'demo_super_admin' ||
@@ -125,10 +131,13 @@ class _LocationTabState extends State<_LocationTab> {
   List<WorkLocation> get _filtered {
     final kw = _searchCtrl.text.trim().toLowerCase();
     if (kw.isEmpty) return _locations;
-    return _locations.where((loc) =>
-      loc.namaLokasi.toLowerCase().contains(kw) ||
-      (loc.alamat ?? '').toLowerCase().contains(kw),
-    ).toList();
+    return _locations
+        .where(
+          (loc) =>
+              loc.namaLokasi.toLowerCase().contains(kw) ||
+              (loc.alamat ?? '').toLowerCase().contains(kw),
+        )
+        .toList();
   }
 
   Future<void> _delete(WorkLocation loc) async {
@@ -137,22 +146,27 @@ class _LocationTabState extends State<_LocationTab> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: Theme.of(context).cardColor,
-        title: Text('Hapus lokasi kerja?'),
+        title: const Text('Hapus lokasi kerja?'),
         content: Text('Lokasi "${loc.namaLokasi}" akan dihapus permanen.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Batal')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal')),
           FilledButton.icon(
             onPressed: () => Navigator.pop(context, true),
-            icon: Icon(Icons.delete_outline),
-            label: Text('Hapus'),
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error, foregroundColor: Colors.white),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Hapus'),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Colors.white),
           ),
         ],
       ),
     );
     if (ok != true) return;
     try {
-      await Supabase.instance.client.rpc('delete_record_for_super_admin', params: {
+      await Supabase.instance.client
+          .rpc('delete_record_for_super_admin', params: {
         'p_table_name': 'work_locations',
         'p_record_id': loc.locationId,
       });
@@ -166,7 +180,8 @@ class _LocationTabState extends State<_LocationTab> {
   Future<void> _openForm({WorkLocation? location}) async {
     final result = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => WorkLocationFormPage(location: location)),
+      MaterialPageRoute(
+          builder: (_) => WorkLocationFormPage(location: location)),
     );
     if (result == true) _load();
   }
@@ -192,13 +207,15 @@ class _LocationTabState extends State<_LocationTab> {
   }
 
   Widget _body() {
-    if (_isLoading) return const Center(child: FuturisticLoader(message: 'Memuat lokasi…'));
+    if (_isLoading) {
+      return const Center(child: FuturisticLoader(message: 'Memuat lokasi…'));
+    }
     if (_error != null) {
       return ErrorState(message: _error!, onRetry: _load);
     }
     final locs = _filtered;
     if (locs.isEmpty) {
-      return EmptyState(
+      return const EmptyState(
         icon: Icons.location_off_outlined,
         title: 'Belum ada lokasi',
         subtitle: 'Tambah titik lokasi kerja untuk validasi absensi GPS.',
@@ -223,11 +240,18 @@ class _LocationTabState extends State<_LocationTab> {
                       height: 44,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
-                        color: (loc.isActive ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.error).withOpacity(0.12),
+                        color: (loc.isActive
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.error)
+                            .withOpacity(0.12),
                       ),
                       child: Icon(
-                        loc.isActive ? Icons.location_on_rounded : Icons.location_off_rounded,
-                        color: loc.isActive ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.error,
+                        loc.isActive
+                            ? Icons.location_on_rounded
+                            : Icons.location_off_rounded,
+                        color: loc.isActive
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.error,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -235,11 +259,17 @@ class _LocationTabState extends State<_LocationTab> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(loc.namaLokasi, style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurface)),
+                          Text(loc.namaLokasi,
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface)),
                           const SizedBox(height: 2),
                           Text(
                             'Radius ${loc.radiusMeter.toStringAsFixed(0)} m  ·  ${loc.status}',
-                            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppUi.mutedText(context, 0.90)),
                           ),
                           if ((loc.alamat ?? '').isNotEmpty) ...[
                             const SizedBox(height: 2),
@@ -247,7 +277,12 @@ class _LocationTabState extends State<_LocationTab> {
                               loc.alamat!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4)),
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withOpacity(0.4)),
                             ),
                           ],
                         ],
@@ -256,11 +291,16 @@ class _LocationTabState extends State<_LocationTab> {
                     if (_canManage)
                       IconButton(
                         onPressed: () => _delete(loc),
-                        icon: Icon(Icons.delete_outline_rounded, size: 20),
-                        color: Theme.of(context).colorScheme.error.withOpacity(0.7),
+                        icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .error
+                            .withOpacity(0.7),
                         tooltip: 'Hapus lokasi',
                       ),
-                    Icon(Icons.chevron_right_rounded, color: Theme.of(context).colorScheme.onSurfaceVariant, size: 18),
+                    Icon(Icons.chevron_right_rounded,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        size: 18),
                   ],
                 ),
               );
@@ -269,11 +309,12 @@ class _LocationTabState extends State<_LocationTab> {
         ),
         if (_canManage)
           Positioned(
-            right: 16, bottom: 16,
+            right: 16,
+            bottom: 16,
             child: FloatingActionButton.extended(
               onPressed: () => _openForm(),
-              icon: Icon(Icons.add_location_alt_rounded),
-              label: Text('Tambah Lokasi'),
+              icon: const Icon(Icons.add_location_alt_rounded),
+              label: const Text('Tambah Lokasi'),
             ),
           ),
       ],
@@ -294,133 +335,570 @@ class _WorkScheduleTab extends StatefulWidget {
 class _WorkScheduleTabState extends State<_WorkScheduleTab> {
   final _client = Supabase.instance.client;
 
-  bool _loadingUsers   = true;
-  bool _loadingSched   = false;
-  bool _saving         = false;
+  bool _isLoading = true;
   String? _error;
 
-  List<Map<String, dynamic>> _users   = [];
-  String? _selectedUserId;
-  String  _selectedUserName = '';
+  List<Map<String, dynamic>> _users = [];
+  Map<String, List<Map<String, dynamic>>> _userSchedulesMap = {};
 
-  // day_of_week: 0=Minggu, 1=Senin, ..., 6=Sabtu
-  final Map<int, _DaySchedule> _schedule = {};
+  String _searchQuery = '';
+  String _selectedRoleFilter = 'all';
 
-  static const _dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  static const List<Map<String, String>> _roleFilters = [
+    {'id': 'all', 'label': 'Semua Role'},
+    {'id': 'warehouse', 'label': 'Warehouse'},
+    {'id': 'produksi', 'label': 'Produksi'},
+    {'id': 'finance', 'label': 'Finance'},
+    {'id': 'host_live', 'label': 'Host Live'},
+    {'id': 'content_creator', 'label': 'Content Creator'},
+    {'id': 'hr', 'label': 'HR'},
+  ];
+
+  static const _dayShortNames = ['Ming', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 
   @override
   void initState() {
     super.initState();
-    _initScheduleDefaults();
-    _loadUsers();
+    _loadAllData();
   }
 
-  void _initScheduleDefaults() {
-    for (int d = 0; d < 7; d++) {
-      _schedule[d] = _DaySchedule(
-        dayOfWeek: d,
-        isActive: d >= 1 && d <= 5, // Mon–Fri default active
-        startTime: const TimeOfDay(hour: 8, minute: 0),
-        endTime:   const TimeOfDay(hour: 17, minute: 0),
-        lateTolerance: 15,
-      );
-    }
-  }
-
-  Future<void> _loadUsers() async {
+  Future<void> _loadAllData() async {
     if (!mounted) return;
-    setState(() { _loadingUsers = true; _error = null; });
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
     try {
-      final data = await _client
+      final userData = await _client
           .from('users')
           .select('user_id, nama, role_id, status, email')
           .neq('status', 'deleted')
+          .neq('role_id', 'platform_owner')
           .order('nama');
-      if (!mounted) return;
-      final users = (data as List<dynamic>)
+
+      final users = (userData as List<dynamic>)
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList();
-      setState(() => _users = users);
+
+      final schedData = await _client
+          .from('user_work_schedules')
+          .select('user_id, day_of_week, start_time, end_time, late_tolerance_minutes, is_active');
+
+      final schedules = (schedData as List<dynamic>)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+
+      final Map<String, List<Map<String, dynamic>>> schedMap = {};
+      for (final s in schedules) {
+        final uid = s['user_id']?.toString();
+        if (uid != null) {
+          schedMap.putIfAbsent(uid, () => []).add(s);
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _users = users;
+        _userSchedulesMap = schedMap;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _error = 'Gagal memuat daftar user. Coba refresh.');
     } finally {
-      if (mounted) setState(() => _loadingUsers = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _loadSchedule(String userId) async {
-    if (!mounted) return;
-    setState(() { _loadingSched = true; _error = null; });
-    try {
-      final res = await _client.rpc(
-        'user_work_schedule_list_v24_6_28',
-        params: {'p_user_id': userId},
+  Color _getRoleColor(String role) {
+    switch (role.toLowerCase()) {
+      case 'warehouse':
+        return const Color(0xFFF59E0B);
+      case 'produksi':
+        return const Color(0xFF10B981);
+      case 'finance':
+        return const Color(0xFF8B5CF6);
+      case 'host_live':
+        return const Color(0xFF06B6D4);
+      case 'content_creator':
+        return const Color(0xFFEC4899);
+      case 'hr':
+        return const Color(0xFF6366F1);
+      default:
+        return const Color(0xFF3B82F6);
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredUsers {
+    return _users.where((user) {
+      final name = AppUi.text(user['nama']).toLowerCase();
+      final email = AppUi.text(user['email']).toLowerCase();
+      final role = AppUi.text(user['role_id']).toLowerCase();
+
+      final matchesQuery = _searchQuery.isEmpty ||
+          name.contains(_searchQuery.toLowerCase()) ||
+          email.contains(_searchQuery.toLowerCase());
+
+      final matchesRole = _selectedRoleFilter == 'all' ||
+          role == _selectedRoleFilter.toLowerCase();
+
+      return matchesQuery && matchesRole;
+    }).toList();
+  }
+
+  void _showUserScheduleModal(Map<String, dynamic> user) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _UserScheduleBottomSheet(
+        user: user,
+        allUsers: _users,
+        existingRows: _userSchedulesMap[user['user_id']?.toString()] ?? [],
+        onSaved: _loadAllData,
+      ),
+    );
+  }
+
+  String _buildScheduleSummary(List<Map<String, dynamic>> rows) {
+    final activeRows = rows.where((r) => r['is_active'] == true).toList()
+      ..sort((a, b) => (a['day_of_week'] as int).compareTo(b['day_of_week'] as int));
+
+    if (activeRows.isEmpty) return 'Nonaktif seluruh hari';
+
+    final daysStr = activeRows.map((r) {
+      final day = r['day_of_week'] as int? ?? 0;
+      return day >= 0 && day <= 6 ? _dayShortNames[day] : '';
+    }).where((s) => s.isNotEmpty).join(', ');
+
+    final firstStart = activeRows.first['start_time']?.toString() ?? '08:00';
+    final firstEnd = activeRows.first['end_time']?.toString() ?? '17:00';
+
+    return '$daysStr ($firstStart - $firstEnd)';
+  }
+
+  Widget _buildRoleFilterBar() {
+    return SizedBox(
+      height: 42,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _roleFilters.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final filter = _roleFilters[index];
+          final isSelected = _selectedRoleFilter == filter['id'];
+          final roleColor = filter['id'] == 'all'
+              ? Theme.of(context).colorScheme.primary
+              : _getRoleColor(filter['id']!);
+
+          return ChoiceChip(
+            selected: isSelected,
+            label: Text(filter['label']!),
+            labelStyle: TextStyle(
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              fontSize: 12.5,
+              color: isSelected
+                  ? Colors.white
+                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
+            ),
+            selectedColor: roleColor,
+            backgroundColor: roleColor.withOpacity(0.08),
+            side: BorderSide(
+              color: isSelected ? roleColor : roleColor.withOpacity(0.25),
+              width: 1,
+            ),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
+            onSelected: (selected) {
+              if (selected) {
+                setState(() => _selectedRoleFilter = filter['id']!);
+              }
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: FuturisticLoader(message: 'Memuat data user…'));
+    }
+    if (_error != null && _users.isEmpty) {
+      return ErrorState(message: _error!, onRetry: _loadAllData);
+    }
+
+    final filtered = _filteredUsers;
+
+    return RefreshIndicator(
+      onRefresh: _loadAllData,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
+        children: [
+          // Info banner header
+          FuturisticHeader(
+            icon: Icons.access_time_filled_rounded,
+            title: 'Pengaturan Jam Kerja User',
+            subtitle:
+                'Klik kartu user mana saja untuk mengatur jam kerja 7 hari & toleransi keterlambatan. User dengan jadwal khusus ditandai badge glowing.',
+            stats: [
+              StatPill(label: 'Total User', value: _users.length.toString()),
+              StatPill(
+                label: 'Jadwal Khusus',
+                value: _userSchedulesMap.keys.length.toString(),
+                accentColor: const Color(0xFF10B981),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Search & Role Filter Bar
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: AppUi.glassDecoration(context, radius: 16),
+            child: Column(
+              children: [
+                TextField(
+                  onChanged: (val) => setState(() => _searchQuery = val),
+                  decoration: InputDecoration(
+                    hintText: 'Cari nama atau email user…',
+                    hintStyle: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.5),
+                    ),
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () => setState(() => _searchQuery = ''),
+                          )
+                        : null,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceVariant
+                        .withOpacity(0.3),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _buildRoleFilterBar(),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          if (filtered.isEmpty)
+            const EmptyState(
+              title: 'User tidak ditemukan',
+              subtitle: 'Tidak ada user aktif sesuai kriteria pencarian.',
+              icon: Icons.search_off_outlined,
+            )
+          else
+            ...filtered.map((user) {
+              final uid = user['user_id']?.toString() ?? '';
+              final name = AppUi.text(user['nama']);
+              final email = AppUi.text(user['email']);
+              final role = AppUi.text(user['role_id']);
+              final roleColor = _getRoleColor(role);
+
+              final userSchedules = _userSchedulesMap[uid];
+              final bool hasCustomSchedule =
+                  userSchedules != null && userSchedules.isNotEmpty;
+
+              final initial = name.substring(0, 1).toUpperCase();
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: NiceCard(
+                  onTap: () => _showUserScheduleModal(user),
+                  borderColor: hasCustomSchedule
+                      ? const Color(0xFF10B981)
+                      : roleColor.withOpacity(0.3),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                colors: [
+                                  roleColor,
+                                  roleColor.withOpacity(0.7),
+                                ],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: roleColor.withOpacity(0.25),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child: Text(
+                                initial,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: roleColor.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        role.toUpperCase(),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: roleColor,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        email,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withOpacity(0.6),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+
+                          // Status Badge: Custom vs Default
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: hasCustomSchedule
+                                  ? const Color(0xFF10B981).withOpacity(0.15)
+                                  : Theme.of(context)
+                                      .colorScheme
+                                      .secondary
+                                      .withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: hasCustomSchedule
+                                    ? const Color(0xFF10B981).withOpacity(0.4)
+                                    : Theme.of(context)
+                                        .colorScheme
+                                        .secondary
+                                        .withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  hasCustomSchedule
+                                      ? Icons.check_circle_rounded
+                                      : Icons.schedule_rounded,
+                                  size: 13,
+                                  color: hasCustomSchedule
+                                      ? const Color(0xFF10B981)
+                                      : Theme.of(context).colorScheme.secondary,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  hasCustomSchedule
+                                      ? 'JADWAL KHUSUS'
+                                      : 'JADWAL DEFAULT',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: hasCustomSchedule
+                                        ? const Color(0xFF10B981)
+                                        : Theme.of(context)
+                                            .colorScheme
+                                            .secondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceVariant
+                              .withOpacity(0.35),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.alarm_on_outlined,
+                              size: 15,
+                              color: hasCustomSchedule
+                                  ? const Color(0xFF10B981)
+                                  : Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                hasCustomSchedule
+                                    ? _buildScheduleSummary(userSchedules)
+                                    : 'Default Sistem: Sen–Jum (08:00 - 17:00, Tol: 15m)',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            Icon(
+                              Icons.tune_rounded,
+                              size: 14,
+                              color: roleColor,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User Schedule Draggable Bottom Sheet & Editor
+// ─────────────────────────────────────────────────────────────────────────────
+class _UserScheduleBottomSheet extends StatefulWidget {
+  final Map<String, dynamic> user;
+  final List<Map<String, dynamic>> allUsers;
+  final List<Map<String, dynamic>> existingRows;
+  final VoidCallback onSaved;
+
+  const _UserScheduleBottomSheet({
+    required this.user,
+    required this.allUsers,
+    required this.existingRows,
+    required this.onSaved,
+  });
+
+  @override
+  State<_UserScheduleBottomSheet> createState() =>
+      _UserScheduleBottomSheetState();
+}
+
+class _UserScheduleBottomSheetState extends State<_UserScheduleBottomSheet> {
+  final _client = Supabase.instance.client;
+
+  final Map<int, _DaySchedule> _schedule = {};
+  bool _saving = false;
+
+  static const _dayNames = [
+    'Minggu',
+    'Senin',
+    'Selasa',
+    'Rabu',
+    'Kamis',
+    'Jumat',
+    'Sabtu'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _initSchedule();
+  }
+
+  void _initSchedule() {
+    for (int d = 0; d < 7; d++) {
+      _schedule[d] = _DaySchedule(
+        dayOfWeek: d,
+        isActive: d >= 1 && d <= 5,
+        startTime: const TimeOfDay(hour: 8, minute: 0),
+        endTime: const TimeOfDay(hour: 17, minute: 0),
+        lateTolerance: 15,
       );
-      if (!mounted) return;
-      final map  = res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{};
-      final rows = (map['rows'] as List? ?? [])
-          .map((r) => Map<String, dynamic>.from(r as Map))
-          .toList();
-
-      // Reset defaults first
-      _initScheduleDefaults();
-
-      // Apply loaded rows
-      for (final row in rows) {
-        final day = _asInt(row['day_of_week']);
-        if (day < 0 || day > 6) continue;
-        _schedule[day] = _DaySchedule(
-          dayOfWeek: day,
-          isActive:  row['is_active'] == true,
-          startTime: _parseTime(row['start_time']?.toString() ?? '08:00'),
-          endTime:   _parseTime(row['end_time']?.toString() ?? '17:00'),
-          lateTolerance: _asInt(row['late_tolerance_minutes'], defaultVal: 15),
-        );
-      }
-      setState(() {});
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _error = 'Gagal memuat jadwal. Coba refresh.');
-    } finally {
-      if (mounted) setState(() => _loadingSched = false);
     }
-  }
 
-  Future<void> _save() async {
-    if (_selectedUserId == null) {
-      AppUi.showSnack('Pilih user terlebih dahulu.');
-      return;
-    }
-    setState(() => _saving = true);
-    try {
-      final rows = _schedule.values.map((s) => {
-        'user_id':               _selectedUserId,
-        'day_of_week':           s.dayOfWeek,
-        'start_time':            _formatTime(s.startTime),
-        'end_time':              _formatTime(s.endTime),
-        'late_tolerance_minutes': s.lateTolerance,
-        'timezone':              'Asia/Jakarta',
-        'is_active':             s.isActive,
-      }).toList();
-
-      await _client.rpc(
-        'user_work_schedule_upsert_bulk_v24_6_28',
-        params: {'p_rows': rows},
+    for (final row in widget.existingRows) {
+      final day = row['day_of_week'] as int? ?? -1;
+      if (day < 0 || day > 6) continue;
+      _schedule[day] = _DaySchedule(
+        dayOfWeek: day,
+        isActive: row['is_active'] == true,
+        startTime: _parseTime(row['start_time']?.toString() ?? '08:00'),
+        endTime: _parseTime(row['end_time']?.toString() ?? '17:00'),
+        lateTolerance: row['late_tolerance_minutes'] as int? ?? 15,
       );
-
-      if (!mounted) return;
-      AppUi.showSnack('Jadwal kerja $_selectedUserName berhasil disimpan.');
-    } catch (_) {
-      if (!mounted) return;
-      AppUi.showSnack('Gagal menyimpan jadwal. Coba lagi.');
-    } finally {
-      if (mounted) setState(() => _saving = false);
     }
   }
 
-  void _bulkApply(List<int> days) {
-    // Apply Mon schedule to selected days
+  static TimeOfDay _parseTime(String raw) {
+    final parts = raw.split(':');
+    if (parts.length < 2) return const TimeOfDay(hour: 8, minute: 0);
+    return TimeOfDay(
+      hour: int.tryParse(parts[0]) ?? 8,
+      minute: int.tryParse(parts[1]) ?? 0,
+    );
+  }
+
+  static String _formatTime(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  void _bulkApplyDays(List<int> days) {
     final monSched = _schedule[1]!;
     for (final d in days) {
       _schedule[d] = _schedule[d]!.copyWith(
@@ -430,7 +908,6 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
         isActive: true,
       );
     }
-    // Deactivate days not in the list (except Mon which is always in list)
     for (int d = 0; d <= 6; d++) {
       if (!days.contains(d)) {
         _schedule[d] = _schedule[d]!.copyWith(isActive: false);
@@ -441,8 +918,10 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
   }
 
   Future<void> _pickTime(int day, bool isStart) async {
-    final current = isStart ? _schedule[day]!.startTime : _schedule[day]!.endTime;
-    final picked  = await showTimePicker(context: context, initialTime: current);
+    final current =
+        isStart ? _schedule[day]!.startTime : _schedule[day]!.endTime;
+    final picked =
+        await showTimePicker(context: context, initialTime: current);
     if (!mounted || picked == null) return;
     setState(() {
       if (isStart) {
@@ -453,231 +932,363 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
     });
   }
 
-  static TimeOfDay _parseTime(String raw) {
-    final parts = raw.split(':');
-    if (parts.length < 2) return const TimeOfDay(hour: 8, minute: 0);
-    return TimeOfDay(
-      hour:   int.tryParse(parts[0]) ?? 8,
-      minute: int.tryParse(parts[1]) ?? 0,
-    );
+  Future<void> _save({List<String>? targetUserIds}) async {
+    final targetIds = targetUserIds ?? [widget.user['user_id']?.toString() ?? ''];
+    if (targetIds.isEmpty || targetIds.first.isEmpty) return;
+
+    setState(() => _saving = true);
+    try {
+      final List<Map<String, dynamic>> allRows = [];
+
+      for (final uid in targetIds) {
+        for (final s in _schedule.values) {
+          allRows.add({
+            'user_id': uid,
+            'day_of_week': s.dayOfWeek,
+            'start_time': _formatTime(s.startTime),
+            'end_time': _formatTime(s.endTime),
+            'late_tolerance_minutes': s.lateTolerance,
+            'timezone': 'Asia/Jakarta',
+            'is_active': s.isActive,
+          });
+        }
+      }
+
+      await _client.rpc(
+        'user_work_schedule_upsert_bulk',
+        params: {'p_rows': allRows},
+      );
+
+      if (!mounted) return;
+      AppUi.showSnack(targetIds.length > 1
+          ? 'Jadwal berhasil disalin ke ${targetIds.length} user!'
+          : 'Jadwal kerja ${AppUi.text(widget.user['nama'])} berhasil disimpan.');
+
+      widget.onSaved();
+      Navigator.pop(context);
+    } catch (_) {
+      if (!mounted) return;
+      AppUi.showSnack('Gagal menyimpan jadwal. Coba lagi.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
-  static String _formatTime(TimeOfDay t) =>
-      '${t.hour.toString().padLeft(2,'0')}:${t.minute.toString().padLeft(2,'0')}';
+  Future<void> _copyToRoleUsers() async {
+    final role = AppUi.text(widget.user['role_id']);
+    final roleUsers = widget.allUsers
+        .where((u) => AppUi.text(u['role_id']) == role)
+        .map((u) => u['user_id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
 
-  static int _asInt(dynamic v, {int defaultVal = 0}) =>
-      int.tryParse(v?.toString() ?? '') ?? defaultVal;
+    if (roleUsers.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Salin Jadwal ke Role $role?'),
+        content: Text(
+            'Jadwal ini akan disalin ke ${roleUsers.length} user yang memiliki role "$role".'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Batal')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Ya, Salin')),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await _save(targetUserIds: roleUsers);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return RefreshIndicator(
-      onRefresh: _loadUsers,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
-        children: [
-          // Info banner
-          NiceCard(
-            borderColor: Theme.of(context).colorScheme.primary.withOpacity(0.25),
-            child: Row(
-              children: [
-                Container(
-                  width: 36, height: 36,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
-                  ),
-                  child: Icon(Icons.info_outline_rounded, color: Theme.of(context).colorScheme.primary, size: 20),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Pengaturan ini menentukan jam kerja per user yang dipakai sistem absensi ke depan. Timezone default Asia/Jakarta (WIB).',
-                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline, height: 1.4),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
+    final userName = AppUi.text(widget.user['nama']);
+    final role = AppUi.text(widget.user['role_id']);
 
-          // User picker
-          if (_loadingUsers)
-            const Center(child: FuturisticLoader(message: 'Memuat user…'))
-          else if (_error != null && _users.isEmpty)
-            ErrorState(message: _error!, onRetry: _loadUsers)
-          else ...[
-            NiceCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Pilih User',
-                    style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.outline, fontSize: 12, letterSpacing: 0.4),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _selectedUserId,
-                      isExpanded: true,
-                      hint: Text('Pilih user untuk edit jadwal…', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
-                      dropdownColor: Theme.of(context).cardColor,
-                      iconEnabledColor: Theme.of(context).colorScheme.outline,
-                      items: _users.map((user) {
-                        final uid   = user['user_id']?.toString() ?? '';
-                        final nama  = user['nama']?.toString() ?? user['email']?.toString() ?? uid;
-                        final role  = user['role_id']?.toString() ?? '-';
-                        return DropdownMenuItem<String>(
-                          value: uid,
-                          child: Text('$nama  ($role)', overflow: TextOverflow.ellipsis, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 14)),
-                        );
-                      }).toList(),
-                      onChanged: (uid) {
-                        if (uid == null) return;
-                        final user = _users.firstWhere((u) => u['user_id']?.toString() == uid, orElse: () => {});
-                        setState(() {
-                          _selectedUserId   = uid;
-                          _selectedUserName = user['nama']?.toString() ?? uid;
-                        });
-                        _loadSchedule(uid);
-                      },
-                    ),
-                  ),
-                ],
+    return DraggableScrollableSheet(
+      initialChildSize: 0.88,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 16,
+                spreadRadius: 2,
               ),
-            ),
-
-            const SizedBox(height: 12),
-
-            if (_selectedUserId != null) ...[
-              // Bulk apply buttons
-              NiceCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Terapkan cepat', style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.outline, fontSize: 12)),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8, runSpacing: 8,
-                      children: [
-                        _bulkBtn('Senin–Jumat', () => _bulkApply([1, 2, 3, 4, 5])),
-                        _bulkBtn('Senin–Sabtu',  () => _bulkApply([1, 2, 3, 4, 5, 6])),
-                        _bulkBtn('Senin–Minggu', () => _bulkApply([0, 1, 2, 3, 4, 5, 6])),
-                      ],
-                    ),
-                  ],
+            ],
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.25),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
               const SizedBox(height: 12),
 
-              // Schedule per day
-              if (_loadingSched)
-                const Center(child: FuturisticLoader(message: 'Memuat jadwal…'))
-              else ...[
-                const SectionTitle(title: 'Jadwal per Hari'),
-                const SizedBox(height: 8),
-                ...List.generate(7, (day) => _dayCard(day)),
-                const SizedBox(height: 16),
-
-                // Save button
-                FilledButton.icon(
-                  onPressed: _saving ? null : _save,
-                  icon: _saving
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                      : Icon(Icons.save_rounded),
-                  label: Text(_saving ? 'Menyimpan…' : 'Simpan Jadwal $_selectedUserName'),
-                ),
-              ],
-            ],
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _bulkBtn(String label, VoidCallback onTap) {
-    return OutlinedButton(
-      onPressed: onTap,
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-      child: Text(label, style: TextStyle(fontSize: 12)),
-    );
-  }
-
-  Widget _dayCard(int day) {
-    final sched  = _schedule[day]!;
-    final active = sched.isActive;
-    final color  = active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurfaceVariant;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: NiceCard(
-        borderColor: active ? Theme.of(context).colorScheme.primary.withOpacity(0.25) : null,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header row
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _dayNames[day],
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: active ? Theme.of(context).colorScheme.onSurface : Theme.of(context).colorScheme.outline,
-                      fontSize: 14,
+              // Header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Edit Jadwal: $userName',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
+                          ),
+                          Text(
+                            'Role: ${role.toUpperCase()}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.6),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
                 ),
-                Switch(
-                  value: active,
-                  activeColor: Theme.of(context).colorScheme.primary,
-                  onChanged: (v) => setState(() => _schedule[day] = sched.copyWith(isActive: v)),
-                ),
-              ],
-            ),
-            if (active) ...[
-              const Divider(height: 12),
-              Row(
-                children: [
-                  Expanded(child: _timeButton('Mulai', sched.startTime, color, () => _pickTime(day, true))),
-                  const SizedBox(width: 8),
-                  Expanded(child: _timeButton('Selesai', sched.endTime, color, () => _pickTime(day, false))),
-                ],
               ),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  Text('Toleransi telat:', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline)),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: sched.lateTolerance <= 0 ? null : () => setState(() => _schedule[day] = sched.copyWith(lateTolerance: sched.lateTolerance - 5)),
-                    icon: Icon(Icons.remove_circle_outline, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text('${sched.lateTolerance} menit', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).colorScheme.onSurface, fontSize: 13)),
-                  ),
-                  IconButton(
-                    onPressed: () => setState(() => _schedule[day] = sched.copyWith(lateTolerance: sched.lateTolerance + 5)),
-                    icon: Icon(Icons.add_circle_outline, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
+              const Divider(height: 1),
+
+              // Form body
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    // Presets
+                    NiceCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Terapkan Preset Cepat',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton(
+                                onPressed: () =>
+                                    _bulkApplyDays([1, 2, 3, 4, 5]),
+                                child: const Text('Senin–Jumat'),
+                              ),
+                              OutlinedButton(
+                                onPressed: () =>
+                                    _bulkApplyDays([1, 2, 3, 4, 5, 6]),
+                                child: const Text('Senin–Sabtu'),
+                              ),
+                              OutlinedButton(
+                                onPressed: () =>
+                                    _bulkApplyDays([0, 1, 2, 3, 4, 5, 6]),
+                                child: const Text('Senin–Minggu'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    const SectionTitle(title: 'Jadwal 7 Hari Kerja'),
+                    const SizedBox(height: 10),
+
+                    ...List.generate(7, (day) {
+                      final sched = _schedule[day]!;
+                      final active = sched.isActive;
+                      final color = active
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.onSurfaceVariant;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: NiceCard(
+                          borderColor: active
+                              ? Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withOpacity(0.3)
+                              : null,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _dayNames[day],
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        color: active
+                                            ? Theme.of(context)
+                                                .colorScheme
+                                                .onSurface
+                                            : AppUi.mutedText(context, 0.92),
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: active,
+                                    activeColor:
+                                        Theme.of(context).colorScheme.primary,
+                                    onChanged: (v) => setState(() =>
+                                        _schedule[day] =
+                                            sched.copyWith(isActive: v)),
+                                  ),
+                                ],
+                              ),
+                              if (active) ...[
+                                const Divider(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _timeBtn('JAM MULAI', sched.startTime,
+                                          color, () => _pickTime(day, true)),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _timeBtn(
+                                          'JAM SELESAI',
+                                          sched.endTime,
+                                          color,
+                                          () => _pickTime(day, false)),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Toleransi telat:',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                    const Spacer(),
+                                    IconButton(
+                                      onPressed: sched.lateTolerance <= 0
+                                          ? null
+                                          : () => setState(() => _schedule[day] =
+                                              sched.copyWith(
+                                                  lateTolerance:
+                                                      sched.lateTolerance - 5)),
+                                      icon: const Icon(
+                                          Icons.remove_circle_outline,
+                                          size: 20),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8),
+                                      child: Text(
+                                        '${sched.lateTolerance} menit',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () => setState(() =>
+                                          _schedule[day] = sched.copyWith(
+                                              lateTolerance:
+                                                  sched.lateTolerance + 5)),
+                                      icon: const Icon(
+                                          Icons.add_circle_outline,
+                                          size: 20),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 16),
+
+                    // Actions Row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _saving ? null : _copyToRoleUsers,
+                            icon: const Icon(Icons.copy_rounded, size: 18),
+                            label: Text('Salin ke Role $role'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    FilledButton.icon(
+                      onPressed: _saving ? null : () => _save(),
+                      icon: _saving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.save_rounded),
+                      label: Text(
+                        _saving ? 'Menyimpan…' : 'Simpan Jadwal $userName',
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _timeButton(String label, TimeOfDay time, Color color, VoidCallback onTap) {
+  Widget _timeBtn(
+      String label, TimeOfDay time, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
@@ -686,16 +1297,27 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           color: color.withOpacity(0.08),
-          border: Border.all(color: color.withOpacity(0.25)),
+          border: Border.all(color: color.withOpacity(0.20), width: 0.8),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: 10, color: color.withOpacity(0.8), fontWeight: FontWeight.w600)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 9.5,
+                color: color.withOpacity(0.8),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 2),
             Text(
               _formatTime(time),
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
             ),
           ],
         ),
@@ -704,9 +1326,6 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Day schedule model
-// ─────────────────────────────────────────────────────────────────────────────
 class _DaySchedule {
   final int dayOfWeek;
   final bool isActive;
@@ -722,19 +1341,23 @@ class _DaySchedule {
     required this.lateTolerance,
   });
 
-  _DaySchedule copyWith({bool? isActive, TimeOfDay? startTime, TimeOfDay? endTime, int? lateTolerance}) {
+  _DaySchedule copyWith(
+      {bool? isActive,
+      TimeOfDay? startTime,
+      TimeOfDay? endTime,
+      int? lateTolerance}) {
     return _DaySchedule(
       dayOfWeek: dayOfWeek,
-      isActive:  isActive  ?? this.isActive,
+      isActive: isActive ?? this.isActive,
       startTime: startTime ?? this.startTime,
-      endTime:   endTime   ?? this.endTime,
+      endTime: endTime ?? this.endTime,
       lateTolerance: lateTolerance ?? this.lateTolerance,
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WorkLocationFormPage (existing, unchanged)
+// WorkLocationFormPage (Location Form with GPS & Maps launcher)
 // ─────────────────────────────────────────────────────────────────────────────
 class WorkLocationFormPage extends StatefulWidget {
   final WorkLocation? location;
@@ -746,19 +1369,20 @@ class WorkLocationFormPage extends StatefulWidget {
 }
 
 class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
-  final _formKey    = GlobalKey<FormState>();
+  final _formKey = GlobalKey<FormState>();
   final _repository = MasterDataRepository();
 
-  final _namaCtrl      = TextEditingController();
-  final _latCtrl       = TextEditingController();
-  final _lngCtrl       = TextEditingController();
-  final _radiusCtrl    = TextEditingController(text: '100');
-  final _alamatCtrl    = TextEditingController();
-  final _catatanCtrl   = TextEditingController();
+  final _namaCtrl = TextEditingController();
+  final _latCtrl = TextEditingController();
+  final _lngCtrl = TextEditingController();
+  final _radiusCtrl = TextEditingController(text: '100');
+  final _alamatCtrl = TextEditingController();
+  final _catatanCtrl = TextEditingController();
 
-  bool _isSaving         = false;
+  bool _isSaving = false;
+  bool _isGettingGps = false;
   bool _isDemoSuperAdmin = false;
-  String _status         = 'active';
+  String _status = 'active';
 
   bool get _isEdit => widget.location != null;
 
@@ -768,13 +1392,13 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
     _loadDemoRole();
     final loc = widget.location;
     if (loc != null) {
-      _namaCtrl.text    = loc.namaLokasi;
-      _latCtrl.text     = loc.latitude.toString();
-      _lngCtrl.text     = loc.longitude.toString();
-      _radiusCtrl.text  = loc.radiusMeter.toString();
-      _alamatCtrl.text  = loc.alamat ?? '';
+      _namaCtrl.text = loc.namaLokasi;
+      _latCtrl.text = loc.latitude.toString();
+      _lngCtrl.text = loc.longitude.toString();
+      _radiusCtrl.text = loc.radiusMeter.toString();
+      _alamatCtrl.text = loc.alamat ?? '';
       _catatanCtrl.text = loc.catatan ?? '';
-      _status           = loc.status == 'inactive' ? 'inactive' : 'active';
+      _status = loc.status == 'inactive' ? 'inactive' : 'active';
     }
   }
 
@@ -787,9 +1411,10 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
           .select('role_id, is_demo_account, username, email')
           .eq('user_id', uid)
           .maybeSingle();
-      final role     = profile?['role_id']?.toString().toLowerCase().trim() ?? '';
-      final username = profile?['username']?.toString().toLowerCase().trim() ?? '';
-      final email    = profile?['email']?.toString().toLowerCase().trim() ?? '';
+      final role = profile?['role_id']?.toString().toLowerCase().trim() ?? '';
+      final username =
+          profile?['username']?.toString().toLowerCase().trim() ?? '';
+      final email = profile?['email']?.toString().toLowerCase().trim() ?? '';
       if (!mounted) return;
       setState(() {
         _isDemoSuperAdmin = role == 'demo_super_admin' ||
@@ -802,14 +1427,82 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
 
   @override
   void dispose() {
-    _namaCtrl.dispose(); _latCtrl.dispose(); _lngCtrl.dispose();
-    _radiusCtrl.dispose(); _alamatCtrl.dispose(); _catatanCtrl.dispose();
+    _namaCtrl.dispose();
+    _latCtrl.dispose();
+    _lngCtrl.dispose();
+    _radiusCtrl.dispose();
+    _alamatCtrl.dispose();
+    _catatanCtrl.dispose();
     super.dispose();
   }
 
-  String? _required(String? v) => (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null;
+  Future<void> _getCurrentGpsLocation() async {
+    setState(() => _isGettingGps = true);
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) {
+        AppUi.showSnack('Layanan GPS perangkat belum aktif.');
+        return;
+      }
 
-  double? _parseDouble(String v) => double.tryParse(v.trim().replaceAll(',', '.'));
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          AppUi.showSnack('Izin lokasi ditolak.');
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        AppUi.showSnack('Izin lokasi ditolak secara permanen di pengaturan.');
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      _latCtrl.text = position.latitude.toStringAsFixed(6);
+      _lngCtrl.text = position.longitude.toStringAsFixed(6);
+
+      AppUi.showSnack(
+          'Lokasi GPS berhasil diambil: ${_latCtrl.text}, ${_lngCtrl.text}');
+    } catch (e) {
+      AppUi.showSnack('Gagal mengambil lokasi GPS: $e');
+    } finally {
+      if (mounted) setState(() => _isGettingGps = false);
+    }
+  }
+
+  Future<void> _openGoogleMaps() async {
+    final lat = _latCtrl.text.trim();
+    final lng = _lngCtrl.text.trim();
+
+    if (lat.isEmpty || lng.isEmpty) {
+      AppUi.showSnack('Isi latitude dan longitude terlebih dahulu.');
+      return;
+    }
+
+    final urlString = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
+    final uri = Uri.parse(urlString);
+
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        AppUi.showSnack('Tidak dapat membuka Google Maps.');
+      }
+    } catch (e) {
+      AppUi.showSnack('Gagal membuka peta: $e');
+    }
+  }
+
+  String? _required(String? v) =>
+      (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null;
+
+  double? _parseDouble(String v) =>
+      double.tryParse(v.trim().replaceAll(',', '.'));
 
   String? _nullable(TextEditingController ctrl) {
     final v = ctrl.text.trim();
@@ -819,8 +1512,8 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
-    final lat    = _parseDouble(_latCtrl.text);
-    final lng    = _parseDouble(_lngCtrl.text);
+    final lat = _parseDouble(_latCtrl.text);
+    final lng = _parseDouble(_lngCtrl.text);
     final radius = _parseDouble(_radiusCtrl.text);
     if (lat == null || lng == null || radius == null) {
       AppUi.showSnack('Latitude, longitude, dan radius harus angka.');
@@ -834,14 +1527,14 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
     var success = false;
     try {
       await _repository.upsertWorkLocation(
-        locationId:   widget.location?.locationId,
-        namaLokasi:   _namaCtrl.text.trim(),
-        latitude:     lat,
-        longitude:    lng,
-        radiusMeter:  radius,
-        alamat:       _nullable(_alamatCtrl),
-        catatan:      _nullable(_catatanCtrl),
-        status:       _status,
+        locationId: widget.location?.locationId,
+        namaLokasi: _namaCtrl.text.trim(),
+        latitude: lat,
+        longitude: lng,
+        radiusMeter: radius,
+        alamat: _nullable(_alamatCtrl),
+        catatan: _nullable(_catatanCtrl),
+        status: _status,
       );
       if (!mounted) return;
       success = true;
@@ -858,16 +1551,23 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit Lokasi Kerja' : 'Tambah Lokasi Kerja')),
+      appBar: AppBar(
+        title: Text(_isEdit ? 'Edit Lokasi Kerja' : 'Tambah Lokasi Kerja'),
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             NiceCard(
-              borderColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+              borderColor:
+                  Theme.of(context).colorScheme.primary.withOpacity(0.2),
               child: Text(
-                'Isi latitude, longitude, dan radius untuk validasi absensi GPS. Koordinat bisa diambil dari Google Maps.',
-                style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.outline, height: 1.5),
+                'Isi titik lokasi kerja untuk validasi absensi. Anda bisa menekan tombol GPS untuk mengisi koordinat secara otomatis atau membukanya di peta.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppUi.mutedText(context, 0.92),
+                  height: 1.5,
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -875,44 +1575,130 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
               child: Form(
                 key: _formKey,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TextFormField(controller: _namaCtrl, validator: _required,
-                      decoration: const InputDecoration(labelText: 'Nama Lokasi', hintText: 'Contoh: Gudang Utama')),
+                    TextFormField(
+                      controller: _namaCtrl,
+                      validator: _required,
+                      decoration: const InputDecoration(
+                        labelText: 'Nama Lokasi',
+                        hintText: 'Contoh: Gudang Utama',
+                      ),
+                    ),
                     const SizedBox(height: 12),
-                    TextFormField(controller: _latCtrl, validator: _required,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                      decoration: const InputDecoration(labelText: 'Latitude', hintText: 'Contoh: -6.200000')),
+
+                    // GPS Capture & Maps Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed:
+                                _isGettingGps ? null : _getCurrentGpsLocation,
+                            icon: _isGettingGps
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.my_location_rounded, size: 18),
+                            label: Text(
+                                _isGettingGps ? 'Mengambil…' : 'Ambil GPS'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        OutlinedButton.icon(
+                          onPressed: _openGoogleMaps,
+                          icon: const Icon(Icons.map_outlined, size: 18),
+                          label: const Text('Lihat Map'),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 12),
-                    TextFormField(controller: _lngCtrl, validator: _required,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-                      decoration: const InputDecoration(labelText: 'Longitude', hintText: 'Contoh: 106.816666')),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _latCtrl,
+                            validator: _required,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                              signed: true,
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Latitude',
+                              hintText: '-6.200000',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _lngCtrl,
+                            validator: _required,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                              signed: true,
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Longitude',
+                              hintText: '106.816666',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 12),
-                    TextFormField(controller: _radiusCtrl, validator: _required,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(labelText: 'Radius Meter', hintText: 'Contoh: 100')),
+
+                    TextFormField(
+                      controller: _radiusCtrl,
+                      validator: _required,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Radius Validasi (Meter)',
+                        hintText: 'Contoh: 100',
+                      ),
+                    ),
                     const SizedBox(height: 12),
-                    TextFormField(controller: _alamatCtrl, maxLines: 3,
-                      decoration: const InputDecoration(labelText: 'Alamat')),
+                    TextFormField(
+                      controller: _alamatCtrl,
+                      maxLines: 3,
+                      decoration: const InputDecoration(labelText: 'Alamat'),
+                    ),
                     const SizedBox(height: 12),
-                    TextFormField(controller: _catatanCtrl, maxLines: 3,
-                      decoration: const InputDecoration(labelText: 'Catatan')),
+                    TextFormField(
+                      controller: _catatanCtrl,
+                      maxLines: 3,
+                      decoration: const InputDecoration(labelText: 'Catatan'),
+                    ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: _status,
                       decoration: const InputDecoration(labelText: 'Status'),
                       items: const [
-                        DropdownMenuItem(value: 'active',   child: Text('Aktif')),
-                        DropdownMenuItem(value: 'inactive', child: Text('Nonaktif')),
+                        DropdownMenuItem(value: 'active', child: Text('Aktif')),
+                        DropdownMenuItem(
+                            value: 'inactive', child: Text('Nonaktif')),
                       ],
-                      onChanged: (v) { if (v != null) setState(() => _status = v); },
+                      onChanged: (v) {
+                        if (v != null) setState(() => _status = v);
+                      },
                     ),
                     const SizedBox(height: 20),
                     FilledButton.icon(
-                      onPressed: (_isSaving || _isDemoSuperAdmin) ? null : _save,
+                      onPressed:
+                          (_isSaving || _isDemoSuperAdmin) ? null : _save,
                       icon: _isSaving
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                          : Icon(Icons.save_rounded),
-                      label: Text(_isSaving ? 'Menyimpan…' : 'Simpan'),
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.save_rounded),
+                      label: Text(_isSaving ? 'Menyimpan…' : 'Simpan Lokasi'),
                     ),
                   ],
                 ),

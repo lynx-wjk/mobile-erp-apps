@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,22 +13,41 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    await dotenv.load(fileName: '.env');
+    String? supabaseUrl;
+    String? supabaseAnonKey;
 
-    final supabaseUrl = dotenv.env['SUPABASE_URL'];
-    final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
-
-    if (supabaseUrl == null || supabaseUrl.trim().isEmpty) {
-      throw Exception('SUPABASE_URL is missing in .env');
+    if (!kIsWeb) {
+      try {
+        await dotenv.load(fileName: '.env');
+        supabaseUrl = dotenv.env['SUPABASE_URL'];
+        supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
+      } catch (e) {
+        debugPrint('dotenv load fallback: $e');
+      }
     }
 
-    if (supabaseAnonKey == null || supabaseAnonKey.trim().isEmpty) {
-      throw Exception('SUPABASE_ANON_KEY is missing in .env');
+    supabaseUrl = (supabaseUrl != null && supabaseUrl.trim().isNotEmpty)
+        ? supabaseUrl.trim()
+        : const String.fromEnvironment('SUPABASE_URL',
+            defaultValue: 'https://mdhproduction.com');
+
+    supabaseAnonKey = (supabaseAnonKey != null && supabaseAnonKey.trim().isNotEmpty)
+        ? supabaseAnonKey.trim()
+        : const String.fromEnvironment('SUPABASE_ANON_KEY',
+            defaultValue:
+                'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxMzY1OTkwLCJleHAiOjQxMDI0NDQ4MDB9.4ksHkp45OfOVH--8p5ajWnfKUwwDDLUNYbsVV8uFh5Y');
+
+    if (supabaseUrl.isEmpty) {
+      throw Exception('SUPABASE_URL is missing');
+    }
+
+    if (supabaseAnonKey.isEmpty) {
+      throw Exception('SUPABASE_ANON_KEY is missing');
     }
 
     await Supabase.initialize(
-      url: supabaseUrl.trim(),
-      anonKey: supabaseAnonKey.trim(),
+      url: supabaseUrl,
+      anonKey: supabaseAnonKey,
     );
 
     await AppThemeModeController.init();
@@ -213,8 +233,9 @@ class StartupErrorApp extends StatelessWidget {
     return MaterialApp(
       title: 'Mobile ERP Error',
       debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
       home: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: AppTheme.bgDeep,
         body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
@@ -223,14 +244,11 @@ class StartupErrorApp extends StatelessWidget {
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.zero,
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: Colors.black,
-                    width: 3,
+                    color: AppTheme.bgCardBorder,
                   ),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black, offset: Offset(5, 5)),
-                  ],
+                  boxShadow: AppTheme.softShadow(Brightness.light),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -242,20 +260,20 @@ class StartupErrorApp extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'SYSTEM CRASH'.toUpperCase(),
+                      'Aplikasi belum bisa dibuka',
                       style: const TextStyle(
                         fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.black,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      errorMessage.toUpperCase(),
+                      errorMessage,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.w800,
+                        color: AppTheme.textSecondary,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],

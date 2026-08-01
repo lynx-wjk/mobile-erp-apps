@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const VERSION = "marketplace-bootstrap-order-worker-v1-2026-06-10";
+const VERSION = "marketplace-bootstrap-order-worker";
 const CORS = {"access-control-allow-origin":"*","access-control-allow-headers":"authorization,apikey,content-type,x-marketplace-cron-secret,x-stock-sync-cron-secret","access-control-allow-methods":"POST,OPTIONS"};
 
 Deno.serve(async (req: Request) => {
@@ -8,16 +8,17 @@ Deno.serve(async (req: Request) => {
   try {
     const url = need("SUPABASE_URL").replace(/\/+$/, "");
     const key = need("SUPABASE_SERVICE_ROLE_KEY");
-    const secret = String(Deno.env.get("MARKETPLACE_CRON_SECRET") || Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") || Deno.env.get("STOCK_SYNC_CRON_SECRET") || "").trim();
-    const incoming = String(req.headers.get("x-marketplace-cron-secret") || req.headers.get("x-stock-sync-cron-secret") || "").trim();
-    if (!secret || incoming !== secret) return out({ ok:false, version:VERSION, message:"Invalid cron secret" }, 401);
+    const secret = envCronSecret();
+    const incoming = requestCronSecret(req);
+    const db = createClient(url, key, { auth:{ persistSession:false, autoRefreshToken:false } });
+    const isCronRequest = await verifyMarketplaceCronSecret(db, incoming) || (!!secret && incoming === secret);
+    if (!isCronRequest) return out({ ok:false, version:VERSION, message:"Invalid cron secret" }, 401);
 
     const body = await readJson(req);
     const tenant = txt(body.tenant_id);
     const account = txt(body.marketplace_account_id);
     const maxJobs = clamp(body.max_jobs, 1, 5, 2);
     const requeueRisk = body.requeue_page_limit_risk === true;
-    const db = createClient(url, key, { auth:{ persistSession:false, autoRefreshToken:false } });
 
     if (requeueRisk) await requeue(db, tenant, account);
 
@@ -48,7 +49,7 @@ Deno.serve(async (req: Request) => {
       };
       if (statuses) child.statuses = statuses;
 
-      const pulled = await callPull(url, key, secret, child);
+      const pulled = await callPull(url, key, incoming || secret, child);
       const data:any = pulled.data || {};
       const ok = pulled.status >= 200 && pulled.status < 300 && data.ok !== false;
       const orders = Number(data.orders || data.order_count || 0);
@@ -112,7 +113,7 @@ async function claim(db:any, tenant:string, account:string, maxJobs:number) {
 }
 
 async function requeue(db:any, tenant:string, account:string) {
-  let q = db.from("marketplace_bootstrap_page_limit_audit_v1")
+  let q = db.from("marketplace_bootstrap_page_limit_audit")
     .select("order_pull_job_id")
     .eq("likely_page_limit_risk", true);
   if (tenant) q = q.eq("tenant_id", tenant);
@@ -149,3 +150,45 @@ async function readJson(req:Request){try{return await req.json()}catch{return {}
 function need(n:string){const v=Deno.env.get(n); if(!v) throw new Error(`${n} missing`); return v}
 function txt(v:any){return v==null?"":String(v).trim()}
 function clamp(v:any,min:number,max:number,fallback:number){const n=Number(v); return Number.isFinite(n)?Math.max(min,Math.min(max,Math.floor(n))):fallback}
+
+function envCronSecret(): string {
+  return String(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
+    "",
+  ).trim();
+}
+
+function requestCronSecret(req: Request, body?: any, params?: any): string {
+  return String(
+    req.headers.get("x-marketplace-cron-secret") ||
+    req.headers.get("x-stock-sync-cron-secret") ||
+    params?.cron_secret ||
+    params?.marketplace_cron_secret ||
+    params?.x_marketplace_cron_secret ||
+    params?.secret ||
+    body?.cron_secret ||
+    body?.marketplace_cron_secret ||
+    body?.x_marketplace_cron_secret ||
+    body?.secret ||
+    "",
+  ).trim();
+}
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<boolean> {
+  if (!incomingSecret) return false;
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) return true;
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return false;
+}
+

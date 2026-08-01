@@ -48,9 +48,7 @@ class ProductRepository {
 
     if (value.isEmpty) return null;
 
-    final data = await _client
-        .from('products')
-        .select('''
+    final data = await _client.from('products').select('''
           product_id,
           kode_sku,
           kode_barcode,
@@ -62,10 +60,7 @@ class ProductRepository {
           low_stock_limit,
           lokasi_rak,
           status
-        ''')
-        .or('kode_barcode.eq.$value,kode_sku.eq.$value')
-        .eq('status', 'active')
-        .maybeSingle();
+        ''').eq('kode_barcode', value).eq('status', 'active').maybeSingle();
 
     if (data == null) {
       return null;
@@ -91,8 +86,7 @@ class ProductRepository {
   }) async {
     await _client.from('products').insert({
       'kode_sku': kodeSku.trim(),
-      'kode_barcode':
-          kodeBarcode.trim().isEmpty ? kodeSku.trim() : kodeBarcode.trim(),
+      'kode_barcode': kodeBarcode.trim(),
       'nama_barang': namaBarang.trim(),
       'kategori': kategori?.trim().isEmpty == true ? null : kategori?.trim(),
       'satuan': satuan.trim().isEmpty ? 'pcs' : satuan.trim(),
@@ -118,8 +112,7 @@ class ProductRepository {
   }) async {
     await _client.from('products').update({
       'kode_sku': kodeSku.trim(),
-      'kode_barcode':
-          kodeBarcode.trim().isEmpty ? kodeSku.trim() : kodeBarcode.trim(),
+      'kode_barcode': kodeBarcode.trim(),
       'nama_barang': namaBarang.trim(),
       'kategori': kategori?.trim().isEmpty == true ? null : kategori?.trim(),
       'satuan': satuan.trim().isEmpty ? 'pcs' : satuan.trim(),

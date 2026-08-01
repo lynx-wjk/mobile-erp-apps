@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-order-pull-status-finance-reconciliation-v52-2026-06-10";
+const FUNCTION_VERSION = "marketplace-order-pull-physical-awb-v29";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -65,21 +65,27 @@ const FINAL_MARKETPLACE_ORDER_STATUSES = new Set([
 ]);
 
 const STATUS_REFRESH_TARGET_STATUSES = [
-  
   "PROCESSED",
-  "TO_CONFIRM_RECEIVE",
-"AWAITING_SHIPMENT",
+  "AWAITING_SHIPMENT",
   "AWAITING_COLLECTION",
   "IN_TRANSIT",
+  "SHIPPED",
   "DELIVERED",
   "READY_TO_SHIP",
   "TO_SHIP",
   "TO_PACK",
   "PAID",
+  "UNPAID",
   "UNSHIPPED",
   "AWAITING_PICKUP",
   "READY_FOR_COLLECTION",
   "READY_FOR_PICKUP",
+  "SEDANG DIKIRIM",
+  "TELAH DIKIRIM",
+  "PERLU DIKIRIM",
+  "BELUM BAYAR",
+  "DIKIRIM",
+  "BELUM DIBAYAR",
 ];
 
 const STATUS_REFRESH_SKIP_CURRENT_STATUSES = new Set([
@@ -125,24 +131,19 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = requiredEnv("SUPABASE_URL");
     const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const requestStartedAt = Date.now();
+
     const admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: boundedFetch },
     });
 
 
     const body = await safeJson(req);
-    const configuredCronSecret = String(
-      Deno.env.get("MARKETPLACE_CRON_SECRET") ||
-      Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
-      Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
-      ""
-    ).trim();
-    const incomingCronSecret = String(
-      req.headers.get("x-marketplace-cron-secret") ||
-      req.headers.get("x-stock-sync-cron-secret") ||
-      ""
-    ).trim();
-    const isCronRequest = configuredCronSecret.length > 0 && incomingCronSecret === configuredCronSecret;
+    const configuredCronSecret = envCronSecret();
+    const incomingCronSecret = requestCronSecret(req, body);
+    const isCronRequest = await verifyMarketplaceCronSecret(admin, incomingCronSecret)
+      || (configuredCronSecret.length > 0 && incomingCronSecret === configuredCronSecret);
 
     let profile: any = null;
 
@@ -180,6 +181,19 @@ Deno.serve(async (req) => {
     const isAutoRunnerSource = text(body.source) === "marketplace-auto-runner" || body.auto_today_only === true || body.auto_status_only === true;
     const daysBack = isAutoRunnerSource ? 1 : clampInt(body.days_back, 1, 60, 1);
     let range = pullDateRangeFromBody(body, daysBack);
+    const explicitStartSeconds = Number(body.start_seconds ?? body.window_start_seconds);
+    const explicitEndSeconds = Number(body.end_seconds ?? body.window_end_seconds);
+    if (
+      Number.isFinite(explicitStartSeconds) &&
+      Number.isFinite(explicitEndSeconds) &&
+      explicitStartSeconds > 0 &&
+      explicitEndSeconds > explicitStartSeconds
+    ) {
+      range = {
+        startSeconds: Math.floor(explicitStartSeconds),
+        endSeconds: Math.floor(explicitEndSeconds),
+      };
+    }
     if (isAutoRunnerSource) {
       range = todayWibSecondsRange();
     }
@@ -191,7 +205,7 @@ Deno.serve(async (req) => {
       return json({ ok: false, message: "Maksimal periode pull order marketplace adalah 60 hari." }, 400);
     }
 
-    const pageSize = clampInt(body.limit, 1, 50, 50);
+    const pageSize = clampInt(body.page_size ?? body.limit, 1, 100, 50);
     const maxPages = isAutoRunnerSource ? clampInt(body.max_pages, 1, 10, 8) : clampInt(body.max_pages, 1, 100, 20);
     const includeStatuslessSearch = body.include_statusless_search !== false;
     const includeUpdateTimeSearch = body.include_update_time_search === true;
@@ -237,10 +251,13 @@ Deno.serve(async (req) => {
       const statusRangeDays = clampInt(body.status_range_days || body.days_back, 1, 120, 60);
       const maxExistingOrders = clampInt(body.max_existing_orders || body.limit, 1, 200, 100);
       const skipCompletedStatusRefresh = body.skip_completed_status_refresh !== false;
+      const explicitOrderIds = Array.isArray(body.explicit_order_ids)
+        ? body.explicit_order_ids.map(text).filter(Boolean)
+        : (body.order_id ? [text(body.order_id)] : []);
       const result = account.marketplace === "shopee"
-        ? await refreshExistingShopeeOrderStatuses(admin, account, { statusRangeDays, maxExistingOrders, skipCompletedStatusRefresh })
-        : await refreshExistingTikTokOrderStatuses(admin, account, { statusRangeDays, maxExistingOrders, skipCompletedStatusRefresh });
-      return json(result);
+        ? await refreshExistingShopeeOrderStatuses(admin, account, { statusRangeDays, maxExistingOrders, skipCompletedStatusRefresh, explicitOrderIds })
+        : await refreshExistingTikTokOrderStatuses(admin, account, { statusRangeDays, maxExistingOrders, skipCompletedStatusRefresh, explicitOrderIds });
+      return json({ version: FUNCTION_VERSION, ...result, elapsed_ms: Date.now() - requestStartedAt });
     }
 
     const pullArgs = {
@@ -262,7 +279,7 @@ Deno.serve(async (req) => {
       ? await pullShopeeOrders(admin, account, pullArgs)
       : await pullTikTokOrders(admin, account, pullArgs);
 
-    return json(result);
+    return json({ version: FUNCTION_VERSION, ...result, elapsed_ms: Date.now() - requestStartedAt });
   } catch (err) {
     const message = String(err);
     const status = message.includes("TikTok API") || message.includes("tenant") || message.includes("marketplace") ? 400 : 500;
@@ -271,7 +288,7 @@ Deno.serve(async (req) => {
 });
 
 
-async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args: { statusRangeDays: number; maxExistingOrders: number; skipCompletedStatusRefresh: boolean }) {
+async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args: { statusRangeDays: number; maxExistingOrders: number; skipCompletedStatusRefresh: boolean; explicitOrderIds?: string[] }) {
   const appKey = text(account.app_key) || requiredEnv("TIKTOK_APP_KEY");
   const appSecret = requiredEnv("TIKTOK_APP_SECRET");
   let tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, account);
@@ -324,25 +341,33 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
 
   let existingQuery = admin
     .from("marketplace_orders")
-    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
+    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, package_id, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
     .eq("tenant_id", activeAccount.tenant_id)
-    .eq("marketplace_account_id", activeAccount.marketplace_account_id)
-    .or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
+    .eq("marketplace_account_id", activeAccount.marketplace_account_id);
 
-  if (args.skipCompletedStatusRefresh) {
-    existingQuery = existingQuery.or(`order_status.is.null,order_status.in.(${STATUS_REFRESH_TARGET_STATUSES.join(",")})`);
+  const hasExplicitIds = Array.isArray(args.explicitOrderIds) && args.explicitOrderIds.length > 0;
+  if (hasExplicitIds) {
+    const idsFilter = args.explicitOrderIds!.map(id => `external_order_id.eq.${id},order_sn.eq.${id}`).join(",");
+    existingQuery = existingQuery.or(idsFilter);
+  } else {
+    existingQuery = existingQuery.or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
+    if (args.skipCompletedStatusRefresh) {
+      existingQuery = existingQuery.or(`order_status.is.null,order_status.in.(${STATUS_REFRESH_TARGET_STATUSES.join(",")})`);
+    }
   }
 
   const candidateLimit = Math.min(Math.max(args.maxExistingOrders * 3, args.maxExistingOrders), 600);
-  const { data: existingOrdersRaw, error: existingError } = await existingQuery
-    .order("pulled_at", { ascending: true, nullsFirst: true })
-    .order("updated_at", { ascending: true, nullsFirst: true })
-    .limit(candidateLimit);
+  const { data: existingOrdersRaw, error: existingError } = await (
+    hasExplicitIds
+      ? existingQuery.limit(candidateLimit)
+      : existingQuery.order("pulled_at", { ascending: true, nullsFirst: true }).order("order_created_at", { ascending: true, nullsFirst: true }).limit(candidateLimit)
+  );
 
   if (existingError) throw new Error(`Load existing marketplace order gagal: ${existingError.message}`);
 
   const payoutPriorityKeys = await loadPositivePayoutOrderKeys(admin, activeAccount, cutoffIso, 1000);
-  const existingOrders = prioritizeStatusRefreshCandidates(existingOrdersRaw || [], payoutPriorityKeys)
+  const eligibleExistingOrders = filterStatusRefreshCandidates(existingOrdersRaw || [], args.skipCompletedStatusRefresh);
+  const existingOrders = prioritizeStatusRefreshCandidates(eligibleExistingOrders, payoutPriorityKeys)
     .slice(0, args.maxExistingOrders);
 
   let checked = 0;
@@ -352,141 +377,203 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
   const warnings: string[] = [];
   let skippedCompleted = 0;
 
-  for (const row of existingOrders || []) {
-    const orderId = text(row.external_order_id) || text(row.order_sn);
-    if (!orderId) continue;
-    const currentOrderStatusUpper = text(row.order_status).toUpperCase();
-    if (args.skipCompletedStatusRefresh && STATUS_REFRESH_SKIP_CURRENT_STATUSES.has(currentOrderStatusUpper)) {
-      skippedCompleted += 1;
-      continue;
-    }
-    checked += 1;
+  // Prepare chunking by order IDs
+  const orderIds = existingOrders.map(row => text(row.external_order_id) || text(row.order_sn)).filter(id => id);
+  if (orderIds.length === 0) {
+    return {
+      ok: true,
+      marketplace: "tiktok_shop",
+      mode: "status_refresh_existing_orders",
+      checked,
+      updated,
+      skipped_completed: skippedCompleted,
+      review_required: changedToReview,
+      failed,
+      payout_priority_candidates: payoutPriorityKeys.size,
+      selected_candidates: 0,
+      warning_count: 0,
+      warnings: [],
+      message: "Tidak ada order candidate untuk direfresh status.",
+    };
+  }
 
-    let detailOrder: any = null;
+  // Chunk into batches of up to 50 order IDs
+  const chunks: string[][] = [];
+  for (let i = 0; i < orderIds.length; i += 50) {
+    chunks.push(orderIds.slice(i, i + 50));
+  }
+
+  for (const chunk of chunks) {
+    const idsString = chunk.join(",");
+    let detailJson: any = null;
+
     try {
-      const detailJson = await fetchTikTokOrderDetail({
-        orderId,
+      detailJson = await fetchTikTokOrderDetail({
+        orderId: idsString,
         appKey,
         appSecret,
         accessToken,
         shopCipher,
         shopId,
       });
-      detailOrder = normalizeDetailOrder(detailJson, { id: orderId }, orderId);
     } catch (e) {
       if (isTikTokAuthError(e)) {
         try {
           tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, activeAccount, true);
           activeAccount = tokenBundle.account;
           accessToken = tokenBundle.accessToken;
-          const detailJson = await fetchTikTokOrderDetail({ orderId, appKey, appSecret, accessToken, shopCipher, shopId });
-          detailOrder = normalizeDetailOrder(detailJson, { id: orderId }, orderId);
+          detailJson = await fetchTikTokOrderDetail({
+            orderId: idsString,
+            appKey,
+            appSecret,
+            accessToken,
+            shopCipher,
+            shopId,
+          });
         } catch (retryError) {
-          failed += 1;
-          warnings.push(`Refresh status ${mask(orderId)} gagal: ${String(retryError)}`);
+          failed += chunk.length;
+          warnings.push(`Batch refresh ${chunk.length} order gagal: ${String(retryError)}`);
           continue;
         }
       } else {
-        failed += 1;
-        warnings.push(`Refresh status ${mask(orderId)} gagal: ${String(e)}`);
+        failed += chunk.length;
+        warnings.push(`Batch refresh ${chunk.length} order gagal: ${String(e)}`);
         continue;
       }
     }
 
-    const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
-    const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
-    const statusGroup = orderStatusGroup(orderStatusUpper);
-    const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
-    const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
-      normalizedOrder.order_status,
-      normalizedOrder.tracking_number || row.tracking_number,
-    );
-
-    const existingOrderAction = text(row.stock_action_status);
-    let nextStockActionStatus = existingOrderAction || "pending";
-    let nextLastError: string | null = null;
-
-    if (preserveFinalStatuses.has(existingOrderAction)) {
-      nextStockActionStatus = existingOrderAction;
-      nextLastError = null;
-    } else if (isCancelNoStockAction) {
-      nextStockActionStatus = "ignored_status";
-      nextLastError = "Buyer cancel request saat AWAITING_SHIPMENT dan belum ada resi. Tidak perlu stock out/stock in.";
-    } else if (hasActiveCancelRequest) {
-      nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
-      nextLastError = "Status order berubah: buyer mengajukan cancel. Review sebelum proses lanjutan.";
-    } else if (statusGroup === "cancelled") {
-      nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
-      nextLastError = "Status marketplace berubah menjadi cancel. Review di Refund/Cancel Monitor.";
-    } else if (statusGroup === "return_refund") {
-      nextStockActionStatus = "return_review_required";
-      nextLastError = "Status marketplace berubah menjadi refund/return. Review di Refund/Cancel Monitor.";
-    } else if (STOCK_OUT_ELIGIBLE_STATUSES.has(orderStatusUpper) && (!existingOrderAction || existingOrderAction === "pending" || existingOrderAction === "ignored_status")) {
-      nextStockActionStatus = "ready_to_pick";
-      nextLastError = null;
+    const data = detailJson?.data ?? detailJson?.response?.data ?? detailJson?.response ?? detailJson;
+    const ordersList = data?.orders || data?.order_list || detailJson?.orders || [];
+    const ordersMap = new Map<string, any>();
+    for (const ord of ordersList) {
+      const oid = text(ord.id) || text(ord.order_id);
+      if (oid) ordersMap.set(oid, ord);
     }
 
-    const statusChanged = text(row.order_status).toUpperCase() !== orderStatusUpper
-      || text(row.tracking_number) !== text(normalizedOrder.tracking_number || row.tracking_number)
-      || nextStockActionStatus !== existingOrderAction;
+    for (const orderId of chunk) {
+      const row = existingOrders.find(r => (text(r.external_order_id) || text(r.order_sn)) === orderId);
+      if (!row) continue;
 
-    const now = new Date().toISOString();
-    const updatePayload: Record<string, unknown> = {
-      order_status: normalizedOrder.order_status || row.order_status,
-      order_status_label: normalizedOrder.order_status_label || row.order_status_label,
-      tracking_number: normalizedOrder.tracking_number || row.tracking_number,
-      shipping_provider_name: normalizedOrder.shipping_provider_name,
-      package_id: normalizedOrder.package_id,
-      logistic_status: normalizedOrder.logistic_status,
-      label_code: normalizedOrder.tracking_number || row.tracking_number || nonOrderIdLabelCode(normalizedOrder.label_code, orderId),
-      cancel_request_id: normalizedOrder.cancel_request_id,
-      cancel_request_status: normalizedOrder.cancel_request_status,
-      cancel_request_reason: normalizedOrder.cancel_request_reason,
-      cancel_request_note: normalizedOrder.cancel_request_note,
-      cancel_requested_at: normalizedOrder.cancel_requested_at,
-      cancel_request_raw: normalizedOrder.cancel_request_raw,
-      cancel_request_pulled_at: normalizedOrder.cancel_request_status ? now : null,
-      has_cancel_request: hasActiveCancelRequest,
-      stock_action_status: nextStockActionStatus,
-      last_error: nextLastError,
-      order_updated_at: normalizedOrder.order_updated_at || row.order_updated_at,
-      raw_order: normalizedOrder.raw_order,
-      pulled_at: now,
-      updated_at: now,
-    };
+      const currentOrderStatusUpper = text(row.order_status).toUpperCase();
+      if (args.skipCompletedStatusRefresh && STATUS_REFRESH_SKIP_CURRENT_STATUSES.has(currentOrderStatusUpper)) {
+        skippedCompleted += 1;
+        continue;
+      }
+      checked += 1;
 
-    const { error: updateError } = await admin
-      .from("marketplace_orders")
-      .update(updatePayload)
-      .eq("marketplace_order_id", row.marketplace_order_id)
-      .eq("tenant_id", activeAccount.tenant_id);
+      const rawOrder = ordersMap.get(orderId);
+      if (!rawOrder) {
+        failed += 1;
+        warnings.push(`Order detail ${mask(orderId)} tidak ditemukan dalam response API.`);
+        continue;
+      }
 
-    if (updateError) {
-      failed += 1;
-      warnings.push(`Update status ${mask(orderId)} gagal: ${updateError.message}`);
-      continue;
-    }
+      const singleOrderJson = { data: { order: rawOrder } };
+      const detailOrder = normalizeDetailOrder(singleOrderJson, { id: orderId }, orderId);
 
-    if (statusChanged) updated += 1;
+      const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
+      const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
+      const statusGroup = orderStatusUpper ? orderStatusGroup(orderStatusUpper) : "unknown";
+      const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
+      const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
+        normalizedOrder.order_status,
+        normalizedOrder.tracking_number || row.tracking_number,
+      );
 
-    if (nextStockActionStatus === "cancel_review_required" || nextStockActionStatus === "return_review_required" || nextStockActionStatus === "ignored_status") {
-      changedToReview += 1;
-      await syncOrderItemsStatusFromOrder(admin, activeAccount, row.marketplace_order_id, {
-        trackingNumber: normalizedOrder.tracking_number || row.tracking_number,
-        packageId: normalizedOrder.package_id,
-        nextStockActionStatus,
-        lastError: nextLastError,
-      });
-    } else if (normalizedOrder.tracking_number || normalizedOrder.package_id) {
-      await admin
-        .from("marketplace_order_items")
-        .update({
-          tracking_number: normalizedOrder.tracking_number || row.tracking_number,
-          package_id: normalizedOrder.package_id,
-          updated_at: now,
-        })
-        .eq("tenant_id", activeAccount.tenant_id)
-        .eq("marketplace_order_id", row.marketplace_order_id);
+      const existingOrderAction = text(row.stock_action_status);
+      let nextStockActionStatus = existingOrderAction || "pending";
+      let nextLastError: string | null = null;
+
+      if (preserveFinalStatuses.has(existingOrderAction)) {
+        nextStockActionStatus = existingOrderAction;
+        nextLastError = null;
+      } else if (isCancelNoStockAction) {
+        nextStockActionStatus = "ignored_status";
+        nextLastError = "Buyer cancel request saat AWAITING_SHIPMENT dan belum ada resi. Tidak perlu stock out/stock in.";
+      } else if (hasActiveCancelRequest) {
+        nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
+        nextLastError = "Status order berubah: buyer mengajukan cancel. Review sebelum proses lanjutan.";
+      } else if (statusGroup === "cancelled") {
+        nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
+        nextLastError = "Status marketplace berubah menjadi cancel. Review di Refund/Cancel Monitor.";
+      } else if (statusGroup === "return_refund") {
+        nextStockActionStatus = "return_review_required";
+        nextLastError = "Status marketplace berubah menjadi refund/return. Review di Refund/Cancel Monitor.";
+      } else if (STOCK_OUT_ELIGIBLE_STATUSES.has(orderStatusUpper) && (!existingOrderAction || existingOrderAction === "pending" || existingOrderAction === "ignored_status")) {
+        nextStockActionStatus = "ready_to_pick";
+        nextLastError = null;
+      }
+
+      const nextPackageId = normalizedOrder.package_id || row.package_id || null;
+      const nextTrackingNumber = physicalTrackingNumber(
+        normalizedOrder.tracking_number || row.tracking_number,
+        orderId,
+        nextPackageId,
+      );
+      const nextLabelCode = nextTrackingNumber || physicalTrackingNumber(normalizedOrder.label_code || row.label_code, orderId, nextPackageId);
+
+      const statusChanged = text(row.order_status).toUpperCase() !== orderStatusUpper
+        || text(row.tracking_number) !== text(nextTrackingNumber)
+        || nextStockActionStatus !== existingOrderAction;
+
+      const nowStr = new Date().toISOString();
+      const updatePayload: Record<string, unknown> = {
+        order_status: normalizedOrder.order_status || row.order_status,
+        order_status_label: normalizedOrder.order_status_label || row.order_status_label,
+        tracking_number: nextTrackingNumber,
+        shipping_provider_name: normalizedOrder.shipping_provider_name,
+        package_id: nextPackageId,
+        logistic_status: normalizedOrder.logistic_status,
+        label_code: nextLabelCode,
+        cancel_request_id: normalizedOrder.cancel_request_id,
+        cancel_request_status: normalizedOrder.cancel_request_status,
+        cancel_request_reason: normalizedOrder.cancel_request_reason,
+        cancel_request_note: normalizedOrder.cancel_request_note,
+        cancel_requested_at: normalizedOrder.cancel_requested_at,
+        cancel_request_raw: normalizedOrder.cancel_request_raw,
+        cancel_request_pulled_at: normalizedOrder.cancel_request_status ? nowStr : null,
+        has_cancel_request: hasActiveCancelRequest,
+        stock_action_status: nextStockActionStatus,
+        last_error: nextLastError,
+        order_updated_at: normalizedOrder.order_updated_at || row.order_updated_at,
+        raw_order: normalizedOrder.raw_order,
+        pulled_at: nowStr,
+        updated_at: nowStr,
+      };
+
+      const { error: updateError } = await admin
+        .from("marketplace_orders")
+        .update(updatePayload)
+        .eq("marketplace_order_id", row.marketplace_order_id)
+        .eq("tenant_id", activeAccount.tenant_id);
+
+      if (updateError) {
+        failed += 1;
+        warnings.push(`Update status ${mask(orderId)} gagal: ${updateError.message}`);
+        continue;
+      }
+
+      if (statusChanged) updated += 1;
+
+      if (nextStockActionStatus === "cancel_review_required" || nextStockActionStatus === "return_review_required" || nextStockActionStatus === "ignored_status") {
+        changedToReview += 1;
+        await syncOrderItemsStatusFromOrder(admin, activeAccount, row.marketplace_order_id, {
+          trackingNumber: nextTrackingNumber,
+          packageId: nextPackageId,
+          nextStockActionStatus,
+          lastError: nextLastError,
+        });
+      } else if (nextTrackingNumber || nextPackageId) {
+        await admin
+          .from("marketplace_order_items")
+          .update({
+            tracking_number: nextTrackingNumber,
+            package_id: nextPackageId,
+            updated_at: nowStr,
+          })
+          .eq("tenant_id", activeAccount.tenant_id)
+          .eq("marketplace_order_id", row.marketplace_order_id);
+      }
     }
   }
 
@@ -542,11 +629,28 @@ async function loadPositivePayoutOrderKeys(admin: any, account: any, cutoffIso: 
   return keys;
 }
 
+function filterStatusRefreshCandidates(rows: any[], skipCompletedStatusRefresh: boolean) {
+  if (!skipCompletedStatusRefresh) return rows;
+  return rows.filter((row) => {
+    const currentStatus = text(row.order_status).toUpperCase();
+    return !STATUS_REFRESH_SKIP_CURRENT_STATUSES.has(currentStatus);
+  });
+}
+
 function prioritizeStatusRefreshCandidates(rows: any[], payoutPriorityKeys: Set<string>) {
   return [...rows].sort((a, b) => {
     const aPriority = rowHasPayoutPriority(a, payoutPriorityKeys) ? 0 : 1;
     const bPriority = rowHasPayoutPriority(b, payoutPriorityKeys) ? 0 : 1;
     if (aPriority !== bPriority) return aPriority - bPriority;
+
+    const now = Date.now();
+    const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000;
+    const aCreated = Date.parse(String(a.order_created_at || ""));
+    const bCreated = Date.parse(String(b.order_created_at || ""));
+    const aIsNew = Number.isFinite(aCreated) && aCreated >= threeDaysAgo ? 0 : 1;
+    const bIsNew = Number.isFinite(bCreated) && bCreated >= threeDaysAgo ? 0 : 1;
+    if (aIsNew !== bIsNew) return aIsNew - bIsNew;
+
     return oldestRefreshTime(a) - oldestRefreshTime(b);
   });
 }
@@ -603,7 +707,7 @@ async function syncOrderItemsStatusFromOrder(admin: any, account: any, marketpla
   }
 }
 
-async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args: { statusRangeDays: number; maxExistingOrders: number; skipCompletedStatusRefresh: boolean }) {
+async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args: { statusRangeDays: number; maxExistingOrders: number; skipCompletedStatusRefresh: boolean; explicitOrderIds?: string[] }) {
   let tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, account);
   let activeAccount = tokenBundle.account;
   let accessToken = tokenBundle.accessToken;
@@ -617,25 +721,33 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
 
   let existingQuery = admin
     .from("marketplace_orders")
-    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
+    .select("marketplace_order_id, external_order_id, order_sn, tracking_number, package_id, label_code, order_status, order_status_label, stock_action_status, order_created_at, order_updated_at, pulled_at, updated_at")
     .eq("tenant_id", activeAccount.tenant_id)
-    .eq("marketplace_account_id", activeAccount.marketplace_account_id)
-    .or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
+    .eq("marketplace_account_id", activeAccount.marketplace_account_id);
 
-  if (args.skipCompletedStatusRefresh) {
-    existingQuery = existingQuery.or(`order_status.is.null,order_status.in.(${STATUS_REFRESH_TARGET_STATUSES.join(",")})`);
+  const hasExplicitIds = Array.isArray(args.explicitOrderIds) && args.explicitOrderIds.length > 0;
+  if (hasExplicitIds) {
+    const idsFilter = args.explicitOrderIds!.map(id => `external_order_id.eq.${id},order_sn.eq.${id}`).join(",");
+    existingQuery = existingQuery.or(idsFilter);
+  } else {
+    existingQuery = existingQuery.or(`order_created_at.gte.${cutoffIso},order_updated_at.gte.${cutoffIso},updated_at.gte.${cutoffIso}`);
+    if (args.skipCompletedStatusRefresh) {
+      existingQuery = existingQuery.or(`order_status.is.null,order_status.in.(${STATUS_REFRESH_TARGET_STATUSES.join(",")})`);
+    }
   }
 
   const candidateLimit = Math.min(Math.max(args.maxExistingOrders * 3, args.maxExistingOrders), 600);
-  const { data: existingOrdersRaw, error: existingError } = await existingQuery
-    .order("pulled_at", { ascending: true, nullsFirst: true })
-    .order("updated_at", { ascending: true, nullsFirst: true })
-    .limit(candidateLimit);
+  const { data: existingOrdersRaw, error: existingError } = await (
+    hasExplicitIds
+      ? existingQuery.limit(candidateLimit)
+      : existingQuery.order("pulled_at", { ascending: true, nullsFirst: true }).order("order_created_at", { ascending: true, nullsFirst: true }).limit(candidateLimit)
+  );
 
   if (existingError) throw new Error(`Load existing Shopee order gagal: ${existingError.message}`);
 
   const payoutPriorityKeys = await loadPositivePayoutOrderKeys(admin, activeAccount, cutoffIso, 1000);
-  const existingOrders = prioritizeStatusRefreshCandidates(existingOrdersRaw || [], payoutPriorityKeys)
+  const eligibleExistingOrders = filterStatusRefreshCandidates(existingOrdersRaw || [], args.skipCompletedStatusRefresh);
+  const existingOrders = prioritizeStatusRefreshCandidates(eligibleExistingOrders, payoutPriorityKeys)
     .slice(0, args.maxExistingOrders);
 
   let checked = 0;
@@ -645,6 +757,7 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
   let skippedCompleted = 0;
   const warnings: string[] = [];
 
+  const filteredRows = [];
   for (const row of existingOrders || []) {
     const orderId = text(row.external_order_id) || text(row.order_sn);
     if (!orderId) continue;
@@ -654,124 +767,188 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
       skippedCompleted += 1;
       continue;
     }
+    filteredRows.push(row);
+  }
 
-    checked += 1;
-    let detailOrder: any = null;
-    try {
-      const detailJson = await fetchShopeeOrderDetail({ account: activeAccount, accessToken, orderIds: [orderId] });
-      detailOrder = normalizeDetailOrder(detailJson, { order_sn: orderId }, orderId);
-    } catch (e) {
-      if (isShopeeAuthError(e)) {
-        try {
-          tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, activeAccount, true);
-          activeAccount = tokenBundle.account;
-          accessToken = tokenBundle.accessToken;
-          const detailJson = await fetchShopeeOrderDetail({ account: activeAccount, accessToken, orderIds: [orderId] });
-          detailOrder = normalizeDetailOrder(detailJson, { order_sn: orderId }, orderId);
-        } catch (retryError) {
-          failed += 1;
-          warnings.push(`Refresh status Shopee ${mask(orderId)} gagal: ${String(retryError)}`);
-          continue;
+  const chunks = [];
+  const chunkSize = 50;
+  for (let i = 0; i < filteredRows.length; i += chunkSize) {
+    chunks.push(filteredRows.slice(i, i + chunkSize));
+  }
+
+  for (const chunk of chunks) {
+    const orderIds = chunk.map((row: any) => text(row.external_order_id) || text(row.order_sn)).filter(Boolean);
+    if (orderIds.length === 0) continue;
+
+    let detailList: any[] = [];
+    let success = false;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts && !success) {
+      attempts++;
+      try {
+        const detailJson = await fetchShopeeOrderDetail({ account: activeAccount, accessToken, orderIds });
+        if (detailJson?.error) {
+          throw new Error(`${detailJson.error}: ${detailJson.message}`);
         }
-      } else {
-        failed += 1;
-        warnings.push(`Refresh status Shopee ${mask(orderId)} gagal: ${String(e)}`);
-        continue;
+        const responseData = detailJson?.response ?? detailJson;
+        detailList = responseData?.order_list ?? [];
+        success = true;
+      } catch (e) {
+        if (isShopeeAuthError(e)) {
+          if (attempts < maxAttempts) {
+            const delayMs = Math.pow(2, attempts) * 1000;
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            try {
+              tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, activeAccount, true);
+              activeAccount = tokenBundle.account;
+              accessToken = tokenBundle.accessToken;
+            } catch (refreshErr) {
+              warnings.push(`Refresh token failed on batch retry: ${refreshErr}`);
+            }
+            continue;
+          }
+        }
+        if (attempts >= maxAttempts) {
+          failed += chunk.length;
+          warnings.push(`Batch fetch Shopee detail gagal: ${String(e)}`);
+          break;
+        }
+        const delayMs = Math.pow(2, attempts) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
 
-    const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
-    const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
-    const statusGroup = orderStatusGroup(orderStatusUpper);
-    const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
-    const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
-      normalizedOrder.order_status,
-      normalizedOrder.tracking_number || row.tracking_number,
-    );
+    if (!success) continue;
 
-    const existingOrderAction = text(row.stock_action_status);
-    let nextStockActionStatus = existingOrderAction || "pending";
-    let nextLastError: string | null = null;
+    for (const row of chunk) {
+      const orderId = text(row.external_order_id) || text(row.order_sn);
+      checked += 1;
 
-    if (preserveFinalStatuses.has(existingOrderAction)) {
-      nextStockActionStatus = existingOrderAction;
-      nextLastError = null;
-    } else if (isCancelNoStockAction) {
-      nextStockActionStatus = "ignored_status";
-      nextLastError = "Buyer cancel request Shopee saat belum ada resi. Tidak perlu stock out/stock in.";
-    } else if (hasActiveCancelRequest) {
-      nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
-      nextLastError = "Status order Shopee berubah: buyer mengajukan cancel. Review sebelum proses lanjutan.";
-    } else if (statusGroup === "cancelled") {
-      nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
-      nextLastError = "Status Shopee berubah menjadi cancel. Review di Refund/Cancel Monitor.";
-    } else if (statusGroup === "return_refund") {
-      nextStockActionStatus = "return_review_required";
-      nextLastError = "Status Shopee berubah menjadi refund/return. Review di Refund/Cancel Monitor.";
-    } else if (STOCK_OUT_ELIGIBLE_STATUSES.has(orderStatusUpper) && (!existingOrderAction || existingOrderAction === "pending" || existingOrderAction === "ignored_status")) {
-      nextStockActionStatus = "ready_to_pick";
-      nextLastError = null;
-    }
+      const rawDetail = detailList.find((item: any) => text(item?.order_sn) === orderId);
+      if (!rawDetail) {
+        failed += 1;
+        warnings.push(`Detail order Shopee ${mask(orderId)} tidak ditemukan di response batch`);
+        continue;
+      }
 
-    const statusChanged = text(row.order_status).toUpperCase() !== orderStatusUpper
-      || text(row.tracking_number) !== text(normalizedOrder.tracking_number || row.tracking_number)
-      || nextStockActionStatus !== existingOrderAction;
+      const detailOrder = normalizeDetailOrder(rawDetail, { order_sn: orderId }, orderId);
+      let normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
 
-    const now = new Date().toISOString();
-    const { error: updateError } = await admin
-      .from("marketplace_orders")
-      .update({
-        order_status: normalizedOrder.order_status || row.order_status,
-        order_status_label: normalizedOrder.order_status_label || row.order_status_label,
-        tracking_number: normalizedOrder.tracking_number || row.tracking_number,
-        shipping_provider_name: normalizedOrder.shipping_provider_name,
-        package_id: normalizedOrder.package_id,
-        logistic_status: normalizedOrder.logistic_status,
-        label_code: normalizedOrder.tracking_number || row.tracking_number || nonOrderIdLabelCode(normalizedOrder.label_code, orderId),
-        cancel_request_id: normalizedOrder.cancel_request_id,
-        cancel_request_status: normalizedOrder.cancel_request_status,
-        cancel_request_reason: normalizedOrder.cancel_request_reason,
-        cancel_request_note: normalizedOrder.cancel_request_note,
-        cancel_requested_at: normalizedOrder.cancel_requested_at,
-        cancel_request_raw: normalizedOrder.cancel_request_raw,
-        cancel_request_pulled_at: normalizedOrder.cancel_request_status ? now : null,
-        has_cancel_request: hasActiveCancelRequest,
-        stock_action_status: nextStockActionStatus,
-        last_error: nextLastError,
-        order_updated_at: normalizedOrder.order_updated_at || row.order_updated_at,
-        raw_order: normalizedOrder.raw_order,
-        pulled_at: now,
-        updated_at: now,
-      })
-      .eq("marketplace_order_id", row.marketplace_order_id)
-      .eq("tenant_id", activeAccount.tenant_id);
-
-    if (updateError) {
-      failed += 1;
-      warnings.push(`Update status Shopee ${mask(orderId)} gagal: ${updateError.message}`);
-      continue;
-    }
-
-    if (statusChanged) updated += 1;
-
-    if (nextStockActionStatus === "cancel_review_required" || nextStockActionStatus === "return_review_required" || nextStockActionStatus === "ignored_status") {
-      changedToReview += 1;
-      await syncOrderItemsStatusFromOrder(admin, activeAccount, row.marketplace_order_id, {
-        trackingNumber: normalizedOrder.tracking_number || row.tracking_number,
-        packageId: normalizedOrder.package_id,
-        nextStockActionStatus,
-        lastError: nextLastError,
+      normalizedOrder = await enrichShopeeOrderWithPhysicalTracking({
+        account: activeAccount,
+        accessToken,
+        orderId,
+        rawOrder: detailOrder,
+        order: normalizedOrder,
+        warnings,
       });
-    } else if (normalizedOrder.tracking_number || normalizedOrder.package_id) {
-      await admin
-        .from("marketplace_order_items")
+
+      const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
+      const statusGroup = orderStatusGroup(orderStatusUpper);
+      const hasActiveCancelRequest = isActiveCancelRequest(normalizedOrder.cancel_request_status);
+      const isCancelNoStockAction = hasActiveCancelRequest && isAwaitingShipmentNoResi(
+        normalizedOrder.order_status,
+        normalizedOrder.tracking_number || row.tracking_number,
+      );
+
+      const existingOrderAction = text(row.stock_action_status);
+      let nextStockActionStatus = existingOrderAction || "pending";
+      let nextLastError: string | null = null;
+
+      if (preserveFinalStatuses.has(existingOrderAction)) {
+        nextStockActionStatus = existingOrderAction;
+        nextLastError = null;
+      } else if (isCancelNoStockAction) {
+        nextStockActionStatus = "ignored_status";
+        nextLastError = "Buyer cancel request Shopee saat belum ada resi. Tidak perlu stock out/stock in.";
+      } else if (hasActiveCancelRequest) {
+        nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
+        nextLastError = "Status order Shopee berubah: buyer mengajukan cancel. Review sebelum proses lanjutan.";
+      } else if (statusGroup === "cancelled") {
+        nextStockActionStatus = existingOrderAction === "stock_out_done" ? "return_review_required" : "cancel_review_required";
+        nextLastError = "Status Shopee berubah menjadi cancel. Review di Refund/Cancel Monitor.";
+      } else if (statusGroup === "return_refund") {
+        nextStockActionStatus = "return_review_required";
+        nextLastError = "Status Shopee berubah menjadi refund/return. Review di Refund/Cancel Monitor.";
+      } else if (STOCK_OUT_ELIGIBLE_STATUSES.has(orderStatusUpper) && (!existingOrderAction || existingOrderAction === "pending" || existingOrderAction === "ignored_status")) {
+        nextStockActionStatus = "ready_to_pick";
+        nextLastError = null;
+      }
+
+      const nextTrackingNumber = physicalShopeeTrackingNumber(
+        normalizedOrder.tracking_number || row.tracking_number,
+        orderId,
+        normalizedOrder.package_id || row.package_id,
+      );
+      const nextPackageId = normalizedOrder.package_id || row.package_id || null;
+      const nextLabelCode = physicalShopeeTrackingNumber(
+        normalizedOrder.label_code,
+        orderId,
+        nextPackageId,
+      ) || nextTrackingNumber;
+
+      const statusChanged = text(row.order_status).toUpperCase() !== orderStatusUpper
+        || text(row.tracking_number) !== text(nextTrackingNumber)
+        || nextStockActionStatus !== existingOrderAction;
+
+      const now = new Date().toISOString();
+      const { error: updateError } = await admin
+        .from("marketplace_orders")
         .update({
-          tracking_number: normalizedOrder.tracking_number || row.tracking_number,
-          package_id: normalizedOrder.package_id,
+          order_status: normalizedOrder.order_status || row.order_status,
+          order_status_label: normalizedOrder.order_status_label || row.order_status_label,
+          tracking_number: nextTrackingNumber,
+          shipping_provider_name: normalizedOrder.shipping_provider_name,
+          package_id: nextPackageId,
+          logistic_status: normalizedOrder.logistic_status,
+          label_code: nextLabelCode,
+          cancel_request_id: normalizedOrder.cancel_request_id,
+          cancel_request_status: normalizedOrder.cancel_request_status,
+          cancel_request_reason: normalizedOrder.cancel_request_reason,
+          cancel_request_note: normalizedOrder.cancel_request_note,
+          cancel_requested_at: normalizedOrder.cancel_requested_at,
+          cancel_request_raw: normalizedOrder.cancel_request_raw,
+          cancel_request_pulled_at: normalizedOrder.cancel_request_status ? now : null,
+          has_cancel_request: hasActiveCancelRequest,
+          stock_action_status: nextStockActionStatus,
+          last_error: nextLastError,
+          order_updated_at: normalizedOrder.order_updated_at || row.order_updated_at,
+          raw_order: normalizedOrder.raw_order,
+          pulled_at: now,
           updated_at: now,
         })
-        .eq("tenant_id", activeAccount.tenant_id)
-        .eq("marketplace_order_id", row.marketplace_order_id);
+        .eq("marketplace_order_id", row.marketplace_order_id)
+        .eq("tenant_id", activeAccount.tenant_id);
+
+      if (updateError) {
+        failed += 1;
+        warnings.push(`Update status Shopee ${mask(orderId)} gagal: ${updateError.message}`);
+        continue;
+      }
+
+      if (statusChanged) updated += 1;
+
+      if (nextStockActionStatus === "cancel_review_required" || nextStockActionStatus === "return_review_required" || nextStockActionStatus === "ignored_status") {
+        changedToReview += 1;
+        await syncOrderItemsStatusFromOrder(admin, activeAccount, row.marketplace_order_id, {
+          trackingNumber: nextTrackingNumber,
+          packageId: nextPackageId,
+          nextStockActionStatus,
+          lastError: nextLastError,
+        });
+      } else if (nextTrackingNumber || nextPackageId) {
+        await admin
+          .from("marketplace_order_items")
+          .update({
+            tracking_number: nextTrackingNumber,
+            package_id: nextPackageId,
+            updated_at: now,
+          })
+          .eq("tenant_id", activeAccount.tenant_id)
+          .eq("marketplace_order_id", row.marketplace_order_id);
+      }
     }
   }
 
@@ -805,6 +982,16 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
   let activeAccount = tokenBundle.account;
   let accessToken = tokenBundle.accessToken;
 
+  const { data: preloadedMaps, error: mapsError } = await admin
+    .from("marketplace_sku_maps")
+    .select("marketplace_sku_map_id, product_id, local_sku, marketplace_sku_id, marketplace_seller_sku, marketplace_product_id")
+    .eq("tenant_id", activeAccount.tenant_id)
+    .eq("marketplace_account_id", activeAccount.marketplace_account_id)
+    .eq("status", "active");
+  if (mapsError) {
+    console.warn(`Gagal memuat preloaded maps Shopee: ${mapsError.message}`);
+  }
+
   const todayStartWib = startOfTodayWibSeconds();
   const normalSinceSeconds = args.startSeconds;
   const previousUnpackedSinceSeconds = Math.floor(Date.now() / 1000) - args.previousUnpackedDays * 24 * 60 * 60;
@@ -813,7 +1000,7 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
   const timeFields = args.includeUpdateTimeSearch ? ["create_time", "update_time"] : ["create_time"];
   const shopeeStatuses = args.statuslessOnly ? [null] : uniqueStrings([
     ...args.statuses.map(toShopeeOrderStatus).filter(Boolean),
-    null,
+    ...(args.includeStatuslessSearch ? [null] : []),
   ]);
   const ranges = buildShopeeTimeRanges(sinceSeconds, args.endSeconds);
 
@@ -822,10 +1009,15 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
   const seenOrderIds = new Set<string>();
   const warnings: string[] = [];
 
+  let stopBatchScan = false;
   for (const range of ranges) {
+    if (stopBatchScan) break;
     for (const timeField of timeFields) {
+      if (stopBatchScan) break;
       for (const status of shopeeStatuses) {
+        if (stopBatchScan) break;
         let cursor = "";
+        let authRetries = 0;
         for (let pageIndex = 0; pageIndex < args.maxPages && searchOrdersAll.length < maxOrders; pageIndex += 1) {
           try {
             const listJson = await fetchShopeeOrderListPage({
@@ -853,12 +1045,40 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
             if (!cursor || pageOrders.length === 0) break;
           } catch (e) {
             if (isShopeeAuthError(e)) {
-              tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, activeAccount, true);
-              activeAccount = tokenBundle.account;
-              accessToken = tokenBundle.accessToken;
-              pageIndex -= 1;
-              continue;
+              authRetries += 1;
+              if (authRetries > 2) {
+                warnings.push(`Shopee order list gagal: limit auth retry exceeded (${String(e)})`);
+                await markMarketplaceAuthExpired(admin, activeAccount, `Shopee auth error: ${String(e)}`);
+                stopBatchScan = true;
+                break;
+              }
+              const delayMs = Math.pow(2, authRetries) * 1000;
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+              try {
+                tokenBundle = await refreshShopeeAccessTokenIfNeeded(admin, activeAccount, true);
+                activeAccount = tokenBundle.account;
+                accessToken = tokenBundle.accessToken;
+                pageIndex -= 1;
+                continue;
+              } catch (refreshErr) {
+                warnings.push(`Shopee refresh token gagal pasca auth error: ${String(refreshErr)}`);
+                stopBatchScan = true;
+                break;
+              }
             }
+
+            if (isShopeeRateLimitError(e)) {
+              warnings.push(`Shopee API Rate Limit terdeteksi (${timeField}): ${String(e)}. Menghentikan scan batch agar tidak overload.`);
+              stopBatchScan = true;
+              break;
+            }
+
+            if (isShopeeServerAbnormalError(e)) {
+              warnings.push(`Shopee API Server Abnormal (HTTP 5xx/gateway): ${String(e)}. Menghentikan scan batch.`);
+              stopBatchScan = true;
+              break;
+            }
+
             warnings.push(`Shopee order list gagal (${timeField}${status ? `/${status}` : ""}): ${String(e)}`);
             break;
           }
@@ -889,7 +1109,15 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
       warnings.push(`Detail order Shopee ${mask(orderId)} gagal, memakai data list: ${String(e)}`);
     }
 
-    const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
+    let normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
+    normalizedOrder = await enrichShopeeOrderWithPhysicalTracking({
+      account: activeAccount,
+      accessToken,
+      orderId,
+      rawOrder: detailOrder,
+      order: normalizedOrder,
+      warnings,
+    });
     const orderStatusUpper = text(normalizedOrder.order_status).toUpperCase();
     // Final marketplace statuses must still be imported to refresh stale local rows.
     // Do not skip COMPLETED/DELIVERED here, otherwise old IN_TRANSIT finance/order rows never become final.
@@ -919,7 +1147,7 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
 
     let orderUnmapped = 0;
     for (const item of items) {
-      const mapping = await findSkuMapping(admin, activeAccount, item);
+      const mapping = await findSkuMapping(admin, activeAccount, item, preloadedMaps || undefined);
       const itemPayload = {
         ...item,
         mapped_product_id: mapping?.product_id || null,
@@ -1082,6 +1310,88 @@ async function fetchShopeeOrderDetail(args: { account: any; accessToken: string;
   return shopeeRequest({ method: "GET", account: args.account, accessToken: args.accessToken, path, query });
 }
 
+async function fetchShopeeLogisticsTracking(args: {
+  account: any;
+  accessToken: string;
+  orderId: string;
+  packageNumber?: string | null;
+}) {
+  const path = "/api/v2/logistics/get_tracking_number";
+  const attempts: Array<Record<string, string>> = [];
+  const orderSn = text(args.orderId);
+  const packageNumber = text(args.packageNumber);
+  if (!orderSn) return null;
+  if (packageNumber) attempts.push({ order_sn: orderSn, package_number: packageNumber });
+  attempts.push({ order_sn: orderSn });
+
+  let lastError: unknown = null;
+  for (const query of attempts) {
+    try {
+      return await shopeeRequest({
+        method: "GET",
+        account: args.account,
+        accessToken: args.accessToken,
+        path,
+        query,
+      });
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
+
+async function enrichShopeeOrderWithPhysicalTracking(args: {
+  account: any;
+  accessToken: string;
+  orderId: string;
+  rawOrder: any;
+  order: any;
+  warnings: string[];
+}) {
+  const orderId = text(args.orderId || args.order.external_order_id || args.order.order_sn);
+  const packageId = text(args.order.package_id || detectPackageId(args.rawOrder));
+  const packageNumber = detectShopeePackageNumber(args.rawOrder) || packageId;
+  const currentTracking = physicalShopeeTrackingNumber(args.order.tracking_number, orderId, packageId, packageNumber);
+  const currentLabel = physicalShopeeTrackingNumber(args.order.label_code, orderId, packageId, packageNumber);
+
+  if (currentTracking) {
+    return {
+      ...args.order,
+      tracking_number: currentTracking,
+      label_code: currentLabel || currentTracking,
+    };
+  }
+
+  let logistics: any = null;
+  try {
+    logistics = await fetchShopeeLogisticsTracking({
+      account: args.account,
+      accessToken: args.accessToken,
+      orderId,
+      packageNumber,
+    });
+  } catch (e) {
+    args.warnings.push(`Tracking logistics Shopee ${mask(orderId)} gagal: ${String(e)}`);
+  }
+
+  const logisticsTracking = physicalShopeeTrackingNumber(detectTrackingNumber(logistics), orderId, packageId, packageNumber);
+  const logisticsLabel = physicalShopeeTrackingNumber(detectLabelCode(logistics), orderId, packageId, packageNumber);
+  const rawOrder = logistics
+    ? safeJsonForDb({ ...(args.rawOrder || {}), logistics_tracking_response: logistics })
+    : args.order.raw_order;
+
+  return {
+    ...args.order,
+    tracking_number: logisticsTracking,
+    label_code: logisticsLabel || logisticsTracking,
+    shipping_provider_name: detectShippingProviderName(logistics) || args.order.shipping_provider_name,
+    logistic_status: detectLogisticStatus(logistics) || args.order.logistic_status,
+    raw_order: rawOrder,
+  };
+}
+
 async function refreshShopeeAccessTokenIfNeeded(admin: any, account: any, force = false): Promise<{ account: any; accessToken: string }> {
   const tokenSecret = requiredEnv("MARKETPLACE_TOKEN_ENCRYPTION_KEY");
   const currentAccessToken = await decryptText(text(account.access_token_encrypted), tokenSecret);
@@ -1107,14 +1417,23 @@ async function refreshShopeeAccessTokenIfNeeded(admin: any, account: any, force 
     refresh_token: refreshToken,
     shop_id: numericOrString(shopId),
   };
-  const response = await shopeeRequest({
-    method: "POST",
-    account,
-    path,
-    credential,
-    body: payload,
-    authless: true,
-  });
+  let response: any;
+  try {
+    response = await shopeeRequest({
+      method: "POST",
+      account,
+      path,
+      credential,
+      body: payload,
+      authless: true,
+    });
+  } catch (refreshErr) {
+    const errStr = String(refreshErr);
+    if (isShopeeAuthError(refreshErr)) {
+      await markMarketplaceAuthExpired(admin, account, `Refresh token Shopee gagal (Auth invalid): ${errStr.slice(0, 300)}`);
+    }
+    throw refreshErr;
+  }
 
   const data = response?.response ?? response ?? {};
   const newAccessToken = text(data.access_token);
@@ -1185,7 +1504,7 @@ async function shopeeRequest(args: {
     url.searchParams.set(key, String(value));
   }
 
-  const res = await fetch(url.toString(), {
+  const { res, payload } = await fetchJsonWithTimeout("Shopee API", url.toString(), {
     method: args.method,
     headers: {
       accept: "application/json",
@@ -1194,9 +1513,32 @@ async function shopeeRequest(args: {
     body: args.method === "POST" ? JSON.stringify(args.body || {}) : undefined,
   });
 
-  const payload = await res.json().catch(() => null);
-  if (!res.ok || !payload) throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(payload)}`);
-  if (payload.error) throw new Error(`Shopee API error: ${JSON.stringify(maskTokenObject(payload))}`);
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(`Shopee API Rate Limit (HTTP 429) pada ${args.path}`);
+    }
+    if (res.status >= 500) {
+      throw new Error(`Shopee API Server Error (HTTP ${res.status}) pada ${args.path}: ${text(payload ? JSON.stringify(maskTokenObject(payload)) : res.statusText).slice(0, 200)}`);
+    }
+    throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(maskTokenObject(payload))}`);
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Shopee API Abnormal Response (non-JSON payload) pada ${args.path}`);
+  }
+
+  if (payload.error) {
+    const errCode = text(payload.error).toLowerCase();
+    const errMsg = text(payload.message || payload.msg || payload.error_description || payload.error_msg);
+    if (errCode.includes("rate_limit") || errCode.includes("frequency") || errCode.includes("limit_exceeded")) {
+      throw new Error(`Shopee API Rate Limit [${payload.error}]: ${errMsg || "Frequency limit reached."}`);
+    }
+    if (errCode.includes("auth") || errCode.includes("permission") || errCode.includes("token") || errCode.includes("sign") || errCode.includes("shop_not_found") || errCode.includes("user_not_found") || errCode.includes("banned")) {
+      throw new Error(`Shopee API Auth Error [${payload.error}]: ${errMsg || "Authorization invalid or expired."}`);
+    }
+    throw new Error(`Shopee API error [${payload.error}]: ${errMsg || JSON.stringify(maskTokenObject(payload))}`);
+  }
+
   return payload;
 }
 
@@ -1244,7 +1586,34 @@ function isShopeeAuthError(err: unknown): boolean {
     || message.includes("invalid_access_token")
     || message.includes("access_token")
     || message.includes("401")
-    || message.includes("error_auth");
+    || message.includes("error_auth")
+    || message.includes("error_permission")
+    || message.includes("error_sign")
+    || message.includes("error_shop_not_found")
+    || message.includes("error_user_not_found")
+    || message.includes("error_token")
+    || message.includes("invalid_grant")
+    || message.includes("reconnect shopee");
+}
+
+function isShopeeRateLimitError(err: unknown): boolean {
+  const message = String(err).toLowerCase();
+  return message.includes("rate_limit")
+    || message.includes("frequency_limit")
+    || message.includes("limit_exceeded")
+    || message.includes("429");
+}
+
+function isShopeeServerAbnormalError(err: unknown): boolean {
+  const message = String(err).toLowerCase();
+  return message.includes("500")
+    || message.includes("502")
+    || message.includes("503")
+    || message.includes("504")
+    || message.includes("bad gateway")
+    || message.includes("gateway timeout")
+    || message.includes("service unavailable")
+    || message.includes("cloudflare");
 }
 
 function toShopeeOrderStatus(status: string): string | null {
@@ -1301,6 +1670,16 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
   let activeAccount = tokenBundle.account;
   let accessToken = tokenBundle.accessToken;
 
+  const { data: preloadedMaps, error: mapsError } = await admin
+    .from("marketplace_sku_maps")
+    .select("marketplace_sku_map_id, product_id, local_sku, marketplace_sku_id, marketplace_seller_sku, marketplace_product_id")
+    .eq("tenant_id", activeAccount.tenant_id)
+    .eq("marketplace_account_id", activeAccount.marketplace_account_id)
+    .eq("status", "active");
+  if (mapsError) {
+    console.warn(`Gagal memuat preloaded maps TikTok: ${mapsError.message}`);
+  }
+
   let shopCipher = detectShopCipher(activeAccount);
   let shopId = text(activeAccount.shop_id);
 
@@ -1338,7 +1717,8 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
     throw new Error("shop_cipher TikTok belum valid. Re-authorize toko lalu ulangi Pull Orders.");
   }
 
-  const nowSeconds = Math.max(args.endSeconds, args.startSeconds + 24 * 60 * 60);
+  // Dispatcher supplies exact bounded windows. Do not silently widen TikTok to 24h.
+  const nowSeconds = Math.max(args.endSeconds, args.startSeconds + 1);
   const todayStartWib = startOfTodayWibSeconds();
   const normalSinceSeconds = args.startSeconds;
   const previousUnpackedSinceSeconds = Math.floor(Date.now() / 1000) - args.previousUnpackedDays * 24 * 60 * 60;
@@ -1364,8 +1744,11 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
 
   // Pull manual harus mengambil semua order sesuai pilihan hari, bukan cuma status cancel/return yang kebetulan muncul di page pertama.
   // Karena TikTok search bisa terpecah per create_time/update_time/status dan pakai page_token, kita gabungkan semua page dengan dedupe order id.
+  let stopBatchScan = false;
   for (const body of bodies) {
+    if (stopBatchScan) break;
     let pageToken = "";
+    let authRetries = 0;
 
     for (let pageIndex = 0; pageIndex < args.maxPages && searchOrdersAll.length < maxOrders; pageIndex += 1) {
       try {
@@ -1399,11 +1782,30 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
       } catch (e) {
         firstError = e;
         if (isTikTokAuthError(e)) {
-          tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, activeAccount, true);
-          activeAccount = tokenBundle.account;
-          accessToken = tokenBundle.accessToken;
-          pageIndex -= 1;
-          continue;
+          authRetries += 1;
+          if (authRetries > 2) {
+            await markMarketplaceAuthExpired(admin, activeAccount, `TikTok auth error: ${String(e)}`);
+            stopBatchScan = true;
+            break;
+          }
+          try {
+            tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, activeAccount, true);
+            activeAccount = tokenBundle.account;
+            accessToken = tokenBundle.accessToken;
+            pageIndex -= 1;
+            continue;
+          } catch (refreshErr) {
+            stopBatchScan = true;
+            break;
+          }
+        }
+        if (isTikTokRateLimitError(e)) {
+          stopBatchScan = true;
+          break;
+        }
+        if (isTikTokServerAbnormalError(e)) {
+          stopBatchScan = true;
+          break;
         }
         break;
       }
@@ -1473,7 +1875,7 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
     let orderUnmapped = 0;
 
     for (const item of items) {
-      const mapping = await findSkuMapping(admin, activeAccount, item);
+      const mapping = await findSkuMapping(admin, activeAccount, item, preloadedMaps || undefined);
       const itemPayload = {
         ...item,
         mapped_product_id: mapping?.product_id || null,
@@ -1569,6 +1971,81 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
         updated_at: new Date().toISOString(),
       })
       .eq("marketplace_order_id", orderRow.marketplace_order_id);
+  }
+
+  // Backfill logic for TikTok orders with 0/null prices or missing items (rate-limited up to 30 unique orders per run)
+  try {
+    const { data: incompleteItems, error: incompleteError } = await admin
+      .from("marketplace_order_items")
+      .select("marketplace_order_id, external_order_id")
+      .eq("tenant_id", activeAccount.tenant_id)
+      .eq("marketplace_account_id", activeAccount.marketplace_account_id)
+      .or("price_amount.is.null,price_amount.eq.0,gross_amount.is.null,gross_amount.eq.0")
+      .limit(100);
+
+    const { data: recentOrders } = await admin
+      .from("marketplace_orders")
+      .select("marketplace_order_id, external_order_id, order_sn")
+      .eq("tenant_id", activeAccount.tenant_id)
+      .eq("marketplace_account_id", activeAccount.marketplace_account_id)
+      .order("order_created_at", { ascending: false })
+      .limit(200);
+
+    const { data: existingItemOrderIds } = await admin
+      .from("marketplace_order_items")
+      .select("marketplace_order_id, external_order_id")
+      .eq("tenant_id", activeAccount.tenant_id)
+      .eq("marketplace_account_id", activeAccount.marketplace_account_id)
+      .limit(1000);
+
+    const existingSet = new Set((existingItemOrderIds || []).map((x: any) => x.external_order_id || x.marketplace_order_id));
+    const missingItemOrderIds = (recentOrders || [])
+      .filter((o: any) => !existingSet.has(o.external_order_id) && !existingSet.has(o.marketplace_order_id) && !existingSet.has(o.order_sn))
+      .map((o: any) => o.external_order_id || o.order_sn || o.marketplace_order_id);
+
+    const incompleteOrderIds = (!incompleteError && incompleteItems)
+      ? incompleteItems.map((item: any) => item.external_order_id || item.marketplace_order_id)
+      : [];
+
+    const uniqueOrderIds = Array.from(new Set([...missingItemOrderIds, ...incompleteOrderIds].filter(Boolean))).slice(0, 30);
+
+      if (uniqueOrderIds.length > 0) {
+        console.log(`Backfill: fetching detail for ${uniqueOrderIds.length} orders with 0/null price`);
+        for (const orderId of uniqueOrderIds) {
+          try {
+            const detailJson = await fetchTikTokOrderDetail({
+              orderId,
+              appKey,
+              appSecret,
+              accessToken,
+              shopCipher,
+              shopId,
+            });
+            const detailOrder = normalizeDetailOrder(detailJson, {}, orderId);
+            const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
+            const orderRow = await upsertOrder(admin, activeAccount, normalizedOrder);
+            
+            const items = normalizeOrderItems(detailOrder, normalizedOrder).filter((item) => item.quantity > 0);
+            for (const item of items) {
+              const mapping = await findSkuMapping(admin, activeAccount, item, preloadedMaps || undefined);
+              const itemPayload = {
+                ...item,
+                mapped_product_id: mapping?.product_id || null,
+                mapped_local_sku: mapping?.local_sku || null,
+                marketplace_sku_map_id: mapping?.marketplace_sku_map_id || null,
+                mapping_status: mapping?.product_id ? "mapped" : "unmapped",
+                stock_action_status: mapping?.product_id ? "ignored_status" : "unmapped",
+                last_error: mapping?.product_id ? null : "SKU marketplace belum dimapping ke SKU lokal.",
+              };
+              await upsertOrderItem(admin, orderRow.marketplace_order_id, activeAccount, normalizedOrder, itemPayload);
+            }
+          } catch (e) {
+            console.warn(`Gagal backfill order ${orderId}: ${String(e)}`);
+          }
+        }
+      }
+  } catch (backfillErr) {
+    console.warn(`Gagal memproses backfill: ${String(backfillErr)}`);
   }
 
   await admin
@@ -1819,21 +2296,9 @@ async function fetchTikTokOrderDetail(args: {
   const attempts = [
     {
       method: "GET" as const,
-      path: `/order/202309/orders/${encodeURIComponent(args.orderId)}`,
-      query: args.shopId ? { shop_id: args.shopId, version: "202309" } : { version: "202309" },
-      body: {},
-    },
-    {
-      method: "GET" as const,
       path: "/order/202309/orders",
       query: args.shopId ? { shop_id: args.shopId, ids: args.orderId, version: "202309" } : { ids: args.orderId, version: "202309" },
       body: {},
-    },
-    {
-      method: "POST" as const,
-      path: "/order/202309/orders/detail/query",
-      query: args.shopId ? { shop_id: args.shopId, version: "202309" } : { version: "202309" },
-      body: { order_id_list: [args.orderId], order_ids: [args.orderId] },
     },
   ];
 
@@ -1927,12 +2392,20 @@ async function upsertOrderItem(admin: any, marketplaceOrderId: string, account: 
     external_order_item_id: item.external_order_item_id,
     marketplace_product_id: item.marketplace_product_id,
     marketplace_sku_id: item.marketplace_sku_id,
+    remote_sku_id: item.marketplace_sku_id,
+    marketplace_sku: item.marketplace_sku_id || item.seller_sku,
+    marketplace_seller_sku: item.seller_sku,
     seller_sku: item.seller_sku,
     product_name: item.product_name,
+    marketplace_product_name: item.product_name,
     variant_name: item.variant_name,
+    variation_name: item.variant_name,
+    marketplace_variant_name: item.variant_name,
     tracking_number: item.tracking_number,
     package_id: item.package_id,
-    quantity: item.quantity,
+    quantity: item.quantity || 1,
+    qty: item.quantity || 1,
+    local_sku: item.mapped_local_sku || item.seller_sku,
     gross_amount: item.gross_amount,
     paid_amount: item.paid_amount,
     unit_gross_amount: item.unit_gross_amount,
@@ -1940,6 +2413,8 @@ async function upsertOrderItem(admin: any, marketplaceOrderId: string, account: 
     marketplace_price_updated_at: now,
     finance_price_source: item.finance_price_source,
     mapped_product_id: item.mapped_product_id,
+    local_product_id: item.mapped_product_id,
+    product_id: item.mapped_product_id,
     mapped_local_sku: item.mapped_local_sku,
     marketplace_sku_map_id: item.marketplace_sku_map_id,
     mapping_status: item.mapping_status,
@@ -1956,10 +2431,36 @@ async function upsertOrderItem(admin: any, marketplaceOrderId: string, account: 
   if (error) throw new Error(`Upsert marketplace order item gagal: ${error.message}`);
 }
 
-async function findSkuMapping(admin: any, account: any, item: any): Promise<any | null> {
+async function findSkuMapping(admin: any, account: any, item: any, preloadedMaps?: any[]): Promise<any | null> {
   const baseSelect = "marketplace_sku_map_id, product_id, local_sku";
 
   const skuId = text(item.marketplace_sku_id);
+  const sellerSku = text(item.seller_sku);
+  const productId = text(item.marketplace_product_id);
+
+  if (preloadedMaps) {
+    if (skuId) {
+      const match = preloadedMaps.find((m: any) =>
+        text(m.marketplace_sku_id) === skuId
+      );
+      if (match) return match;
+    }
+    if (sellerSku) {
+      const match = preloadedMaps.find((m: any) =>
+        text(m.marketplace_seller_sku) === sellerSku
+      );
+      if (match) return match;
+    }
+    if (productId && skuId) {
+      const match = preloadedMaps.find((m: any) =>
+        text(m.marketplace_product_id) === productId &&
+        text(m.marketplace_sku_id) === skuId
+      );
+      if (match) return match;
+    }
+    return null;
+  }
+
   if (skuId) {
     const { data, error } = await admin
       .from("marketplace_sku_maps")
@@ -1974,7 +2475,6 @@ async function findSkuMapping(admin: any, account: any, item: any): Promise<any 
     if (data) return data;
   }
 
-  const sellerSku = text(item.seller_sku);
   if (sellerSku) {
     const { data, error } = await admin
       .from("marketplace_sku_maps")
@@ -1989,7 +2489,6 @@ async function findSkuMapping(admin: any, account: any, item: any): Promise<any 
     if (data) return data;
   }
 
-  const productId = text(item.marketplace_product_id);
   if (productId && skuId) {
     const { data, error } = await admin
       .from("marketplace_sku_maps")
@@ -2043,11 +2542,11 @@ function normalizeOrder(raw: any, account: any, orderId: string) {
     order_status_label: text(raw.status_label) || text(raw.order_status_label) || status,
     buyer_username: text(raw.buyer_username) || text(raw.buyer?.username) || text(raw.customer?.name) || null,
     recipient_name: text(recipient.name) || text(recipient.recipient_name) || text(raw.recipient_name) || null,
-    tracking_number: detectTrackingNumber(raw),
+    tracking_number: physicalTrackingNumber(detectTrackingNumber(raw), orderId, detectPackageId(raw)),
     shipping_provider_name: detectShippingProviderName(raw),
     package_id: detectPackageId(raw),
     logistic_status: detectLogisticStatus(raw),
-    label_code: detectTrackingNumber(raw) || nonOrderIdLabelCode(detectLabelCode(raw), orderId),
+    label_code: physicalTrackingNumber(detectTrackingNumber(raw), orderId, detectPackageId(raw)) || physicalTrackingNumber(detectLabelCode(raw), orderId, detectPackageId(raw)),
     cancel_request_id: cancelRequest.id,
     cancel_request_status: cancelRequest.status,
     cancel_request_reason: cancelRequest.reason,
@@ -2112,7 +2611,7 @@ function normalizeOrderItems(rawOrder: any, order: any) {
       seller_sku: sellerSku || null,
       product_name: text(item.product_name) || text(item.item_name) || text(item.name) || text(item.product?.name) || text(item.title) || null,
       variant_name: text(item.sku_name) || text(item.model_name) || text(item.variation_name) || text(item.variant_name) || buildVariantName(item),
-      tracking_number: detectTrackingNumber(item) || order.tracking_number || null,
+      tracking_number: physicalTrackingNumber(detectTrackingNumber(item), order.external_order_id, detectPackageId(item) || order.package_id) || order.tracking_number || null,
       package_id: detectPackageId(item) || order.package_id || null,
       quantity: Number(item.quantity ?? item.qty ?? item.item_quantity ?? item.model_quantity_purchased ?? 1) || 1,
       gross_amount: (() => {
@@ -2195,7 +2694,7 @@ function marketplaceItemGrossLine(item: any, qty: number): number | null {
   ]);
   if (unit !== null) return unit * qty;
 
-  const original = firstNumberFromPaths(item, ["original_price", "model_original_price", "before_discount_price", "list_price", "original_price.amount", "model_original_price.amount", "before_discount_price.amount", "list_price.amount"]);
+  const original = firstNumberFromPaths(item, ["sku_original_price", "original_price", "model_original_price", "before_discount_price", "list_price", "sku_original_price.amount", "original_price.amount", "model_original_price.amount", "before_discount_price.amount", "list_price.amount"]);
   const sellerDiscount = firstNumberFromPaths(item, ["seller_discount", "seller_discount_amount", "seller_discount_total", "discount_from_seller", "discount_seller", "seller_discount.amount", "seller_discount_amount.amount", "seller_discount_total.amount", "discount_from_seller.amount", "discount_seller.amount"]) ?? 0;
   if (original !== null) return Math.max(original * qty - sellerDiscount, 0);
   return null;
@@ -2360,6 +2859,50 @@ function toIsoFromAny(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+
+function detectShopeePackageNumber(raw: any): string | null {
+  return firstNonEmptyDeep([
+    raw?.package_number,
+    raw?.packageNumber,
+    raw?.package?.package_number,
+    raw?.package_info?.package_number,
+    raw?.packages?.map((p: any) => [p?.package_number, p?.packageNumber]),
+    raw?.package_list?.map((p: any) => [p?.package_number, p?.packageNumber]),
+    raw?.shipping_packages?.map((p: any) => [p?.package_number, p?.packageNumber]),
+  ]);
+}
+
+function physicalTrackingNumber(
+  value: unknown,
+  orderId?: unknown,
+  packageId?: unknown,
+  packageNumber?: unknown,
+): string | null {
+  const clean = text(value);
+  if (!clean) return null;
+  const upper = clean.toUpperCase();
+  if (upper.startsWith("OFG")) return null;
+  if (upper.startsWith("PG")) return null;
+  if (upper.startsWith("PACKAGE")) return null;
+  if (upper.startsWith("ORDER")) return null;
+  if (/^1200[0-9]{6,}$/.test(clean)) return null;
+  if (/^[0-9]{16,}$/.test(clean)) return null;
+
+  const references = [orderId, packageId, packageNumber]
+    .map((item) => text(item).toLowerCase())
+    .filter(Boolean);
+  if (references.includes(clean.toLowerCase())) return null;
+  return clean;
+}
+
+function physicalShopeeTrackingNumber(
+  value: unknown,
+  orderId?: unknown,
+  packageId?: unknown,
+  packageNumber?: unknown,
+): string | null {
+  return physicalTrackingNumber(value, orderId, packageId, packageNumber);
+}
 function detectTrackingNumber(raw: any): string | null {
   return firstNonEmptyDeep([
     raw?.tracking_number,
@@ -2506,7 +3049,7 @@ async function tiktokRequest(args: {
   const url = new URL(`https://open-api.tiktokglobalshop.com${args.path}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
 
-  const res = await fetch(url.toString(), {
+  const { res, payload: jsonRes } = await fetchJsonWithTimeout("TikTok API", url.toString(), {
     method: args.method,
     headers: {
       accept: "application/json",
@@ -2515,13 +3058,37 @@ async function tiktokRequest(args: {
     },
     body: args.method === "POST" ? bodyString : undefined,
   });
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(`TikTok API Rate Limit (HTTP 429) pada ${args.path}`);
+    }
+    if (res.status >= 500) {
+      throw new Error(`TikTok API Server Error (HTTP ${res.status}) pada ${args.path}: ${text(jsonRes ? JSON.stringify(maskTokenObject(jsonRes)) : res.statusText).slice(0, 200)}`);
+    }
+    throw new Error(`TikTok API HTTP ${res.status}: ${JSON.stringify(maskTokenObject(jsonRes))}`);
+  }
 
-  const jsonRes = await res.json().catch(() => null);
-  if (!res.ok || !jsonRes) throw new Error(`TikTok API HTTP ${res.status}: ${JSON.stringify(jsonRes)}`);
+  if (!jsonRes || typeof jsonRes !== "object") {
+    throw new Error(`TikTok API Abnormal Response (non-JSON payload) pada ${args.path}`);
+  }
 
-  const code = jsonRes.code;
+  const code = jsonRes.code ?? jsonRes.error_code;
   if (code !== undefined && String(code) !== "0" && String(code).toLowerCase() !== "success") {
-    throw new Error(`TikTok API error: ${JSON.stringify(jsonRes)}`);
+    const codeStr = text(code).toLowerCase();
+    const errMsg = text(jsonRes.message || jsonRes.msg || jsonRes.detail).toLowerCase();
+
+    if (codeStr === "105002" || codeStr === "105003" || errMsg.includes("frequency limit") || errMsg.includes("rate limit") || errMsg.includes("qps limit") || errMsg.includes("too many requests")) {
+      throw new Error(`TikTok API Rate Limit [code=${codeStr}]: ${jsonRes.message || "Frequency limit reached"} [path=${args.path}]`);
+    }
+
+    if (codeStr === "105001" || codeStr === "105004" || errMsg.includes("invalid shop_cipher") || errMsg.includes("access token") || errMsg.includes("token expired") || errMsg.includes("token invalid") || errMsg.includes("unauthorized")) {
+      if (errMsg.includes("invalid shop_cipher")) {
+        throw new Error(`TikTok API Auth Error [${args.path}]: Invalid shop_cipher. Re-authorize shop. Detail: ${JSON.stringify(maskTokenObject(jsonRes))}`);
+      }
+      throw new Error(`TikTok API Auth Error [code=${codeStr}]: ${jsonRes.message || "Token invalid or expired"} [path=${args.path}]`);
+    }
+
+    throw new Error(`TikTok API error: ${JSON.stringify(maskTokenObject(jsonRes))}`);
   }
   return jsonRes;
 }
@@ -2549,8 +3116,10 @@ async function refreshTikTokAccessTokenIfNeeded(admin: any, account: any, force 
   refreshUrl.searchParams.set("refresh_token", refreshToken);
   refreshUrl.searchParams.set("grant_type", "refresh_token");
 
-  const res = await fetch(refreshUrl.toString(), { method: "GET", headers: { accept: "application/json" } });
-  const payload = await res.json().catch(() => null);
+  const { res, payload } = await fetchJsonWithTimeout("TikTok token refresh", refreshUrl.toString(), {
+    method: "GET",
+    headers: { accept: "application/json" },
+  });
   if (!res.ok || !payload || (payload.code !== undefined && String(payload.code) !== "0" && String(payload.code).toLowerCase() !== "success")) {
     await markMarketplaceAuthExpired(admin, account, `Refresh token TikTok gagal: ${JSON.stringify(maskTokenObject(payload))}`);
     throw new Error(`Refresh token TikTok gagal. Reconnect TikTok Shop diperlukan. Detail: ${JSON.stringify(maskTokenObject(payload))}`);
@@ -2597,7 +3166,37 @@ async function markMarketplaceAuthExpired(admin: any, account: any, message: str
 
 function isTikTokAuthError(err: unknown): boolean {
   const message = String(err).toLowerCase();
-  return message.includes("105001") || message.includes("access token is invalid") || message.includes("invalid access token") || message.includes("401");
+  return message.includes("105001")
+    || message.includes("105004")
+    || message.includes("access token is invalid")
+    || message.includes("invalid access token")
+    || message.includes("invalid shop_cipher")
+    || message.includes("shop_cipher")
+    || message.includes("token expired")
+    || message.includes("reconnect tiktok")
+    || message.includes("401");
+}
+
+function isTikTokRateLimitError(err: unknown): boolean {
+  const message = String(err).toLowerCase();
+  return message.includes("105002")
+    || message.includes("105003")
+    || message.includes("frequency limit")
+    || message.includes("rate limit")
+    || message.includes("qps limit")
+    || message.includes("too many requests")
+    || message.includes("429");
+}
+
+function isTikTokServerAbnormalError(err: unknown): boolean {
+  const message = String(err).toLowerCase();
+  return message.includes("500")
+    || message.includes("502")
+    || message.includes("503")
+    || message.includes("504")
+    || message.includes("bad gateway")
+    || message.includes("gateway timeout")
+    || message.includes("service unavailable");
 }
 
 async function signTikTokRequest(path: string, params: Record<string, string>, bodyString: string, secret: string): Promise<string> {
@@ -2761,8 +3360,44 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "content-type": "application/json; charset=utf-8" },
+    headers: {
+      ...corsHeaders,
+      "content-type": "application/json; charset=utf-8",
+      "connection": "close",
+    },
   });
+}
+
+function marketplaceFetchTimeoutMs(): number {
+  return clampInt(Deno.env.get("MARKETPLACE_ORDER_PULL_FETCH_TIMEOUT_MS"), 1000, 8000, 4500);
+}
+
+function boundedFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...(init || {}), keepalive: false });
+}
+
+async function fetchJsonWithTimeout(label: string, url: string, init: RequestInit): Promise<{ res: Response; payload: any }> {
+  const timeoutMs = marketplaceFetchTimeoutMs();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      keepalive: false,
+    });
+    const payload = await res.json().catch(() => null);
+    return { res, payload };
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    if (err.name === "AbortError") {
+      throw new Error(`${label} timeout ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function mask(value: string): string {
@@ -2807,3 +3442,45 @@ function base64ToBytes(value: string): Uint8Array {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
+
+function envCronSecret(): string {
+  return String(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
+    "",
+  ).trim();
+}
+
+function requestCronSecret(req: Request, body?: any, params?: any): string {
+  return String(
+    req.headers.get("x-marketplace-cron-secret") ||
+    req.headers.get("x-stock-sync-cron-secret") ||
+    params?.cron_secret ||
+    params?.marketplace_cron_secret ||
+    params?.x_marketplace_cron_secret ||
+    params?.secret ||
+    body?.cron_secret ||
+    body?.marketplace_cron_secret ||
+    body?.x_marketplace_cron_secret ||
+    body?.secret ||
+    "",
+  ).trim();
+}
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<boolean> {
+  if (!incomingSecret) return false;
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) return true;
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return false;
+}
+

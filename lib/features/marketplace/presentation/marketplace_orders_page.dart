@@ -9,6 +9,7 @@ import '../../../core/constants/marketplace_providers.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../models/app_user.dart';
 import '../../stock/presentation/stock_out_page.dart';
+import '../../subscription/presentation/feature_gate_page.dart';
 import '../models/marketplace_account_public.dart';
 import '../models/marketplace_order_item.dart';
 import '../models/marketplace_order_summary.dart';
@@ -45,9 +46,12 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   bool _isSavingAutoPullSetting = false;
   MarketplaceOrderAutoPullSetting? _autoPullSetting;
   MarketplaceOrderPullJobDigest? _orderJobDigest;
+  DateTime? _orderDispatcherLastSuccessAt;
   String? _autoPullSettingWarning;
   String? _errorMessage;
   int _backgroundRefreshToken = 0;
+  int _ordersLoadToken = 0;
+  String _lastOrderDigestSignature = '';
   bool get _canDeleteBusinessData =>
       AppRolePermissions.canDeleteBusinessData(widget.currentUser.role.roleId);
 
@@ -66,7 +70,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   String _filterAccountId = _savedFilterAccountId ?? 'all';
   String _filterStatus = _savedFilterStatus ?? 'all';
   int _daysBack = 1;
-  DateTime _pullStartDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _pullStartDate = _savedPullStartDate ??
+      DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime _pullEndDate = _savedPullEndDate ??
       DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
 
@@ -103,6 +108,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   @override
   void dispose() {
     _backgroundRefreshToken += 1;
+    _ordersLoadToken += 1;
     _searchController.dispose();
     super.dispose();
   }
@@ -183,6 +189,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   Future<void> _loadOrders({bool showLoader = true}) async {
+    final requestToken = ++_ordersLoadToken;
     if (showLoader) {
       setState(() {
         _isLoading = true;
@@ -206,22 +213,25 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       final hasMore = data.length > _ordersPageSize;
       final visible = hasMore ? data.take(_ordersPageSize).toList() : data;
 
-      if (!mounted) return;
+      if (!mounted || requestToken != _ordersLoadToken) return;
       setState(() {
         _orders = visible;
         _hasMoreOrders = hasMore;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || requestToken != _ordersLoadToken) return;
       setState(() => _errorMessage = _cleanError(error));
     } finally {
-      if (mounted && showLoader) setState(() => _isLoading = false);
+      if (mounted && showLoader && requestToken == _ordersLoadToken) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   Future<void> _loadMoreOrders() async {
     if (_isLoadingMoreOrders || !_hasMoreOrders) return;
     if (!mounted) return;
+    final requestToken = _ordersLoadToken;
     setState(() => _isLoadingMoreOrders = true);
 
     try {
@@ -239,7 +249,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
 
       final hasMore = data.length > _ordersPageSize;
       final visible = hasMore ? data.take(_ordersPageSize).toList() : data;
-      if (!mounted) return;
+      if (!mounted || requestToken != _ordersLoadToken) return;
       setState(() {
         _orders = [..._orders, ...visible];
         _hasMoreOrders = hasMore;
@@ -314,6 +324,9 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
           ),
         ),
       );
+      await _refreshPersistentOrderPullLog();
+      await _loadOrders(showLoader: false);
+      if (setting.enabled) unawaited(_refreshOrdersAfterBackgroundJob());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -341,16 +354,25 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     );
   }
 
-  Future<void> _refreshPersistentOrderPullLog() async {
+  Future<bool> _refreshPersistentOrderPullLog() async {
+    final dispatcherLastSuccess =
+        await _service.getLatestOrderDispatcherSuccessAt(
+      tenantId: widget.currentUser.tenantId,
+    );
     final digest = await _service.getRecentOrderPullJobDigest(
       tenantId: widget.currentUser.tenantId,
       limit: 20,
     );
-    if (!mounted || digest == null || digest.total == 0) return;
+    if (!mounted) return false;
+    _orderDispatcherLastSuccessAt = dispatcherLastSuccess;
+    if (digest == null || digest.total == 0) {
+      setState(() {});
+      return dispatcherLastSuccess != null;
+    }
 
     final updatedLabel = digest.latestUpdatedAt == null
         ? '-'
-        : '${_dateTimeWib(digest.latestUpdatedAt)} WIB';
+        : _dateTimeWib(digest.latestUpdatedAt);
     final active = digest.hasActive;
     final header =
         active ? 'Pembaruan order masih berjalan' : 'Riwayat pembaruan order';
@@ -361,14 +383,27 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
 
     setState(() {
       _orderJobDigest = digest;
+      _orderDispatcherLastSuccessAt = dispatcherLastSuccess;
+      _lastOrderDigestSignature = _orderDigestSignature(digest);
       _pullProgressFromServerActive = active;
       _pullProgressTitle = header;
       _pullProgressLines
         ..clear()
-        ..add(friendlySummary)
-        ..addAll(digest.lines.take(7).map(AppUi.userMessage));
+        ..add(friendlySummary);
       _cachePullProgress();
     });
+    return _lastOrderDigestSignature.isNotEmpty;
+  }
+
+  String _orderDigestSignature(MarketplaceOrderPullJobDigest digest) {
+    return [
+      digest.running,
+      digest.pending,
+      digest.done,
+      digest.failed,
+      digest.latestUpdatedAt?.toUtc().toIso8601String() ?? '',
+      ...digest.lines.take(3),
+    ].join('|');
   }
 
   Future<void> _pullOrders() async {
@@ -390,6 +425,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
           ),
         ),
       );
+      await _loadOrders(showLoader: false);
+      unawaited(_refreshOrdersAfterBackgroundJob());
       return;
     }
 
@@ -477,61 +514,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   Widget _pullProgressCard() {
-    if (_pullProgressTitle.trim().isEmpty && _pullProgressLines.isEmpty)
-      return const SizedBox.shrink();
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: (Theme.of(context).cardColor),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.35)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (_isPulling || _pullProgressFromServerActive)
-                SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Theme.of(context).colorScheme.primary))
-              else
-                Icon(Icons.check_circle_rounded,
-                    size: 16, color: Theme.of(context).colorScheme.primary),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  _pullProgressTitle.isEmpty
-                      ? 'Riwayat pembaruan order'
-                      : _pullProgressTitle,
-                  style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                      color: Theme.of(context).dividerColor),
-                ),
-              ),
-            ],
-          ),
-          if (_pullProgressLines.isNotEmpty) ...[
-            SizedBox(height: 8),
-            ..._pullProgressLines.take(6).map((line) => Padding(
-                  padding: const EdgeInsets.only(top: 3),
-                  child: Text(
-                    line,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 11, color: Theme.of(context).colorScheme.outline, height: 1.25),
-                  ),
-                )),
-          ],
-        ],
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   String _shortMessage(String value) {
@@ -565,45 +548,326 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   String _dateTimeWib(dynamic value) {
-    DateTime? parsed;
-    if (value is DateTime) parsed = value;
-    parsed ??= DateTime.tryParse(value?.toString() ?? '');
-    if (parsed == null) return '-';
-    final wib =
-        (parsed.isUtc ? parsed : parsed.toUtc()).add(const Duration(hours: 7));
-    final d = wib.day.toString().padLeft(2, '0');
-    final m = wib.month.toString().padLeft(2, '0');
-    final h = wib.hour.toString().padLeft(2, '0');
-    final minute = wib.minute.toString().padLeft(2, '0');
-    return '$d/$m/${wib.year} $h:$minute';
+    return AppUi.formatWibDateTime(value);
   }
 
-  Future<void> _pickPullDate({required bool isStart}) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isStart ? _pullStartDate : _pullEndDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 90)),
-      lastDate: DateTime.now().add(const Duration(days: 1)),
+  Future<void> _pickPullDateRange() async {
+    final firstDate = _dateOnly(
+      DateTime.now().subtract(const Duration(days: 90)),
+    );
+    final lastDate = _dateOnly(DateTime.now().add(const Duration(days: 1)));
+    final picked = await _showCompactPullDateRangePicker(
+      initialStart: _pullStartDate,
+      initialEnd: _pullEndDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
     );
     if (picked == null) return;
     setState(() {
-      if (isStart) {
-        _pullStartDate = _dateOnly(picked);
-        if (_pullEndDate.isBefore(_pullStartDate))
-          _pullEndDate = _pullStartDate;
-      } else {
-        _pullEndDate = _dateOnly(picked);
-        if (_pullStartDate.isAfter(_pullEndDate)) _pullStartDate = _pullEndDate;
-      }
+      _pullStartDate = _dateOnly(picked.start);
+      _pullEndDate = _dateOnly(picked.end);
       _daysBack = _selectedPullDays.clamp(1, 90).toInt();
       _rememberFilters();
     });
     await _loadOrders(showLoader: false);
   }
 
-  Widget _periodPickerField({
+  Future<DateTimeRange?> _showCompactPullDateRangePicker({
+    required DateTime initialStart,
+    required DateTime initialEnd,
+    required DateTime firstDate,
+    required DateTime lastDate,
+  }) {
+    var draftStart =
+        _clampPullDate(_dateOnly(initialStart), firstDate, lastDate);
+    var draftEnd = _clampPullDate(_dateOnly(initialEnd), firstDate, lastDate);
+    if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+    var visibleMonth = DateTime(draftStart.year, draftStart.month);
+    var pickingStart = true;
+
+    const monthNames = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
+    const weekdayNames = <String>[
+      'Sen',
+      'Sel',
+      'Rab',
+      'Kam',
+      'Jum',
+      'Sab',
+      'Min'
+    ];
+    final firstVisibleMonth = DateTime(firstDate.year, firstDate.month);
+    final lastVisibleMonth = DateTime(lastDate.year, lastDate.month);
+
+    return showDialog<DateTimeRange>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final colorScheme = Theme.of(context).colorScheme;
+
+          String monthTitle(DateTime value) =>
+              '${monthNames[value.month - 1]} ${value.year}';
+
+          void setDraftRange(DateTime start, DateTime end) {
+            draftStart = _clampPullDate(_dateOnly(start), firstDate, lastDate);
+            draftEnd = _clampPullDate(_dateOnly(end), firstDate, lastDate);
+            if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+            visibleMonth = DateTime(draftStart.year, draftStart.month);
+            pickingStart = false;
+          }
+
+          void selectDay(DateTime value) {
+            final picked =
+                _clampPullDate(_dateOnly(value), firstDate, lastDate);
+            setSheetState(() {
+              if (pickingStart) {
+                draftStart = picked;
+                if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+                pickingStart = false;
+              } else {
+                draftEnd = picked;
+                if (draftStart.isAfter(draftEnd)) draftStart = draftEnd;
+              }
+            });
+          }
+
+          Widget dayCell(int index) {
+            final firstOfMonth =
+                DateTime(visibleMonth.year, visibleMonth.month);
+            final daysInMonth =
+                DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+            final day = index - (firstOfMonth.weekday - DateTime.monday) + 1;
+            if (day < 1 || day > daysInMonth) {
+              return const SizedBox(width: 40, height: 36);
+            }
+
+            final date =
+                _dateOnly(DateTime(visibleMonth.year, visibleMonth.month, day));
+            final disabled = date.isBefore(firstDate) || date.isAfter(lastDate);
+            final isStart = DateUtils.isSameDay(date, draftStart);
+            final isEnd = DateUtils.isSameDay(date, draftEnd);
+            final inRange = date.isAfter(draftStart) && date.isBefore(draftEnd);
+            final selected = isStart || isEnd;
+
+            Color? backgroundColor;
+            Color? foregroundColor;
+            if (selected) {
+              backgroundColor =
+                  isStart ? colorScheme.primary : colorScheme.secondary;
+              foregroundColor = colorScheme.onPrimary;
+            } else if (inRange) {
+              backgroundColor = colorScheme.primary.withValues(alpha: 0.10);
+              foregroundColor = colorScheme.onSurface;
+            } else if (disabled) {
+              foregroundColor = colorScheme.onSurface.withValues(alpha: 0.38);
+            } else {
+              foregroundColor = colorScheme.onSurface;
+            }
+
+            return SizedBox(
+              width: 40,
+              height: 36,
+              child: TextButton(
+                onPressed: disabled ? null : () => selectDay(date),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(40, 36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  foregroundColor: foregroundColor,
+                  backgroundColor: backgroundColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: Text('$day'),
+              ),
+            );
+          }
+
+          Widget calendarGrid() {
+            final firstOfMonth =
+                DateTime(visibleMonth.year, visibleMonth.month);
+            final daysInMonth =
+                DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+            final leading = firstOfMonth.weekday - DateTime.monday;
+            final totalCells = ((leading + daysInMonth + 6) ~/ 7) * 7;
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (final weekday in weekdayNames)
+                      SizedBox(
+                        width: 40,
+                        height: 24,
+                        child: Center(
+                          child: Text(
+                            weekday,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (var i = 0; i < totalCells; i++) dayCell(i),
+                  ],
+                ),
+              ],
+            );
+          }
+
+          return AlertDialog(
+            title: const Text('Pilih periode penarikan'),
+            content: SizedBox(
+              width: 332,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: Text('Dari ${_dateLabel(draftStart)}'),
+                        selected: pickingStart,
+                        onSelected: (_) =>
+                            setSheetState(() => pickingStart = true),
+                      ),
+                      ChoiceChip(
+                        label: Text('Sampai ${_dateLabel(draftEnd)}'),
+                        selected: !pickingStart,
+                        onSelected: (_) =>
+                            setSheetState(() => pickingStart = false),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Bulan sebelumnya',
+                        onPressed: visibleMonth.isAfter(firstVisibleMonth)
+                            ? () => setSheetState(() {
+                                  visibleMonth = DateTime(visibleMonth.year,
+                                      visibleMonth.month - 1);
+                                })
+                            : null,
+                        icon: const Icon(Icons.chevron_left_rounded),
+                      ),
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            monthTitle(visibleMonth),
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Bulan berikutnya',
+                        onPressed: visibleMonth.isBefore(lastVisibleMonth)
+                            ? () => setSheetState(() {
+                                  visibleMonth = DateTime(visibleMonth.year,
+                                      visibleMonth.month + 1);
+                                })
+                            : null,
+                        icon: const Icon(Icons.chevron_right_rounded),
+                      ),
+                    ],
+                  ),
+                  calendarGrid(),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ActionChip(
+                        label: const Text('Hari ini'),
+                        onPressed: () => setSheetState(() {
+                          final today = _dateOnly(DateTime.now());
+                          setDraftRange(today, today);
+                        }),
+                      ),
+                      ActionChip(
+                        label: const Text('Bulan ini'),
+                        onPressed: () => setSheetState(() {
+                          final now = DateTime.now();
+                          setDraftRange(
+                            DateTime(now.year, now.month),
+                            _dateOnly(now),
+                          );
+                        }),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(
+                    dialogContext,
+                    DateTimeRange(start: draftStart, end: draftEnd),
+                  );
+                },
+                child: const Text('Terapkan'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  DateTime _clampPullDate(
+    DateTime value,
+    DateTime firstDate,
+    DateTime lastDate,
+  ) {
+    final date = _dateOnly(value);
+    if (date.isBefore(firstDate)) return firstDate;
+    if (date.isAfter(lastDate)) return lastDate;
+    return date;
+  }
+
+  Widget _dateRangePickerField({
     required String label,
-    required DateTime value,
+    required DateTime startDate,
+    required DateTime endDate,
     required VoidCallback onTap,
   }) {
     return InkWell(
@@ -615,7 +879,10 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
           border: const OutlineInputBorder(),
           suffixIcon: Icon(Icons.calendar_month_rounded, size: 18),
         ),
-        child: Text(_dateLabel(value), overflow: TextOverflow.ellipsis),
+        child: Text(
+          '${_dateLabel(startDate)} - ${_dateLabel(endDate)}',
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     );
   }
@@ -706,7 +973,13 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   Future<void> _openStockOut() async {
     await Navigator.push<void>(
       context,
-      MaterialPageRoute(builder: (_) => const StockOutPage()),
+      MaterialPageRoute(
+        builder: (_) => FeatureGatePage(
+          featureKey: 'stock_basic',
+          featureLabel: 'Stock Out',
+          child: StockOutPage(),
+        ),
+      ),
     );
     await _loadOrders(showLoader: false);
   }
@@ -715,10 +988,14 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => MarketplaceRefundMonitorPage(
-          currentUser: widget.currentUser,
-          accounts: _accounts,
-          initialAccountId: _filterAccountId,
+        builder: (_) => FeatureGatePage(
+          featureKey: 'marketplace_return_refund',
+          featureLabel: 'Refund / retur marketplace',
+          child: MarketplaceRefundMonitorPage(
+            currentUser: widget.currentUser,
+            accounts: _accounts,
+            initialAccountId: _filterAccountId,
+          ),
         ),
       ),
     );
@@ -768,7 +1045,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                       style: Theme.of(context)
                           .textTheme
                           .titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w900),
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     SizedBox(height: 8),
                     _detailRow('Marketplace',
@@ -787,7 +1064,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                         ),
                         if (order.resiText != '-')
                           OutlinedButton.icon(
-                            onPressed: () => _copyValue('Resi', order.resiText),
+                            onPressed: () => _copyValue('Resi Fisik Stock Out',
+                                order.stockOutReferenceText),
                             icon: Icon(Icons.copy_rounded, size: 18),
                             label: Text('Copy Resi'),
                           ),
@@ -800,7 +1078,11 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                         order.hasPendingReturnReview
                             ? order.reviewBadgeLabel
                             : order.stockActionLabel),
-                    _detailRow('Resi', order.resiText),
+                    _detailRow(
+                        'Tracking Marketplace', order.trackingDisplayText),
+                    _detailRow(
+                        'Resi Fisik Stock Out', order.stockOutReferenceText),
+                    _detailRow('Sumber resi', order.resiSourceText),
                     _detailRow('Order time', order.orderTimeText),
                     _detailRow('Diambil', order.pulledTimeText),
                     if (order.hasCancelRequest) ...[
@@ -835,7 +1117,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                         style: Theme.of(context)
                             .textTheme
                             .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w900)),
+                            ?.copyWith(fontWeight: FontWeight.w800)),
                     SizedBox(height: 8),
                     if (items.isEmpty)
                       _emptyBox('Belum ada item order.')
@@ -1117,13 +1399,15 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     final jobDigest = _orderJobDigest;
     final settingUpdatedAt = setting?.lastAutoRunAt ?? setting?.updatedAt;
     final jobUpdatedAt = jobDigest?.latestUpdatedAt;
-    final latestUpdatedAt = jobUpdatedAt != null &&
-            (settingUpdatedAt == null || jobUpdatedAt.isAfter(settingUpdatedAt))
-        ? jobUpdatedAt
-        : settingUpdatedAt;
+    final latestUpdatedAt = _orderDispatcherLastSuccessAt ??
+        (jobUpdatedAt != null &&
+                (settingUpdatedAt == null ||
+                    jobUpdatedAt.isAfter(settingUpdatedAt))
+            ? jobUpdatedAt
+            : settingUpdatedAt);
     final updatedText = latestUpdatedAt == null
-        ? 'Updated: -'
-        : 'Updated: ${_dateTimeWib(latestUpdatedAt)} WIB';
+        ? 'Last order pull: -'
+        : 'Last order pull: ${_dateTimeWib(latestUpdatedAt)}';
     final jobSummary = jobDigest == null
         ? null
         : 'Antrean: menunggu ${jobDigest.pending}, berjalan ${jobDigest.running}, selesai ${jobDigest.done}, gagal ${jobDigest.failed}';
@@ -1132,7 +1416,12 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: (Theme.of(context).dividerColor)),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.5,
+              ),
+          width: 0.8,
+        ),
       ),
       child: Row(
         children: [
@@ -1151,7 +1440,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
                     style: Theme.of(context)
                         .textTheme
                         .titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w900)),
+                        ?.copyWith(fontWeight: FontWeight.w800)),
                 SizedBox(height: 2),
                 Text(
                   _autoPullSettingWarning != null
@@ -1218,7 +1507,36 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   Widget _filterBox() {
-    final accounts = _filteredAccounts;
+    // 1. Guard marketplace filter value
+    final activeMarketplaces =
+        MarketplaceProviders.active.map((p) => p.id).toSet();
+    if (_filterMarketplace != 'all' &&
+        !activeMarketplaces.contains(_filterMarketplace)) {
+      _filterMarketplace = 'all';
+    }
+
+    // 2. Deduplicate accounts list and guard account filter value
+    final uniqueAccountsMap = <String, MarketplaceAccountPublic>{};
+    for (final account in _filteredAccounts) {
+      final key = account.marketplaceAccountId.trim();
+      if (key.isNotEmpty) {
+        uniqueAccountsMap.putIfAbsent(key, () => account);
+      }
+    }
+    final accounts = uniqueAccountsMap.values.toList();
+    final matchedAccountCount = accounts
+        .where((item) => item.marketplaceAccountId == _filterAccountId)
+        .length;
+    if (_filterAccountId != 'all' && matchedAccountCount != 1) {
+      _filterAccountId = 'all';
+    }
+
+    // 3. Guard status filter value
+    final validStatuses = _statuses.map((item) => item.key).toSet();
+    if (!validStatuses.contains(_filterStatus)) {
+      _filterStatus = _statuses.isNotEmpty ? _statuses.first.key : 'all';
+    }
+
     return Column(
       children: [
         DropdownButtonFormField<String>(
@@ -1288,24 +1606,11 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
           },
         ),
         SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _periodPickerField(
-                label: 'Dari',
-                value: _pullStartDate,
-                onTap: () => _pickPullDate(isStart: true),
-              ),
-            ),
-            SizedBox(width: 10),
-            Expanded(
-              child: _periodPickerField(
-                label: 'Sampai',
-                value: _pullEndDate,
-                onTap: () => _pickPullDate(isStart: false),
-              ),
-            ),
-          ],
+        _dateRangePickerField(
+          label: 'Periode Penarikan',
+          startDate: _pullStartDate,
+          endDate: _pullEndDate,
+          onTap: _pickPullDateRange,
         ),
         SizedBox(height: 10),
         TextField(
@@ -1333,106 +1638,110 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     final color = hasPendingReview
         ? (Theme.of(context).colorScheme).error
         : _statusColor(order.stockActionStatus);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _openDetail(order),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      order.externalOrderId,
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w900),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: NiceCard(
+        padding: EdgeInsets.zero,
+        child: InkWell(
+          borderRadius: AppTheme.radiusMd,
+          onTap: () => _openDetail(order),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        order.externalOrderId,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
                     ),
-                  ),
-                  _statusBadge(
-                      hasPendingReview
-                          ? order.reviewBadgeLabel
-                          : order.stockActionLabel,
-                      color),
-                ],
-              ),
-              SizedBox(height: 8),
-              Text('${order.marketplace} · ${order.accountName}'),
-              SizedBox(height: 4),
-              Text('Order: ${order.orderStatusLabel} · ${order.orderTimeText}'),
-              if (order.hasCancelRequest) ...[
-                SizedBox(height: 6),
-                _warningBox(
-                  'Cancel request',
-                  order.cancelRequestSummary,
-                  compact: true,
+                    _statusBadge(
+                        hasPendingReview
+                            ? order.reviewBadgeLabel
+                            : order.stockActionLabel,
+                        color),
+                  ],
                 ),
-              ],
-              if (order.hasPendingReturnReview) ...[
-                SizedBox(height: 6),
-                _warningBox(
-                  'Perlu cek refund/cancel',
-                  order.pendingReturnReviewSummary,
-                  compact: true,
-                ),
-              ],
-              if (order.resiText != '-') ...[
-                SizedBox(height: 4),
-                Text('Resi: ${order.resiText}'),
-              ],
-              SizedBox(height: 4),
-              Text(
-                  'Item: ${order.itemCount} · Qty: ${order.qtyTotal.toStringAsFixed(0)} · Mapping: ${order.mappedItemCount} · Belum Mapping: ${order.unmappedItemCount}'),
-              if (order.reservedItemCount > 0 ||
-                  order.scannedDoneItemCount > 0) ...[
+                SizedBox(height: 8),
+                Text('${order.marketplace} · ${order.accountName}'),
                 SizedBox(height: 4),
                 Text(
-                    'Disiapkan item: ${order.reservedItemCount} · Selesai scan: ${order.scannedDoneItemCount}'),
-              ],
-              if ((order.lastError ?? '').trim().isNotEmpty) ...[
-                SizedBox(height: 6),
-                Text(order.lastError!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style:
-                        TextStyle(color: (Theme.of(context).colorScheme).error)),
-              ],
-              SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  TextButton.icon(
-                      onPressed: () => _openDetail(order),
-                      icon: Icon(Icons.info_outline_rounded),
-                      label: Text('Detail')),
-                  if (order.canProcessStockOut)
-                    FilledButton.tonalIcon(
-                      onPressed:
-                          _isProcessing ? null : () => _reserveOne(order),
-                      icon: Icon(Icons.inventory_2_outlined),
-                      label: Text('Reserve'),
-                    ),
-                  if (order.canOpenPickScan || order.canFinalizeStockOut)
-                    FilledButton.tonalIcon(
-                      onPressed: _isProcessing ? null : _openStockOut,
-                      icon: Icon(Icons.output_outlined),
-                      label: Text('Stock Out'),
-                    ),
-                  if (order.needsReturnReview)
-                    OutlinedButton.icon(
-                      onPressed: _openRefundMonitor,
-                      icon: Icon(Icons.assignment_return_outlined),
-                      label: Text('Review'),
-                    ),
+                    'Order: ${order.orderStatusLabel} · ${order.orderTimeText}'),
+                if (order.hasCancelRequest) ...[
+                  SizedBox(height: 6),
+                  _warningBox(
+                    'Cancel request',
+                    order.cancelRequestSummary,
+                    compact: true,
+                  ),
                 ],
-              ),
-            ],
+                if (order.hasPendingReturnReview) ...[
+                  SizedBox(height: 6),
+                  _warningBox(
+                    'Perlu cek refund/cancel',
+                    order.pendingReturnReviewSummary,
+                    compact: true,
+                  ),
+                ],
+                if (order.resiText != '-') ...[
+                  SizedBox(height: 4),
+                  Text('Resi: ${order.resiText}'),
+                ],
+                SizedBox(height: 4),
+                Text(
+                    'Item: ${order.itemCount} · Qty: ${order.qtyTotal.toStringAsFixed(0)} · Mapping: ${order.mappedItemCount} · Belum Mapping: ${order.unmappedItemCount}'),
+                if (order.reservedItemCount > 0 ||
+                    order.scannedDoneItemCount > 0) ...[
+                  SizedBox(height: 4),
+                  Text(
+                      'Disiapkan item: ${order.reservedItemCount} · Selesai scan: ${order.scannedDoneItemCount}'),
+                ],
+                if ((order.lastError ?? '').trim().isNotEmpty) ...[
+                  SizedBox(height: 6),
+                  Text(order.lastError!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: (Theme.of(context).colorScheme).error)),
+                ],
+                SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    TextButton.icon(
+                        onPressed: () => _openDetail(order),
+                        icon: Icon(Icons.info_outline_rounded),
+                        label: Text('Detail')),
+                    if (order.canProcessStockOut)
+                      FilledButton.tonalIcon(
+                        onPressed:
+                            _isProcessing ? null : () => _reserveOne(order),
+                        icon: Icon(Icons.inventory_2_outlined),
+                        label: Text('Reserve'),
+                      ),
+                    if (order.canOpenPickScan || order.canFinalizeStockOut)
+                      FilledButton.tonalIcon(
+                        onPressed: _isProcessing ? null : _openStockOut,
+                        icon: Icon(Icons.output_outlined),
+                        label: Text('Stock Out'),
+                      ),
+                    if (order.needsReturnReview)
+                      OutlinedButton.icon(
+                        onPressed: _openRefundMonitor,
+                        icon: Icon(Icons.assignment_return_outlined),
+                        label: Text('Review'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1448,7 +1757,12 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: (Theme.of(context).dividerColor)),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.5,
+              ),
+          width: 0.8,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1508,7 +1822,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
         color: color.withOpacity(0.12),
-        border: Border.all(color: color.withOpacity(0.35)),
+        border: Border.all(color: color.withOpacity(0.22), width: 0.8),
       ),
       child: Text(text,
           style: TextStyle(
@@ -1553,8 +1867,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
         children: [
           SizedBox(
               width: 120,
-              child: Text(label,
-                  style: TextStyle(fontWeight: FontWeight.w700))),
+              child:
+                  Text(label, style: TextStyle(fontWeight: FontWeight.w700))),
           Expanded(child: SelectableText(value)),
         ],
       ),
@@ -1569,7 +1883,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         color: color.withOpacity(0.10),
-        border: Border.all(color: color.withOpacity(0.35)),
+        border: Border.all(color: color.withOpacity(0.22), width: 0.8),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1583,7 +1897,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
               children: [
                 Text(title,
                     style:
-                        TextStyle(color: color, fontWeight: FontWeight.w900)),
+                        TextStyle(color: color, fontWeight: FontWeight.w800)),
                 if (message.trim().isNotEmpty) ...[
                   SizedBox(height: 3),
                   Text(
@@ -1609,8 +1923,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
           borderRadius: BorderRadius.circular(12),
           color: (Theme.of(context).colorScheme).errorContainer),
       child: Text(text,
-          style:
-              TextStyle(color: (Theme.of(context).colorScheme).onErrorContainer)),
+          style: TextStyle(
+              color: (Theme.of(context).colorScheme).onErrorContainer)),
     );
   }
 
@@ -1619,7 +1933,12 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: (Theme.of(context).dividerColor))),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                  Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.5,
+                ),
+            width: 0.8,
+          )),
       child: Text(text),
     );
   }

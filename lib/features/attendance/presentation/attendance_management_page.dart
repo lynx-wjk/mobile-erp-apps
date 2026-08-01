@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/ui/app_ui.dart';
 import '../models/attendance_log.dart';
 import '../repositories/attendance_repository.dart';
 
@@ -8,8 +9,7 @@ class AbsensiManagementPage extends StatefulWidget {
   const AbsensiManagementPage({super.key});
 
   @override
-  State<AbsensiManagementPage> createState() =>
-      _AbsensiManagementPageState();
+  State<AbsensiManagementPage> createState() => _AbsensiManagementPageState();
 }
 
 class _AbsensiManagementPageState extends State<AbsensiManagementPage> {
@@ -82,11 +82,7 @@ class _AbsensiManagementPageState extends State<AbsensiManagementPage> {
   }
 
   String _formatDateTime(DateTime dateTime) {
-    final d = dateTime.toLocal();
-
-    String two(int value) => value.toString().padLeft(2, '0');
-
-    return '${two(d.day)}/${two(d.month)}/${d.year} ${two(d.hour)}:${two(d.minute)}';
+    return AppUi.formatWibDateTime(dateTime);
   }
 
   Widget _buildBody() {
@@ -121,26 +117,43 @@ class _AbsensiManagementPageState extends State<AbsensiManagementPage> {
         itemCount: logs.length,
         itemBuilder: (context, index) {
           final log = logs[index];
+          final isCheckIn = log.attendanceType == 'CHECK_IN';
+          final accent = isCheckIn ? AppUi.green : AppUi.orange;
 
-          return Card(
-            child: ListTile(
-              leading: CircleAvatar(
-                child: Icon(
-                  log.attendanceType == 'CHECK_IN'
-                      ? Icons.login_outlined
-                      : Icons.logout_outlined,
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: NiceCard(
+              padding: EdgeInsets.zero,
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(14),
+                leading: CircleAvatar(
+                  backgroundColor: accent.withOpacity(0.12),
+                  foregroundColor: accent,
+                  child: Icon(
+                    isCheckIn ? Icons.login_outlined : Icons.logout_outlined,
+                  ),
                 ),
+                title: Text(
+                  '${log.namaUser ?? '-'} - ${log.typeLabel}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text(
+                  'Email: ${log.emailUser ?? '-'}\n'
+                  'Role: ${log.roleId ?? '-'}\n'
+                  'Waktu: ${_formatDateTime(log.createdAt)}\n'
+                  'Lokasi: ${log.locationText}\n'
+                  'Akurasi: ${log.accuracy?.toStringAsFixed(1) ?? '-'} meter\n'
+                  'Catatan: ${log.catatan ?? '-'}',
+                  style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.68),
+                    height: 1.35,
+                  ),
+                ),
+                isThreeLine: false,
               ),
-              title: Text('${log.namaUser ?? '-'} - ${log.typeLabel}'),
-              subtitle: Text(
-                'Email: ${log.emailUser ?? '-'}\n'
-                    'Role: ${log.roleId ?? '-'}\n'
-                    'Waktu: ${_formatDateTime(log.createdAt)}\n'
-                    'Lokasi: ${log.locationText}\n'
-                    'Akurasi: ${log.accuracy?.toStringAsFixed(1) ?? '-'} meter\n'
-                    'Catatan: ${log.catatan ?? '-'}',
-              ),
-              isThreeLine: false,
             ),
           );
         },

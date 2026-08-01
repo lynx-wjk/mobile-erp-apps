@@ -58,8 +58,22 @@ class MarketplaceOrderItem {
   });
 
   factory MarketplaceOrderItem.fromMap(Map<String, dynamic> map) {
+    final rawMappingStatus =
+        map['mapping_status']?.toString().trim().toLowerCase() ?? 'unmapped';
+    final rawMappedProductId =
+        map['mapped_product_id']?.toString().trim() ?? '';
+    final rawMappedLocalSku = map['mapped_local_sku']?.toString().trim() ?? '';
+    final rawMarketplaceSkuMapId =
+        map['marketplace_sku_map_id']?.toString().trim() ?? '';
+    final hasMappedSku =
+        rawMappedLocalSku.isNotEmpty && rawMappedLocalSku != '-';
+    final isMapped = rawMappingStatus == 'mapped' &&
+        rawMarketplaceSkuMapId.isNotEmpty &&
+        (rawMappedProductId.isNotEmpty || hasMappedSku);
+
     return MarketplaceOrderItem(
-      marketplaceOrderItemId: map['marketplace_order_item_id']?.toString() ?? '',
+      marketplaceOrderItemId:
+          map['marketplace_order_item_id']?.toString() ?? '',
       marketplaceOrderId: map['marketplace_order_id']?.toString() ?? '',
       externalOrderItemId: map['external_order_item_id']?.toString() ?? '',
       marketplaceProductId: map['marketplace_product_id']?.toString() ?? '-',
@@ -68,34 +82,47 @@ class MarketplaceOrderItem {
       productName: map['product_name']?.toString() ?? '-',
       variantName: map['variant_name']?.toString() ?? '-',
       quantity: num.tryParse(map['quantity']?.toString() ?? '') ?? 0,
-      mappedProductId: map['mapped_product_id']?.toString(),
-      mappedLocalSku: map['mapped_local_sku']?.toString() ?? '-',
-      marketplaceSkuMapId: map['marketplace_sku_map_id']?.toString(),
-      mappingStatus: map['mapping_status']?.toString() ?? 'unmapped',
-      mappingLabel: map['mapping_label']?.toString() ?? 'Unmapped',
+      mappedProductId: isMapped ? rawMappedProductId : null,
+      mappedLocalSku: isMapped ? rawMappedLocalSku : '-',
+      marketplaceSkuMapId: isMapped ? rawMarketplaceSkuMapId : null,
+      mappingStatus: isMapped ? 'mapped' : 'unmapped',
+      mappingLabel:
+          isMapped ? map['mapping_label']?.toString() ?? 'Mapped' : 'Unmapped',
       stockActionStatus: map['stock_action_status']?.toString() ?? 'pending',
       stockActionLabel: map['stock_action_label']?.toString() ?? 'Pending',
       reservedQty: num.tryParse(map['reserved_qty']?.toString() ?? '') ?? 0,
       scannedQty: num.tryParse(map['scanned_qty']?.toString() ?? '') ?? 0,
       returnedQty: num.tryParse(map['returned_qty']?.toString() ?? '') ?? 0,
-      localProductName: map['local_product_name']?.toString() ?? '-',
-      localBarcode: map['local_barcode']?.toString() ?? '-',
-      localStock: num.tryParse(map['local_stock']?.toString() ?? '') ?? 0,
-      reservedStockTotal: num.tryParse(map['reserved_stock_total']?.toString() ?? '') ?? 0,
-      availableStock: num.tryParse(map['available_stock']?.toString() ?? '') ?? 0,
+      localProductName:
+          isMapped ? map['local_product_name']?.toString() ?? '-' : '-',
+      localBarcode: isMapped ? map['local_barcode']?.toString() ?? '-' : '-',
+      localStock: isMapped
+          ? num.tryParse(map['local_stock']?.toString() ?? '') ?? 0
+          : 0,
+      reservedStockTotal: isMapped
+          ? num.tryParse(map['reserved_stock_total']?.toString() ?? '') ?? 0
+          : 0,
+      availableStock: isMapped
+          ? num.tryParse(map['available_stock']?.toString() ?? '') ?? 0
+          : 0,
       lastError: map['last_error']?.toString(),
       trackingNumber: map['tracking_number']?.toString() ?? '',
       packageId: map['package_id']?.toString() ?? '',
     );
   }
 
-  bool get isMapped => mappingStatus == 'mapped' && mappedProductId != null;
+  bool get isMapped =>
+      mappingStatus == 'mapped' &&
+      (marketplaceSkuMapId?.trim().isNotEmpty ?? false) &&
+      ((mappedProductId?.trim().isNotEmpty ?? false) ||
+          mappedLocalSku.trim().isNotEmpty && mappedLocalSku.trim() != '-');
 
   bool get isDone => stockActionStatus == 'stock_out_done';
 
   bool get scanComplete => scannedQty >= quantity && quantity > 0;
 
-  String get scanProgressText => '${_formatQty(scannedQty)}/${_formatQty(quantity)}';
+  String get scanProgressText =>
+      '${_formatQty(scannedQty)}/${_formatQty(quantity)}';
 
   String get reserveText => _formatQty(reservedQty);
 

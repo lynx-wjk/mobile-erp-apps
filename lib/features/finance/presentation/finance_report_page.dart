@@ -1,15 +1,16 @@
-﻿import 'dart:convert';
-import 'dart:io';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:excel/excel.dart' hide Border;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/utils/file_download.dart';
 import '../services/finance_local_cache.dart';
 
 class FinanceReportPage extends StatefulWidget {
@@ -29,6 +30,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   bool _loading = true;
   bool _processing = false;
+  bool _skuLoaded = false;
+  bool _skuLoadingFirstPage = false;
+  bool _isSyncingHpp = false;
+  bool _sampleFreeLoaded = false;
+  bool _sampleFreeLoading = false;
+  String? _sampleFreeError;
+  bool _operationalCostsLoaded = false;
+  bool _operationalCostsLoading = false;
+  String? _operationalCostsError;
+  bool _profitLossLoaded = false;
+  bool _profitLossLoading = false;
+  String? _profitLossError;
   bool _financeAutoSyncEnabled = false;
   bool _financeAutoSyncBusy = false;
   bool _filterExpanded = false;
@@ -45,18 +58,47 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _serverAbnormales = [];
   bool _abnormalServerLoaded = false;
   bool _abnormalSearchBusy = false;
+  String? _abnormalLoadError;
   int _abnormalPage = 1;
   int _abnormalTotal = 0;
   static const int _abnormalPageSize = 20;
   String? _error;
   String _currentRoleId = '';
   String _currentTenantId = '';
+  String _currentUserId = '';
+  String _currentUserName = '';
+  String _currentUserEmail = '';
   String _lastSnapshotStats = '';
+  static const bool _enableSkuDebugLogs = false;
+  String _lastSkuDebugProof = '';
+  String _marketplaceFinanceGapMessage = '';
+  int _lastSkuRpcRowCount = 0;
+  int _lastSkuParsedRowCount = 0;
+  int _lastSkuMergedRowCount = 0;
+  int _lastSkuRenderedRowCount = 0;
   Map<String, dynamic> _marketplaceBootstrapUiStatus =
       const <String, dynamic>{};
+  Map<String, dynamic> _dispatcherSnapshot = const <String, dynamic>{};
   int _financeLoadSerial = 0;
+  final Map<String, Future<dynamic>> _activeFinanceRequests = {};
+  final Map<String, dynamic> _financeLoadCache = {};
+  Map<String, dynamic> _skuPayoutCountSummaryMap = {};
+
+  bool _isCurrentFilter(
+      String startKey, String endKey, String mktKey, String accKey) {
+    return mounted &&
+        _toDateParam(_start) == startKey &&
+        _toDateParam(_end) == endKey &&
+        (_normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all') == mktKey &&
+        _accountFilter == accKey;
+  }
+
+  bool _sampleFreeDetailsLoaded = false;
+  bool _sampleFreeDetailsLoading = false;
+  String? _sampleFreeDetailsError;
+  final Set<String> _expandedReconciliations = {};
   static const String _financeCacheVersion =
-      'finance_live_20260606_local_cache_fast_v20';
+      'finance_live_20260727_v56_timeout_90s';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -65,6 +107,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       AppRolePermissions.isDemoSuperAdminId(_currentRoleId);
   bool get _canAccessFinance =>
       AppRolePermissions.canAccessFinance(_currentRoleId);
+  bool get _canWriteFinance =>
+      _canAccessFinance &&
+      !_isDemoSuperAdmin &&
+      _currentTenantId.trim().isNotEmpty;
 
   static DateTime? _savedStartDate;
   static DateTime? _savedEndDate;
@@ -83,15 +129,33 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _approvedPurchases = [];
   List<Map<String, dynamic>> _byMarketplace = [];
   List<Map<String, dynamic>> _bySku = [];
+  int _skuPage = 1;
+  int _skuServerPageLoaded = 1;
+  bool _skuHasMoreServerRows = true;
+  bool _skuLoadingMore = false;
+  int _skuServerTotalPages = 1;
+  int _skuServerTotalCount = 0;
+  static const int _skuPageSize = 100;
+  static const int _skuDetailPageSize = 25;
+  String? _skuDetailBusyKey;
+  final Map<String, int> _skuUnpaidCountMap = {};
+  final Map<String, int> _skuPaidCountMap = {};
   List<Map<String, dynamic>> _cashFlow = [];
+  List<Map<String, dynamic>> _cashOpeningBalances = [];
+  List<Map<String, dynamic>> _cashAdjustments = [];
+  List<Map<String, dynamic>> _marketplaceWithdrawals = [];
+  List<Map<String, dynamic>> _withdrawalAllocations = [];
   List<Map<String, dynamic>> _expenses = [];
   List<Map<String, dynamic>> _profitLoss = [];
+  List<Map<String, dynamic>> _profitLossByMarketplace = [];
   List<Map<String, dynamic>> _abnormals = [];
+  List<Map<String, dynamic>> _sampleFreeOrders = [];
 
   static const List<String> _baseExpenseCategories = [
     'Salary',
     'Utilitas',
     'Operasional',
+    'Ongkos Produksi',
   ];
   List<String> _expenseCategoryOptions =
       List<String>.from(_baseExpenseCategories);
@@ -103,15 +167,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     _savedAccountFilter = _accountFilter;
   }
 
+  void _normalizeCurrentFinanceFilters() {
+    _marketplaceFilter =
+        _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    if (_accountFilter != 'all' && !_isUuid(_accountFilter)) {
+      _accountFilter = 'all';
+    }
+    _rememberFilters();
+  }
+
   @override
   void initState() {
     super.initState();
-    _marketplaceFilter =
-        _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
-    _accountFilter = _accountFilter == 'all' || _isUuid(_accountFilter)
-        ? _accountFilter
-        : 'all';
-    _rememberFilters();
+    _normalizeCurrentFinanceFilters();
     _load();
   }
 
@@ -125,17 +193,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       final authUser = _client.auth.currentUser;
       if (authUser == null) return;
+      _currentUserId = authUser.id;
       final user = await _client
           .from('users')
-          .select('role_id, tenant_id')
+          .select('role_id, tenant_id, nama, email')
           .eq('user_id', authUser.id)
           .maybeSingle();
       if (!mounted) return;
       _currentRoleId = user?['role_id']?.toString() ?? '';
       _currentTenantId = user?['tenant_id']?.toString() ?? '';
+      _currentUserName = user?['nama']?.toString() ?? '';
+      _currentUserEmail = user?['email']?.toString() ?? authUser.email ?? '';
     } catch (_) {
       _currentRoleId = '';
       _currentTenantId = '';
+      _currentUserId = '';
+      _currentUserName = '';
+      _currentUserEmail = '';
     }
   }
 
@@ -169,7 +243,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<void> _loadMarketplaceBootstrapUiStatus(
       {bool showError = false}) async {
     try {
-      final response = await _client.rpc('marketplace_bootstrap_ui_status_v1');
+      final response = await _client.rpc('marketplace_bootstrap_ui_status');
       if (!mounted) return;
       setState(() {
         _marketplaceBootstrapUiStatus = response is Map
@@ -188,6 +262,101 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         );
       }
     }
+  }
+
+  Future<void> _loadDispatcherSnapshot({bool showError = false}) async {
+    if (_currentTenantId.trim().isEmpty) return;
+    try {
+      final response = await _client
+          .rpc('marketplace_dispatcher_pull_state')
+          .timeout(const Duration(seconds: 5));
+      if (!mounted) return;
+      final snapshot = _asMap(response);
+      final orderStates = _asList(snapshot['order_states'])
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList(growable: false);
+      final financeStates = _asList(snapshot['finance_states'])
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList(growable: false);
+      setState(() {
+        _dispatcherSnapshot = <String, dynamic>{
+          'order_states': orderStates,
+          'finance_states': financeStates,
+          'source': snapshot['source'] ?? 'marketplace_dispatcher_pull_state',
+        };
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _dispatcherSnapshot = const <String, dynamic>{};
+      });
+      if (showError) {
+        AppUi.safeSnack(
+          context,
+          'Status dispatcher marketplace belum tersedia.',
+        );
+      }
+    }
+  }
+
+  DateTime? _maxDate(DateTime? a, DateTime? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return b.isAfter(a) ? b : a;
+  }
+
+  DateTime? _parseServerInstant(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value.toUtc();
+    final raw = value.toString().trim();
+    if (raw.isEmpty || raw == '-') return null;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return null;
+    final hasExplicitZone =
+        RegExp(r'(z|[+-]\d{2}(:?\d{2})?)$', caseSensitive: false).hasMatch(raw);
+    if (hasExplicitZone) return parsed.toUtc();
+    return DateTime.utc(
+      parsed.year,
+      parsed.month,
+      parsed.day,
+      parsed.hour,
+      parsed.minute,
+      parsed.second,
+      parsed.millisecond,
+      parsed.microsecond,
+    );
+  }
+
+  DateTime? _latestDispatcherTimestamp(
+    String listKey,
+    List<String> fields,
+  ) {
+    DateTime? latest;
+    for (final row in _asList(_dispatcherSnapshot[listKey])) {
+      for (final field in fields) {
+        latest = _maxDate(latest, _parseServerInstant(row[field]));
+      }
+    }
+    return latest;
+  }
+
+  String _syncTimestampText(DateTime? value) {
+    if (value == null) return 'Belum tersedia';
+    final rawDiff = DateTime.now().toUtc().difference(value.toUtc());
+    final diff = rawDiff.isNegative ? Duration.zero : rawDiff;
+    String relative;
+    if (diff.inMinutes < 1) {
+      relative = 'baru saja';
+    } else if (diff.inHours < 1) {
+      relative = '${diff.inMinutes} menit lalu';
+    } else if (diff.inDays < 1) {
+      relative = '${diff.inHours} jam lalu';
+    } else {
+      relative = '${diff.inDays} hari lalu';
+    }
+    return '${_dateTime(value)} ($relative)';
   }
 
   Future<void> _setFinanceAutoSyncEnabled(bool enabled) async {
@@ -237,7 +406,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<dynamic> _loadFinanceSnapshot(Map<String, dynamic> baseParams) async {
     dynamic normalizeAccount(dynamic value) {
       final text = value?.toString().trim();
-      if (text == null || text.isEmpty || text == '-' || text.toLowerCase() == 'all') {
+      if (text == null ||
+          text.isEmpty ||
+          text == '-' ||
+          text.toLowerCase() == 'all') {
         return null;
       }
       return value;
@@ -245,15 +417,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     String? normalizeMarketplace(dynamic value) {
       final text = value?.toString().trim();
-      if (text == null || text.isEmpty || text == '-' || text.toLowerCase() == 'all') {
+      if (text == null ||
+          text.isEmpty ||
+          text == '-' ||
+          text.toLowerCase() == 'all') {
         return null;
       }
       return text;
     }
 
     final params = <String, dynamic>{
-      'p_start': baseParams['p_start'] ?? baseParams['p_start_date'] ?? _toDateParam(_start),
-      'p_end': baseParams['p_end'] ?? baseParams['p_end_date'] ?? _toDateParam(_end),
+      'p_start': baseParams['p_start'] ??
+          baseParams['p_start_date'] ??
+          _toDateParam(_start),
+      'p_end':
+          baseParams['p_end'] ?? baseParams['p_end_date'] ?? _toDateParam(_end),
       'p_marketplace': normalizeMarketplace(
         baseParams['p_marketplace'] ?? baseParams['p_marketplace_filter'],
       ),
@@ -264,7 +442,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     final candidates = <String>[
       'finance_dashboard_snapshot',
-      'finance_customer_dashboard_snapshot_v24_6_82o',
     ];
 
     Object? lastError;
@@ -275,15 +452,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (safeRpcName.isEmpty) continue;
 
       try {
-        final response = await _client.rpc(safeRpcName, params: params);
-        _lastSnapshotStats = '$safeRpcName · ${_snapshotStats(response)}';
+        final response = await _client
+            .rpc(safeRpcName, params: params)
+            .timeout(const Duration(seconds: 90));
+        final enrichedResponse = response;
+        _lastSnapshotStats =
+            '$safeRpcName · ${_snapshotStats(enrichedResponse)}';
 
-        if (!_isFinanceSnapshotEmpty(response) &&
-            !_isLegacySkuOnlySnapshot(response)) {
-          return response;
+        if (!_isFinanceSnapshotEmpty(enrichedResponse) &&
+            !_isLegacySkuOnlySnapshot(enrichedResponse)) {
+          return enrichedResponse;
         }
 
-        firstEmptyResponse ??= response;
+        firstEmptyResponse ??= enrichedResponse;
       } catch (e) {
         lastError = e;
         debugPrint('FINANCE_SNAPSHOT_RPC_FAILED $safeRpcName: $e');
@@ -294,11 +475,68 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return firstEmptyResponse;
     }
 
+    // Removed fallback month-to-date query to respect dynamic selected range
+
     if (lastError != null) {
       throw lastError;
     }
 
     throw Exception('Belum ada data pada filter ini.');
+  }
+
+  Future<dynamic> _buildFallbackFinanceSnapshot(
+      Map<String, dynamic> params) async {
+    final mktFilter = params['p_marketplace']?.toString().trim().toLowerCase();
+
+    try {
+      final accountsResponse = await _client
+          .from('marketplace_accounts')
+          .select(
+              'marketplace_account_id, tenant_id, marketplace, store_alias, shop_name, status, is_active')
+          .eq('tenant_id', _currentTenantId);
+      final accountsList = accountsResponse is List
+          ? accountsResponse.map((e) => Map<String, dynamic>.from(e)).toList()
+          : <Map<String, dynamic>>[];
+
+      final dashboard = await _client.rpc(
+        'dashboard_marketplace_order_analytics_90d',
+        params: {
+          'p_marketplace':
+              (mktFilter == null || mktFilter.isEmpty) ? null : mktFilter,
+          'p_days': 20,
+        },
+      ).timeout(const Duration(seconds: 5));
+      final dashboardMap = _asMap(dashboard);
+      final summary = _asMap(dashboardMap['summary']);
+
+      return <String, dynamic>{
+        'source': 'finance_dashboard_snapshot_fallback',
+        'source_table': 'dashboard_marketplace_order_analytics_90d',
+        'daily': dashboardMap['daily'] ?? const <dynamic>[],
+        'by_marketplace': dashboardMap['by_marketplace'] ?? const <dynamic>[],
+        'accounts': accountsList,
+        'summary': summary,
+        'abnormal_aggregates': <String, dynamic>{
+          'abnormal_count': summary['abnormal_count'] ?? 0,
+          'negative_payout_total_abs':
+              summary['negative_payout_total_abs'] ?? 0,
+        },
+        'expenses': const <dynamic>[],
+        'approved_purchases': const <dynamic>[],
+        'skus': const <dynamic>[],
+        'sku_rows': const <dynamic>[],
+      };
+    } catch (e) {
+      debugPrint('Finance snapshot fallback query failed: $e');
+      return null;
+    }
+  }
+
+  Future<dynamic> _withMarketplaceReconciliation(
+    dynamic response,
+    Map<String, dynamic> params,
+  ) async {
+    return response;
   }
 
   List<Map<String, dynamic>> _snapshotParamVariantsForRpc(
@@ -338,31 +576,38 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   List<String> _financeSnapshotLocalKeys() {
-    final base = FinanceLocalCache.snapshotKey(
-      start: _start,
-      end: _end,
-      marketplace: _marketplaceFilter,
-      accountId: _accountFilter,
-    );
     return _financeCacheVersionFallbacks
-        .map((version) => '$base::$version')
+        .map((version) => FinanceLocalCache.snapshotKey(
+              start: _start,
+              end: _end,
+              marketplace: _marketplaceFilter,
+              accountId: _accountFilter,
+              tenantId: _currentTenantId.trim().isEmpty
+                  ? 'unknown'
+                  : _currentTenantId,
+              tab: 'dashboard',
+              page: 1,
+              cacheVersion: version,
+            ))
         .toList(growable: false);
   }
 
   Future<Map<String, dynamic>?> _readFinanceSnapshotLocalAny() async {
     for (final key in _financeSnapshotLocalKeys()) {
-      final cached = await FinanceLocalCache.readJson(key, ttlDays: 90);
+      final cached = await FinanceLocalCache.readJson(key, ttlDays: 2);
       if (cached != null && !_isFinanceSnapshotEmpty(cached)) return cached;
     }
     return null;
   }
 
   Future<void> _refreshFinanceCacheForSelectedPeriod() async {
-    // Jangan hapus semua local cache. Kalau server timeout, cache lama tetap
-    // dipakai sebagai tampilan cepat.
+    _financeLoadCache.clear();
+    _activeFinanceRequests.clear();
+    _operationalCostsLoaded = false;
+    _operationalCostsLoading = false;
+    await _clearFinanceLocalCacheForSelectedPeriod();
     try {
-      await _client
-          .rpc('finance_fix_exact_cache_settled_hpp_v24_6_82q', params: {
+      await _client.rpc('finance_fix_exact_cache_settled_hpp', params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
         'p_marketplace': _marketplaceParam() ?? 'all',
@@ -379,20 +624,62 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
+  String _skuDebugPeriodLabel() {
+    final marketplace = _marketplaceRpcParam() ?? 'all';
+    final account = _accountUuidParam() ?? 'all';
+    return '${_toDateParam(_start)}..${_toDateParam(_end)}'
+        ' marketplace=$marketplace account=$account';
+  }
+
+  int _skuRenderedCountForRows(List<Map<String, dynamic>> rows) {
+    if (rows.isEmpty) return 0;
+    final safePage = _skuPage < 1 ? 1 : _skuPage;
+    final start = (safePage - 1) * _skuPageSize;
+    if (start >= rows.length) return 0;
+    final end = (start + _skuPageSize) > rows.length
+        ? rows.length
+        : start + _skuPageSize;
+    return end - start;
+  }
+
+  void _recordSkuRenderProof({
+    required String source,
+    required String payoutFilter,
+    required int rpcRowCount,
+    required int parsedRowCount,
+    required int filteredRowCount,
+    required int normalizedRowCount,
+    required int mergedRowCount,
+    required int renderedRowCount,
+  }) {
+    final proof = 'period=${_skuDebugPeriodLabel()} '
+        'source=$source filter=$payoutFilter '
+        'rpc=$rpcRowCount parsed=$parsedRowCount filtered=$filteredRowCount '
+        'normalized=$normalizedRowCount merged=$mergedRowCount '
+        'rendered=$renderedRowCount';
+    _lastSkuDebugProof = proof;
+    _lastSkuRpcRowCount = rpcRowCount;
+    _lastSkuParsedRowCount = parsedRowCount;
+    _lastSkuMergedRowCount = mergedRowCount;
+    _lastSkuRenderedRowCount = renderedRowCount;
+  }
+
   Future<void> _safeRefreshFinanceView() async {
     // Refresh UI tidak boleh membuang data yang sedang tampil.
     // _load() kadang tidak throw, tapi langsung set _error dan mengosongkan state.
     // Jadi setelah _load selesai pun state tetap harus dicek dan direstore bila perlu.
     final keepSummary = Map<String, dynamic>.from(_summary);
     final keepSources = List<Map<String, dynamic>>.from(_sources);
-    final keepApprovedPurchases = List<Map<String, dynamic>>.from(_approvedPurchases);
+    final keepApprovedPurchases =
+        List<Map<String, dynamic>>.from(_approvedPurchases);
     final keepByMarketplace = List<Map<String, dynamic>>.from(_byMarketplace);
     final keepBySku = List<Map<String, dynamic>>.from(_bySku);
     final keepCashFlow = List<Map<String, dynamic>>.from(_cashFlow);
     final keepExpenses = List<Map<String, dynamic>>.from(_expenses);
     final keepProfitLoss = List<Map<String, dynamic>>.from(_profitLoss);
     final keepAbnormals = List<Map<String, dynamic>>.from(_abnormals);
-    final keepServerAbnormales = List<Map<String, dynamic>>.from(_serverAbnormales);
+    final keepServerAbnormales =
+        List<Map<String, dynamic>>.from(_serverAbnormales);
     final keepError = _error;
 
     final hadVisibleData = keepSummary.isNotEmpty ||
@@ -434,6 +721,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _approvedPurchases = keepApprovedPurchases;
         _byMarketplace = keepByMarketplace;
         _bySku = keepBySku;
+        _skuHasMoreServerRows = false;
+        _skuLoadingMore = false;
         _cashFlow = keepCashFlow;
         _expenses = keepExpenses;
         _profitLoss = keepProfitLoss;
@@ -478,27 +767,164 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     });
   }
 
+  bool _isProductionPaymentExpenseRow(Map<String, dynamic> row) {
+    final haystack = [
+      row['source_table'],
+      row['source_module'],
+      row['source_ref'],
+      row['payment_type'],
+      row['payment_method'],
+      row['category'],
+      row['title'],
+      row['label'],
+      row['description'],
+    ].map((value) => _text(value, '').toLowerCase()).join(' ');
+    return haystack.contains('production_tailor_payments') ||
+        haystack.contains('ongkos jahit') ||
+        haystack.contains('ongkos produksi') ||
+        (haystack.contains('production') &&
+            (haystack.contains('sewing_payment') ||
+                haystack.contains('kasbon') ||
+                haystack.contains('penjahit')));
+  }
+
+  String _firstStableText(List<dynamic> values) {
+    for (final value in values) {
+      final text = _text(value, '').trim();
+      if (text.isNotEmpty && text != '-') return text;
+    }
+    return '';
+  }
+
   String _expenseDedupeKey(Map<String, dynamic> row) {
-    final rawId = _text(
-            row['expense_id'] ??
-                row['id'] ??
-                row['purchase_id'] ??
-                row['request_id'],
-            '')
-        .trim();
+    final sourceId = _firstStableText([
+      row['source_id'],
+      row['payment_id'],
+      row['reference_id'],
+      row['source_reference_id'],
+      row['adjustment_id'],
+      row['cash_adjustment_id'],
+    ]);
+    if (sourceId.isNotEmpty && _isProductionPaymentExpenseRow(row)) {
+      return 'source:production_tailor_payments:${sourceId.toLowerCase()}';
+    }
+
+    final sourceTable = _firstStableText([
+      row['source_table'],
+      row['source_module'],
+      row['source'],
+    ]);
+    if (sourceTable.isNotEmpty && sourceId.isNotEmpty) {
+      return 'source:${sourceTable.toLowerCase()}:${sourceId.toLowerCase()}';
+    }
+
+    final paymentId = _firstStableText([row['payment_id']]);
+    if (paymentId.isNotEmpty) return 'payment:${paymentId.toLowerCase()}';
+
+    final rawId = _firstStableText([
+      row['expense_id'],
+      row['id'],
+      row['finance_operational_expense_id'],
+      row['operational_expense_id'],
+      row['purchase_id'],
+      row['request_id'],
+      row['adjustment_id'],
+      row['cash_adjustment_id'],
+    ]);
     if (rawId.isNotEmpty) return 'id:${rawId.toLowerCase()}';
-    return [
-      _text(row['source'], '').toLowerCase(),
-      _text(row['category'] ?? row['title'] ?? row['label'], '').toLowerCase(),
-      _text(row['description'] ?? row['note'], '').toLowerCase(),
-      _purchaseAmount(row).abs().toStringAsFixed(2),
-      _text(
-          row['expense_date'] ??
-              row['date'] ??
-              row['approved_at'] ??
-              row['created_at'],
-          ''),
-    ].join('|');
+
+    return 'row:${identityHashCode(row)}';
+  }
+
+  List<String> _productionExpenseAliases(Map<String, dynamic> row) {
+    if (!_isProductionPaymentExpenseRow(row)) return const <String>[];
+    final aliases = <String>{};
+
+    void add(dynamic value) {
+      final clean = _text(value, '').trim().toLowerCase();
+      if (clean.isEmpty || clean == '-') return;
+      aliases.add('production_expense:$clean');
+    }
+
+    add(row['source_id']);
+    add(row['payment_id']);
+    add(row['production_payment_id']);
+    add(row['finance_expense_id']);
+    add(row['expense_id']);
+    add(row['finance_operational_expense_id']);
+    add(row['operational_expense_id']);
+    add(row['id']);
+    return aliases.toList(growable: false);
+  }
+
+  bool _isProductionTailorFallbackExpense(Map<String, dynamic> row) {
+    if (!_isProductionPaymentExpenseRow(row)) return false;
+    final sourceTable = _text(row['source_table'], '').toLowerCase().trim();
+    final paymentType = _text(row['payment_type'], '').toLowerCase().trim();
+    final paymentMethod = _text(row['payment_method'], '').toLowerCase().trim();
+    return sourceTable == 'production_tailor_payments' &&
+        paymentType.isNotEmpty &&
+        paymentMethod.isEmpty;
+  }
+
+  int _productionExpensePriority(Map<String, dynamic> row) {
+    if (!_isProductionPaymentExpenseRow(row)) return 0;
+    // The finance operational expense mirror is the canonical finance row.
+    // Raw production_tailor_payments is only a fallback when the mirror does not exist.
+    if (_isProductionTailorFallbackExpense(row)) return 1;
+    if (_firstStableText([
+      row['expense_id'],
+      row['finance_operational_expense_id'],
+      row['operational_expense_id'],
+    ]).isNotEmpty) return 3;
+    return 2;
+  }
+
+  List<Map<String, dynamic>> _dedupeProductionExpenseRows(
+      List<Map<String, dynamic>> rows) {
+    final out = <Map<String, dynamic>>[];
+    final aliasIndex = <String, int>{};
+    final seenGeneric = <String>{};
+
+    for (final raw in rows) {
+      final row =
+          _normalizeProductionExpenseRow(Map<String, dynamic>.from(raw));
+      final aliases = _productionExpenseAliases(row);
+      if (aliases.isEmpty) {
+        final key = _expenseDedupeKey(row);
+        if (seenGeneric.add(key)) out.add(row);
+        continue;
+      }
+
+      int? existingIndex;
+      for (final alias in aliases) {
+        final index = aliasIndex[alias];
+        if (index != null) {
+          existingIndex = index;
+          break;
+        }
+      }
+
+      if (existingIndex == null) {
+        final index = out.length;
+        out.add(row);
+        for (final alias in aliases) {
+          aliasIndex[alias] = index;
+        }
+        continue;
+      }
+
+      final existing = out[existingIndex];
+      if (_productionExpensePriority(row) >
+          _productionExpensePriority(existing)) {
+        out[existingIndex] = row;
+      }
+      for (final alias in aliases) {
+        aliasIndex[alias] = existingIndex;
+      }
+    }
+
+    return out;
   }
 
   List<Map<String, dynamic>> _dedupeByStableKey(
@@ -506,10 +932,64 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final out = <Map<String, dynamic>>[];
     final seen = <String>{};
     for (final row in rows) {
-      final map = Map<String, dynamic>.from(row);
+      final map =
+          _normalizeProductionExpenseRow(Map<String, dynamic>.from(row));
       if (seen.add(_expenseDedupeKey(map))) out.add(map);
     }
     return out;
+  }
+
+  Map<String, dynamic> _normalizeProductionExpenseRow(
+      Map<String, dynamic> row) {
+    if (!_isProductionPaymentExpenseRow(row)) return row;
+
+    final sourceId = _firstStableText([
+      row['source_id'],
+      row['payment_id'],
+      row['reference_id'],
+      row['source_reference_id'],
+    ]);
+    if (sourceId.isNotEmpty) {
+      final existingSourceTable = _firstStableText([row['source_table']]);
+      if (existingSourceTable.isEmpty) {
+        row['source_table'] = 'production_tailor_payments';
+      }
+      row['source_module'] = 'production';
+      row['source_id'] = sourceId;
+      row['production_payment_id'] = sourceId;
+      row['payment_id'] = _firstStableText([row['payment_id'], sourceId]);
+    }
+    row['category'] = 'Ongkos Produksi';
+    row['title'] = 'Ongkos Produksi';
+    row['label'] = 'Ongkos Produksi';
+    return row;
+  }
+
+  Map<String, dynamic> _productionPaymentExpenseFromRow(
+      Map<String, dynamic> row) {
+    final paymentId = _text(row['payment_id'], '').trim();
+    final financeExpenseId = _text(row['finance_expense_id'], '').trim();
+    final expenseId = _isUuid(financeExpenseId)
+        ? financeExpenseId
+        : 'production_tailor_payment:$paymentId';
+
+    return _normalizeProductionExpenseRow(<String, dynamic>{
+      ...row,
+      'expense_id': expenseId,
+      'payment_id': paymentId,
+      'source_table': 'production_tailor_payments',
+      'source_module': 'production',
+      'source_id': paymentId,
+      'source_ref': row['payment_type'],
+      'expense_date': row['payment_date'],
+      'paid_at': row['payment_date'],
+      'category': 'Ongkos Produksi',
+      'title': 'Ongkos Produksi',
+      'label': 'Ongkos Produksi',
+      'amount': AppUi.toNum(row['amount']),
+      'note': AppUi.text(row['note'], 'Bayar Ongkos Produksi'),
+      'created_at': row['created_at'],
+    });
   }
 
   Map<String, dynamic> _summaryWithLiveCosts(
@@ -531,15 +1011,46 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       out['hpp_total'],
       out['total_hpp']
     ]);
-    final manual = _sumAmountRows(manualExpenses);
-    final purchases = _sumAmountRows(approvedPurchases);
-    final expenseTotal = manual + purchases;
+    final productionExpenses = manualExpenses
+        .where(_isProductionPaymentExpenseRow)
+        .toList(growable: false);
+    final operationalExpenses = manualExpenses
+        .where((row) => !_isProductionPaymentExpenseRow(row))
+        .toList(growable: false);
+    final manual = operationalExpenses.isEmpty
+        ? _numFirstNonZero([
+            out['manual_expense_total'],
+            out['manual_operational_expense'],
+            out['operational_expense'],
+            out['operational_cost_total'],
+            out['expense_total'],
+          ])
+        : _sumAmountRows(operationalExpenses);
+    final production = productionExpenses.isEmpty
+        ? _numFirstNonZero([
+            out['production_paid_total'],
+            out['paid_production_total'],
+            out['production_tailor_paid_total'],
+          ])
+        : _sumAmountRows(productionExpenses);
+    final purchases = approvedPurchases.isEmpty
+        ? _numFirstNonZero([
+            out['approved_purchase_total'],
+            out['purchase_cashout'],
+            out['approved_purchase_cashout'],
+          ])
+        : _sumAmountRows(approvedPurchases);
+    final expenseTotal = manual + production + purchases;
     final grossProfit = payout - hpp;
     final profit = grossProfit - expenseTotal;
     final margin = payout > 0
         ? (profit / payout) * 100
         : _numFirstNonZero([out['net_margin_percent'], out['margin_percent']]);
     out['manual_expense_total'] = manual;
+    out['manual_operational_expense'] = manual;
+    out['production_paid_total'] = production;
+    out['paid_production_total'] = production;
+    out['production_tailor_paid_total'] = production;
     out['approved_purchase_total'] = purchases;
     out['purchase_cashout'] = purchases;
     out['operational_expense'] = expenseTotal;
@@ -571,39 +1082,365 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Future<List<Map<String, dynamic>>> _fetchOperationalExpensesPeriod() async {
-    final params = <String, dynamic>{
-      'p_start': _toDateParam(_start),
-      'p_end': _toDateParam(_end),
-      'p_marketplace': _marketplaceRpcParam(),
-      'p_account_id': _accountUuidParam(),
-    };
-
+    List<Map<String, dynamic>> results = [];
     try {
-      final res = await _client.rpc(
-        'finance_list_manual_operational_expenses_v24_6_80m',
-        params: params,
+      final rpcRes = await _client.rpc(
+        'finance_list_manual_operational_expenses',
+        params: {
+          'p_start': _toDateParam(_start),
+          'p_end': _toDateParam(_end),
+          'p_marketplace': _marketplaceRpcParam(),
+          'p_account_id': _accountUuidParam(),
+        },
       );
-      final rows = _asList(_asMap(res)['rows'] ?? res);
-      if (rows.isNotEmpty) {
-        return rows.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final rawList = rpcRes is Map ? _asList(rpcRes['rows'] ?? rpcRes['data']) : _asList(rpcRes);
+      if (rawList.isNotEmpty) {
+        results = rawList.map((e) {
+          final map = Map<String, dynamic>.from(e as Map);
+          map['source'] = _text(map['source'], '').trim().isEmpty ||
+                  _text(map['source'], '') == '-'
+              ? 'finance_operational_expenses'
+              : map['source'];
+          map['source_label'] = 'Biaya operasional disetujui';
+          return _normalizeProductionExpenseRow(map);
+        }).toList();
       }
     } catch (_) {}
 
+    if (results.isEmpty) {
+      try {
+        dynamic query = _client
+            .from('finance_operational_expenses')
+            .select()
+            .gte('expense_date', _toDateParam(_start))
+            .lte('expense_date', _toDateParam(_end));
+        if (_currentTenantId.trim().isNotEmpty) {
+          query = query.eq('tenant_id', _currentTenantId);
+        }
+        final res = await query
+            .order('expense_date', ascending: false)
+            .order('created_at', ascending: false)
+            .range(0, 199);
+        results = _asList(res).map((e) {
+          final map = Map<String, dynamic>.from(e as Map);
+          map['source'] = _text(map['source'], '').trim().isEmpty ||
+                  _text(map['source'], '') == '-'
+              ? 'finance_operational_expenses'
+              : map['source'];
+          map['source_label'] = 'Biaya operasional disetujui';
+          return _normalizeProductionExpenseRow(map);
+        }).toList();
+      } catch (_) {}
+    }
+
     try {
-      final res = await _client
-          .from('finance_operational_expenses')
+      dynamic manualQuery = _client
+          .from('finance_company_cash_adjustments')
           .select()
-          .gte('expense_date', _toDateParam(_start))
-          .lte('expense_date', _toDateParam(_end))
-          .order('expense_date', ascending: false)
+          .gte('adjustment_date', _toDateParam(_dateOnly(_start)))
+          .lte('adjustment_date', _toDateParam(_dateOnly(_end)));
+      if (_currentTenantId.trim().isNotEmpty) {
+        manualQuery = manualQuery.eq('tenant_id', _currentTenantId);
+      }
+      final manualRes = await manualQuery
+          .eq('direction', 'out')
+          .order('adjustment_date', ascending: false)
+          .range(0, 199);
+      final manualExpenses = _asList(manualRes).map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        return {
+          ...map,
+          'adjustment_id': map['cash_adjustment_id'],
+          'expense_date': map['adjustment_date'],
+          'amount': _num(map['amount']).abs(),
+          'description': map['category'] ?? map['note'] ?? 'Kas keluar manual',
+          'source': 'finance_company_cash_adjustments',
+          'source_label': 'Kas keluar manual',
+        };
+      }).toList();
+      results.addAll(manualExpenses);
+    } catch (_) {}
+
+    try {
+      dynamic tailorQuery = _client
+          .from('production_tailor_payments')
+          .select()
+          .gte('payment_date', _toDateParam(_start))
+          .lte('payment_date', _toDateParam(_end));
+      if (_currentTenantId.trim().isNotEmpty) {
+        tailorQuery = tailorQuery.eq('tenant_id', _currentTenantId);
+      }
+      final tailorRes = await tailorQuery
+          .eq('payment_status', 'sudah_bayar')
+          .inFilter('payment_type', ['sewing_payment', 'kasbon']);
+
+      final mirroredProductionIds = <String>{};
+      for (final row in results) {
+        if (!_isProductionPaymentExpenseRow(row)) continue;
+        for (final alias in _productionExpenseAliases(row)) {
+          mirroredProductionIds.add(alias);
+        }
+      }
+
+      final tailorPayments = _asList(tailorRes).map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        final normalized = _productionPaymentExpenseFromRow(map);
+        normalized['source_label'] = 'Ongkos produksi terbayar';
+        return normalized;
+      }).where((row) {
+        if (row['is_voided'] == true) return false;
+        final aliases = _productionExpenseAliases(row);
+        return aliases.every((alias) => !mirroredProductionIds.contains(alias));
+      }).toList();
+
+      results.addAll(tailorPayments);
+    } catch (_) {}
+
+    try {
+      dynamic prodQuery = _client
+          .from('production_progress')
+          .select()
+          .eq('payment_status', 'sudah_bayar');
+      if (_currentTenantId.trim().isNotEmpty) {
+        prodQuery = prodQuery.eq('tenant_id', _currentTenantId);
+      }
+      final prodRes = await prodQuery.range(0, 199);
+      final prodRows = _asList(prodRes).map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        final statusStr = _text(map['payment_status'] ?? map['status'], '').toLowerCase();
+        if (statusStr == 'belum_bayar' || statusStr == 'unpaid' || statusStr == 'pending') return null;
+        final amt = _num(map['sewing_total_amount']) > 0
+            ? _num(map['sewing_total_amount'])
+            : (_num(map['payment_paid_amount']) > 0
+                ? _num(map['payment_paid_amount'])
+                : _num(map['deposit_amount']));
+        if (amt <= 0) return null;
+        final dateStr = map['production_date'] ?? map['tanggal_mulai'] ?? map['created_at'];
+        final pDate = _parseDate(dateStr);
+        if (pDate != null) {
+          final d = _dateOnly(pDate);
+          if (d.isBefore(_dateOnly(_start)) || d.isAfter(_dateOnly(_end))) return null;
+        }
+        final title = _text(map['product_name'] ?? map['nama_barang'] ?? map['sku'], 'Produksi');
+        final sj = _text(map['surat_jalan_number'], '');
+        final labelNote = sj.isNotEmpty ? 'Produksi SJ: $sj' : 'Produksi $title';
+        return {
+          'expense_id': 'prod_progress_${map['progress_id']}',
+          'category': 'Ongkos Produksi',
+          'amount': amt,
+          'expense_date': _isoDate(pDate ?? _start),
+          'note': '$labelNote - Qty ${_num(map['qty']).toStringAsFixed(0)}',
+          'status': 'paid',
+          'source': 'production_progress',
+          'source_label': 'Ongkos produksi (Page Produksi)',
+          'source_module': 'production',
+          'type': 'production_progress',
+          'flow': 'OUT',
+        };
+      }).whereType<Map<String, dynamic>>().toList();
+      results.addAll(prodRows);
+    } catch (_) {}
+
+    try {
+      dynamic stageQuery = _client
+          .from('production_progress_stages')
+          .select()
+          .eq('payment_status', 'sudah_bayar');
+      if (_currentTenantId.trim().isNotEmpty) {
+        stageQuery = stageQuery.eq('tenant_id', _currentTenantId);
+      }
+      final stageRes = await stageQuery.range(0, 199);
+      final stageRows = _asList(stageRes).map((e) {
+        final map = Map<String, dynamic>.from(e as Map);
+        final statusStr = _text(map['payment_status'] ?? map['status'], '').toLowerCase();
+        if (statusStr != 'sudah_bayar' && statusStr != 'paid' && statusStr != 'lunas') return null;
+        final amt = _num(map['total_amount']) > 0
+            ? _num(map['total_amount'])
+            : (_num(map['price_per_pcs']) * _num(map['qty_out'] > 0 ? map['qty_out'] : map['qty_in']));
+        if (amt <= 0) return null;
+        final dateStr = map['process_date'] ?? map['started_at'] ?? map['created_at'];
+        final pDate = _parseDate(dateStr);
+        if (pDate != null) {
+          final d = _dateOnly(pDate);
+          if (d.isBefore(_dateOnly(_start)) || d.isAfter(_dateOnly(_end))) return null;
+        }
+        final label = _text(map['stage_label'] ?? map['stage_key'], 'Tahap Produksi');
+        final qty = _num(map['qty_out'] > 0 ? map['qty_out'] : map['qty_in']).toStringAsFixed(0);
+        return {
+          'expense_id': 'prod_stage_${map['progress_stage_id']}',
+          'category': 'Ongkos Produksi',
+          'amount': amt,
+          'expense_date': _isoDate(pDate ?? _start),
+          'note': 'Tahap $label - Qty $qty',
+          'status': 'paid',
+          'source': 'production_progress_stages',
+          'source_label': 'Tahap produksi (Page Produksi)',
+          'source_module': 'production',
+          'type': 'production_stage',
+          'flow': 'OUT',
+        };
+      }).whereType<Map<String, dynamic>>().toList();
+      results.addAll(stageRows);
+    } catch (_) {}
+
+    results.sort((a, b) {
+      final dateA = a['expense_date']?.toString() ?? '';
+      final dateB = b['expense_date']?.toString() ?? '';
+      return dateB.compareTo(dateA);
+    });
+
+    return results;
+  }
+
+  Future<Map<String, List<Map<String, dynamic>>>>
+      _fetchCashWalletPeriodData() async {
+    if (_currentTenantId.trim().isEmpty) {
+      return <String, List<Map<String, dynamic>>>{
+        'opening': <Map<String, dynamic>>[],
+        'adjustments': <Map<String, dynamic>>[],
+        'withdrawals': <Map<String, dynamic>>[],
+        'allocations': <Map<String, dynamic>>[],
+      };
+    }
+
+    final startMonth = _monthStart(_start);
+    final endMonth = _monthStart(_end);
+    final accountId = _accountUuidParam();
+    final marketplace = _marketplaceRpcParam();
+
+    Future<List<Map<String, dynamic>>> safeRows(
+        Future<dynamic> Function() action) async {
+      try {
+        final res = await action();
+        return _asList(res)
+            .map((row) => Map<String, dynamic>.from(row))
+            .toList();
+      } catch (_) {
+        return <Map<String, dynamic>>[];
+      }
+    }
+
+    final opening = await safeRows(() {
+      return _client
+          .from('finance_company_cash_opening_balances')
+          .select()
+          .eq('tenant_id', _currentTenantId)
+          .gte('period_month', _toDateParam(startMonth))
+          .lte('period_month', _toDateParam(endMonth))
+          .order('period_month', ascending: false)
+          .range(0, 119);
+    });
+
+    final adjustments = await safeRows(() {
+      return _client
+          .from('finance_company_cash_adjustments')
+          .select()
+          .eq('tenant_id', _currentTenantId)
+          .gte('adjustment_date', _toDateParam(_dateOnly(_start)))
+          .lte('adjustment_date', _toDateParam(_dateOnly(_end)))
+          .order('adjustment_date', ascending: false)
           .order('created_at', ascending: false)
           .range(0, 499);
-      return _asList(res)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
-    } catch (_) {
-      return <Map<String, dynamic>>[];
+    });
+    for (final row in adjustments) {
+      row['source_table'] = 'finance_company_cash_adjustments';
     }
+
+    final withdrawals = await safeRows(() {
+      dynamic query = _client
+          .from('finance_marketplace_withdrawals')
+          .select()
+          .eq('tenant_id', _currentTenantId)
+          .gte('withdrawal_date', _toDateParam(_dateOnly(_start)))
+          .lte('withdrawal_date', _toDateParam(_dateOnly(_end)));
+      if (accountId != null)
+        query = query.eq('marketplace_account_id', accountId);
+      if (marketplace != null) query = query.eq('marketplace', marketplace);
+      return query
+          .order('withdrawal_date', ascending: false)
+          .order('created_at', ascending: false)
+          .range(0, 499);
+    });
+
+    final allocations = await safeRows(() {
+      dynamic query = _client
+          .from('finance_marketplace_withdrawal_allocations')
+          .select()
+          .eq('tenant_id', _currentTenantId)
+          .gte('source_period_month', _toDateParam(startMonth))
+          .lte('source_period_month', _toDateParam(endMonth));
+      if (accountId != null)
+        query = query.eq('marketplace_account_id', accountId);
+      if (marketplace != null) query = query.eq('marketplace', marketplace);
+      return query
+          .order('source_period_month', ascending: false)
+          .order('created_at', ascending: false)
+          .range(0, 499);
+    });
+
+    return <String, List<Map<String, dynamic>>>{
+      'opening': opening,
+      'adjustments': adjustments,
+      'withdrawals': withdrawals,
+      'allocations': allocations,
+    };
+  }
+
+  List<Map<String, dynamic>> _cashWalletRowsForDisplay({
+    required List<Map<String, dynamic>> opening,
+    required List<Map<String, dynamic>> adjustments,
+    required List<Map<String, dynamic>> withdrawals,
+  }) {
+    final rows = <Map<String, dynamic>>[];
+
+    for (final row in opening) {
+      rows.add({
+        ...row,
+        '_cash_wallet_kind': 'opening',
+        'source': 'Saldo awal kas',
+        'category': 'Saldo awal kas',
+        'cash_type': 'in',
+        'type': 'in',
+        'date': row['period_month'],
+        'amount': _num(row['amount']),
+      });
+    }
+
+    for (final row in adjustments) {
+      final direction = _text(row['direction'], 'in').toLowerCase();
+      final amount = _num(row['amount']).abs();
+      rows.add({
+        ...row,
+        '_cash_wallet_kind': 'adjustment',
+        'source_table': 'finance_company_cash_adjustments',
+        'source': direction == 'out' ? 'Kas keluar manual' : 'Kas masuk manual',
+        'category': row['category'],
+        'cash_type': direction,
+        'type': direction,
+        'date': row['adjustment_date'],
+        'amount': direction == 'out' ? -amount : amount,
+      });
+    }
+
+    for (final row in withdrawals) {
+      rows.add({
+        ...row,
+        '_cash_wallet_kind': 'withdrawal',
+        'source': 'Penarikan marketplace',
+        'category': 'Penarikan marketplace',
+        'cash_type': 'in',
+        'type': 'in',
+        'date': row['withdrawal_date'],
+        'amount': _num(row['amount']),
+      });
+    }
+
+    rows.sort((a, b) {
+      final aDate = _parseDate(a['date'] ?? a['created_at']) ?? DateTime(1970);
+      final bDate = _parseDate(b['date'] ?? b['created_at']) ?? DateTime(1970);
+      return bDate.compareTo(aDate);
+    });
+    return rows;
   }
 
   // ignore: unused_element
@@ -617,8 +1454,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'p_account_id': _accountUuidParam(),
     };
     try {
-      final response = await _client.rpc('finance_sku_summary_rows_v24_6_82e',
-          params: params);
+      final candidates = <String>[
+        'finance_sku_summary_rows',
+        'finance_sku_summary_rows',
+      ];
+      final response = await _rpcWithFallback(candidates, params);
       final map = _asMap(response);
       final rows = _asList(map['rows'] ?? map['sku'] ?? map['by_sku']);
       return rows.map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -645,6 +1485,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         end: _end,
         marketplace: _marketplaceFilter,
         accountId: _accountFilter,
+        tenantId:
+            _currentTenantId.trim().isEmpty ? 'unknown' : _currentTenantId,
+        tab: 'sku_detail',
+        page: 1,
+        cacheVersion: _financeCacheVersion,
         sku: sku,
       );
       final cachedRows = await FinanceLocalCache.readRows(detailKey);
@@ -656,7 +1501,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       try {
         final response = await _client.rpc(
-          'finance_sku_order_detail_lines_v24_6_82e',
+          'finance_sku_order_detail_lines',
           params: {
             'p_start': _toDateParam(_start),
             'p_end': _toDateParam(_end),
@@ -701,6 +1546,252 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return copy;
   }
 
+  Future<List<Map<String, dynamic>>> _fetchSkuRowsByPayoutFilterPage(
+    String payoutFilter, {
+    int page = 1,
+    bool ignoreCache = false,
+  }) async {
+    final cacheKey = FinanceLocalCache.skuPageKey(
+      start: _start,
+      end: _end,
+      marketplace: _marketplaceFilter,
+      accountId: _accountFilter,
+      tenantId: _currentTenantId.trim().isEmpty ? 'unknown' : _currentTenantId,
+      payoutFilter: payoutFilter,
+      page: page,
+      cacheVersion: _financeCacheVersion,
+    );
+
+    if (!ignoreCache) {
+      final cachedData = await FinanceLocalCache.readJson(cacheKey, ttlDays: 2);
+      if (cachedData != null) {
+        final cachedRows = (cachedData['rows'] as List?)
+            ?.whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        if (cachedRows != null && (cachedRows.isNotEmpty || page > 1)) {
+          if (payoutFilter == 'all') {
+            setState(() {
+              _skuServerTotalPages = cachedData['total_pages'] ?? 1;
+              _skuServerTotalCount =
+                  cachedData['total_count'] ?? cachedRows.length;
+            });
+            if (page == 1) {
+              _lastSkuRpcRowCount = cachedRows.length;
+              _lastSkuParsedRowCount = cachedRows.length;
+            }
+          }
+          return cachedRows;
+        }
+      }
+    }
+
+    final params = {
+      'p_start': _toDateParam(_start),
+      'p_end': _toDateParam(_end),
+      'p_marketplace': _marketplaceRpcParam(),
+      'p_account_id': _accountUuidParam(),
+      'p_search': null,
+      'p_payout_filter': payoutFilter,
+      'p_page': page,
+      'p_page_size': _skuPageSize,
+    };
+
+    try {
+      final response = await _client.rpc(
+        'finance_sku_order_details_group_20260625',
+        params: params,
+      );
+      List<dynamic> rawRowsList = [];
+      int totalCount = 0;
+      int totalPages = 1;
+      if (response is List) {
+        if (response.isNotEmpty &&
+            response.first is Map &&
+            (response.first as Map).containsKey('rows')) {
+          final firstMap = response.first as Map;
+          rawRowsList = _asList(firstMap['rows']);
+          totalCount = firstMap['total_count'] ??
+              firstMap['total'] ??
+              rawRowsList.length;
+          totalPages = firstMap['total_pages'] ?? 1;
+        } else {
+          rawRowsList = response;
+          totalCount = rawRowsList.length;
+          totalPages = 1;
+        }
+      } else if (response is Map) {
+        rawRowsList = _asList(
+            response['data'] ??
+            response['items'] ??
+            response['rows'] ??
+            response['by_sku'] ??
+            response['sku']);
+        totalCount = response['total_sku_count'] ??
+            response['total_count'] ??
+            response['total'] ??
+            rawRowsList.length;
+        final calcPages = (totalCount / _skuPageSize).ceil();
+        totalPages = response['total_pages'] ?? (calcPages < 1 ? 1 : calcPages);
+      }
+      final rows = rawRowsList
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      if (payoutFilter == 'all') {
+        if (page == 1) {
+          _lastSkuRpcRowCount = rawRowsList.length;
+          _lastSkuParsedRowCount = rows.length;
+        }
+        setState(() {
+          _skuServerTotalPages = totalPages;
+          _skuServerTotalCount = totalCount;
+        });
+      }
+      await FinanceLocalCache.writeJson(cacheKey, {
+        'rows': rows,
+        'total_count': totalCount,
+        'total_pages': totalPages,
+      });
+      return rows;
+    } catch (error) {
+      debugPrint('FINANCE_SKU_${payoutFilter}_PAGE_$page failed: $error');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  Future<void> _loadNextSkuPage() async {
+    if (_skuLoadingMore || !_skuHasMoreServerRows) return;
+    setState(() => _skuLoadingMore = true);
+    final nextPage = _skuServerPageLoaded + 1;
+    try {
+      final parsedRows =
+          await _fetchSkuRowsByPayoutFilterPage('all', page: nextPage);
+      final filteredRows = _filterSkuRowsBySelectedScope(parsedRows);
+      final rows = filteredRows.isNotEmpty || parsedRows.isEmpty
+          ? filteredRows
+          : parsedRows;
+      if (filteredRows.isEmpty && parsedRows.isNotEmpty) {
+        debugPrint(
+            'FINANCE_SKU_SCOPE_FALLBACK: page=$nextPage parsed=${parsedRows.length} '
+            'filtered=0; using parsed rows because RPC was already scoped.');
+      }
+      final normalized = _normalizeSkuRows(<Map<String, dynamic>>[
+        ..._bySku,
+        ...rows,
+      ]);
+      final merged = _mergeSkuRows(
+        normalized,
+        const <Map<String, dynamic>>[],
+      );
+      final sorted = _sortSkuRowsForDisplay(merged);
+      _recordSkuRenderProof(
+        source: 'next_page',
+        payoutFilter: 'all',
+        rpcRowCount: parsedRows.length,
+        parsedRowCount: parsedRows.length,
+        filteredRowCount: filteredRows.length,
+        normalizedRowCount: normalized.length,
+        mergedRowCount: sorted.length,
+        renderedRowCount: _skuRenderedCountForRows(sorted),
+      );
+      if (!mounted) return;
+      setState(() {
+        _bySku = sorted;
+        _skuServerPageLoaded = nextPage;
+        _skuHasMoreServerRows = rows.length >= _skuPageSize;
+        _skuPage = nextPage;
+      });
+      unawaited(_overlaySkuPayoutCountSummaryFromServer());
+    } finally {
+      if (mounted) setState(() => _skuLoadingMore = false);
+    }
+  }
+
+  Future<void> _lazyLoadSkuFirstPage() async {
+    if (_skuLoaded) return;
+    setState(() {
+      _skuLoadingFirstPage = true;
+    });
+    try {
+      final parsedRows = await _fetchSkuRowsByPayoutFilterPage(
+        'all',
+        page: 1,
+        ignoreCache: true,
+      );
+      final filteredRows = _filterSkuRowsBySelectedScope(parsedRows);
+      final rows = filteredRows.isNotEmpty || parsedRows.isEmpty
+          ? filteredRows
+          : parsedRows;
+      if (filteredRows.isEmpty && parsedRows.isNotEmpty) {
+        debugPrint(
+            'FINANCE_SKU_SCOPE_FALLBACK: page=1 parsed=${parsedRows.length} '
+            'filtered=0; using parsed rows because RPC was already scoped.');
+      }
+      final normalized = _normalizeSkuRows(rows);
+      final merged = _mergeSkuRows(
+        normalized,
+        const <Map<String, dynamic>>[],
+      );
+      final sorted = _sortSkuRowsForDisplay(merged);
+      _recordSkuRenderProof(
+        source: 'first_page',
+        payoutFilter: 'all',
+        rpcRowCount: _lastSkuRpcRowCount,
+        parsedRowCount: parsedRows.length,
+        filteredRowCount: filteredRows.length,
+        normalizedRowCount: normalized.length,
+        mergedRowCount: sorted.length,
+        renderedRowCount: _skuRenderedCountForRows(sorted),
+      );
+      if (!mounted) return;
+      setState(() {
+        _bySku = sorted;
+        _skuServerPageLoaded = 1;
+        _skuHasMoreServerRows = rows.length >= _skuPageSize;
+        _skuLoaded = true;
+      });
+      unawaited(_overlaySkuPayoutCountSummaryFromServer());
+    } catch (e) {
+      debugPrint('Error lazy loading SKU first page: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _skuLoadingFirstPage = false;
+        });
+      }
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchSkuRowsByPayoutFilter(
+      String payoutFilter) async {
+    final params = {
+      'p_start': _toDateParam(_start),
+      'p_end': _toDateParam(_end),
+      'p_marketplace': _marketplaceRpcParam(),
+      'p_account_id': _accountUuidParam(),
+      'p_search': null,
+      'p_payout_filter': payoutFilter,
+      'p_page': 1,
+      'p_page_size': _skuPageSize * 2,
+    };
+    try {
+      final response = await _client.rpc(
+        'finance_sku_order_details_group_20260625',
+        params: params,
+      );
+      final map = _asMap(response);
+      final rows = _asList(map['rows'] ?? map['by_sku'] ?? map['sku']);
+      return rows
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } catch (error) {
+      debugPrint('FINANCE_SKU_$payoutFilter failed: $error');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
   Future<List<Map<String, dynamic>>> _fetchUnpaidSkuRowsPeriod() async {
     final params = {
       'p_start': _toDateParam(_start),
@@ -709,8 +1800,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'p_account_id': _accountUuidParam(),
     };
     try {
-      final res = await _client.rpc('finance_unpaid_sku_rows_v24_6_82e',
-          params: params);
+      final candidates = <String>[
+        'finance_unpaid_sku_rows',
+        'finance_unpaid_sku_rows',
+      ];
+      final res = await _rpcWithFallback(candidates, params);
       final rows = _asList(_asMap(res)['rows'] ?? res);
       return rows.map((e) => Map<String, dynamic>.from(e)).toList();
     } catch (_) {
@@ -731,9 +1825,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     throw lastError ?? Exception('Proses gagal.');
   }
 
+  Map<String, dynamic> _extractSummaryMap(dynamic response) {
+    final data = _asMap(response);
+    if (data.isEmpty) return <String, dynamic>{};
+    final nested = _asMap(data['summary']);
+    if (nested.isNotEmpty) return nested;
+    return data;
+  }
+
   String _snapshotStats(dynamic response) {
     final data = _asMap(response);
-    final summary = _asMap(data['summary']);
+    final summary = _extractSummaryMap(response);
     final bySku =
         _asList(data['by_sku'] ?? data['sku_margin'] ?? data['sku']).length;
     final paidListCount = _asList(data['paid_orders']).length +
@@ -812,8 +1914,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _hasUsableFinanceSummary(dynamic response) {
-    final data = _asMap(response);
-    final summary = _asMap(data['summary']);
+    final summary = _extractSummaryMap(response);
     for (final key in const [
       'gross_sales',
       'gross_total',
@@ -850,11 +1951,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     // Snapshot finance aktif boleh membawa summary + sku.
     // Jangan tolak snapshot valid hanya karena ada list SKU.
-    final summary = _asMap(data['summary']);
+    final summary = _extractSummaryMap(response);
     if (summary.isNotEmpty) return false;
 
-    final hasDashboardRows =
-        _asList(data['by_marketplace']).isNotEmpty ||
+    final hasDashboardRows = _asList(data['by_marketplace']).isNotEmpty ||
         _asList(data['cash_flow']).isNotEmpty ||
         _asList(data['expenses']).isNotEmpty ||
         _asList(data['profit_loss']).isNotEmpty ||
@@ -865,7 +1965,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     if (hasDashboardRows) return false;
 
-    return _asList(data['by_sku'] ?? data['sku_margin'] ?? data['sku']).isNotEmpty;
+    return _asList(data['by_sku'] ?? data['sku_margin'] ?? data['sku'])
+        .isNotEmpty;
   }
 
   Future<void> _saveFinanceRuntimeProgress({
@@ -879,7 +1980,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }) async {
     try {
       await _client.rpc(
-        'finance_upsert_runtime_progress_v24_6_3',
+        'finance_upsert_runtime_progress',
         params: {
           'p_sync_type': 'manual_period_progress',
           'p_status': status,
@@ -904,8 +2005,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Future<void> _loadPersistedFinanceProgressFromDb() async {
     if (_processing || !mounted) return;
     try {
-      final response =
-          await _client.rpc('finance_get_latest_runtime_progress_v24_6_3');
+      final candidates = <String>[
+        'finance_get_latest_runtime_progress',
+        'finance_get_latest_runtime_progress',
+      ];
+      final response = await _rpcWithFallback(candidates, {});
       if (!mounted || response is! Map) return;
       final map = Map<String, dynamic>.from(response);
       final message = _text(map['message']);
@@ -923,21 +2027,166 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           : status == 'failed'
               ? 'Tarik data gagal'
               : 'Status auto finance';
-      final updatedLine = updatedAt == null
-          ? null
-          : 'Update terakhir: ${_dateTime(updatedAt)} WIB';
+      final updatedLine =
+          updatedAt == null ? null : 'Update terakhir: ${_dateTime(updatedAt)}';
       setState(() {
         _progressTitle = title;
         _progressLines
           ..clear()
           ..addAll([
             if (updatedLine != null) updatedLine,
-            ...lines.take(10),
+            if (lines.isNotEmpty) lines.first,
           ]);
         _cacheFinanceProgress();
       });
     } catch (_) {
       // Kalau riwayat server belum tersedia, UI tetap memakai log lokal.
+    }
+  }
+
+  List<Map<String, dynamic>> _marketplaceRowsWithFinanceAliases(
+      List<Map<String, dynamic>> rows) {
+    return rows.map((row) {
+      final out = Map<String, dynamic>.from(row);
+      final gross = _numFirstNonZero([
+        out['gross_sales'],
+        out['omzet_total'],
+        out['gross_total'],
+        out['gross_amount'],
+        out['omzet'],
+      ]);
+      final payout = _numFirstNonZero([
+        out['payout_total'],
+        out['payout_amount'],
+        out['received_amount'],
+        out['net_settlement'],
+        out['net_received'],
+      ]);
+      final hpp = _numFirstNonZero([
+        out['hpp_total'],
+        out['total_hpp'],
+        out['settled_hpp_total'],
+        out['paid_hpp_total'],
+        out['hpp'],
+      ]);
+      final profit = _numFirstNonZero([
+        out['net_profit'],
+        out['profit'],
+      ]);
+      final discount = _numFirstNonZero([
+        out['discount_amount'],
+        out['voucher_amount'],
+        out['discount'],
+        out['voucher'],
+        out['shopee_discount'],
+        out['tiktok_discount'],
+        out['seller_discount'],
+        out['platform_discount'],
+        out['seller_voucher'],
+        out['platform_voucher'],
+      ]);
+      final refund = _numFirstNonZero([
+        out['refund_amount'],
+        out['return_refund_amount'],
+        out['refund'],
+        out['retur'],
+        out['buyer_refund_amount'],
+      ]);
+      final adjustment = _numFirstNonZero([
+        out['adjustment_amount'],
+        out['adjustment'],
+        out['koreksi'],
+        out['settlement_correction'],
+      ]);
+      final platformFee = _numFirstNonZero([
+        out['platform_fee'],
+        out['service_fee'],
+        out['biaya_layanan'],
+        out['platform_service_fee'],
+        out['service_fee_amount'],
+      ]);
+      final commissionFee = _numFirstNonZero([
+        out['commission_fee'],
+        out['commission'],
+        out['biaya_komisi'],
+        out['total_commission'],
+        out['commission_fee_amount'],
+      ]);
+      final affiliateFee = _numFirstNonZero([
+        out['affiliate_fee'],
+        out['affiliate_commission'],
+        out['biaya_afiliasi'],
+        out['affiliate_cost'],
+        out['affiliate_commission_amount'],
+      ]);
+      final shippingFee = _numFirstNonZero([
+        out['shipping_fee'],
+        out['shipping_cost'],
+        out['biaya_pengiriman'],
+        out['ongkir_seller'],
+      ]);
+      final feeAmount = _numFirstNonZero([
+        out['fee_amount'],
+        out['total_fees'],
+        out['total_deductions'],
+        out['biaya'],
+        out['deductions'],
+      ]);
+
+      out['gross_sales'] = gross;
+      out['omzet_total'] = gross;
+      out['gross_total'] = gross;
+      out['payout_total'] = payout;
+      out['received_amount'] = payout;
+      out['net_settlement'] = payout;
+      out['hpp_total'] = hpp;
+      out['total_hpp'] = hpp;
+      out['hpp'] = hpp;
+      out['net_profit'] = profit != 0 ? profit : payout - hpp;
+      out['profit'] = out['net_profit'];
+      out['discount_amount'] = discount;
+      out['voucher_amount'] = discount;
+      out['refund_amount'] = refund;
+      out['adjustment_amount'] = adjustment;
+      out['platform_fee'] = platformFee;
+      out['commission_fee'] = commissionFee;
+      out['affiliate_fee'] = affiliateFee;
+      out['shipping_fee'] = shippingFee;
+      if (feeAmount != 0) out['fee_amount'] = feeAmount;
+      out['account_name'] = _text(
+        out['account_name'] ?? out['shop_name'] ?? out['store_alias'],
+        '-',
+      );
+      out['shop_name'] = _text(out['shop_name'] ?? out['account_name'], '-');
+      return out;
+    }).toList(growable: false);
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchCashAdjustmentsPeriod() async {
+    final start = _toDateParam(_start);
+    final end = _toDateParam(_end);
+    final tenantId = _currentTenantId.trim();
+
+    try {
+      var query = _client
+          .from('finance_company_cash_adjustments')
+          .select('*')
+          .gte('adjustment_date', start)
+          .lte('adjustment_date', end);
+
+      if (tenantId.isNotEmpty && _isUuid(tenantId)) {
+        query = query.eq('tenant_id', tenantId);
+      }
+
+      final response = await query.order('adjustment_date', ascending: false);
+      return _asList(response)
+          .map((row) => {
+                ...Map<String, dynamic>.from(row),
+                'source_table': 'finance_company_cash_adjustments',
+              })
+          .toList();
+    } catch (_) {
+      return <Map<String, dynamic>>[];
     }
   }
 
@@ -957,7 +2206,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     if (!mounted) return;
-    final normalizedSummary = _normalizeFinanceSummary(_asMap(data['summary']));
+    final normalizedSummary = _normalizeFinanceSummary(_extractSummaryMap(data));
     final abnormalAggregates = _asMap(data['abnormal_aggregates'] ??
         data['abnormal_summary'] ??
         data['aggregates']);
@@ -1002,31 +2251,73 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final normalizedExpenses = _dedupeExpenseRows(<Map<String, dynamic>>[
       ...backendExpenses.where((row) => !_isPurchaseExpenseRow(row)),
       ...liveExpenses,
-    ]);
+    ]).where((row) => !_isSyntheticExpenseRow(row)).toList(growable: false);
     final approvedPurchases = _dedupeByStableKey(<Map<String, dynamic>>[
       ...backendPurchases,
       ...backendExpenses.where(_isPurchaseExpenseRow),
       ...livePurchases,
     ]);
 
-    final snapshotSkuRows = _skuRowsFromSnapshot(data);
-    var rawSkuRows = _filterSkuRowsBySelectedScope(snapshotSkuRows);
+    final backendCashAdjustments = _asList(data['cash_adjustments'] ??
+            data['company_cash_adjustments'] ??
+            data['cash_in_out'] ??
+            data['cash_adjustment_rows'])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
 
-    // Backend snapshot/RPC sudah menerima p_marketplace dan p_account_id.
-    // Beberapa summary SKU lama tidak membawa field marketplace/account di tiap row.
-    // Kalau filter scope lokal mengosongkan semua row padahal snapshot punya data,
-    // pakai data snapshot scoped dari server agar range lama seperti 1-31 Mei tetap tampil.
-    if (rawSkuRows.isEmpty && snapshotSkuRows.isNotEmpty) {
-      rawSkuRows = snapshotSkuRows;
+    final liveCashAdjustments = includeOperationalExpenses
+        ? await _fetchCashAdjustmentsPeriod()
+        : <Map<String, dynamic>>[];
+
+    final normalizedCashAdjustments = _dedupeByStableKey(<Map<String, dynamic>>[
+      ...backendCashAdjustments.map((row) => {
+            ...row,
+            'source_table': 'finance_company_cash_adjustments',
+          }),
+      ...liveCashAdjustments,
+    ]);
+
+    final snapshotSkuRows = _skuRowsFromSnapshot(data);
+    final initialSkuRows = snapshotSkuRows.take(_skuPageSize).toList();
+    final liveSettledSkuRows = includeSupplementalSku
+        ? _filterSkuRowsBySelectedScope(
+            await _fetchSkuRowsByPayoutFilterPage('settled'),
+          )
+        : <Map<String, dynamic>>[];
+    final liveUnpaidSkuRows = includeSupplementalSku
+        ? _filterSkuRowsBySelectedScope(
+            await _fetchSkuRowsByPayoutFilterPage('unpaid'),
+          )
+        : <Map<String, dynamic>>[];
+
+    // Tag rows with their payout filter source so _normalizeSkuRows can
+    // avoid misclassifying unpaid rows as fully paid when payout_total > 0.
+    final liveSkuRows = _filterSkuRowsBySelectedScope(<Map<String, dynamic>>[
+      ...liveSettledSkuRows.map((r) => {...r, '_payout_filter': 'settled'}),
+      ...liveUnpaidSkuRows.map((r) => {...r, '_payout_filter': 'unpaid'}),
+    ]);
+
+    // Live finance SKU order details is the row-level source of truth for
+    // settled/unpaid SKU metrics and HPP. Snapshot SKU rows are fallback only.
+    // Mixing snapshot rows first can keep old HPP 0 rows visible on page 1.
+    var rawSkuRows = liveSkuRows.isNotEmpty
+        ? liveSkuRows
+        : _filterSkuRowsBySelectedScope(initialSkuRows);
+
+    // Backend snapshot/RPC already receives p_marketplace and p_account_id.
+    // Some legacy snapshot rows do not carry marketplace/account per row.
+    if (rawSkuRows.isEmpty && initialSkuRows.isNotEmpty) {
+      rawSkuRows = initialSkuRows;
     }
 
-    final rawUnpaidSkuRows = includeSupplementalSku && rawSkuRows.isEmpty
-        ? _filterSkuRowsBySelectedScope(await _fetchUnpaidSkuRowsPeriod())
-        : <Map<String, dynamic>>[];
     final normalizedSku = _mergeSkuRows(
       _normalizeSkuRows(rawSkuRows),
-      _normalizeSkuRows(rawUnpaidSkuRows),
+      const <Map<String, dynamic>>[],
     );
+    final hasMoreLiveSkuRows = includeSupplementalSku &&
+        (liveSettledSkuRows.length >= _skuPageSize ||
+            liveUnpaidSkuRows.length >= _skuPageSize);
 
     var displaySummary = _summaryForDisplay(
       normalizedSummary,
@@ -1038,16 +2329,47 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     displaySummary = _summaryWithLiveCosts(
         displaySummary, normalizedExpenses, approvedPurchases);
 
-    final normalizedMarketplace = _reconciledMarketplaceRows(
-      _normalizeMarketplaceRows(
-          _asList(data['by_marketplace'] ?? data['marketplaces'])),
-      normalizedSku,
-      displaySummary,
-      mergedAccounts,
-    );
-    final normalizedCashFlow = _cashFlowRowsFromSummary(displaySummary);
-    final normalizedProfitLoss = _profitLossRowsFromSummary(
-        displaySummary, _asList(data['profit_loss_breakdown']));
+    final cashWalletData = await _fetchCashWalletPeriodData();
+    final rawMarketplaceRows = _normalizeMarketplaceRows(
+        _asList(data['by_marketplace'] ?? data['marketplaces']));
+    final normalizedMarketplace =
+        _text(data['reconciliation_source']).trim().isNotEmpty &&
+                rawMarketplaceRows.isNotEmpty
+            ? rawMarketplaceRows
+            : _reconciledMarketplaceRows(
+                rawMarketplaceRows,
+                normalizedSku,
+                displaySummary,
+                mergedAccounts,
+              );
+    final backendCashFlow = _asList(data['cash_flow'] ?? data['cashflow'])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final useBackendCashFlow = backendCashFlow.isNotEmpty;
+    final normalizedCashFlow = useBackendCashFlow
+        ? _dedupeCashFlowRows(backendCashFlow)
+        : _cashFlowRowsFromSummary(displaySummary);
+    final walletCashAdjustments =
+        cashWalletData['adjustments'] ?? <Map<String, dynamic>>[];
+    final cashAdjustmentsForState = _dedupeByStableKey(<Map<String, dynamic>>[
+      ...normalizedCashAdjustments,
+      ...walletCashAdjustments.map((row) => {
+            ...row,
+            'source_table': 'finance_company_cash_adjustments',
+          }),
+    ]);
+    final breakdown = _asList(data['profit_loss_breakdown'])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final normalizedProfitLoss = <Map<String, dynamic>>[
+      ..._profitLossRowsFromSummary(displaySummary, breakdown)
+          .where((row) => !_isBackendGeneratedProfitLossBreakdownRow(row)),
+      ..._profitLossExpenseDetailRows(normalizedExpenses),
+    ];
+    final normalizedMarketplaceForDisplay =
+        _marketplaceRowsWithFinanceAliases(normalizedMarketplace);
     setState(() {
       _accounts = mergedAccounts;
       _summary = displaySummary;
@@ -1055,28 +2377,150 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ? data['notes']
           : data['sources']);
       _approvedPurchases = approvedPurchases;
-      _byMarketplace = normalizedMarketplace;
-      _bySku = normalizedSku;
-      _cashFlow = normalizedCashFlow;
+      _byMarketplace = normalizedMarketplaceForDisplay;
+      _bySku = _sortSkuRowsForDisplay(normalizedSku);
+      _skuPage = 1;
+      _skuServerPageLoaded = 1;
+      _skuHasMoreServerRows = hasMoreLiveSkuRows;
+      _skuLoadingMore = false;
+      _cashFlow = <Map<String, dynamic>>[
+        ...normalizedCashFlow,
+        ...normalizedCashAdjustments,
+      ];
+      // Opening balances are independent from backend marketplace cashflow.
+      // Keep them visible even when backend cashflow rows are present.
+      _cashOpeningBalances =
+          cashWalletData['opening'] ?? <Map<String, dynamic>>[];
+      _cashAdjustments = cashAdjustmentsForState;
+      _marketplaceWithdrawals = useBackendCashFlow
+          ? <Map<String, dynamic>>[]
+          : cashWalletData['withdrawals'] ?? <Map<String, dynamic>>[];
+      _withdrawalAllocations = useBackendCashFlow
+          ? <Map<String, dynamic>>[]
+          : cashWalletData['allocations'] ?? <Map<String, dynamic>>[];
       _expenses = normalizedExpenses;
+      _operationalCostsLoaded = true;
+      _operationalCostsLoading = false;
+      _operationalCostsError = null;
       _profitLoss = normalizedProfitLoss;
+      _profitLossLoaded = true;
+      _profitLossLoading = false;
+      _profitLossError = null;
+      final rawProfitLossMarketplace = _asList(
+        data['profit_loss_by_marketplace'] ??
+            data['by_marketplace'] ??
+            data['marketplaces'],
+      );
+      _profitLossByMarketplace = _marketplaceRowsWithFinanceAliases(
+        rawProfitLossMarketplace
+            .whereType<Map>()
+            .map((row) => Map<String, dynamic>.from(row))
+            .toList(),
+      );
       _abnormals = _normalizeAbnormalRows(_asList(data['abnormals']));
+      _sampleFreeOrders = _normalizeAbnormalRows(
+        _asList(data['sample_orders']).whereType<Map>().map((item) {
+          final row = Map<String, dynamic>.from(item);
+          row['abnormal_status'] = 'SAMPLE_FREE';
+          row['payout_status'] = row['payout_status'] ?? 'SAMPLE_FREE';
+          row['finance_status'] = row['finance_status'] ?? 'SAMPLE_FREE';
+          row['message'] = _text(
+            row['message'] ?? row['note'],
+            'Sample/gratis sesuai filter. Tidak masuk omzet normal.',
+          );
+          row['category'] = row['category'] ?? 'sample_zero_payment';
+          return row;
+        }).toList(),
+      );
       if (_progressTitle.trim().isEmpty && _progressLines.isEmpty) {
         final lastMessage = _text(
             _summary['last_manual_finance_sync_message'] ??
                 _summary['last_finance_sync_message']);
         if (lastMessage.trim().isNotEmpty) {
           _progressTitle = 'Status auto finance';
-          _progressLines.add(AppUi.userMessage(lastMessage));
+          _progressLines.add(
+            AppUi.userMessage(lastMessage.split('\n').first.trim()),
+          );
           _cacheFinanceProgress();
         }
       }
       _expenseCategoryOptions = _mergeExpenseCategories(normalizedExpenses);
     });
+    unawaited(_loadMarketplaceFinanceGapHint());
+  }
+
+  Future<void> _loadMarketplaceFinanceGapHint() async {
+    final startKey = _toDateParam(_start);
+    final endKey = _toDateParam(_end);
+    final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final accKey = _accountFilter;
+    if (mktKey != 'all' && !mktKey.contains('tiktok')) {
+      if (mounted && _marketplaceFinanceGapMessage.isNotEmpty) {
+        setState(() => _marketplaceFinanceGapMessage = '');
+      }
+      return;
+    }
+
+    final cacheKey = 'marketplace_gap:$startKey:$endKey:$mktKey:$accKey';
+    if (_financeLoadCache.containsKey(cacheKey)) {
+      final cached = _text(_financeLoadCache[cacheKey], '');
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _marketplaceFinanceGapMessage = cached);
+      }
+      return;
+    }
+
+    try {
+      final nextDate =
+          _toDateParam(_dateOnly(_end).add(const Duration(days: 1)));
+      final startWib = '${_toDateParam(_dateOnly(_start))}T00:00:00+07:00';
+      final nextWib = '${nextDate}T00:00:00+07:00';
+      final accountId = _accountUuidParam();
+
+      dynamic orderQuery = _client
+          .from('marketplace_orders')
+          .select('marketplace_order_id')
+          .gte('order_created_at', startWib)
+          .lt('order_created_at', nextWib)
+          .or('marketplace.eq.tiktok_shop,marketplace.eq.tiktok');
+      if (accountId != null) {
+        orderQuery = orderQuery.eq('marketplace_account_id', accountId);
+      }
+      orderQuery = orderQuery.limit(1);
+      final orderRows = _asList(await orderQuery);
+
+      dynamic financeQuery = _client
+          .from('marketplace_finance_reports')
+          .select('finance_report_id')
+          .gte('period_start', startKey)
+          .lte('period_start', endKey)
+          .or('marketplace.eq.tiktok_shop,marketplace.eq.tiktok');
+      if (accountId != null) {
+        financeQuery = financeQuery.eq('marketplace_account_id', accountId);
+      }
+      financeQuery = financeQuery.limit(1);
+      final financeRows = _asList(await financeQuery);
+
+      final message = orderRows.isNotEmpty && financeRows.isEmpty
+          ? 'TikTok: order ada, settlement finance belum masuk'
+          : '';
+      _financeLoadCache[cacheKey] = message;
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _marketplaceFinanceGapMessage = message);
+      }
+    } catch (error) {
+      debugPrint('Finance marketplace gap hint failed: $error');
+    }
   }
 
   Future<void> _load({bool ignoreLocalCache = false}) async {
     if (!mounted) return;
+    _normalizeCurrentFinanceFilters();
+
+    if (ignoreLocalCache) {
+      _activeFinanceRequests.clear();
+      _financeLoadCache.clear();
+    }
 
     final loadSerial = ++_financeLoadSerial;
     final requestStartKey = _toDateParam(_start);
@@ -1099,17 +2543,48 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _loading = true;
       _error = null;
       _lastSnapshotStats = '';
+      _lastSkuDebugProof = '';
+      _lastSkuRpcRowCount = 0;
+      _lastSkuParsedRowCount = 0;
+      _lastSkuMergedRowCount = 0;
+      _lastSkuRenderedRowCount = 0;
+      _marketplaceFinanceGapMessage = '';
+      _sampleFreeLoaded = false;
+      _sampleFreeLoading = false;
+      _sampleFreeError = null;
+      _sampleFreeDetailsLoaded = false;
+      _sampleFreeDetailsLoading = false;
+      _sampleFreeDetailsError = null;
+      _expandedReconciliations.clear();
+      _operationalCostsLoaded = false;
+      _operationalCostsLoading = false;
+      _operationalCostsError = null;
+      _profitLossLoaded = false;
+      _profitLossLoading = false;
+      _profitLossError = null;
+      _abnormalLoadError = null;
 
       // Jangan tampilkan angka periode lama ketika user ganti filter.
-      // Lebih baik kosong saat loading daripada laporan keuangan cosplay jadi ramalan.
+      // Lebih baik kosong saat loading daripada laporan keuangan periode lain.
       _summary = <String, dynamic>{};
       _sources = [];
       _approvedPurchases = [];
       _byMarketplace = [];
       _bySku = [];
+      _skuPage = 1;
+      _skuServerPageLoaded = 1;
+      _skuLoaded = false;
+      _skuLoadingFirstPage = false;
+      _skuHasMoreServerRows = true;
+      _skuLoadingMore = false;
       _cashFlow = [];
+      _cashOpeningBalances = [];
+      _cashAdjustments = [];
+      _marketplaceWithdrawals = [];
+      _withdrawalAllocations = [];
       _expenses = [];
       _profitLoss = [];
+      _sampleFreeOrders = [];
       _serverAbnormales = [];
       _abnormalTotal = 0;
     });
@@ -1131,6 +2606,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
       await _loadFinanceAutoSyncSetting(showError: false);
       if (!isCurrentFinanceLoad()) return;
+      await _loadDispatcherSnapshot();
+      if (!isCurrentFinanceLoad()) return;
+
       _marketplaceFilter =
           _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
       final fallbackAccounts = await _fetchMarketplaceAccounts();
@@ -1149,53 +2627,67 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           includeSupplementalSku: false,
         );
         setState(() => _loading = false);
-        // Cache lokal harus langsung usable, tapi tab Abnormal tetap butuh page
-        // kecil dari server/raw agar tidak kosong saat summary bilang ada payout minus.
-        await _loadAbnormalesPage(silent: true, resetPage: true);
       }
 
       final snapshotParams = {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
-        'p_marketplace': _marketplaceRpcParam(),
+        'p_marketplace': _marketplaceRpcParam(accounts: fallbackAccounts),
         'p_account_id': _accountUuidParam(),
       };
+      unawaited(_loadMarketplaceFinanceGapHint());
 
-      var response = await _loadFinanceSnapshot(snapshotParams);
-      var data = _asMap(response);
-      if (_isFinanceSnapshotEmpty(data)) {
+      if (!hasLocalSnapshot) {
+        // No local cache: run sync refresh
         await _refreshFinanceCacheForSelectedPeriod();
-        response = await _loadFinanceSnapshot(snapshotParams);
-        data = _asMap(response);
-      }
-      if (_isFinanceSnapshotEmpty(data)) {
-        if (hasLocalSnapshot) {
+        var response = await _loadFinanceSnapshot(snapshotParams);
+        var data = _asMap(response);
+        if (_isFinanceSnapshotEmpty(data)) {
+          if (mounted) {
+            _setMessage(
+                'Data laporan periode ini belum siap. Auto finance sedang mengejar data periode ini di background.');
+          }
           await _loadPersistedFinanceProgressFromDb();
-          await _loadAbnormalesPage(silent: true, resetPage: true);
           return;
         }
-        if (mounted) {
-          _setMessage(
-              'Data laporan periode ini belum siap. Auto finance sedang mengejar data periode ini di background.');
-        }
-        await _loadPersistedFinanceProgressFromDb();
-        await _loadAbnormalesPage(silent: true, resetPage: true);
-        return;
+        await FinanceLocalCache.writeJson(localKey, data);
+        if (!isCurrentFinanceLoad()) return;
+        await _applyFinanceSnapshotData(
+          data,
+          fallbackAccounts,
+          includeOperationalExpenses: false,
+          includeSupplementalSku: false,
+        );
+      } else {
+        // Has local cache: load background refresh
+        unawaited(Future(() async {
+          try {
+            await _refreshFinanceCacheForSelectedPeriod();
+            final response = await _loadFinanceSnapshot(snapshotParams);
+            final data = _asMap(response);
+            if (!_isFinanceSnapshotEmpty(data)) {
+              await FinanceLocalCache.writeJson(localKey, data);
+              if (!isCurrentFinanceLoad()) return;
+              await _applyFinanceSnapshotData(
+                data,
+                fallbackAccounts,
+                includeOperationalExpenses: false,
+                includeSupplementalSku: false,
+              );
+              if (mounted) {
+                setState(() {});
+              }
+            }
+          } catch (_) {}
+        }));
       }
-      await FinanceLocalCache.writeJson(localKey, data);
-      if (!isCurrentFinanceLoad()) return;
-      await _applyFinanceSnapshotData(
-        data,
-        fallbackAccounts,
-        includeOperationalExpenses: true,
-        includeSupplementalSku: false,
-      );
 
       if (!isCurrentFinanceLoad() || !mounted) return;
-      await _overlaySkuPayoutCountSummaryFromServer();
-      if (!isCurrentFinanceLoad() || !mounted) return;
       await _loadPersistedFinanceProgressFromDb();
-      await _loadAbnormalesPage(silent: true, resetPage: true);
+      await _loadOperationalCostsSupplemental();
+      unawaited(_loadAbnormalesPage(silent: true, resetPage: true));
+      unawaited(_loadSampleFreeOrdersSupplemental());
+      unawaited(_loadSampleFreeOrdersDetails(force: true));
     } catch (e) {
       if (!isCurrentFinanceLoad()) return;
       if (!mounted) return;
@@ -1208,6 +2700,460 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     } finally {
       if (isCurrentFinanceLoad()) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadSampleFreeOrdersSupplemental() async {
+    final startKey = _toDateParam(_start);
+    final endKey = _toDateParam(_end);
+    final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final accKey = _accountFilter;
+    final cacheKey =
+        'sample_free_supplemental:$startKey:$endKey:$mktKey:$accKey';
+
+    if (_financeLoadCache.containsKey(cacheKey)) {
+      final cachedData = _financeLoadCache[cacheKey];
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          final nextSummary = Map<String, dynamic>.from(_summary);
+          final summary = _asMap(cachedData['summary']);
+          final sourceBreakdown = _asMap(summary['source_breakdown']);
+          summary.forEach((key, value) {
+            if (value != null) nextSummary[key] = value;
+          });
+          sourceBreakdown.forEach((key, value) {
+            if (value != null) nextSummary[key] = value;
+          });
+          if (summary['sample_order_count'] != null) {
+            nextSummary['abnormal_sample_count'] =
+                summary['sample_order_count'];
+          }
+          _summary = nextSummary;
+          _sampleFreeOrders = [];
+          _sampleFreeLoaded = true;
+          _sampleFreeLoading = false;
+          _sampleFreeError = null;
+        });
+      }
+      return;
+    }
+
+    if (_activeFinanceRequests.containsKey(cacheKey)) {
+      await _activeFinanceRequests[cacheKey];
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _sampleFreeLoading = true;
+        _sampleFreeError = null;
+      });
+    }
+
+    final future = () async {
+      try {
+        final response = await _client.rpc(
+          'finance_sample_order_counts',
+          params: {
+            'p_start': startKey,
+            'p_end': endKey,
+            'p_marketplace': _marketplaceRpcParam(),
+            'p_account_id': _accountUuidParam(),
+            'p_count_only': true,
+          },
+        ).timeout(const Duration(seconds: 20));
+        return response;
+      } catch (e) {
+        debugPrint('finance_sample_order_counts RPC error: $e');
+        rethrow;
+      }
+    }();
+
+    _activeFinanceRequests[cacheKey] = future;
+
+    try {
+      final response = await future;
+      final data = _asMap(response);
+      _financeLoadCache[cacheKey] = data;
+
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        final summary = _asMap(data['summary']);
+        final sourceBreakdown = _asMap(summary['source_breakdown']);
+        setState(() {
+          final nextSummary = Map<String, dynamic>.from(_summary);
+          summary.forEach((key, value) {
+            if (value != null) nextSummary[key] = value;
+          });
+          sourceBreakdown.forEach((key, value) {
+            if (value != null) nextSummary[key] = value;
+          });
+          if (summary['sample_order_count'] != null) {
+            nextSummary['abnormal_sample_count'] =
+                summary['sample_order_count'];
+          }
+          _summary = nextSummary;
+          _sampleFreeOrders = [];
+          _sampleFreeLoaded = true;
+          _sampleFreeError = null;
+        });
+      }
+    } catch (error) {
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _sampleFreeError = _cleanError(error));
+      }
+      debugPrint('Finance sample/free supplemental load failed: $error');
+    } finally {
+      _activeFinanceRequests.remove(cacheKey);
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _sampleFreeLoading = false);
+      }
+    }
+  }
+
+  Future<void> _loadSampleFreeOrdersDetails({bool force = false}) async {
+    final startKey = _toDateParam(_start);
+    final endKey = _toDateParam(_end);
+    final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final accKey = _accountFilter;
+    final cacheKey = 'sample_free_details:$startKey:$endKey:$mktKey:$accKey';
+
+    if (!force && _financeLoadCache.containsKey(cacheKey)) {
+      final cachedRows =
+          _financeLoadCache[cacheKey] as List<Map<String, dynamic>>;
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _sampleFreeOrders = cachedRows;
+          _sampleFreeDetailsLoaded = true;
+          _sampleFreeDetailsLoading = false;
+          _sampleFreeDetailsError = null;
+        });
+      }
+      return;
+    }
+
+    if (_activeFinanceRequests.containsKey(cacheKey)) {
+      await _activeFinanceRequests[cacheKey];
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _sampleFreeDetailsLoading = true;
+        _sampleFreeDetailsError = null;
+      });
+    }
+
+    final future = () async {
+      try {
+        final response = await _client.rpc(
+          'finance_sample_order_counts',
+          params: {
+            'p_start': startKey,
+            'p_end': endKey,
+            'p_marketplace': _marketplaceRpcParam(),
+            'p_account_id': _accountUuidParam(),
+            'p_count_only': false,
+            'p_page': 1,
+            'p_page_size': 200,
+          },
+        ).timeout(const Duration(seconds: 20));
+        return response;
+      } catch (e) {
+        debugPrint('finance_sample_order_counts details RPC error: $e');
+        rethrow;
+      }
+    }();
+
+    _activeFinanceRequests[cacheKey] = future;
+
+    try {
+      final response = await future;
+      final data = _asMap(response);
+      final rows = _normalizeAbnormalRows(
+        _asList(data['sample_orders'] ?? data['rows'])
+            .whereType<Map>()
+            .map((item) {
+          final row = Map<String, dynamic>.from(item);
+          row['abnormal_status'] = 'SAMPLE_FREE';
+          row['payout_status'] = row['payout_status'] ?? 'SAMPLE_FREE';
+          row['finance_status'] = row['finance_status'] ?? 'SAMPLE_FREE';
+          row['message'] = _text(
+            row['message'] ?? row['note'],
+            'Sample/gratis sesuai filter. Tidak masuk omzet normal.',
+          );
+          row['category'] = row['category'] ?? 'sample_free';
+          return row;
+        }).toList(),
+      );
+
+      _financeLoadCache[cacheKey] = rows;
+
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _sampleFreeOrders = rows;
+          _sampleFreeDetailsLoaded = true;
+          _sampleFreeDetailsError = null;
+        });
+      }
+    } catch (error) {
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _sampleFreeDetailsError = _cleanError(error));
+      }
+      debugPrint('Finance sample/free details load failed: $error');
+    } finally {
+      _activeFinanceRequests.remove(cacheKey);
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _sampleFreeDetailsLoading = false);
+      }
+    }
+  }
+
+  Future<void> _loadOperationalCostsSupplemental() async {
+    final startKey = _toDateParam(_start);
+    final endKey = _toDateParam(_end);
+    final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final accKey = _accountFilter;
+    final cacheKey =
+        'operational_costs_supplemental:$startKey:$endKey:$mktKey:$accKey';
+
+    if (_financeLoadCache.containsKey(cacheKey)) {
+      final cached = _financeLoadCache[cacheKey] as Map<String, dynamic>;
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _expenses = cached['expenses'] as List<Map<String, dynamic>>;
+          _approvedPurchases =
+              cached['approvedPurchases'] as List<Map<String, dynamic>>;
+          _summary = cached['summary'] as Map<String, dynamic>;
+          _cashFlow = cached['cashFlow'] as List<Map<String, dynamic>>;
+          _profitLoss = cached['profitLoss'] as List<Map<String, dynamic>>;
+          _expenseCategoryOptions =
+              cached['expenseCategoryOptions'] as List<String>;
+          _operationalCostsLoaded = true;
+          _operationalCostsLoading = false;
+          _operationalCostsError = null;
+        });
+      }
+      return;
+    }
+
+    if (_activeFinanceRequests.containsKey(cacheKey)) {
+      try {
+        await _activeFinanceRequests[cacheKey];
+      } catch (_) {}
+      if (_financeLoadCache.containsKey(cacheKey)) {
+        final cached = _financeLoadCache[cacheKey] as Map<String, dynamic>;
+        if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+          setState(() {
+            _expenses = cached['expenses'] as List<Map<String, dynamic>>;
+            _approvedPurchases =
+                cached['approvedPurchases'] as List<Map<String, dynamic>>;
+            _summary = cached['summary'] as Map<String, dynamic>;
+            _cashFlow = cached['cashFlow'] as List<Map<String, dynamic>>;
+            _profitLoss = cached['profitLoss'] as List<Map<String, dynamic>>;
+            _expenseCategoryOptions =
+                cached['expenseCategoryOptions'] as List<String>;
+            _operationalCostsLoaded = true;
+            _operationalCostsLoading = false;
+            _operationalCostsError = null;
+          });
+        }
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _operationalCostsLoading = true;
+        _operationalCostsError = null;
+      });
+    }
+
+    final future = () async {
+      try {
+        final liveExpenses = await _fetchOperationalExpensesPeriod()
+            .timeout(const Duration(seconds: 12));
+        final livePurchases = await _fetchApprovedPurchasesPeriod()
+            .timeout(const Duration(seconds: 12));
+        return {
+          'liveExpenses': liveExpenses,
+          'livePurchases': livePurchases,
+        };
+      } catch (e) {
+        debugPrint('Fetch operational expenses / purchases failed: $e');
+        rethrow;
+      }
+    }();
+
+    _activeFinanceRequests[cacheKey] = future;
+
+    try {
+      final results = await future;
+      final liveExpenses =
+          results['liveExpenses'] as List<Map<String, dynamic>>;
+      final livePurchases =
+          results['livePurchases'] as List<Map<String, dynamic>>;
+
+      if (!mounted) return;
+
+      final normalizedExpenses = _dedupeExpenseRows(<Map<String, dynamic>>[
+        ..._expenses,
+        ...liveExpenses,
+      ]).where((row) => !_isSyntheticExpenseRow(row)).toList(growable: false);
+      final approvedPurchases = _dedupeByStableKey(livePurchases);
+      final nextSummary = _summaryWithLiveCosts(
+        _summary,
+        normalizedExpenses,
+        approvedPurchases,
+      );
+
+      final cashFlowData = _cashFlowRowsFromSummary(nextSummary);
+      final profitLossData = <Map<String, dynamic>>[
+        ..._profitLossRowsFromSummary(nextSummary, _profitLoss)
+            .where((row) => !_isBackendGeneratedProfitLossBreakdownRow(row)),
+        ..._profitLossExpenseDetailRows(normalizedExpenses),
+      ];
+      final categoryOptions = _mergeExpenseCategories(normalizedExpenses);
+
+      final cacheEntry = {
+        'expenses': normalizedExpenses,
+        'approvedPurchases': approvedPurchases,
+        'summary': nextSummary,
+        'cashFlow': cashFlowData,
+        'profitLoss': profitLossData,
+        'expenseCategoryOptions': categoryOptions,
+      };
+
+      _financeLoadCache[cacheKey] = cacheEntry;
+
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _expenses = normalizedExpenses;
+          _approvedPurchases = approvedPurchases;
+          _summary = nextSummary;
+          _cashFlow = cashFlowData;
+          _profitLoss = profitLossData;
+          _expenseCategoryOptions = categoryOptions;
+          _operationalCostsLoaded = true;
+          _operationalCostsError = null;
+        });
+      }
+    } catch (error) {
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _operationalCostsError = _cleanError(error));
+      }
+      debugPrint('Finance operational costs supplemental load failed: $error');
+    } finally {
+      _activeFinanceRequests.remove(cacheKey);
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _operationalCostsLoading = false);
+      }
+    }
+  }
+
+  Future<void> _loadProfitLossSupplemental() async {
+    final startKey = _toDateParam(_start);
+    final endKey = _toDateParam(_end);
+    final mktKey = _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
+    final accKey = _accountFilter;
+    final cacheKey =
+        'profit_loss_supplemental:$startKey:$endKey:$mktKey:$accKey';
+
+    if (_financeLoadCache.containsKey(cacheKey)) {
+      final cached = _financeLoadCache[cacheKey] as Map<String, dynamic>;
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _summary = cached['summary'] as Map<String, dynamic>;
+          _profitLoss = cached['profitLoss'] as List<Map<String, dynamic>>;
+          _profitLossByMarketplace =
+              cached['profitLossByMarketplace'] as List<Map<String, dynamic>>;
+          _profitLossLoaded = true;
+          _profitLossLoading = false;
+          _profitLossError = null;
+        });
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _profitLossLoading = true;
+        _profitLossError = null;
+      });
+    }
+
+    try {
+      if (!mounted) return;
+      var expenseRows = List<Map<String, dynamic>>.from(_expenses);
+      var purchaseRows = List<Map<String, dynamic>>.from(_approvedPurchases);
+      if (!_operationalCostsLoaded) {
+        try {
+          final liveExpenses = await _fetchOperationalExpensesPeriod()
+              .timeout(const Duration(seconds: 12));
+          final livePurchases = await _fetchApprovedPurchasesPeriod()
+              .timeout(const Duration(seconds: 12));
+          expenseRows = _dedupeExpenseRows(liveExpenses)
+              .where((row) => !_isSyntheticExpenseRow(row))
+              .toList(growable: false);
+          purchaseRows = _dedupeByStableKey(livePurchases);
+        } catch (error) {
+          debugPrint('Profit/Loss live cost refresh skipped: $error');
+        }
+      }
+      final displaySummary = _summaryWithLiveCosts(
+        _summary,
+        expenseRows,
+        purchaseRows,
+      );
+      final byMarketplace = _marketplaceRowsWithFinanceAliases(
+        _profitLossByMarketplace.isNotEmpty
+            ? _profitLossByMarketplace
+            : _byMarketplace,
+      );
+      final profitLossData = <Map<String, dynamic>>[
+        ..._profitLossRowsFromSummary(displaySummary)
+            .where((row) => !_isBackendGeneratedProfitLossBreakdownRow(row)),
+        ..._profitLossExpenseDetailRows(_expenses),
+      ];
+
+      final cacheEntry = {
+        'summary': displaySummary,
+        'profitLoss': profitLossData,
+        'profitLossByMarketplace': byMarketplace,
+      };
+
+      _financeLoadCache[cacheKey] = cacheEntry;
+
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() {
+          _summary = displaySummary;
+          if (expenseRows.isNotEmpty) _expenses = expenseRows;
+          if (purchaseRows.isNotEmpty) _approvedPurchases = purchaseRows;
+          _profitLoss = profitLossData;
+          if (byMarketplace.isNotEmpty) {
+            _profitLossByMarketplace = byMarketplace;
+          }
+          _profitLossLoaded = true;
+          _profitLossError = null;
+        });
+      }
+    } catch (error) {
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _profitLossError = _cleanError(error));
+      }
+      debugPrint('FINANCE_PROFIT_LOSS_SUMMARY_REFRESH_FAILED: $error');
+    } finally {
+      if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
+        setState(() => _profitLossLoading = false);
+      }
+    }
+  }
+
+  void _navigateToSampleFreeAbnormal(BuildContext context) {
+    setState(() {
+      _abnormalStatusFilter = 'sample_free';
+      _abnormalPage = 1;
+    });
+    _refreshAbnormalTab(resetPage: true);
+    DefaultTabController.maybeOf(context)?.animateTo(6);
   }
 
   String _skuPayoutCountCleanKey(dynamic value) {
@@ -1257,33 +3203,62 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       final out = <String, Map<String, dynamic>>{};
 
+      void addToMapKey(String key, Map<String, dynamic> row) {
+        final cleanKey = key.trim().toLowerCase();
+        if (cleanKey.isEmpty || cleanKey == '|' || cleanKey == '-') return;
+
+        final existing = out[cleanKey];
+        if (existing == null) {
+          out[cleanKey] = Map<String, dynamic>.from(row);
+        } else {
+          existing['paid_qty'] = _num(existing['paid_qty']) + _num(row['paid_qty']);
+          existing['settled_qty'] = _num(existing['settled_qty']) + _num(row['settled_qty']);
+          existing['paid_rows'] = _num(existing['paid_rows']) + _num(row['paid_rows']);
+          existing['unpaid_qty'] = _num(existing['unpaid_qty']) + _num(row['unpaid_qty']);
+          existing['qty_unpaid'] = _num(existing['qty_unpaid']) + _num(row['qty_unpaid']);
+          existing['unpaid_rows'] = _num(existing['unpaid_rows']) + _num(row['unpaid_rows']);
+          existing['unpaid_count'] = _num(existing['unpaid_count']) + _num(row['unpaid_count']);
+          existing['all_qty'] = _num(existing['all_qty']) + _num(row['all_qty']);
+          existing['qty_total'] = _num(existing['qty_total']) + _num(row['qty_total']);
+          existing['order_count'] = _num(existing['order_count']) + _num(row['order_count']);
+          existing['payout_total'] = _num(existing['payout_total']) + _num(row['payout_total']);
+          existing['payout_amount'] = _num(existing['payout_amount']) + _num(row['payout_amount']);
+          existing['gross_sales'] = _num(existing['gross_sales']) + _num(row['gross_sales']);
+          existing['hpp_total'] = _num(existing['hpp_total']) + _num(row['hpp_total']);
+        }
+      }
+
       for (final item in rawRows) {
         if (item is! Map) continue;
         final row = Map<String, dynamic>.from(item);
 
         final marketplaceSku = _firstSkuPayoutCountValue(row, const [
-          'marketplace_sku',
           'marketplace_sku_id',
+          'marketplace_sku',
           'sku_marketplace',
         ]);
 
         final localSku = _firstSkuPayoutCountValue(row, const [
           'local_sku',
           'sku_local',
+          'sku',
         ]);
 
         final skuKey = _skuPayoutCountCleanKey(marketplaceSku);
-        if (skuKey.isEmpty) continue;
-
+        final localKey = _skuPayoutCountCleanKey(localSku);
         final compositeKey =
             _skuPayoutCountCompositeKey(marketplaceSku, localSku);
 
         if (compositeKey.trim() != '|') {
-          out[compositeKey] = row;
+          addToMapKey(compositeKey, row);
         }
-
-        // Fallback utama. Marketplace SKU harus unik untuk variant marketplace.
-        out['$skuKey|'] = row;
+        if (skuKey.isNotEmpty) {
+          addToMapKey('$skuKey|', row);
+        }
+        if (localKey.isNotEmpty) {
+          addToMapKey('|$localKey', row);
+          addToMapKey(localKey, row);
+        }
       }
 
       return out;
@@ -1297,20 +3272,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     Map<String, Map<String, dynamic>> summaryMap,
   ) {
     final marketplaceSku = _firstSkuPayoutCountValue(row, const [
-      'marketplace_sku',
       'marketplace_sku_id',
+      'marketplace_sku',
       'sku_marketplace',
     ]);
 
     final localSku = _firstSkuPayoutCountValue(row, const [
       'local_sku',
       'sku_local',
+      'sku',
     ]);
 
     final compositeKey = _skuPayoutCountCompositeKey(marketplaceSku, localSku);
     final skuOnlyKey = '${_skuPayoutCountCleanKey(marketplaceSku)}|';
+    final localOnlyKey = '|${_skuPayoutCountCleanKey(localSku)}';
+    final localKey = _skuPayoutCountCleanKey(localSku);
 
-    final summary = summaryMap[compositeKey] ?? summaryMap[skuOnlyKey];
+    final summary = summaryMap[compositeKey] ??
+        summaryMap[skuOnlyKey] ??
+        summaryMap[localOnlyKey] ??
+        summaryMap[localKey];
     if (summary == null) return row;
 
     final paidQty = _numFirstNonZero([
@@ -1366,11 +3347,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (!mounted) return;
       setState(() {
         _bySku = mergedRows;
+        _skuPayoutCountSummaryMap = summaryMap;
       });
     } catch (e) {
       // Overlay hitungan settled/belum payout hanya data pendukung.
       // Jangan pernah bikin laporan utama gagal dimuat gara-gara RPC overlay
-      // belum ada, beda signature, timeout, atau schema cache Supabase sedang malas hidup.
+      // belum ada, beda signature, timeout, atau schema cache Supabase belum refresh.
       debugPrint('FINANCE_SKU_PAYOUT_COUNT_OVERLAY_SKIPPED: $e');
       return;
     }
@@ -1489,6 +3471,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   double _unpaidEstimatedHppTotal() {
     final direct = _numFirstNonZero([
+      _summary['estimated_unpaid_hpp'],
+      _summary['hpp_belum_payout'],
+      _summary['unpaid_hpp'],
+      _summary['unpaid_hpp_total'],
       _summary['unpaid_estimated_hpp_total'],
       _summary['pending_hpp_total'],
       _summary['hpp_unpaid_total'],
@@ -1548,17 +3534,68 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   List<Map<String, dynamic>> _dedupeExpenseRows(
       List<Map<String, dynamic>> rows) {
-    final manualOnly = rows
-        .where((row) => !_isPurchaseExpenseRow(row))
-        .where((row) => !_isSyntheticExpenseRow(row))
-        .map((row) => Map<String, dynamic>.from(row))
-        .where((row) =>
-            _numFirstNonZero(
-                    [row['amount'], row['total_amount'], row['expense_total']])
-                .abs() >
-            0)
-        .toList();
-    return _dedupeByStableKey(manualOnly);
+    final deduped = <String, Map<String, dynamic>>{};
+    final seenIds = <String>{};
+    final seenSignatures = <String>{};
+
+    for (final source in rows) {
+      if (_isPurchaseExpenseRow(source) || _isSyntheticExpenseRow(source)) {
+        continue;
+      }
+
+      final row = Map<String, dynamic>.from(source);
+      final amount = _numFirstNonZero(
+          [row['amount'], row['total_amount'], row['expense_total']]);
+      if (amount.abs() <= 0.49) continue;
+
+      final expenseId = _expenseId(row).trim();
+      if (expenseId.isNotEmpty && seenIds.contains(expenseId)) {
+        continue;
+      }
+
+      final stableDate = _date(row['expense_date'] ??
+          row['paid_at'] ??
+          row['date'] ??
+          row['created_at']);
+      final category = _text(row['category'], '').trim().toLowerCase();
+      final note =
+          _text(row['note'] ?? row['description'], '').trim().toLowerCase();
+      final sourceField = _text(row['source']).trim().toLowerCase();
+
+      final signature =
+          '$stableDate|$category|$note|${amount.toStringAsFixed(2)}|$sourceField';
+      if (seenSignatures.contains(signature)) {
+        continue;
+      }
+
+      final key = _isUuid(expenseId)
+          ? 'id:$expenseId'
+          : 'manual:$stableDate|$category|${amount.toStringAsFixed(0)}|$note';
+
+      final existing = deduped[key];
+      if (existing == null ||
+          (!_isUuid(_expenseId(existing)) && _isUuid(expenseId))) {
+        deduped[key] = row;
+        if (expenseId.isNotEmpty) {
+          seenIds.add(expenseId);
+        }
+        seenSignatures.add(signature);
+      }
+    }
+
+    final out = deduped.values.toList();
+    out.sort((a, b) {
+      final ad =
+          _parseDate(a['expense_date'] ?? a['paid_at'] ?? a['created_at']) ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+      final bd =
+          _parseDate(b['expense_date'] ?? b['paid_at'] ?? b['created_at']) ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+      final cmp = bd.compareTo(ad);
+      if (cmp != 0) return cmp;
+      return _text(a['category']).compareTo(_text(b['category']));
+    });
+    return out;
   }
 
   List<Map<String, dynamic>> _skuRowsFromSnapshot(Map<String, dynamic> data) {
@@ -1820,15 +3857,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       map['total_hpp'],
       map['hpp_amount'],
       map['hpp']
-    ]);
+    ]).abs();
     final operational = _numFirstNonZero([
       map['operational_cost_total'],
       map['operational_expense'],
       map['expense_total'],
       map['manual_expense_total']
     ]);
-    final profit = _numFirstNonZero(
-        [map['net_profit'], map['profit'], payout - hpp - operational]);
+    final profit = payout - hpp - operational;
     final margin = payout > 0 ? ((profit / payout) * 100) : 0;
     map['gross_sales'] = gross;
     map['omzet'] = gross;
@@ -2151,7 +4187,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _filterSkuRowsBySelectedScope(
       List<Map<String, dynamic>> rows) {
     if (!_selectedScopeIsSpecific()) return rows;
-    return rows.where(_rowMatchesSelectedScope).toList();
+    final filtered = rows.where(_rowMatchesSelectedScope).toList();
+    // Aggregated SKU RPC rows already filter by marketplace/account on database level,
+    // so if client-side filtering yields 0 rows due to missing row metadata, preserve server rows.
+    return (filtered.isEmpty && rows.isNotEmpty) ? rows : filtered;
   }
 
   Future<List<Map<String, dynamic>>> _fetchApprovedPurchasesPeriod() async {
@@ -2164,13 +4203,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               row['finance_status'] ??
               '')
           .toString()
-          .toLowerCase();
+          .toLowerCase()
+          .trim();
+      if (status.contains('rejected') ||
+          status.contains('canceled') ||
+          status.contains('cancelled') ||
+          status.contains('void') ||
+          status.contains('draft') ||
+          status.contains('pending') ||
+          status.contains('submitted') ||
+          status.contains('waiting') ||
+          status.contains('menunggu')) {
+        return false;
+      }
       return status.contains('approved') ||
+          status.contains('disetujui') ||
           status.contains('verified') ||
           status.contains('accepted') ||
           status.contains('approve') ||
           status == 'done' ||
-          status == 'paid';
+          status == 'paid' ||
+          status == 'completed' ||
+          status.isEmpty;
     }
 
     double amountOf(Map<String, dynamic> row) {
@@ -2238,6 +4292,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               'type': 'purchase_approved',
               'flow': 'OUT',
               'source': source,
+              'source_label': 'Pembelian disetujui',
             };
           })
           .where((row) => _num(row['amount']) > 0)
@@ -2252,7 +4307,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     for (final table in ['purchase_requests', 'purchases']) {
       try {
-        final rows = await _client.from(table).select('*').range(0, 499);
+        final dateCol =
+            table == 'purchase_requests' ? 'tanggal_beli' : 'tanggal';
+        dynamic query = _client.from(table).select('*');
+        if (_currentTenantId.trim().isNotEmpty) {
+          query = query.eq('tenant_id', _currentTenantId);
+        }
+        query = query
+            .gte(dateCol, _toDateParam(_start))
+            .lte(dateCol, _toDateParam(_end))
+            .order(dateCol, ascending: false);
+        final rows = await query.range(0, 499);
         merged.addAll(normalizeRows(rows, table));
       } catch (_) {}
     }
@@ -2307,6 +4372,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   _isoDate(DateTime.now()),
               'created_at': row['created_at'],
               'source': row['source'] ?? 'purchase_requests',
+              'source_label': row['source_label'] ?? 'Pembelian disetujui',
             })
         .toList();
   }
@@ -2500,6 +4566,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             summary['orders_count'])
         .toInt();
 
+    final commission = _num(summary['commission_fee'] ?? summary['commission'] ?? label['commission_fee'] ?? label['commission']);
+    final platform = _num(summary['platform_fee'] ?? summary['platform'] ?? label['platform_fee'] ?? label['platform']);
+    final affiliate = _num(summary['affiliate_fee'] ?? summary['affiliate'] ?? label['affiliate_fee'] ?? label['affiliate']);
+    final shipping = _num(summary['shipping_fee'] ?? summary['shipping'] ?? summary['ongkir'] ?? label['shipping_fee'] ?? label['shipping']);
+    final discount = _num(summary['discount_amount'] ?? summary['voucher_amount'] ?? summary['discount'] ?? summary['voucher'] ?? label['discount_amount'] ?? label['voucher_amount']);
+    final refund = _num(summary['refund_amount'] ?? summary['return_refund_amount'] ?? summary['refund'] ?? label['refund_amount'] ?? label['return_refund_amount']);
+    final adjustment = _num(summary['adjustment_amount'] ?? summary['adjustment'] ?? label['adjustment_amount'] ?? label['adjustment']);
+    final totalDeductions = _num(summary['total_fees'] ?? summary['fee_amount'] ?? summary['biaya'] ?? summary['deductions'] ?? label['total_fees'] ?? label['fee_amount'] ?? label['biaya']);
+
     // v24.6.60: tab Marketplace wajib mengikuti Ringkasan/SKU.
     // Aggregate mentah dari RPC lama bisa terduplikasi dari join item/HPP, jadi angka nominal utama tidak diambil dari rawRows.
     return [
@@ -2539,8 +4614,42 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'net_profit': profit,
         'net_margin_percent': margin,
         'margin_percent': margin,
+        'commission_fee': commission,
+        'platform_fee': platform,
+        'affiliate_fee': affiliate,
+        'shipping_fee': shipping,
+        'discount_amount': discount,
+        'voucher_amount': discount,
+        'refund_amount': refund,
+        'return_refund_amount': refund,
+        'adjustment_amount': adjustment,
+        'fee_amount': totalDeductions,
+        'total_fees': totalDeductions,
+        'biaya': totalDeductions,
+        'deductions': totalDeductions,
       },
     ];
+  }
+
+  List<Map<String, dynamic>> _dedupeCashFlowRows(
+      List<Map<String, dynamic>> rows) {
+    final out = <Map<String, dynamic>>[];
+    final seen = <String>{};
+
+    for (final row in rows) {
+      final source =
+          _text(row['source'] ?? row['category'] ?? row['type'], '-');
+      final date =
+          _text(row['date'] ?? row['created_at'] ?? row['period_start'], '-');
+      final amount = _num(row['amount']);
+      final key = '${source.toLowerCase()}|$date|${amount.toStringAsFixed(2)}';
+
+      if (seen.add(key)) {
+        out.add(row);
+      }
+    }
+
+    return out;
   }
 
   List<Map<String, dynamic>> _cashFlowRowsFromSummary(
@@ -2558,12 +4667,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       summary['manual_expense_total'],
       summary['manual_operational_expense']
     ]);
+    final production = _numFirstNonZero([
+      summary['production_paid_total'],
+      summary['paid_production_total'],
+      summary['production_tailor_paid_total']
+    ]);
     final purchases = _numFirstNonZero([
       summary['approved_purchase_total'],
       summary['purchase_cashout'],
       summary['approved_purchase_cashout']
     ]);
-    final netCash = payout - manual - purchases;
+    final netCash = payout - manual - production - purchases;
     final today = _toDateParam(_end);
     final rows = <Map<String, dynamic>>[];
     if (payout > 0 || gross > 0)
@@ -2593,7 +4707,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'amount': -purchases.abs(),
         'date': today
       });
-    if (payout > 0 || manual > 0 || purchases > 0)
+    if (production > 0)
+      rows.add({
+        'source': 'Produksi paid',
+        'category': 'Produksi paid',
+        'type': 'out',
+        'cash_type': 'out',
+        'amount': -production.abs(),
+        'date': today
+      });
+    if (payout > 0 || manual > 0 || production > 0 || purchases > 0)
       rows.add({
         'source': 'Arus kas bersih',
         'category': 'Arus kas bersih',
@@ -2603,6 +4726,75 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'date': today
       });
     return rows;
+  }
+
+  bool _isSettlementDetailProfitLossRow(Map<String, dynamic> row) {
+    final type = _text(row['type']).toLowerCase();
+    final key = _text(row['key']).toLowerCase();
+    final label = _text(row['label'] ?? row['name']).toLowerCase();
+
+    const settlementKeys = <String>{
+      'total_fees',
+      'platform_fee',
+      'commission_fee',
+      'affiliate_fee',
+      'shipping_fee',
+      'discount_amount',
+      'refund_amount',
+      'adjustment_amount',
+      'fee_amount',
+    };
+
+    if (type == 'settlement_detail') return true;
+    if (settlementKeys.contains(key)) return true;
+
+    return label == 'marketplace' ||
+        label.contains('fee marketplace') ||
+        label.contains('platform fee') ||
+        label.contains('commission fee') ||
+        label.contains('affiliate fee') ||
+        label.contains('shipping fee') ||
+        label.contains('diskon / voucher') ||
+        label.contains('refund') ||
+        label.contains('adjustment') ||
+        label.contains('fee amount');
+  }
+
+  bool _isBackendGeneratedProfitLossBreakdownRow(Map<String, dynamic> row) {
+    if (_isSettlementDetailProfitLossRow(row)) return true;
+
+    final description =
+        _text(row['description'] ?? row['subtitle'] ?? row['note'])
+            .toLowerCase();
+    final type = _text(row['type']).toLowerCase();
+    final key = _text(row['key']).toLowerCase();
+
+    const backendKeys = <String>{
+      'gross_sales',
+      'payout_total',
+      'hpp_total',
+      'manual_expense_total',
+      'purchase_cashout',
+      'net_profit',
+    };
+
+    if (description.contains('rincian dari data settlement marketplace')) {
+      return true;
+    }
+
+    if (backendKeys.contains(key) &&
+        (type == 'income' || type == 'cost' || type == 'profit')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  List<Map<String, dynamic>> _profitLossExpenseDetailRows(
+      List<Map<String, dynamic>> expenses) {
+    // Detail biaya sudah tampil di tab Biaya. Jangan render ulang di Laba Rugi
+    // karena akan menduplikasi total Biaya Operasional / Pembelian Disetujui.
+    return const <Map<String, dynamic>>[];
   }
 
   List<Map<String, dynamic>> _profitLossRowsFromSummary(
@@ -2618,13 +4810,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       summary['manual_expense_total'],
       summary['manual_operational_expense']
     ]);
+    final production = _numFirstNonZero([
+      summary['production_paid_total'],
+      summary['paid_production_total'],
+      summary['production_tailor_paid_total']
+    ]);
     final purchases = _numFirstNonZero([
       summary['approved_purchase_total'],
       summary['purchase_cashout'],
       summary['approved_purchase_cashout']
     ]);
-    final ops = manual + purchases;
-    final marketplaceCut = (gross - payout).clamp(0, 999999999999).toDouble();
+    final ops = manual + production + purchases;
+    // Gross-vs-payout gap is reconciliation diagnostic, not P&L expense.
+    final marketplaceCut = 0.0;
     final profit = payout - hpp - ops;
     final margin = payout > 0 ? (profit / payout) * 100 : 0.0;
 
@@ -2635,19 +4833,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'amount': gross,
         'format': 'money'
       },
-      if (marketplaceCut > 0)
-        {
-          'name': 'Potongan marketplace',
-          'description':
-              'Selisih omzet dan payout. Termasuk komisi, biaya layanan, subsidi/voucher, pajak, refund, atau koreksi settlement.',
-          'amount': -marketplaceCut,
-          'format': 'money'
-        },
     ];
+
+    if (marketplaceCut > 0 && marketplaceDeductions.isEmpty) {
+      rows.add({
+        'name': 'Potongan marketplace',
+        'description':
+            'Selisih omzet dan payout. Termasuk komisi, biaya layanan, subsidi/voucher, pajak, refund, atau koreksi settlement.',
+        'amount': -marketplaceCut,
+        'format': 'money'
+      });
+    }
 
     for (final item in marketplaceDeductions) {
       final amount = _num(item['amount'] ?? item['total']);
-      if (amount <= 0) continue;
+      if (amount == 0) continue;
       final label = _text(item['label'] ?? item['name'] ?? item['category'],
           'Rincian potongan');
       final cleanLabel = label.toLowerCase().trim();
@@ -2664,7 +4864,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'name': label,
         'description': _text(
             item['description'], 'Rincian dari data settlement marketplace'),
-        'amount': -amount.abs(),
+        'amount': amount < 0 ? amount : -amount,
         'format': 'money',
       });
     }
@@ -2696,9 +4896,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'amount': -purchases.abs(),
           'format': 'money'
         },
+      if (production > 0)
+        {
+          'name': 'Produksi paid',
+          'description': 'Pembayaran produksi/tailor yang sudah dibayar',
+          'amount': -production.abs(),
+          'format': 'money'
+        },
       {
         'name': 'Laba bersih',
-        'description': 'Payout - HPP - biaya operasional - pembelian disetujui',
+        'description':
+            'Payout - HPP - biaya operasional - pembelian disetujui - produksi paid',
         'amount': profit,
         'format': 'money'
       },
@@ -3144,7 +5352,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         negativePayoutQty = _num(row['negative_payout_qty']).toDouble();
         if (positivePayout == 0 && paidPayout > 0) positivePayout = paidPayout;
         if (negativePayout == 0 && paidPayout < 0) negativePayout = paidPayout;
-        if (paidQty <= 0 && paidPayout != 0) paidQty = totalQty;
+        // Only treat payout_total as evidence of settled qty when the row is
+        // NOT tagged as an unpaid row. Rows from p_payout_filter='unpaid' carry
+        // a non-zero payout_total (accumulated), but all their qty is unpaid.
+        final isTaggedUnpaid =
+            _text(row['_payout_filter'], '').toLowerCase() == 'unpaid';
+        if (!isTaggedUnpaid && paidQty <= 0 && paidPayout != 0)
+          paidQty = totalQty;
         if (positivePayoutQty <= 0 && positivePayout > 0)
           positivePayoutQty = paidQty > 0 ? paidQty : totalQty;
         if (negativePayoutQty <= 0 && negativePayout < 0)
@@ -3254,12 +5468,87 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }).toList();
   }
 
+  List<Map<String, dynamic>> _aggregateSkuRowsByLocalSku(
+      List<Map<String, dynamic>> rows) {
+    if (rows.isEmpty) return rows;
+    final map = <String, Map<String, dynamic>>{};
+    final order = <String>[];
+
+    for (final item in rows) {
+      final row = Map<String, dynamic>.from(item);
+      final localSku = _text(row['local_sku'] ?? row['sku'], '').trim();
+      final key = localSku.isNotEmpty && localSku != '-'
+          ? localSku.toUpperCase()
+          : 'UNMAPPED_${_text(row['marketplace_sku_id'] ?? row['marketplace_sku'] ?? row['product_name'])}';
+
+      final existing = map[key];
+      if (existing == null) {
+        row['local_sku'] = localSku.isNotEmpty ? localSku : key;
+        row['sku'] = localSku.isNotEmpty ? localSku : key;
+        map[key] = row;
+        order.add(key);
+      } else {
+        existing['qty'] = _num(existing['qty']) + _num(row['qty']);
+        existing['qty_total'] = _num(existing['qty_total']) + _num(row['qty_total']);
+        existing['total_qty'] = _num(existing['total_qty']) + _num(row['total_qty']);
+        existing['all_qty'] = _num(existing['all_qty']) + _num(row['all_qty']);
+        existing['paid_qty'] = _num(existing['paid_qty']) + _num(row['paid_qty']);
+        existing['settled_qty'] = _num(existing['settled_qty']) + _num(row['settled_qty']);
+        existing['qty_settled'] = _num(existing['qty_settled']) + _num(row['qty_settled']);
+        existing['unpaid_qty'] = _num(existing['unpaid_qty']) + _num(row['unpaid_qty']);
+        existing['qty_unpaid'] = _num(existing['qty_unpaid']) + _num(row['qty_unpaid']);
+        existing['pending_payout_qty'] = _num(existing['pending_payout_qty']) + _num(row['pending_payout_qty']);
+        existing['qty_belum_payout'] = _num(existing['qty_belum_payout']) + _num(row['qty_belum_payout']);
+        existing['belum_payout_qty'] = _num(existing['belum_payout_qty']) + _num(row['belum_payout_qty']);
+        existing['payout_total'] = _num(existing['payout_total']) + _num(row['payout_total']);
+        existing['payout_amount'] = _num(existing['payout_amount']) + _num(row['payout_amount']);
+        existing['gross_sales'] = _num(existing['gross_sales']) + _num(row['gross_sales']);
+        existing['gross_total'] = _num(existing['gross_total']) + _num(row['gross_total']);
+        existing['hpp_total'] = _num(existing['hpp_total']) + _num(row['hpp_total']);
+        existing['order_count'] = _num(existing['order_count']) + _num(row['order_count']);
+        existing['paid_order_count'] = _num(existing['paid_order_count']) + _num(row['paid_order_count']);
+        existing['unpaid_order_count'] = _num(existing['unpaid_order_count']) + _num(row['unpaid_order_count']);
+        existing['unpaid_rows'] = _num(existing['unpaid_rows']) + _num(row['unpaid_rows']);
+        existing['unpaid_count'] = _num(existing['unpaid_count']) + _num(row['unpaid_count']);
+      }
+    }
+
+    return order.map((k) => map[k]!).toList();
+  }
+
+  List<Map<String, dynamic>> _sortSkuRowsForDisplay(
+      List<Map<String, dynamic>> rows) {
+    final out = rows.map((row) => Map<String, dynamic>.from(row)).toList();
+    out.sort((a, b) {
+      final aSettled =
+          _num(a['paid_qty'] ?? a['settled_qty'] ?? a['qty_settled']);
+      final bSettled =
+          _num(b['paid_qty'] ?? b['settled_qty'] ?? b['qty_settled']);
+      final aPayout = _num(a['payout_total'] ?? a['payout_amount']);
+      final bPayout = _num(b['payout_total'] ?? b['payout_amount']);
+      final settledCmp = bSettled.compareTo(aSettled);
+      if (settledCmp != 0) return settledCmp;
+      final payoutCmp = bPayout.compareTo(aPayout);
+      if (payoutCmp != 0) return payoutCmp;
+      final aUnpaid = _num(a['unpaid_qty'] ?? a['qty_unpaid']);
+      final bUnpaid = _num(b['unpaid_qty'] ?? b['qty_unpaid']);
+      return bUnpaid.compareTo(aUnpaid);
+    });
+    return out;
+  }
+
   List<Map<String, dynamic>> _mergeSkuRows(
       List<Map<String, dynamic>> base, List<Map<String, dynamic>> extra) {
     final out = <Map<String, dynamic>>[];
     final byKey = <String, Map<String, dynamic>>{};
 
     List<String> keysOf(Map<String, dynamic> row) {
+      final local =
+          _text(row['local_sku'] ?? row['sku'], '').trim().toLowerCase();
+      if (local.isNotEmpty && local != '-' && local != 'unmapped') {
+        return [local];
+      }
+
       final account =
           _text(row['marketplace_account_id'] ?? row['account_id'], '')
               .trim()
@@ -3281,11 +5570,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         final text = _text(value, '').trim().toLowerCase();
         if (text.isNotEmpty && text != '-') return ['$prefix$text'];
       }
-      final local =
-          _text(row['local_sku'] ?? row['sku'], '').trim().toLowerCase();
-      return local.isEmpty || local == '-'
-          ? ['${prefix}row_${row.hashCode}']
-          : ['$prefix$local'];
+      return ['${prefix}row_${row.hashCode}'];
     }
 
     void addRow(Map<String, dynamic> row) {
@@ -3304,16 +5589,70 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         return;
       }
 
-      final detailOnly = _text(row['detail_source'], '').contains('detail') ||
-          _text(row['source'], '').contains('detail');
+      final detailOnly = _text(row['detail_source'], '').contains('_detail') ||
+          _text(row['source'], '').contains('_detail');
       if (!detailOnly) {
         existing['qty'] = _num(existing['qty']) + _num(row['qty']);
         existing['qty_total'] =
             _num(existing['qty_total']) + _num(row['qty_total']);
+        existing['all_qty_total'] =
+            _num(existing['all_qty_total']) + _num(row['all_qty_total']);
+        existing['paid_qty'] =
+            _num(existing['paid_qty']) + _num(row['paid_qty']);
+        existing['settled_qty'] =
+            _num(existing['settled_qty']) + _num(row['settled_qty']);
+        existing['qty_settled'] =
+            _num(existing['qty_settled']) + _num(row['qty_settled']);
+        existing['qty_payout'] =
+            _num(existing['qty_payout']) + _num(row['qty_payout']);
         existing['unpaid_qty'] =
             _num(existing['unpaid_qty']) + _num(row['unpaid_qty']);
+        existing['qty_unpaid'] =
+            _num(existing['qty_unpaid']) + _num(row['qty_unpaid']);
         existing['pending_payout_qty'] = _num(existing['pending_payout_qty']) +
             _num(row['pending_payout_qty']);
+        existing['paid_gross_total'] =
+            _num(existing['paid_gross_total']) + _num(row['paid_gross_total']);
+        existing['settled_gross_total'] =
+            _num(existing['settled_gross_total']) +
+                _num(row['settled_gross_total']);
+        existing['unpaid_gross_total'] = _num(existing['unpaid_gross_total']) +
+            _num(row['unpaid_gross_total']);
+        existing['payout_total'] =
+            _num(existing['payout_total']) + _num(row['payout_total']);
+        existing['payout_amount'] =
+            _num(existing['payout_amount']) + _num(row['payout_amount']);
+        existing['received_amount'] =
+            _num(existing['received_amount']) + _num(row['received_amount']);
+        existing['positive_payout_total'] =
+            _num(existing['positive_payout_total']) +
+                _num(row['positive_payout_total']);
+        existing['negative_payout_total'] =
+            _num(existing['negative_payout_total']) +
+                _num(row['negative_payout_total']);
+        existing['paid_hpp_total'] =
+            _num(existing['paid_hpp_total']) + _num(row['paid_hpp_total']);
+        existing['settled_hpp_total'] = _num(existing['settled_hpp_total']) +
+            _num(row['settled_hpp_total']);
+        existing['unpaid_hpp_total'] =
+            _num(existing['unpaid_hpp_total']) + _num(row['unpaid_hpp_total']);
+        existing['hpp_total'] =
+            _num(existing['hpp_total']) + _num(row['hpp_total']);
+        existing['total_hpp'] =
+            _num(existing['total_hpp']) + _num(row['total_hpp']);
+        final paidQty = _num(existing['paid_qty']);
+        final payout = _num(existing['payout_total']);
+        final hpp = _num(existing['paid_hpp_total']);
+        existing['payout_per_item'] = paidQty > 0 ? payout / paidQty : 0;
+        existing['payout_per_item_paid'] = existing['payout_per_item'];
+        existing['hpp_per_item'] = paidQty > 0 && hpp > 0
+            ? hpp / paidQty
+            : _numFirstNonZero([existing['hpp_per_item'], row['hpp_per_item']]);
+        existing['net_profit'] = payout - hpp;
+        existing['profit'] = existing['net_profit'];
+        existing['net_margin_percent'] =
+            payout > 0 ? ((payout - hpp) / payout * 100) : 0;
+        existing['margin_percent'] = existing['net_margin_percent'];
       }
       existing['order_details'] = <dynamic>[
         ..._asList(existing['order_details']),
@@ -3454,85 +5793,324 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   List<String> _abnormalStatusOptions() {
-    final values = <String>{
+    return const [
       'all',
-      'NEGATIVE_PAYOUT',
-      'MISSING_PAYOUT_FINAL',
-      'PENDING_PAYOUT'
-    };
-    final source = _abnormalServerLoaded ? _serverAbnormales : _abnormals;
-    for (final row in source) {
+      'sample_free',
+      'no_payout',
+      'payout_minus',
+      'low_margin',
+    ];
+  }
+
+  String _abnormalFilterLabel(String value) {
+    switch (value.toLowerCase()) {
+      case 'all':
+        return 'Semua';
+      case 'sample_free':
+        return 'Sample/Gratis';
+      case 'no_payout':
+        return 'No Payout';
+      case 'payout_minus':
+        return 'Payout Minus';
+      case 'low_margin':
+        return 'Low Margin';
+      default:
+        return value;
+    }
+  }
+
+  String? _abnormalServerStatusParam(String value) {
+    switch (value.toLowerCase()) {
+      case 'payout_minus':
+        return 'NEGATIVE_PAYOUT';
+      case 'all':
+      case 'sample_free':
+      case 'no_payout':
+      case 'low_margin':
+      default:
+        return null;
+    }
+  }
+
+  bool _abnormalUsesClientPaging([String? value]) {
+    switch ((value ?? _abnormalStatusFilter).toLowerCase()) {
+      case 'sample_free':
+      case 'no_payout':
+      case 'low_margin':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool _abnormalRowMatchesSearch(Map<String, dynamic> row, String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    final haystack = [
+      row['order_id'],
+      row['external_order_id'],
+      row['order_sn'],
+      row['resi'],
+      row['tracking_number'],
+      row['local_sku'],
+      row['seller_sku'],
+      row['sku'],
+      row['marketplace_sku'],
+      row['variant_name'],
+      row['marketplace_variant_name'],
+      row['title'],
+      row['product_name'],
+      row['message'],
+      row['note'],
+    ].map((item) => _text(item, '').toLowerCase()).join(' ');
+    return haystack.contains(q);
+  }
+
+  bool _isSampleFreeAbnormalRow(Map<String, dynamic> row) {
+    final status = _text(
+            row['abnormal_status'] ??
+                row['finance_status'] ??
+                row['payout_status'] ??
+                row['category'] ??
+                row['source'],
+            '')
+        .toLowerCase();
+    final evidence = _text(
+            row['sample_evidence_source'] ??
+                row['sample_source'] ??
+                row['sample_free_source'],
+            '')
+        .toLowerCase();
+    final searchable = [
+      row['message'],
+      row['note'],
+      row['description'],
+      row['payment_status'],
+      row['payment_text'],
+      row['order_status'],
+      row['title'],
+    ].map((item) => _text(item, '').toLowerCase()).join(' ');
+    return row['is_sample_order'] == true ||
+        evidence.contains('sample') ||
+        evidence.contains('discount_100') ||
+        evidence.contains('finance_flag') ||
+        status.contains('sample') ||
+        status.contains('gratis') ||
+        status.contains('free') ||
+        searchable.contains('sample') ||
+        searchable.contains('gratis') ||
+        searchable.contains('free');
+  }
+
+  bool _hasPayoutMinusSettlementReason(Map<String, dynamic> row) {
+    final payout = _num(row['payout_amount'] ??
+        row['payout_total'] ??
+        row['payout'] ??
+        row['received_amount'] ??
+        row['net_settlement']);
+    final diff = _num(row['difference_amount'] ?? row['gap_amount']);
+    final status = _text(
+            row['abnormal_status'] ??
+                row['finance_status'] ??
+                row['payout_status'] ??
+                row['status'],
+            '')
+        .toLowerCase();
+    final reason = _text(
+            row['payout_reason'] ??
+                row['abnormal_reason'] ??
+                row['message'] ??
+                row['note'],
+            '')
+        .toLowerCase();
+    return payout < 0 ||
+        diff < 0 ||
+        status.contains('negative') ||
+        status.contains('payout_minus') ||
+        status.contains('negative_payout') ||
+        reason.contains('settlement') ||
+        reason.contains('negative payout') ||
+        reason.contains('payout minus dari settlement');
+  }
+
+  bool _isNoPayoutAbnormalRow(Map<String, dynamic> row) {
+    if (_isSampleFreeAbnormalRow(row) &&
+        !_hasPayoutMinusSettlementReason(row)) {
+      return false;
+    }
+    final payout = _num(row['payout_amount'] ??
+        row['payout_total'] ??
+        row['payout'] ??
+        row['received_amount'] ??
+        row['net_settlement']);
+    final status = _text(
+            row['abnormal_status'] ??
+                row['finance_status'] ??
+                row['payout_status'] ??
+                row['status'],
+            '')
+        .toLowerCase();
+    final orderStatus = _text(
+            row['order_status'] ??
+                row['status_order'] ??
+                row['live_status'] ??
+                row['marketplace_order_status'],
+            '')
+        .toUpperCase();
+    const activeStatuses = [
+      'AWAITING_SHIPMENT',
+      'READY_TO_SHIP',
+      'AWAITING_COLLECTION',
+      'IN_TRANSIT',
+      'TO_SHIP',
+      'TO_PACK',
+      'PROCESSED',
+      'UNSHIPPED',
+    ];
+    if (activeStatuses.any(orderStatus.contains)) return false;
+    final resi =
+        _text(row['resi'] ?? row['tracking_number'] ?? row['awb'], '').trim();
+    if (resi.isEmpty || resi == '-') return false;
+    final orderDate = _parseDate(row['order_date'] ??
+        row['order_created_at'] ??
+        row['created_at'] ??
+        row['date']);
+    if (orderDate != null && DateTime.now().difference(orderDate).inDays < 7) {
+      return false;
+    }
+    return payout == 0 &&
+        (status.contains('missing_payout_final') ||
+            status.contains('no_payout_eligible') ||
+            status.contains('no_payout') ||
+            status.contains('missing payout'));
+  }
+
+  bool _isLowMarginAbnormalRow(Map<String, dynamic> row) {
+    if (_isSampleFreeAbnormalRow(row)) return false;
+    final payout = _num(row['payout_amount'] ??
+        row['payout_total'] ??
+        row['payout'] ??
+        row['received_amount'] ??
+        row['net_settlement']);
+    final hpp = _num(row['hpp'] ?? row['hpp_total'] ?? row['total_hpp']);
+    final explicitMargin =
+        _num(row['net_margin_percent'] ?? row['margin_percent']);
+    final margin = explicitMargin != 0
+        ? explicitMargin
+        : payout > 0
+            ? ((payout - hpp) / payout * 100)
+            : 0;
+    final target = _numFirstNonZero([
+      row['target_margin_percent'],
+      row['margin_target_percent'],
+      row['target_net_margin_percent'],
+    ]);
+    final hppMapped = hpp > 0 ||
+        _text(row['hpp_status'] ?? row['hpp_source'] ?? row['mapping_status'])
+            .toLowerCase()
+            .contains('mapped');
+    return payout > 0 && hppMapped && target > 0 && margin < target;
+  }
+
+  List<Map<String, dynamic>> _abnormalFilterSource() {
+    final byKey = <String, Map<String, dynamic>>{};
+    void add(Map<String, dynamic> row) {
+      if (!_rowMatchesSelectedScope(row)) return;
+      final key = [
+        _text(row['marketplace_order_item_id'], ''),
+        _text(row['marketplace_order_id'], ''),
+        _text(
+            row['order_id'] ?? row['order_sn'] ?? row['external_order_id'], ''),
+        _text(row['local_sku'] ?? row['sku'], ''),
+        _text(row['abnormal_status'] ?? row['category'], ''),
+      ].where((part) => part.trim().isNotEmpty && part != '-').join('|');
+      byKey[key.isEmpty ? 'row_${byKey.length}' : key] = row;
+    }
+
+    for (final row in _abnormalServerLoaded ? _serverAbnormales : _abnormals) {
+      add(row);
+    }
+    for (final row in _sampleFreeOrders) {
+      add(row);
+    }
+    return byKey.values.toList();
+  }
+
+  List<Map<String, dynamic>> _filteredAbnormales({bool paged = true}) {
+    final source = _abnormalFilterSource();
+    final filter = _abnormalStatusFilter.trim().toLowerCase();
+    final query = _abnormalSearchController.text.trim();
+    final filtered = source.where((row) {
+      if (!_abnormalRowMatchesSearch(row, query)) return false;
+      if (!_abnormalServerLoaded && _shouldHideZeroCancelAbnormal(row))
+        return false;
+      if (filter.isEmpty || filter == 'all') {
+        if (_isSampleFreeAbnormalRow(row)) return false;
+        final isPayoutMinus = _hasPayoutMinusSettlementReason(row);
+        if (isPayoutMinus) return true;
+        final orderStatus = _text(
+                row['order_status'] ?? row['status'] ?? row['live_status'], '')
+            .toUpperCase();
+        if (_isCancelLikeStatus(orderStatus)) return false;
+        const activeStatuses = [
+          'AWAITING_SHIPMENT',
+          'READY_TO_SHIP',
+          'AWAITING_COLLECTION',
+          'IN_TRANSIT',
+          'TO_SHIP',
+          'TO_PACK',
+          'PROCESSED',
+          'UNSHIPPED',
+        ];
+        if (activeStatuses.any(orderStatus.contains)) return false;
+        final resi =
+            _text(row['resi'] ?? row['tracking_number'] ?? row['awb'], '')
+                .trim();
+        if (resi.isEmpty || resi == '-') return false;
+        return true;
+      }
+      if (filter == 'sample_free') return _isSampleFreeAbnormalRow(row);
+      if (filter == 'no_payout') return _isNoPayoutAbnormalRow(row);
+      if (filter == 'payout_minus') {
+        return _hasPayoutMinusSettlementReason(row);
+      }
+      if (filter == 'low_margin') return _isLowMarginAbnormalRow(row);
       final status = _text(row['abnormal_status'] ??
               row['payout_status'] ??
               row['order_status'] ??
               row['status'])
-          .trim();
-      if (status.isNotEmpty && status != '-') values.add(status);
+          .trim()
+          .toUpperCase();
+      return status == filter.toUpperCase() ||
+          _text(row['order_status'] ?? row['status']).trim().toUpperCase() ==
+              filter.toUpperCase();
+    }).toList();
+    if (!paged) return filtered;
+    if (_abnormalUsesClientPaging()) {
+      final page = _abnormalPage <= 1 ? 1 : _abnormalPage;
+      return filtered
+          .skip((page - 1) * _abnormalPageSize)
+          .take(_abnormalPageSize)
+          .toList();
     }
-    final list = values.toList();
-    list.sort((a, b) {
-      if (a == 'all') return -1;
-      if (b == 'all') return 1;
-      return a.compareTo(b);
-    });
-    return list;
+    return filtered.take(_abnormalPageSize).toList();
   }
 
-  String _abnormalFilterLabel(String value) {
-    switch (value.toUpperCase()) {
-      case 'ALL':
-        return 'Semua abnormal';
-      case 'NEGATIVE_PAYOUT':
-        return 'Payout minus';
-      case 'MISSING_PAYOUT_FINAL':
-        return 'Final tanpa payout';
-      case 'PENDING_PAYOUT':
-        return 'Belum payout';
-      case 'SAFE_CANCEL_UNPAID':
-        return 'Batal/unpaid aman';
-      default:
-        return 'Status: $value';
+  int _visibleAbnormalTotal() {
+    if (_abnormalUsesClientPaging()) {
+      return _filteredAbnormales(paged: false).length;
     }
-  }
-
-  List<Map<String, dynamic>> _filteredAbnormales() {
-    final source = _abnormalServerLoaded ? _serverAbnormales : _abnormals;
-    final filter = _abnormalStatusFilter.trim().toUpperCase();
-    return source
-        .where((row) {
-          if (!_abnormalServerLoaded && _shouldHideZeroCancelAbnormal(row))
-            return false;
-          if (filter.isEmpty || filter == 'ALL') return true;
-          final status = _text(row['abnormal_status'] ??
-                  row['payout_status'] ??
-                  row['order_status'] ??
-                  row['status'])
-              .trim()
-              .toUpperCase();
-          if (filter == 'NEGATIVE_PAYOUT')
-            return _num(row['payout_amount'] ??
-                        row['payout_total'] ??
-                        row['payout']) <
-                    0 ||
-                status == 'NEGATIVE_PAYOUT';
-          return status == filter ||
-              _text(row['order_status'] ?? row['status'])
-                      .trim()
-                      .toUpperCase() ==
-                  filter;
-        })
-        .take(_abnormalPageSize)
-        .toList();
+    return _abnormalTotal;
   }
 
   //  Abnormal reader
   // True duplicate check: marketplace_account_id + external_order_id + external_order_item_id.
   // Status mapping:
-  //   PENDING_PAYOUT        â„¢ waiting, not error, not refresh-payout data.
-  //   MISSING_PAYOUT_FINAL  â„¢ real abnormal, COMPLETED order without payout.
-  //   NO_PAYOUT_EXPECTED    â„¢ excluded from payout refresh, show as greyed-out.
-  //   CANCEL_OR_RETURN_DONE â„¢ finished without stock-in (cancelled before packing).
-  //   DELIVERED w/o payout  â„¢ not a final abnormal unless status COMPLETED.
+  //   PENDING_PAYOUT        ->  waiting, not error, not refresh-payout data.
+  //   MISSING_PAYOUT_FINAL  ->  real abnormal, COMPLETED order without payout.
+  //   NO_PAYOUT_EXPECTED    ->  excluded from payout refresh, show as greyed-out.
+  //   CANCEL_OR_RETURN_DONE ->  finished without stock-in (cancelled before packing).
+  //   DELIVERED w/o payout  ->  not a final abnormal unless status COMPLETED.
 
   static const _abnormalRpcV82 = 'finance_abnormal_search';
   String _activeAbnormalRpc = _abnormalRpcV82;
@@ -3640,7 +6218,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'p_search': _abnormalSearchController.text.trim().isEmpty
           ? null
           : _abnormalSearchController.text.trim(),
-      'p_status': _abnormalStatusFilter == 'all' ? null : _abnormalStatusFilter,
+      'p_status': _abnormalServerStatusParam(_abnormalStatusFilter),
       'p_page': page,
       'p_page_size': _abnormalPageSize,
     };
@@ -3661,10 +6239,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ? 'marketplace_finance_reports_raw_negative_payout'
             : selectedRpc;
         _serverAbnormales = rawRows;
-        _abnormalTotal = _selectedScopeIsSpecific()
-            ? rawRows.length
-            : _num(map['total']).toInt();
+        _abnormalTotal = _num(map['total']).toInt();
         _abnormalPage = _num(map['page']).toInt().clamp(1, 999999).toInt();
+        _abnormalLoadError = null;
 
         if (aggregates.isNotEmpty) {
           final nextSummary = Map<String, dynamic>.from(_summary);
@@ -3692,7 +6269,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
         _abnormalServerLoaded = true;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       var fallbackRows = await _fetchRawNegativePayoutRowsPage(page: page);
       if (fallbackRows.isEmpty && _abnormals.isNotEmpty) {
@@ -3716,12 +6293,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               fallbackTotal > 0 ? fallbackTotal : fallbackRows.length;
           _abnormalPage = page;
           _abnormalServerLoaded = true;
+          _abnormalLoadError = null;
         });
       } else if (!silent) {
         setState(() {
           _serverAbnormales = [];
           _abnormalTotal = 0;
           _abnormalServerLoaded = false;
+          _abnormalLoadError = _cleanError(error);
         });
       }
     } finally {
@@ -3835,7 +6414,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
     return (
       label: 'Perlu cek',
-      color: Theme.of(context).colorScheme.outline,
+      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
       isExcluded: false,
       isPending: false,
       isCancelDone: false
@@ -3893,7 +6472,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (ok != true) return;
     setState(() => _processing = true);
     try {
-      await _client.rpc('finance_unmark_no_payout_order_v24_6_28', params: {
+      await _client.rpc('finance_unmark_no_payout_order', params: {
         'p_order_id': orderId,
         'p_account_id': accountId,
       });
@@ -3937,8 +6516,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (ok != true) return;
     setState(() => _processing = true);
     try {
-      final res = await _client
-          .rpc('finance_auto_mark_cancel_no_payout_v24_6_28', params: {
+      final res =
+          await _client.rpc('finance_auto_mark_cancel_no_payout', params: {
         'p_start': _toDateParam(_start),
         'p_end': _toDateParam(_end),
         'p_account_id': _accountUuidParam(),
@@ -3959,6 +6538,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Future<void> _refreshAbnormalTab({bool resetPage = false}) async {
     if (resetPage) _abnormalPage = 1;
+    if (_abnormalUsesClientPaging() && _abnormalServerLoaded) {
+      if (mounted) setState(() {});
+      return;
+    }
     await _loadAbnormalesPage(resetPage: resetPage);
   }
 
@@ -4005,7 +6588,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (ok != true) return;
     setState(() => _processing = true);
     try {
-      await _client.rpc('finance_mark_no_payout_order_v24_6_28', params: {
+      final candidates = <String>[
+        'finance_mark_no_payout_order',
+        'finance_mark_no_payout_order',
+      ];
+      await _rpcWithFallback(candidates, {
         'p_order_id': orderId,
         'p_account_id': accountId,
         'p_reason': 'manual_no_payout_expected',
@@ -4021,42 +6608,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     } finally {
       if (mounted) setState(() => _processing = false);
     }
-  }
-
-  Widget _abnormalStatusFilterBar() {
-    final options = _abnormalStatusOptions();
-    if (!options.contains(_abnormalStatusFilter)) _abnormalStatusFilter = 'all';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: (Theme.of(context).cardColor),
-        borderRadius: BorderRadius.zero,
-        border:
-            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.28)),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _abnormalStatusFilter,
-          isExpanded: true,
-          dropdownColor: (Theme.of(context).cardColor),
-          iconEnabledColor: Theme.of(context).colorScheme.outline,
-          style: TextStyle(
-              color: Theme.of(context).dividerColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w700),
-          items: options
-              .map((value) => DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(_abnormalFilterLabel(value)),
-                  ))
-              .toList(),
-          onChanged: (value) {
-            setState(() => _abnormalStatusFilter = value ?? 'all');
-            _refreshAbnormalTab(resetPage: true);
-          },
-        ),
-      ),
-    );
   }
 
   Future<void> _clearMarketplaceFinanceData() async {
@@ -4486,13 +7037,34 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .replaceAll(':', '-')
           .split('.')
           .first;
-      final dir = await getApplicationDocumentsDirectory();
-      final file =
-          File('${dir.path}/laporan_keuangan_semua_marketplace_$stamp.xlsx');
-      await file.writeAsBytes(bytes, flush: true);
+      final fileName = 'laporan_keuangan_semua_marketplace_$stamp.xlsx';
+      final fileBytes = Uint8List.fromList(bytes);
+      const mimeType =
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+      final downloaded = await downloadBytesAsFile(
+        bytes: fileBytes,
+        fileName: fileName,
+        mimeType: mimeType,
+      );
+      if (downloaded) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(
+                  'Export laporan semua marketplace berhasil diunduh: $fileName')),
+        );
+        return;
+      }
 
       await Share.shareXFiles(
-        [XFile(file.path)],
+        [
+          XFile.fromData(
+            fileBytes,
+            name: fileName,
+            mimeType: mimeType,
+          ),
+        ],
         subject: 'Laporan keuangan semua marketplace',
         text:
             'Export laporan keuangan semua marketplace periode ${_toDateParam(_start)} s/d ${_toDateParam(_end)}.',
@@ -4513,40 +7085,315 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
   }
 
-  Future<void> _pickStart() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _start,
-      firstDate: DateTime.now().subtract(const Duration(days: 90)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+  Future<void> _pickDateRange() async {
+    final firstDate = _dateOnly(
+      DateTime.now().subtract(const Duration(days: 90)),
+    );
+    final lastDate = _dateOnly(
+      DateTime.now().add(const Duration(days: 365)),
+    );
+    final picked = await _showCompactDateRangePicker(
+      initialStart: _start,
+      initialEnd: _end,
+      firstDate: firstDate,
+      lastDate: lastDate,
     );
     if (picked == null) return;
     setState(() {
-      _start = DateTime(picked.year, picked.month, picked.day);
-      if (_end.isBefore(_start)) {
-        _end = DateTime(_start.year, _start.month, _start.day, 23, 59, 59);
-      }
+      _start =
+          DateTime(picked.start.year, picked.start.month, picked.start.day);
+      _end = DateTime(
+          picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
       _rememberFilters();
     });
+    await _clearFinanceLocalCacheForSelectedPeriod();
     await _load();
   }
 
-  Future<void> _pickEnd() async {
-    final picked = await showDatePicker(
+  Future<DateTimeRange?> _showCompactDateRangePicker({
+    required DateTime initialStart,
+    required DateTime initialEnd,
+    required DateTime firstDate,
+    required DateTime lastDate,
+  }) {
+    var draftStart = _clampDate(_dateOnly(initialStart), firstDate, lastDate);
+    var draftEnd = _clampDate(_dateOnly(initialEnd), firstDate, lastDate);
+    if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+    var visibleMonth = DateTime(draftStart.year, draftStart.month);
+    var pickingStart = true;
+
+    const monthNames = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
+    const weekdayNames = <String>[
+      'Sen',
+      'Sel',
+      'Rab',
+      'Kam',
+      'Jum',
+      'Sab',
+      'Min'
+    ];
+    final firstVisibleMonth = DateTime(firstDate.year, firstDate.month);
+    final lastVisibleMonth = DateTime(lastDate.year, lastDate.month);
+
+    return showDialog<DateTimeRange>(
       context: context,
-      initialDate: _end,
-      firstDate: DateTime.now().subtract(const Duration(days: 90)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final colorScheme = Theme.of(context).colorScheme;
+
+          String monthTitle(DateTime value) =>
+              '${monthNames[value.month - 1]} ${value.year}';
+
+          void setDraftRange(DateTime start, DateTime end) {
+            draftStart = _clampDate(_dateOnly(start), firstDate, lastDate);
+            draftEnd = _clampDate(_dateOnly(end), firstDate, lastDate);
+            if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+            visibleMonth = DateTime(draftStart.year, draftStart.month);
+            pickingStart = false;
+          }
+
+          void selectDay(DateTime value) {
+            final picked = _clampDate(_dateOnly(value), firstDate, lastDate);
+            setSheetState(() {
+              if (pickingStart) {
+                draftStart = picked;
+                if (draftEnd.isBefore(draftStart)) draftEnd = draftStart;
+                pickingStart = false;
+              } else {
+                draftEnd = picked;
+                if (draftStart.isAfter(draftEnd)) draftStart = draftEnd;
+              }
+            });
+          }
+
+          Widget dayCell(int index) {
+            final firstOfMonth =
+                DateTime(visibleMonth.year, visibleMonth.month);
+            final daysInMonth =
+                DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+            final day = index - (firstOfMonth.weekday - DateTime.monday) + 1;
+            if (day < 1 || day > daysInMonth) {
+              return const SizedBox(width: 40, height: 36);
+            }
+
+            final date =
+                _dateOnly(DateTime(visibleMonth.year, visibleMonth.month, day));
+            final disabled = date.isBefore(firstDate) || date.isAfter(lastDate);
+            final isStart = DateUtils.isSameDay(date, draftStart);
+            final isEnd = DateUtils.isSameDay(date, draftEnd);
+            final inRange = date.isAfter(draftStart) && date.isBefore(draftEnd);
+            final selected = isStart || isEnd;
+
+            Color? backgroundColor;
+            Color? foregroundColor;
+            if (selected) {
+              backgroundColor =
+                  isStart ? colorScheme.primary : colorScheme.secondary;
+              foregroundColor = colorScheme.onPrimary;
+            } else if (inRange) {
+              backgroundColor = colorScheme.primary.withValues(alpha: 0.10);
+              foregroundColor = colorScheme.onSurface;
+            } else if (disabled) {
+              foregroundColor = colorScheme.onSurface.withValues(alpha: 0.38);
+            } else {
+              foregroundColor = colorScheme.onSurface;
+            }
+
+            return SizedBox(
+              width: 40,
+              height: 36,
+              child: TextButton(
+                onPressed: disabled ? null : () => selectDay(date),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(40, 36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  foregroundColor: foregroundColor,
+                  backgroundColor: backgroundColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: Text('$day'),
+              ),
+            );
+          }
+
+          Widget calendarGrid() {
+            final firstOfMonth =
+                DateTime(visibleMonth.year, visibleMonth.month);
+            final daysInMonth =
+                DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+            final leading = firstOfMonth.weekday - DateTime.monday;
+            final totalCells = ((leading + daysInMonth + 6) ~/ 7) * 7;
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (final weekday in weekdayNames)
+                      SizedBox(
+                        width: 40,
+                        height: 24,
+                        child: Center(
+                          child: Text(
+                            weekday,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (var i = 0; i < totalCells; i++) dayCell(i),
+                  ],
+                ),
+              ],
+            );
+          }
+
+          return AlertDialog(
+            title: Text('Pilih periode'),
+            content: SizedBox(
+              width: 332,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: Text('Dari ${_date(draftStart)}'),
+                        selected: pickingStart,
+                        onSelected: (_) =>
+                            setSheetState(() => pickingStart = true),
+                      ),
+                      ChoiceChip(
+                        label: Text('Sampai ${_date(draftEnd)}'),
+                        selected: !pickingStart,
+                        onSelected: (_) =>
+                            setSheetState(() => pickingStart = false),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Bulan sebelumnya',
+                        onPressed: visibleMonth.isAfter(firstVisibleMonth)
+                            ? () => setSheetState(() {
+                                  visibleMonth = DateTime(visibleMonth.year,
+                                      visibleMonth.month - 1);
+                                })
+                            : null,
+                        icon: Icon(Icons.chevron_left_rounded),
+                      ),
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            monthTitle(visibleMonth),
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Bulan berikutnya',
+                        onPressed: visibleMonth.isBefore(lastVisibleMonth)
+                            ? () => setSheetState(() {
+                                  visibleMonth = DateTime(visibleMonth.year,
+                                      visibleMonth.month + 1);
+                                })
+                            : null,
+                        icon: Icon(Icons.chevron_right_rounded),
+                      ),
+                    ],
+                  ),
+                  calendarGrid(),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ActionChip(
+                        label: Text('Hari ini'),
+                        onPressed: () => setSheetState(() {
+                          final today = _dateOnly(DateTime.now());
+                          setDraftRange(today, today);
+                        }),
+                      ),
+                      ActionChip(
+                        label: Text('Bulan ini'),
+                        onPressed: () => setSheetState(() {
+                          final now = DateTime.now();
+                          setDraftRange(
+                            DateTime(now.year, now.month),
+                            _dateOnly(now),
+                          );
+                        }),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(
+                    dialogContext,
+                    DateTimeRange(start: draftStart, end: draftEnd),
+                  );
+                },
+                child: Text('Terapkan'),
+              ),
+            ],
+          );
+        },
+      ),
     );
-    if (picked == null) return;
-    setState(() {
-      _end = DateTime(picked.year, picked.month, picked.day, 23, 59, 59);
-      if (_start.isAfter(_end)) {
-        _start = DateTime(_end.year, _end.month, _end.day);
-      }
-      _rememberFilters();
-    });
-    await _load();
+  }
+
+  DateTime _clampDate(DateTime value, DateTime firstDate, DateTime lastDate) {
+    final date = _dateOnly(value);
+    if (date.isBefore(firstDate)) return firstDate;
+    if (date.isAfter(lastDate)) return lastDate;
+    return date;
   }
 
   Future<void> _applyDatePreset(String preset) async {
@@ -4581,6 +7428,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _end = end;
       _rememberFilters();
     });
+    await _clearFinanceLocalCacheForSelectedPeriod();
     await _load();
   }
 
@@ -4683,7 +7531,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       value:
                           useManualCategory ? '__manual__' : selectedCategory,
                       isExpanded: true,
-                      decoration: const InputDecoration(labelText: 'Kategori'),
+                      decoration: const InputDecoration(
+                        labelText: 'Kategori',
+                        helperText:
+                            'Contoh: Modal tambahan, Refund, Kas keluar.',
+                      ),
                       items: [
                         ..._expenseCategoryOptions.map(
                           (item) => DropdownMenuItem<String>(
@@ -4782,7 +7634,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       await _rpcWithFallback(
         const [
-          'finance_insert_manual_operational_expense_v24_6_79',
+          'finance_insert_manual_operational_expense',
         ],
         {
           'p_category': selected,
@@ -4842,6 +7694,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
           title: Text('Edit biaya operasional'),
           content: SingleChildScrollView(
             child: Column(
@@ -4850,7 +7705,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 DropdownButtonFormField<String>(
                   value: useManualCategory ? '__manual__' : selectedCategory,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Kategori'),
+                  decoration: const InputDecoration(
+                    labelText: 'Kategori',
+                    helperText: 'Contoh: Modal tambahan, Refund, Kas keluar.',
+                  ),
                   items: [
                     ...options.map(
                       (item) => DropdownMenuItem<String>(
@@ -4946,7 +7804,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       await _rpcWithFallback(
         const [
-          'finance_update_manual_operational_expense_v24_6_79',
+          'finance_update_manual_operational_expense',
         ],
         {
           'p_expense_id': expenseId,
@@ -5008,7 +7866,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     try {
       await _rpcWithFallback(
         const [
-          'finance_delete_manual_operational_expense_v24_6_79',
+          'finance_delete_manual_operational_expense',
         ],
         {'p_expense_id': expenseId},
       );
@@ -5021,6 +7879,907 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(_cleanError(e))));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  bool _ensureCanWriteCashWallet() {
+    if (_isDemoSuperAdmin) {
+      _showDemoBlocked();
+      return false;
+    }
+    if (!_canWriteFinance) {
+      AppUi.safeSnack(context, 'Akses tulis Arus Kas tidak tersedia.');
+      return false;
+    }
+    return true;
+  }
+
+  Map<String, dynamic> _cashWalletActorPayload() {
+    return {
+      'created_by': _isUuid(_currentUserId) ? _currentUserId : null,
+      'created_by_name': _currentUserName.trim().isEmpty
+          ? _currentUserEmail
+          : _currentUserName.trim(),
+      'created_by_email': _currentUserEmail.trim(),
+      'created_by_role': _currentRoleId.trim(),
+    };
+  }
+
+  Future<void> _refreshAfterCashWalletWrite(String message) async {
+    await _refreshFinanceCacheForSelectedPeriod();
+    if (!mounted) return;
+    AppUi.safeSnack(context, message);
+    await _load(ignoreLocalCache: true);
+  }
+
+  num _moneyFromController(TextEditingController controller) {
+    return num.tryParse(
+          controller.text.replaceAll('.', '').replaceAll(',', '.'),
+        ) ??
+        0;
+  }
+
+  String _marketplaceByAccountId(String? accountId) {
+    final clean = accountId?.trim() ?? '';
+    if (clean.isEmpty) return _marketplaceRpcParam() ?? 'marketplace';
+    for (final account in _accounts) {
+      if (_accountId(account) == clean) {
+        final marketplace = _text(account['marketplace'], '').trim();
+        if (marketplace.isNotEmpty && marketplace != '-') return marketplace;
+      }
+    }
+    return _marketplaceRpcParam() ?? 'marketplace';
+  }
+
+  String _bankLabel(String bank, String reference) {
+    final parts = <String>[
+      bank.trim(),
+      if (reference.trim().isNotEmpty) reference.trim(),
+    ].where((part) => part.isNotEmpty && part != '-').toList();
+    return parts.isEmpty ? '-' : parts.join(' / ');
+  }
+
+  List<String> _knownBankAccounts({String? include}) {
+    final values = <String>{
+      for (final row in _marketplaceWithdrawals)
+        _text(row['bank_account_name'], '').trim(),
+      if ((include ?? '').trim().isNotEmpty) include!.trim(),
+    };
+    values.removeWhere((item) => item.isEmpty || item == '-');
+    final list = values.toList()..sort();
+    return list;
+  }
+
+  Future<void> _editCashOpeningBalance([Map<String, dynamic>? row]) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final fallbackMonth = _monthStart(_start);
+    DateTime period = _parseDate(row?['period_month']) ?? fallbackMonth;
+    Map<String, dynamic>? existing = row;
+    if (existing == null) {
+      for (final item in _cashOpeningBalances) {
+        final itemMonth = _parseDate(item['period_month']);
+        if (itemMonth != null &&
+            itemMonth.year == period.year &&
+            itemMonth.month == period.month) {
+          existing = item;
+          break;
+        }
+      }
+    }
+
+    final amount =
+        TextEditingController(text: _moneyInput(_num(existing?['amount'])));
+    final note = TextEditingController(text: _text(existing?['note'], ''));
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          title: Text('Edit saldo awal bulan'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('Bulan'),
+                  subtitle: Text(_monthLabel(period)),
+                  trailing: Icon(Icons.calendar_month_rounded),
+                  onTap: () async {
+                    final picked = await _pickMonth(period);
+                    if (picked == null) return;
+                    setDialogState(() => period = picked);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amount,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: const [_ThousandsInputFormatter()],
+                  decoration: const InputDecoration(
+                    labelText: 'Saldo awal bulan',
+                    prefixText: 'Rp ',
+                    helperText:
+                        'Edit saldo awal bulan ini, bukan tambah saldo baru.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: note,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Catatan'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('Batal')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text('Simpan')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+
+    final parsed = _moneyFromController(amount);
+    if (parsed < 0) {
+      AppUi.safeSnack(context, 'Saldo awal tidak valid.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      final monthParam = _toDateParam(_monthStart(period));
+      Map<String, dynamic>? target = existing;
+      if (target == null) {
+        final rows = await _client
+            .from('finance_company_cash_opening_balances')
+            .select()
+            .eq('tenant_id', _currentTenantId)
+            .eq('period_month', monthParam)
+            .limit(1);
+        final found = _asList(rows);
+        if (found.isNotEmpty) target = found.first;
+      }
+      final id = _text(target?['cash_opening_balance_id'], '');
+      final payload = {
+        'tenant_id': _currentTenantId,
+        'period_month': monthParam,
+        'amount': parsed,
+        'note': note.text.trim(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      if (_isUuid(id)) {
+        await _client
+            .from('finance_company_cash_opening_balances')
+            .update(payload)
+            .eq('tenant_id', _currentTenantId)
+            .eq('cash_opening_balance_id', id);
+      } else {
+        await _client.from('finance_company_cash_opening_balances').insert({
+          ...payload,
+          ..._cashWalletActorPayload(),
+        });
+      }
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite(
+          'Saldo awal ${_monthLabel(period)} disimpan.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _resetCashOpeningBalance(Map<String, dynamic> row) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final id = _text(row['cash_opening_balance_id'], '');
+    if (!_isUuid(id)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Reset saldo awal?'),
+        content: Text(
+            'Saldo awal ${_monthLabel(_parseDate(row['period_month']) ?? _start)} akan diatur menjadi Rp0.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Batal')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text('Reset')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _processing = true);
+    try {
+      await _client
+          .from('finance_company_cash_opening_balances')
+          .update({'amount': 0, 'updated_at': DateTime.now().toIso8601String()})
+          .eq('tenant_id', _currentTenantId)
+          .eq('cash_opening_balance_id', id);
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Saldo awal direset menjadi Rp0.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _deleteCashOpeningBalance(Map<String, dynamic> row) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final id = _text(row['cash_opening_balance_id'], '');
+    if (!_isUuid(id)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Hapus saldo awal?'),
+        content: Text(
+            'Saldo awal ${_monthLabel(_parseDate(row['period_month']) ?? _start)} akan dihapus dari Arus Kas.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _processing = true);
+    try {
+      await _client
+          .from('finance_company_cash_opening_balances')
+          .delete()
+          .eq('tenant_id', _currentTenantId)
+          .eq('cash_opening_balance_id', id);
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Saldo awal dihapus.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _editCashAdjustment({
+    Map<String, dynamic>? row,
+    String direction = 'in',
+  }) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    String selectedDirection =
+        _text(row?['direction'], direction).toLowerCase() == 'out'
+            ? 'out'
+            : 'in';
+    DateTime adjustmentDate =
+        _parseDate(row?['adjustment_date']) ?? DateTime.now();
+    final amount =
+        TextEditingController(text: _moneyInput(_num(row?['amount'])));
+    final category = TextEditingController(
+        text: _text(row?['category'],
+            selectedDirection == 'out' ? 'Kas keluar' : 'Kas masuk'));
+    final note = TextEditingController(text: _text(row?['note'], ''));
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          title: Text(row == null ? 'Tambah kas manual' : 'Edit kas manual'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                        value: 'in',
+                        label: Text('Masuk'),
+                        icon: Icon(Icons.south_west_rounded)),
+                    ButtonSegment(
+                        value: 'out',
+                        label: Text('Keluar'),
+                        icon: Icon(Icons.north_east_rounded)),
+                  ],
+                  selected: {selectedDirection},
+                  onSelectionChanged: (value) {
+                    setDialogState(() => selectedDirection = value.first);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amount,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: const [_ThousandsInputFormatter()],
+                  decoration: const InputDecoration(
+                    labelText: 'Nominal',
+                    prefixText: 'Rp ',
+                    helperText: 'Format titik ditambahkan otomatis.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: category,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Kategori',
+                    helperText: 'Contoh: Modal tambahan, Refund, Kas keluar.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: note,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Catatan'),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('Tanggal transaksi'),
+                  subtitle: Text(_date(adjustmentDate)),
+                  trailing: Icon(Icons.calendar_month_rounded),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: adjustmentDate,
+                      firstDate:
+                          DateTime.now().subtract(const Duration(days: 365)),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (picked == null) return;
+                    setDialogState(() => adjustmentDate = picked);
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('Batal')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text('Simpan')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+
+    final parsed = _moneyFromController(amount);
+    if (parsed <= 0 || category.text.trim().isEmpty) {
+      AppUi.safeSnack(context, 'Kategori dan nominal wajib diisi.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      final id = _text(row?['cash_adjustment_id'], '');
+      final payload = {
+        'adjustment_date': _toDateParam(adjustmentDate),
+        'direction': selectedDirection,
+        'amount': parsed,
+        'category': category.text.trim(),
+        'note': note.text.trim(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      if (_isUuid(id)) {
+        await _client
+            .from('finance_company_cash_adjustments')
+            .update(payload)
+            .eq('tenant_id', _currentTenantId)
+            .eq('cash_adjustment_id', id);
+      } else {
+        await _client.from('finance_company_cash_adjustments').insert({
+          'tenant_id': _currentTenantId,
+          ...payload,
+          ..._cashWalletActorPayload(),
+        });
+      }
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Kas manual disimpan.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _deleteCashAdjustment(Map<String, dynamic> row) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final id = _text(row['cash_adjustment_id'], '');
+    if (!_isUuid(id)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Hapus kas manual?'),
+        content: Text(
+            '${_text(row['category'], 'Kas manual')} akan dihapus dari Arus Kas.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _processing = true);
+    try {
+      await _client
+          .from('finance_company_cash_adjustments')
+          .delete()
+          .eq('tenant_id', _currentTenantId)
+          .eq('cash_adjustment_id', id);
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Kas manual dihapus.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _editMarketplaceWithdrawal([Map<String, dynamic>? row]) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    DateTime withdrawalDate =
+        _parseDate(row?['withdrawal_date']) ?? DateTime.now();
+    final amount =
+        TextEditingController(text: _moneyInput(_num(row?['amount'])));
+    final reference =
+        TextEditingController(text: _text(row?['bank_reference'], ''));
+    final note = TextEditingController(text: _text(row?['note'], ''));
+
+    final accountOptions = _accounts.where((account) {
+      final id = _accountId(account);
+      if (!_isUuid(id)) return false;
+      final marketplace = _marketplaceRpcParam();
+      return marketplace == null ||
+          _text(account['marketplace']).toLowerCase() ==
+              marketplace.toLowerCase();
+    }).toList();
+    String? selectedAccountId =
+        _isUuid(_text(row?['marketplace_account_id'], ''))
+            ? _text(row?['marketplace_account_id'], '')
+            : _accountUuidParam();
+    if (selectedAccountId == null && accountOptions.isNotEmpty) {
+      selectedAccountId = _accountId(accountOptions.first);
+    }
+
+    final bankOptions =
+        _knownBankAccounts(include: _text(row?['bank_account_name'], ''));
+    String selectedBank =
+        bankOptions.contains(_text(row?['bank_account_name'], ''))
+            ? _text(row?['bank_account_name'], '')
+            : (bankOptions.isEmpty ? '__manual__' : bankOptions.first);
+    final manualBank = TextEditingController(
+        text: selectedBank == '__manual__' ? '' : selectedBank);
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          title: Text(row == null
+              ? 'Tambah penarikan marketplace'
+              : 'Edit penarikan marketplace'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: selectedAccountId,
+                  isExpanded: true,
+                  decoration:
+                      const InputDecoration(labelText: 'Toko marketplace'),
+                  items: accountOptions.map((account) {
+                    final id = _accountId(account);
+                    final name = _text(
+                      account['store_label'] ??
+                          account['shop_name'] ??
+                          account['store_alias'] ??
+                          account['seller_name'],
+                      id,
+                    );
+                    return DropdownMenuItem<String>(
+                      value: id,
+                      child: Text(
+                        '${_marketplaceName(_text(account['marketplace']))} - $name',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) =>
+                      setDialogState(() => selectedAccountId = value),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amount,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: const [_ThousandsInputFormatter()],
+                  decoration: const InputDecoration(
+                    labelText: 'Nominal penarikan',
+                    prefixText: 'Rp ',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedBank,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Rekening bank'),
+                  items: [
+                    ...bankOptions.map((item) => DropdownMenuItem<String>(
+                        value: item, child: Text(item))),
+                    const DropdownMenuItem<String>(
+                      value: '__manual__',
+                      child: Text('Tambah rekening baru'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() {
+                      selectedBank = value;
+                      if (value != '__manual__') manualBank.text = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: manualBank,
+                  enabled: selectedBank == '__manual__',
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Nama/nomor rekening',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reference,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Reference / mutasi bank',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: note,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Catatan'),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('Tanggal penarikan'),
+                  subtitle: Text(_date(withdrawalDate)),
+                  trailing: Icon(Icons.calendar_month_rounded),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: withdrawalDate,
+                      firstDate:
+                          DateTime.now().subtract(const Duration(days: 365)),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (picked == null) return;
+                    setDialogState(() => withdrawalDate = picked);
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('Batal')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text('Simpan')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+
+    final parsed = _moneyFromController(amount);
+    final bank = manualBank.text.trim();
+    if (parsed <= 0 || bank.isEmpty) {
+      AppUi.safeSnack(context, 'Nominal dan rekening bank wajib diisi.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      final id = _text(row?['marketplace_withdrawal_id'], '');
+      final payload = {
+        'tenant_id': _currentTenantId,
+        'marketplace_account_id':
+            _isUuid(selectedAccountId ?? '') ? selectedAccountId : null,
+        'marketplace': _marketplaceByAccountId(selectedAccountId),
+        'withdrawal_date': _toDateParam(withdrawalDate),
+        'amount': parsed,
+        'bank_account_name': bank,
+        'bank_reference': reference.text.trim(),
+        'note': note.text.trim(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      if (_isUuid(id)) {
+        await _client
+            .from('finance_marketplace_withdrawals')
+            .update(payload)
+            .eq('tenant_id', _currentTenantId)
+            .eq('marketplace_withdrawal_id', id);
+      } else {
+        await _client.from('finance_marketplace_withdrawals').insert({
+          ...payload,
+          ..._cashWalletActorPayload(),
+        });
+      }
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Penarikan marketplace disimpan.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _deleteMarketplaceWithdrawal(Map<String, dynamic> row) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final id = _text(row['marketplace_withdrawal_id'], '');
+    if (!_isUuid(id)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Hapus penarikan marketplace?'),
+        content:
+            Text('Penarikan dan alokasi terkait akan dihapus dari Arus Kas.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _processing = true);
+    try {
+      await _client
+          .from('finance_marketplace_withdrawals')
+          .delete()
+          .eq('tenant_id', _currentTenantId)
+          .eq('marketplace_withdrawal_id', id);
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Penarikan marketplace dihapus.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Map<String, dynamic>? _withdrawalById(String id) {
+    if (!_isUuid(id)) return null;
+    for (final row in _marketplaceWithdrawals) {
+      if (_text(row['marketplace_withdrawal_id'], '') == id) return row;
+    }
+    return null;
+  }
+
+  Future<void> _editWithdrawalAllocation({
+    Map<String, dynamic>? row,
+    Map<String, dynamic>? withdrawal,
+  }) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final withdrawalId = _text(
+      row?['marketplace_withdrawal_id'] ??
+          withdrawal?['marketplace_withdrawal_id'],
+      '',
+    );
+    final parent = withdrawal ?? _withdrawalById(withdrawalId);
+    if (!_isUuid(withdrawalId) || parent == null) {
+      AppUi.safeSnack(context, 'Data penarikan tidak valid untuk alokasi.');
+      return;
+    }
+
+    DateTime sourceMonth = _monthStart(
+      _parseDate(row?['source_period_month'] ?? parent['withdrawal_date']) ??
+          _start,
+    );
+    final amount = TextEditingController(
+        text: _moneyInput(_num(row?['amount'] ?? parent['amount'])));
+    final note = TextEditingController(text: _text(row?['note'], ''));
+    String method = _text(row?['allocation_method'], 'manual').toLowerCase();
+    if (!const ['manual', 'fifo', 'system'].contains(method)) method = 'manual';
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          title: Text(row == null
+              ? 'Tambah alokasi penarikan'
+              : 'Edit alokasi penarikan'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('Bulan sumber'),
+                  subtitle: Text(_monthLabel(sourceMonth)),
+                  trailing: Icon(Icons.calendar_month_rounded),
+                  onTap: () async {
+                    final picked = await _pickMonth(sourceMonth);
+                    if (picked == null) return;
+                    setDialogState(() => sourceMonth = picked);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amount,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: const [_ThousandsInputFormatter()],
+                  decoration: const InputDecoration(
+                    labelText: 'Nominal alokasi',
+                    prefixText: 'Rp ',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: method,
+                  decoration:
+                      const InputDecoration(labelText: 'Metode alokasi'),
+                  items: const [
+                    DropdownMenuItem(value: 'manual', child: Text('Manual')),
+                    DropdownMenuItem(value: 'fifo', child: Text('FIFO')),
+                    DropdownMenuItem(value: 'system', child: Text('System')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() => method = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: note,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Catatan'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('Batal')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text('Simpan')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+
+    final parsed = _moneyFromController(amount);
+    if (parsed <= 0) {
+      AppUi.safeSnack(context, 'Nominal alokasi wajib diisi.');
+      return;
+    }
+
+    setState(() => _processing = true);
+    try {
+      final id = _text(row?['marketplace_withdrawal_allocation_id'], '');
+      final payload = {
+        'marketplace_withdrawal_id': withdrawalId,
+        'tenant_id': _currentTenantId,
+        'marketplace_account_id':
+            _isUuid(_text(parent['marketplace_account_id'], ''))
+                ? _text(parent['marketplace_account_id'], '')
+                : null,
+        'marketplace':
+            _text(parent['marketplace'], _marketplaceByAccountId(null)),
+        'source_period_month': _toDateParam(sourceMonth),
+        'amount': parsed,
+        'allocation_method': method,
+        'note': note.text.trim(),
+      };
+      if (_isUuid(id)) {
+        await _client
+            .from('finance_marketplace_withdrawal_allocations')
+            .update(payload)
+            .eq('tenant_id', _currentTenantId)
+            .eq('marketplace_withdrawal_allocation_id', id);
+      } else {
+        await _client
+            .from('finance_marketplace_withdrawal_allocations')
+            .insert(payload);
+      }
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Alokasi penarikan disimpan.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _deleteWithdrawalAllocation(Map<String, dynamic> row) async {
+    if (!_ensureCanWriteCashWallet()) return;
+    final id = _text(row['marketplace_withdrawal_allocation_id'], '');
+    if (!_isUuid(id)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Hapus alokasi penarikan?'),
+        content: Text(
+            'Alokasi bulan ${_monthLabel(_parseDate(row['source_period_month']) ?? _start)} akan dihapus.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Batal')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _processing = true);
+    try {
+      await _client
+          .from('finance_marketplace_withdrawal_allocations')
+          .delete()
+          .eq('tenant_id', _currentTenantId)
+          .eq('marketplace_withdrawal_allocation_id', id);
+      if (!mounted) return;
+      await _refreshAfterCashWalletWrite('Alokasi penarikan dihapus.');
+    } catch (e) {
+      if (!mounted) return;
+      AppUi.safeSnack(context, _cleanError(e));
     } finally {
       if (mounted) setState(() => _processing = false);
     }
@@ -5060,14 +8819,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Color.alphaBlend(
-          accent.withOpacity(.12),
+          accent.withOpacity(0.08),
           Theme.of(context).cardColor,
         ),
-        border: Border.all(color: accent.withOpacity(.55), width: 1.4),
-        borderRadius: BorderRadius.zero,
-        boxShadow: const [
-          BoxShadow(color: Colors.black, blurRadius: 0, offset: Offset(3, 3)),
-        ],
+        border: Border.all(color: accent.withOpacity(0.24), width: 0.8),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -5086,7 +8843,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       title.toUpperCase(),
                       style: TextStyle(
                         color: Theme.of(context).textTheme.bodyLarge?.color,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         fontSize: 12,
                         letterSpacing: .8,
                       ),
@@ -5136,18 +8893,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor.withOpacity(.62),
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
         border: Border.all(
-          color: Theme.of(context).dividerColor.withOpacity(.22),
+          color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
+          width: 0.8,
         ),
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         '$label: $value',
         style: TextStyle(
-          color: Theme.of(context).textTheme.bodyLarge?.color,
+          color: Theme.of(context).colorScheme.onSurface,
           fontSize: 11,
-          fontWeight: FontWeight.w900,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -5156,13 +8914,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   Color _bootstrapFinanceSeverityColor(String severity) {
     switch (severity) {
       case 'error':
-        return Colors.redAccent;
+        return AppUi.red;
       case 'warning':
         return AppUi.orange;
       case 'success':
-        return Colors.greenAccent;
+        return AppUi.green;
       case 'info':
-        return Colors.cyan;
+        return Theme.of(context).colorScheme.primary;
       default:
         return Theme.of(context).colorScheme.secondary;
     }
@@ -5209,30 +8967,30 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             elevation: 0,
             scrolledUnderElevation: 0,
             leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_rounded, size: 20),
+              icon: Icon(Icons.arrow_back_ios_rounded, size: 20),
               onPressed: () => Navigator.of(context).maybePop(),
             ),
             title: Text(
-              'Laporan Keuangan'.toUpperCase(),
+              'Laporan Keuangan',
               style: TextStyle(
                 fontSize: 16,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1,
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white
-                    : Colors.black,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.1,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
             actions: [
               if (_loading)
-                const Center(
+                Center(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.cyan),
+                        strokeWidth: 2,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                     ),
                   ),
                 )
@@ -5240,49 +8998,48 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 IconButton(
                   tooltip: 'Hapus data finance marketplace',
                   onPressed: _processing ? null : _clearMarketplaceFinanceData,
-                  icon: const Icon(Icons.delete_sweep_rounded, size: 22),
+                  icon: Icon(Icons.delete_sweep_rounded, size: 22),
                 ),
                 IconButton(
                   tooltip: 'Export semua marketplace',
                   onPressed:
                       _processing ? null : _exportAllMarketplaceFinanceReport,
-                  icon: const Icon(Icons.file_download_rounded, size: 22),
+                  icon: Icon(Icons.file_download_rounded, size: 22),
                 ),
                 IconButton(
                   tooltip: 'Muat ulang tampilan',
                   onPressed: _processing ? null : _hardReloadFinanceView,
-                  icon: const Icon(Icons.refresh_rounded, size: 22),
+                  icon: Icon(Icons.refresh_rounded, size: 22),
                 ),
               ],
             ],
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(48),
               child: Container(
-                decoration: const BoxDecoration(
-                  border:
-                      Border(bottom: BorderSide(color: Colors.black, width: 3)),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .outlineVariant
+                          .withOpacity(0.4),
+                    ),
+                  ),
                 ),
                 child: TabBar(
                   isScrollable: true,
                   tabAlignment: TabAlignment.start,
                   indicatorSize: TabBarIndicatorSize.tab,
-                  indicator: const UnderlineTabIndicator(
-                    borderSide: BorderSide(color: Colors.cyan, width: 6),
-                    insets: EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  labelColor: Theme.of(context).brightness == Brightness.dark
-                      ? Colors.cyan
-                      : Colors.black,
-                  unselectedLabelColor:
-                      Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white54
-                          : Colors.black54,
-                  labelStyle: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1),
-                  unselectedLabelStyle: const TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w700),
+                  indicatorColor: Theme.of(context).colorScheme.primary,
+                  indicatorWeight: 2.5,
+                  labelColor: Theme.of(context).colorScheme.primary,
+                  unselectedLabelColor: AppUi.mutedText(context, 0.88),
+                  labelStyle: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0),
+                  unselectedLabelStyle:
+                      TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                   tabs: tabs,
                 ),
               ),
@@ -5297,18 +9054,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 animation: tabController,
                 builder: (context, _) {
                   final isExpenseTab = tabController.index == 4;
-                  if (!_canAccessFinance || _isDemoSuperAdmin || !isExpenseTab)
+                  if (!_canAccessFinance ||
+                      _isDemoSuperAdmin ||
+                      !isExpenseTab) {
                     return const SizedBox.shrink();
+                  }
 
                   if (_processing) {
                     return FloatingActionButton.small(
                       onPressed: null,
                       backgroundColor: Theme.of(context).cardColor,
-                      child: const SizedBox(
+                      child: SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.cyan),
+                          strokeWidth: 2,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                       ),
                     );
                   }
@@ -5316,10 +9078,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   return FloatingActionButton.extended(
                     onPressed: _addManualExpense,
                     backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.black,
-                    icon: const Icon(Icons.add, size: 20),
-                    label: const Text('BIAYA',
-                        style: TextStyle(fontWeight: FontWeight.w900)),
+                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                    icon: Icon(Icons.add, size: 20),
+                    label: Text('Biaya',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
                   );
                 },
               );
@@ -5385,10 +9147,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        color: Theme.of(context).cardColor,
         border: Border(
-          bottom:
-              BorderSide(color: isDark ? Colors.white : Colors.black, width: 2),
+          bottom: BorderSide(
+            color: Theme.of(context)
+                .colorScheme
+                .outlineVariant
+                .withOpacity(isDark ? 0.25 : 0.45),
+          ),
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -5405,16 +9171,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     children: [
                       _dateChip(
                         icon: Icons.calendar_today_rounded,
-                        label: 'D',
-                        value: _date(_start),
-                        onTap: _pickStart,
-                      ),
-                      const SizedBox(width: 6),
-                      _dateChip(
-                        icon: Icons.event_rounded,
-                        label: 'S',
-                        value: _date(_end),
-                        onTap: _pickEnd,
+                        label: 'Periode',
+                        value: '${_date(_start)} - ${_date(_end)}',
+                        onTap: _pickDateRange,
                       ),
                     ],
                   ),
@@ -5427,15 +9186,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   style: OutlinedButton.styleFrom(
                     minimumSize: Size.zero,
                     padding: const EdgeInsets.symmetric(horizontal: 10),
-                    shape:
-                        RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: () =>
                       setState(() => _filterExpanded = !_filterExpanded),
                   icon: Icon(
                       _filterExpanded ? Icons.expand_less : Icons.tune_rounded,
                       size: 18),
-                  label: const Text('Filter',
+                  label: Text('Filter',
                       style:
                           TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
@@ -5519,65 +9278,100 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _financeSyncInfo() {
-    final manual = _summary['last_manual_finance_sync_at'];
-    final auto = _financeAutoSyncLastRunAt ??
-        _parseDate(_summary['last_auto_finance_sync_at']);
-    final finance = _summary['last_finance_updated_at'];
-    final order = _summary['last_order_pulled_at'];
     final period = '${_date(_start)} s/d ${_date(_end)}';
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withOpacity(0.72),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Periode: $period',
-            style: TextStyle(
-                color: Theme.of(context).textTheme.bodyLarge?.color,
-                fontSize: 11,
-                fontWeight: FontWeight.w800),
-          ),
-          SizedBox(height: 4),
-          Text(
-            ' ${_dateTime(manual)}',
-            style: TextStyle(
-                color: Theme.of(context).textTheme.bodyMedium?.color,
-                fontSize: 11),
-          ),
-          Text(
-            ' ${_dateTime(auto)}${_financeAutoSyncMessage.isNotEmpty ? ' · $_financeAutoSyncMessage' : ''}',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                color: Theme.of(context).textTheme.bodyMedium?.color,
-                fontSize: 11),
-          ),
-          Text(
-            'Order: ${_dateTime(order)} · Finance: ${_dateTime(finance)}',
-            style: TextStyle(
-                color: Theme.of(context).textTheme.bodySmall?.color,
-                fontSize: 10.5),
-          ),
-          if (_lastSnapshotStats.trim().isNotEmpty) ...[
-            SizedBox(height: 3),
-            Text(
-              _lastSnapshotStats,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700),
+    final orderPullAt = _latestDispatcherTimestamp(
+      'order_states',
+      const ['last_success_at', 'last_order_updated_at'],
+    );
+    final financePullAt = _latestDispatcherTimestamp(
+      'finance_states',
+      const ['last_success_at'],
+    );
+    final payoutUpdateAt = _latestDispatcherTimestamp(
+      'finance_states',
+      const ['last_finance_updated_at'],
+    );
+    final latestSync =
+        _maxDate(_maxDate(orderPullAt, financePullAt), payoutUpdateAt);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
+              width: 0.8,
             ),
-          ],
-        ],
-      ),
+          ),
+          child: Text(
+            'Periode data: $period',
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                  Theme.of(context).brightness == Brightness.dark
+                      ? 0.25
+                      : 0.45),
+              width: 0.8,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Terakhir sinkron: ${_syncTimestampText(latestSync)}',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Order pull: ${_syncTimestampText(orderPullAt)}',
+                style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.72),
+                    fontSize: 11),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Finance pull: ${_syncTimestampText(financePullAt)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.72),
+                    fontSize: 11),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Payout update: ${_syncTimestampText(payoutUpdateAt)}',
+                style: TextStyle(
+                    color: AppUi.mutedText(context, 0.88), fontSize: 10.5),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -5591,11 +9385,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _financeAutoSyncSwitch() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withOpacity(0.62),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Theme.of(context).dividerColor),
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
       ),
       child: Row(
         children: [
@@ -5608,15 +9406,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               children: [
                 Text('Auto finance aktif',
                     style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: Theme.of(context).dividerColor)),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(context).colorScheme.onSurface)),
                 SizedBox(height: 2),
                 Text(
                     'Payout, missing payout, dan status order lama diproses otomatis di background.',
                     style: TextStyle(
-                        fontSize: 10.5,
-                        color: Theme.of(context).colorScheme.outline)),
+                        fontSize: 11, color: AppUi.mutedText(context, 0.88))),
               ],
             ),
           ),
@@ -5639,22 +9436,29 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _periodShortcut(String label, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.zero,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor.withOpacity(0.82),
-          borderRadius: BorderRadius.zero,
-          border: Border.all(color: Theme.of(context).dividerColor),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-              color: Theme.of(context).dividerColor,
-              fontSize: 11,
-              fontWeight: FontWeight.w800),
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.07),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.22),
+              width: 0.8,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600),
+          ),
         ),
       ),
     );
@@ -5668,39 +9472,46 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: isDark ? const Color(0xFF1E293B) : Colors.white,
-      borderRadius: BorderRadius.zero,
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.zero,
-            border: Border.all(color: isDark ? Colors.white30 : Colors.black),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Theme.of(context)
+                  .colorScheme
+                  .outlineVariant
+                  .withOpacity(isDark ? 0.28 : 0.5),
+              width: 0.8,
+            ),
           ),
           child: Row(
             children: [
-              Icon(icon, size: 14, color: Colors.cyan),
+              Icon(icon,
+                  size: 14, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 6),
               ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 86, maxWidth: 116),
+                constraints: const BoxConstraints(minWidth: 86, maxWidth: 220),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(label,
                         style: TextStyle(
-                            fontSize: 10,
-                            color: isDark ? Colors.white70 : Colors.black54,
-                            fontWeight: FontWeight.w600)),
+                            fontSize: 10.5,
+                            color: AppUi.mutedText(context, 0.88),
+                            fontWeight: FontWeight.w500)),
                     Text(value,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            color: isDark ? Colors.white : Colors.black)),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Theme.of(context).colorScheme.onSurface)),
                   ],
                 ),
               ),
@@ -5718,12 +9529,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required ValueChanged<T?> onChanged,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
-        color: (Theme.of(context).cardColor),
-        borderRadius: BorderRadius.zero,
-        border:
-            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.35)),
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<T>(
@@ -5731,16 +9545,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           isExpanded: true,
           isDense: true,
           style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: Theme.of(context).textTheme.bodyLarge?.color),
-          dropdownColor: (Theme.of(context).cardColor),
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface),
+          dropdownColor: Theme.of(context).cardColor,
           items: items,
           onChanged: onChanged,
           hint: Text(label,
               style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).textTheme.bodySmall?.color)),
+                  fontSize: 11.5, color: AppUi.mutedText(context, 0.88))),
         ),
       ),
     );
@@ -5851,6 +9664,86 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         : (_sources.isNotEmpty ? _sources.length : _byMarketplace.length);
     final negativePayout = _negativePayoutTotal();
     final unpaidEstimatedHpp = _unpaidEstimatedHppTotal();
+    final abnormalSummarySource = _abnormalFilterSource();
+    final localSampleCount =
+        abnormalSummarySource.where(_isSampleFreeAbnormalRow).length;
+    final localNoPayoutCount =
+        abnormalSummarySource.where(_isNoPayoutAbnormalRow).length;
+    final localPayoutMinusCount =
+        abnormalSummarySource.where(_hasPayoutMinusSettlementReason).length;
+
+    final sampleOrderCount = _numFirstNonZero([
+      _summary['sample_order_count'],
+      _summary['sample_free_count'],
+      _summary['confirmed_sample_count'],
+      localSampleCount,
+    ]);
+
+    final sampleHppTotal = _num(_summary['sample_hpp_total']);
+    final samplePayoutMinusSigned = _num(_summary['sample_payout_minus_total']);
+    final sampleNegativePayout = _numFirstNonZero([
+      _summary['sample_payout_minus_total_abs'],
+      _summary['sample_negative_payout_total'],
+      samplePayoutMinusSigned.abs(),
+    ]);
+    final sampleLossEstimate = _numFirstNonZero([
+      _summary['sample_loss_estimate'],
+      sampleHppTotal + sampleNegativePayout,
+    ]);
+    final sampleTextCount = _numFirstNonZero([
+      _summary['sample_text_marker_count'],
+      _summary['confirmed_sample_text_count'],
+    ]);
+    final sampleLabelCount = _numFirstNonZero([
+      _summary['sample_label_count'],
+      _summary['confirmed_sample_label_count'],
+    ]);
+    final sampleDiscountCount = _numFirstNonZero([
+      _summary['sample_discount_100_count'],
+      _summary['confirmed_sample_discount_100_count'],
+    ]);
+    final sampleFinanceFlagCount = _numFirstNonZero([
+      _summary['sample_finance_flag_count'],
+      _summary['confirmed_sample_finance_flag_count'],
+    ]);
+    final sampleRawTikTokCount =
+        _num(_summary['sample_raw_tiktok_order_count']);
+    final sampleRawTikTokItems =
+        _num(_summary['sample_raw_tiktok_item_row_count']);
+    final sampleRawTikTokApiFlag =
+        _num(_summary['sample_raw_tiktok_api_flag_count']);
+    final sampleRawTikTokImport =
+        _num(_summary['sample_raw_tiktok_import_count']);
+    final sampleStatusBreakdown =
+        _summaryBreakdownText(_summary['sample_status_breakdown']);
+    final sampleSubstatusBreakdown =
+        _summaryBreakdownText(_summary['sample_substatus_breakdown']);
+    final classificationCancelledCount = _num(_summary['cancelled_count']);
+    final classificationPendingCount = _num(_summary['pending_count']);
+    final classificationNoPayoutCount =
+        _num(_summary['no_payout_eligible_count']);
+    final samplePayoutMinusSettlement =
+        _num(_summary['sample_payout_minus_settlement_total']).abs();
+    final samplePayoutMinusShipping = _num(
+            _summary['sample_payout_minus_shipping_total'] ??
+                _summary['sample_payout_minus_ongkir_total'])
+        .abs();
+    final samplePayoutMinusVoucher =
+        _num(_summary['sample_payout_minus_voucher_total']).abs();
+    final samplePayoutMinusPlatform =
+        _num(_summary['sample_payout_minus_platform_total']).abs();
+    final noPayoutCount = _numFirstNonZero([
+      _summary['no_payout_eligible_count'],
+      _summary['no_payout_count'],
+      _summary['missing_payout_non_sample_count'],
+      localNoPayoutCount,
+    ]);
+    final payoutMinusCount = _numFirstNonZero([
+      _summary['payout_minus_count'],
+      _summary['negative_payout_count'],
+      _summary['minus_payout_count'],
+      localPayoutMinusCount,
+    ]);
 
     if (_loading) {
       return const Center(child: FuturisticLoader(message: 'MEMUAT DATA...'));
@@ -5859,11 +9752,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final isEmpty = gross == 0 && payout == 0 && profit == 0 && orderCount == 0;
 
     return RefreshIndicator(
-      color: Colors.cyan,
+      color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 130),
         children: [
+          if (_marketplaceFinanceGapMessage.trim().isNotEmpty) ...[
+            _emptyCard(_marketplaceFinanceGapMessage),
+            const SizedBox(height: 12),
+          ],
           if (isEmpty) ...[
             _heroCard(
               title: 'DATA KOSONG',
@@ -5878,12 +9775,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               child: FilledButton.icon(
                 onPressed: _hardReloadFinanceView,
                 style: FilledButton.styleFrom(
-                  backgroundColor: Colors.cyan,
-                  foregroundColor: Colors.black,
-                  side: const BorderSide(color: Colors.black, width: 3),
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
                 ),
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('TARIK ULANG DATA'),
+                icon: Icon(Icons.refresh_rounded),
+                label: Text('TARIK ULANG DATA'),
               ),
             ),
           ] else ...[
@@ -5896,14 +9792,304 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               positive: profit >= 0,
             ),
             const SizedBox(height: 12),
+            if (!_sampleFreeLoaded) ...[
+              if (_sampleFreeLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                      child: FuturisticLoader(
+                          message: 'Memuat Ringkasan Sample/Gratis...')),
+                )
+              else ...[
+                if (_sampleFreeError != null) ...[
+                  _emptyCard('Gagal memuat sample/gratis: $_sampleFreeError'),
+                  const SizedBox(height: 8),
+                ],
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .outlineVariant
+                          .withOpacity(
+                              Theme.of(context).brightness == Brightness.dark
+                                  ? 0.25
+                                  : 0.45),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Audit Sample & Gratis',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Theme.of(context).textTheme.bodyLarge?.color,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Audit data order sample, giveaway, tester, gratis dengan payout Rp 0 atau minus.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.82),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _loadSampleFreeOrdersSupplemental,
+                          style: FilledButton.styleFrom(
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primary,
+                            foregroundColor:
+                                Theme.of(context).colorScheme.onPrimary,
+                          ),
+                          icon: Icon(Icons.card_giftcard_rounded),
+                          label: Text('MUAT AUDIT SAMPLE/GRATIS'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ] else ...[
+              if (sampleOrderCount > 0 ||
+                  sampleHppTotal > 0 ||
+                  sampleNegativePayout > 0) ...[
+                _detailCard(
+                  title: 'Sample / Gratis sesuai filter',
+                  subtitle:
+                      '${sampleOrderCount.toStringAsFixed(0)} order · HPP ${_money(sampleHppTotal)} · Payout minus ${_money(sampleNegativePayout)}',
+                  children: [
+                    if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
+                        'shopee')
+                      _emptyOkCard(
+                          'Shopee tidak ada Sample/Gratis terkonfirmasi')
+                    else if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
+                        'all')
+                      _emptyOkCard(
+                          'Shopee tidak ada Sample/Gratis terkonfirmasi'),
+                    if (sampleOrderCount > 0)
+                      _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
+                    if (sampleTextCount > 0)
+                      _miniMetric('Teks sample/free',
+                          sampleTextCount.toStringAsFixed(0)),
+                    if (sampleLabelCount > 0)
+                      _miniMetric(
+                          'Label produk', sampleLabelCount.toStringAsFixed(0)),
+                    if (sampleDiscountCount > 0)
+                      _miniMetric('Diskon 100%',
+                          sampleDiscountCount.toStringAsFixed(0)),
+                    if (sampleFinanceFlagCount > 0)
+                      _miniMetric('Flag finance',
+                          sampleFinanceFlagCount.toStringAsFixed(0)),
+                    if (sampleRawTikTokCount > 0)
+                      _miniMetric('Raw TikTok',
+                          sampleRawTikTokCount.toStringAsFixed(0)),
+                    if (sampleRawTikTokItems > 0)
+                      _miniMetric('Item raw TikTok',
+                          sampleRawTikTokItems.toStringAsFixed(0)),
+                    if (sampleRawTikTokApiFlag > 0)
+                      _miniMetric('Flag sample TikTok',
+                          sampleRawTikTokApiFlag.toStringAsFixed(0)),
+                    if (sampleRawTikTokImport > 0)
+                      _miniMetric('Export TikTok',
+                          sampleRawTikTokImport.toStringAsFixed(0)),
+                    if (classificationCancelledCount > 0)
+                      _miniMetric('Batal dipisah',
+                          classificationCancelledCount.toStringAsFixed(0)),
+                    if (classificationPendingCount > 0)
+                      _miniMetric('Pending dipisah',
+                          classificationPendingCount.toStringAsFixed(0)),
+                    if (classificationNoPayoutCount > 0)
+                      _miniMetric('No Payout eligible',
+                          classificationNoPayoutCount.toStringAsFixed(0)),
+                    if (_num(_summary['sample_gross_total']) > 0)
+                      _miniMetric('Gross (Omzet)',
+                          _money(_num(_summary['sample_gross_total']))),
+                    if (_num(_summary['sample_payout_total']) > 0)
+                      _miniMetric('Payout',
+                          _money(_num(_summary['sample_payout_total']))),
+                    if (sampleNegativePayout > 0)
+                      _miniMetric('Payout Minus', _money(sampleNegativePayout),
+                          warning: true),
+                    if (samplePayoutMinusSettlement > 0)
+                      _miniMetric('Payout minus dari settlement',
+                          _money(samplePayoutMinusSettlement),
+                          warning: true),
+                    if (samplePayoutMinusShipping > 0)
+                      _miniMetric('Payout minus ongkir',
+                          _money(samplePayoutMinusShipping),
+                          warning: true),
+                    if (samplePayoutMinusVoucher > 0)
+                      _miniMetric('Payout minus voucher',
+                          _money(samplePayoutMinusVoucher),
+                          warning: true),
+                    if (samplePayoutMinusPlatform > 0)
+                      _miniMetric('Payout minus fee platform',
+                          _money(samplePayoutMinusPlatform),
+                          warning: true),
+                    if (_num(_summary['sample_discount_total']) > 0)
+                      _miniMetric('Voucher/Diskon',
+                          _money(_num(_summary['sample_discount_total']))),
+                    if (_num(_summary['sample_shipping_total']) > 0)
+                      _miniMetric('Ongkir (Kurir)',
+                          _money(_num(_summary['sample_shipping_total']))),
+                    if (_num(_summary['sample_fee_total']) > 0)
+                      _miniMetric('Biaya Platform',
+                          _money(_num(_summary['sample_fee_total']))),
+                    if (_num(_summary['sample_refund_total']) > 0)
+                      _miniMetric('Refund',
+                          _money(_num(_summary['sample_refund_total']))),
+                    if (_num(_summary['sample_adjustment_total']) > 0)
+                      _miniMetric('Penyesuaian',
+                          _money(_num(_summary['sample_adjustment_total']))),
+                    if (sampleHppTotal > 0)
+                      _miniMetric('HPP Sample', _money(sampleHppTotal))
+                    else if (sampleOrderCount > 0)
+                      _miniMetric('HPP Sample', 'Belum mapping', warning: true),
+                    if (sampleLossEstimate > 0)
+                      _miniMetric('Estimasi Dampak', _money(sampleLossEstimate),
+                          warning: true)
+                    else if (sampleOrderCount > 0 && sampleHppTotal <= 0)
+                      _miniMetric('Estimasi Dampak', 'Menunggu HPP mapping',
+                          warning: true),
+                    if (sampleStatusBreakdown.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      _emptyCard(
+                          'Status Sample/Gratis: $sampleStatusBreakdown'),
+                    ],
+                    if (sampleSubstatusBreakdown.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      _emptyCard(
+                          'Substatus Sample/Gratis: $sampleSubstatusBreakdown'),
+                    ],
+                    const SizedBox(height: 10),
+                    Text(
+                      'Rumus: Estimasi Dampak = HPP Sample + Payout Minus confirmed only',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        fontStyle: FontStyle.italic,
+                        color: AppUi.mutedText(context, 0.90),
+                      ),
+                    ),
+                    if (sampleNegativePayout > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '* Payout minus dilabeli sesuai sumber yang terbukti: settlement, ongkir, voucher, atau fee platform.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.redAccent,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          final tabController =
+                              DefaultTabController.maybeOf(context);
+                          if (tabController != null) {
+                            tabController.animateTo(6);
+                          }
+                          _refreshAbnormalTab();
+                        },
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(
+                              color: Theme.of(context).colorScheme.primary,
+                              width: 0.8),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: Icon(Icons.arrow_forward_rounded, size: 16),
+                        label: Text('LIHAT DAFTAR ORDER SAMPLE'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ] else ...[
+                _detailCard(
+                  title: 'Sample / Gratis sesuai filter',
+                  subtitle: '0 order terkonfirmasi',
+                  children: [
+                    if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
+                        'shopee')
+                      _emptyOkCard(
+                          'Shopee tidak ada Sample/Gratis terkonfirmasi')
+                    else ...[
+                      _emptyOkCard(
+                          'Tidak ada Sample/Gratis terkonfirmasi untuk filter ini.'),
+                      if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
+                          'all')
+                        _emptyOkCard(
+                            'Shopee tidak ada Sample/Gratis terkonfirmasi'),
+                    ],
+                    if (sampleOrderCount > 0)
+                      _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
+                    if (sampleTextCount > 0)
+                      _miniMetric('Teks sample/free',
+                          sampleTextCount.toStringAsFixed(0)),
+                    if (sampleLabelCount > 0)
+                      _miniMetric(
+                          'Label produk', sampleLabelCount.toStringAsFixed(0)),
+                    if (sampleDiscountCount > 0)
+                      _miniMetric('Diskon 100%',
+                          sampleDiscountCount.toStringAsFixed(0)),
+                    if (sampleFinanceFlagCount > 0)
+                      _miniMetric('Flag finance',
+                          sampleFinanceFlagCount.toStringAsFixed(0)),
+                    if (sampleRawTikTokCount > 0)
+                      _miniMetric('Raw TikTok',
+                          sampleRawTikTokCount.toStringAsFixed(0)),
+                    if (sampleRawTikTokItems > 0)
+                      _miniMetric('Item raw TikTok',
+                          sampleRawTikTokItems.toStringAsFixed(0)),
+                    if (classificationCancelledCount > 0)
+                      _miniMetric('Batal dipisah',
+                          classificationCancelledCount.toStringAsFixed(0)),
+                    if (classificationPendingCount > 0)
+                      _miniMetric('Pending dipisah',
+                          classificationPendingCount.toStringAsFixed(0)),
+                    if (classificationNoPayoutCount > 0)
+                      _miniMetric('No Payout eligible',
+                          classificationNoPayoutCount.toStringAsFixed(0)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+            ],
             _metricGrid([
               _Metric('Omzet', _money(gross), Icons.sell_rounded),
               _Metric('Payout', _money(payout), Icons.payments_rounded),
               _Metric('HPP', _money(hpp), Icons.inventory_2_rounded),
               _Metric(
                   'Biaya Ops', _money(operational), Icons.receipt_long_rounded),
-              _Metric('Payout Minus', _money(negativePayout),
+              _Metric(
+                  'Sample/Gratis',
+                  _sampleFreeLoaded
+                      ? sampleOrderCount.toStringAsFixed(0)
+                      : 'Belum dimuat',
+                  Icons.card_giftcard_rounded),
+              _Metric('No Payout', noPayoutCount.toStringAsFixed(0),
+                  Icons.hourglass_empty_rounded),
+              _Metric('Payout Minus', payoutMinusCount.toStringAsFixed(0),
                   Icons.remove_circle_outline),
+              _Metric('Nominal Minus', _money(negativePayout),
+                  Icons.money_off_rounded),
               _Metric('Est. HPP Belum Payout', _money(unpaidEstimatedHpp),
                   Icons.inventory_2_outlined),
               _Metric('Abnormal', abnormalCount.toStringAsFixed(0),
@@ -5921,7 +10107,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _marketplaceTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -5963,165 +10149,528 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
+  int get _skuTotalPages {
+    if (_skuServerTotalPages > 1) return _skuServerTotalPages;
+    if (_bySku.isEmpty) return 1;
+    return ((_bySku.length - 1) ~/ _skuPageSize) + 1;
+  }
+
+  int get _skuSafePage {
+    final totalPages = _skuTotalPages;
+    if (_skuPage < 1) return 1;
+    if (_skuPage > totalPages) return totalPages;
+    return _skuPage;
+  }
+
+  List<Map<String, dynamic>> get _skuVisibleRows {
+    if (_bySku.isEmpty) return const <Map<String, dynamic>>[];
+    final page = _skuSafePage;
+    final start = (page - 1) * _skuPageSize;
+    if (start >= _bySku.length) return const <Map<String, dynamic>>[];
+    final end = (start + _skuPageSize) > _bySku.length
+        ? _bySku.length
+        : start + _skuPageSize;
+    return _bySku.sublist(start, end);
+  }
+
+  Widget _skuPaginationControls() {
+    if (_bySku.isEmpty) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final page = _skuSafePage;
+    final totalPages = _skuTotalPages;
+    final canLoadMore = _skuHasMoreServerRows && !_skuLoadingMore;
+    final start = ((page - 1) * _skuPageSize) + 1;
+    if (start > _bySku.length) return const SizedBox.shrink();
+    final end = (page * _skuPageSize) > _bySku.length
+        ? _bySku.length
+        : page * _skuPageSize;
+    final totalCount =
+        _skuServerTotalCount > 0 ? _skuServerTotalCount : _bySku.length;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant
+              .withOpacity(theme.brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'SKU $start–$end dari $totalCount · Page $page/$totalPages',
+              style: TextStyle(
+                color: theme.colorScheme.onSurface.withOpacity(0.75),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Page sebelumnya',
+            onPressed:
+                page > 1 ? () => setState(() => _skuPage = page - 1) : null,
+            icon: Icon(Icons.chevron_left_rounded),
+          ),
+          IconButton(
+            tooltip: 'Page berikutnya',
+            onPressed: page < totalPages
+                ? (_bySku.length > page * _skuPageSize
+                    ? () => setState(() => _skuPage = page + 1)
+                    : (canLoadMore ? _loadNextSkuPage : null))
+                : null,
+            icon: _skuLoadingMore
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(Icons.chevron_right_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkuSummaryCard() {
+    double totalGross = _num(_summary['gross_sales'] ?? _summary['gross_total'] ?? _summary['gross'] ?? 0);
+    double totalPayout = _num(_summary['net_received'] ?? _summary['payout_total'] ?? _summary['payout_amount'] ?? 0);
+    double totalHpp = _num(_summary['hpp_total'] ?? _summary['paid_hpp_total'] ?? _summary['hpp'] ?? 0);
+    int totalQty = 0;
+    int totalSettledQty = 0;
+
+    for (final v in _skuPayoutCountSummaryMap.values.toSet()) {
+      totalQty += _num(v['all_qty'] ?? 0).round();
+      totalSettledQty += _num(v['paid_qty'] ?? 0).round();
+    }
+
+    if (totalQty == 0) {
+      totalQty = _numFirstNonZero([
+        _summary['total_qty_count'],
+        _summary['qty_total'],
+        _summary['total_qty'],
+        _bySku.fold<num>(0, (sum, row) => sum + _num(row['total_qty'] ?? row['qty_total'] ?? row['qty'])),
+      ]).round();
+    }
+    if (totalSettledQty == 0) {
+      totalSettledQty = _numFirstNonZero([
+        _summary['settled_qty_count'],
+        _summary['qty_settled'],
+        totalQty,
+      ]).round();
+    }
+
+    final double margin = totalPayout > 0 ? ((totalPayout - totalHpp) / totalPayout) * 100 : 0.0;
+    final marketplaceName = _marketplaceFilter == 'all' ? 'Semua Platform' : _marketplaceName(_marketplaceFilter);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppUi.modernCardDecoration(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.date_range_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${_date(_start)} - ${_date(_end)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  marketplaceName,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _isSyncingHpp ? null : _syncSkuHppFromMapping,
+                icon: _isSyncingHpp 
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) 
+                    : const Icon(Icons.sync_rounded, size: 16),
+                label: const Text('Live Sync HPP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                style: TextButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.5),
+                  foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _miniMetric('Total Omzet (SKU)', _money(totalGross)),
+              _miniMetric('Total Payout (SKU)', _money(totalPayout)),
+              _miniMetric('HPP Settled', _money(totalHpp)),
+              _miniMetric('Margin Rata-rata', '${margin.toStringAsFixed(2)}%'),
+              _miniMetric('Total Qty', '$totalQty'),
+              _miniMetric('Qty Settled', '$totalSettledQty'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkuRowCard(Map<String, dynamic> row) {
+    final sku = _text(row['local_sku'] ?? row['sku']);
+    final marketplaceSku = _text(
+        row['marketplace_sku'] ??
+            row['marketplace_sku_id'] ??
+            row['marketplace_seller_sku'],
+        '');
+    final productName = _text(
+        row['product_name'] ?? row['nama_barang'],
+        'Produk belum diberi nama');
+    final variantName = _text(
+        row['variant_name'] ?? row['marketplace_variation_name'], '');
+    var actualMargin = _num(row['net_margin_percent'] ??
+        row['payout_margin_percent'] ??
+        row['actual_margin_percent'] ??
+        row['gross_margin_percent']);
+    final targetMargin = _targetMarginFromRow(row);
+    final skuDetailRows = _safeOrderRefRows(row);
+    final paidDetailRows =
+        _filteredSkuOrderRows(skuDetailRows, 'paid');
+    final unpaidDetailRows =
+        _filteredSkuOrderRows(skuDetailRows, 'unpaid');
+    final rowTotalQty = _numFirstNonZero([
+      row['qty'],
+      row['qty_total'],
+      row['total_qty'],
+    ]).round();
+    final paidKey = _skuDetailBusyKeyV82o(row, 'paid');
+    final unpaidKey = _skuDetailBusyKeyV82o(row, 'unpaid');
+    int paidQtyDisplay = _numFirstNonZero([
+      row['paid_qty_total'],
+      row['settled_qty_total'],
+      row['paid_qty'],
+      row['settled_qty'],
+      row['qty_paid'],
+      row['qty_settled'],
+      row['settled_qty_count'],
+      _skuPaidCountMap[paidKey],
+      _qtyFromOrderRows(paidDetailRows),
+    ]).round();
+    int unpaidQtyDisplay = _numFirstNonZero([
+      row['unpaid_qty'],
+      row['qty_unpaid'],
+      row['unpaid_qty_total'],
+      row['pending_payout_qty'],
+      row['pending_payout_qty_total'],
+      row['qty_pending'],
+      row['qty_belum_payout'],
+      row['belum_payout_qty'],
+      row['unpaid_order_count'],
+      row['unpaid_rows'],
+      row['unpaid_count'],
+      _skuUnpaidCountMap[unpaidKey],
+      _qtyFromOrderRows(unpaidDetailRows),
+    ]).round();
+    if (paidQtyDisplay == 0 && unpaidQtyDisplay == 0 && rowTotalQty > 0) {
+      final payoutVal = _num(row['payout_total'] ?? row['payout_amount'] ?? row['total_payout']);
+      if (payoutVal > 0) {
+        paidQtyDisplay = rowTotalQty;
+      } else {
+        unpaidQtyDisplay = rowTotalQty;
+      }
+    }
+    final qtyTotalDisplay = _numFirstNonZero([
+      rowTotalQty,
+      paidQtyDisplay + unpaidQtyDisplay,
+    ]).round();
+    final displayPayoutPerItem = _numFirstNonZero([
+      row['payout_per_item_paid'],
+      row['payout_per_item'],
+      row['positive_payout_per_item'],
+      paidQtyDisplay > 0
+          ? (_num(row['payout_total'] ??
+                  row['payout_amount'] ??
+                  row['received_amount']) /
+              paidQtyDisplay)
+          : 0,
+    ]);
+    final grossPerItem = _numFirstNonZero([
+      row['gross_per_item'],
+      row['unit_gross'],
+      qtyTotalDisplay > 0
+          ? (_num(row['gross_sales'] ?? row['gross_total']) / qtyTotalDisplay)
+          : 0,
+      displayPayoutPerItem,
+    ]);
+    final payoutRange = _positivePayoutRangeForSku(
+      row: row,
+      detailRows:
+          paidDetailRows.isNotEmpty ? paidDetailRows : skuDetailRows,
+      settledQty: paidQtyDisplay,
+    );
+    final highestPayout = payoutRange['highest'] ?? 0.0;
+    final lowestPayout = payoutRange['lowest'] ?? 0.0;
+    final showPayoutRange = paidDetailRows.isNotEmpty &&
+        highestPayout > 0 &&
+        lowestPayout > 0 &&
+        (highestPayout - lowestPayout).abs() >= 0.5;
+    final paidHppTotalForDisplay = _numFirstNonZero([
+      row['paid_hpp_total'],
+      row['settled_hpp_total'],
+      row['hpp_total'],
+      row['total_hpp'],
+      row['hpp'],
+    ]);
+    final displayHppPerItem = _numFirstNonZero([
+      row['hpp_per_item'],
+      row['hpp_unit'],
+      row['unit_hpp'],
+      row['hpp_item'],
+      paidQtyDisplay > 0
+          ? paidHppTotalForDisplay / paidQtyDisplay
+          : 0,
+    ]);
+    final hppStatusText = _text(row['hpp_status'], '').toLowerCase();
+    final hppMissing =
+        displayHppPerItem <= 0 || hppStatusText.contains('belum');
+    if (displayPayoutPerItem > 0 && displayHppPerItem > 0) {
+      actualMargin = ((displayPayoutPerItem - displayHppPerItem) /
+              displayPayoutPerItem) *
+          100;
+    } else if (hppMissing) {
+      actualMargin = 0;
+    }
+    final displayTargetMargin = targetMargin > 0 ? targetMargin : 30.0;
+    final belowTarget = !hppMissing &&
+        displayTargetMargin > 0 &&
+        actualMargin < displayTargetMargin;
+    final settledBusy =
+        _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'paid');
+    final unpaidBusy =
+        _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'unpaid');
+    final detailBusy = _skuDetailBusyKey != null;
+    return _detailCard(
+      title: sku,
+      subtitle: [
+        productName,
+        if (variantName.isNotEmpty) 'Varian: $variantName',
+        if (marketplaceSku.isNotEmpty)
+          'SKU marketplace: $marketplaceSku',
+      ].join(' · '),
+      trailing: Wrap(
+        spacing: 6,
+        children: [
+          OutlinedButton.icon(
+            onPressed: detailBusy
+                ? null
+                : () => _showSkuOrderRefsV82o(
+                      row,
+                      payoutFilter: 'all',
+                    ),
+            icon: const Icon(Icons.info_outline_rounded, size: 15),
+            label: const Text('Detail SKU',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: detailBusy
+                ? null
+                : () => _showSkuOrderRefsV82o(
+                      row,
+                      payoutFilter: 'paid',
+                    ),
+            icon: settledBusy
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(Icons.receipt_long_rounded, size: 16),
+            label: Text('Settled $paidQtyDisplay',
+                style: TextStyle(fontSize: 12)),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: detailBusy
+                ? null
+                : () => _showSkuOrderRefsV82o(
+                      row,
+                      payoutFilter: 'unpaid',
+                    ),
+            icon: unpaidBusy
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(Icons.pending_actions_rounded, size: 16),
+            label: Text('Belum payout $unpaidQtyDisplay',
+                style: TextStyle(fontSize: 12)),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ],
+      ),
+      children: [
+        if (marketplaceSku.isNotEmpty)
+          _miniMetric('SKU marketplace', marketplaceSku),
+        if (variantName.isNotEmpty)
+          _miniMetric('Varian', variantName),
+        _miniMetric('Qty total', '$qtyTotalDisplay'),
+        _miniMetric('Qty settled', '$paidQtyDisplay'),
+        _miniMetric('Qty belum payout', '$unpaidQtyDisplay',
+            warning: unpaidQtyDisplay > 0),
+        if (_num(row['positive_payout_qty']) > 0)
+          _miniMetric('Qty payout +',
+              _num(row['positive_payout_qty']).toStringAsFixed(0)),
+        if (_num(row['negative_payout_qty']) > 0)
+          _miniMetric('Qty koreksi -',
+              _num(row['negative_payout_qty']).toStringAsFixed(0),
+              warning: true),
+        _miniMetric(
+            'Gross/item', _money(grossPerItem)),
+        if (showPayoutRange) ...[
+          _miniMetric('Payout tertinggi', _money(highestPayout)),
+          _miniMetric('Payout terendah', _money(lowestPayout)),
+        ] else
+          _miniMetric(
+            'Payout settled/item',
+            displayPayoutPerItem > 0
+                ? _money(displayPayoutPerItem)
+                : 'Belum ada payout',
+          ),
+        _miniMetric(
+            'Total payout',
+            _money(_num(row['payout_total'] ??
+                row['payout_amount'] ??
+                row['received_amount']))),
+        if (_num(row['negative_payout_total']) < 0)
+          _miniMetric('Koreksi minus',
+              _money(_num(row['negative_payout_total'])),
+              warning: true),
+        _miniMetric(
+            'HPP/item',
+            hppMissing
+                ? 'HPP belum mapping'
+                : _money(displayHppPerItem),
+            warning: hppMissing),
+        _miniMetric(
+            'Margin net',
+            hppMissing
+                ? 'HPP belum mapping'
+                : '${actualMargin.toStringAsFixed(2)}%',
+            warning: belowTarget),
+        _miniMetric(
+            'Target',
+            '${displayTargetMargin.toStringAsFixed(2)}%'),
+      ],
+    );
+  }
+
   Widget _skuTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
+
+    if (!_skuLoaded && !_skuLoadingFirstPage) {
+      _skuLoadingFirstPage = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _lazyLoadSkuFirstPage();
+      });
+    }
+
+    if ((_skuLoadingFirstPage || !_skuLoaded) && _bySku.isEmpty) {
+      return Center(child: FuturisticLoader(message: 'Memuat data SKU...'));
+    }
+
+    final visibleRows = _skuVisibleRows;
+    final parsedRowsExist = _lastSkuParsedRowCount > 0;
+    final showEmptySkuState = visibleRows.isEmpty && !parsedRowsExist;
+
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.all(14),
         children: [
-          _sectionHeader('Kinerja SKU'),
-          SizedBox(height: 8),
-          if (_bySku.isEmpty)
-            _emptyCard(
-                'Belum ada data SKU finance.\nAuto finance sedang mengejar data periode ini di background. Pastikan mapping SKU lokal sudah benar agar HPP ikut terbaca.')
-          else
-            ..._bySku.map((row) {
-              final sku = _text(row['local_sku'] ?? row['sku']);
-              final marketplaceSku = _text(
-                  row['marketplace_sku'] ??
-                      row['marketplace_sku_id'] ??
-                      row['marketplace_seller_sku'],
-                  '');
-              final productName = _text(
-                  row['product_name'] ?? row['nama_barang'],
-                  'Produk belum diberi nama');
-              final variantName = _text(
-                  row['variant_name'] ?? row['marketplace_variation_name'], '');
-              final actualMargin = _num(row['net_margin_percent'] ??
-                  row['payout_margin_percent'] ??
-                  row['actual_margin_percent'] ??
-                  row['gross_margin_percent']);
-              final targetMargin = _targetMarginFromRow(row);
-              final belowTarget =
-                  targetMargin > 0 && actualMargin < targetMargin;
-              final skuDetailRows = _safeOrderRefRows(row);
-              final paidDetailRows =
-                  _filteredSkuOrderRows(skuDetailRows, 'paid');
-              final unpaidDetailRows =
-                  _filteredSkuOrderRows(skuDetailRows, 'unpaid');
-              final paidQtyDisplay = _qtyFromOrderRows(paidDetailRows) > 0
-                  ? _qtyFromOrderRows(paidDetailRows)
-                  : _numFirstNonZero([
-                      row['paid_qty'],
-                      row['settled_qty'],
-                      row['qty_paid']
-                    ]).round();
-              final unpaidQtyDisplay = _qtyFromOrderRows(unpaidDetailRows) > 0
-                  ? _qtyFromOrderRows(unpaidDetailRows)
-                  : _numFirstNonZero([
-                      row['unpaid_qty'],
-                      row['pending_payout_qty'],
-                      row['qty_unpaid']
-                    ]).round();
-              final qtyTotalDisplay = _numFirstNonZero([
-                row['qty'],
-                row['qty_total'],
-                row['total_qty'],
-                paidQtyDisplay + unpaidQtyDisplay,
-              ]).round();
-              return _detailCard(
-                title: sku,
-                subtitle: [
-                  productName,
-                  if (variantName.isNotEmpty) 'Varian: $variantName',
-                  if (marketplaceSku.isNotEmpty)
-                    'SKU marketplace: $marketplaceSku',
-                ].join(' · '),
-                trailing: Wrap(
-                  spacing: 6,
-                  children: [
-                    TextButton.icon(
-                      onPressed: () =>
-                          _showSkuOrderRefsV82o(row, payoutFilter: 'paid'),
-                      icon: Icon(Icons.receipt_long_rounded, size: 16),
-                      label: Text('Settled $paidQtyDisplay',
-                          style: TextStyle(fontSize: 12)),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () =>
-                          _showSkuOrderRefsV82o(row, payoutFilter: 'unpaid'),
-                      icon: Icon(Icons.pending_actions_rounded, size: 16),
-                      label: Text('Belum payout $unpaidQtyDisplay',
-                          style: TextStyle(fontSize: 12)),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ],
-                ),
+          _buildSkuSummaryCard(),
+          const SizedBox(height: 16),
+          if (_enableSkuDebugLogs && _lastSkuDebugProof.trim().isNotEmpty) ...[
+            _emptyCard('Debug SKU: $_lastSkuDebugProof'),
+            const SizedBox(height: 8),
+          ],
+          if (_bySku.isNotEmpty) ...[
+            _sectionHeader('Daftar SKU'),
+            const SizedBox(height: 8),
+            _skuPaginationControls(),
+            const SizedBox(height: 10),
+          ],
+          if (showEmptySkuState)
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.all(20),
+              decoration: AppUi.modernCardDecoration(context),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (marketplaceSku.isNotEmpty)
-                    _miniMetric('SKU marketplace', marketplaceSku),
-                  if (variantName.isNotEmpty)
-                    _miniMetric('Varian', variantName),
-                  _miniMetric('Qty total', '$qtyTotalDisplay'),
-                  _miniMetric('Qty settled', '$paidQtyDisplay'),
-                  _miniMetric('Qty belum payout', '$unpaidQtyDisplay',
-                      warning: unpaidQtyDisplay > 0),
-                  if (_num(row['positive_payout_qty']) > 0)
-                    _miniMetric('Qty payout +',
-                        _num(row['positive_payout_qty']).toStringAsFixed(0)),
-                  if (_num(row['negative_payout_qty']) > 0)
-                    _miniMetric('Qty koreksi -',
-                        _num(row['negative_payout_qty']).toStringAsFixed(0),
-                        warning: true),
-                  _miniMetric(
-                      'Gross/item', _money(_num(row['gross_per_item']))),
-                  _miniMetric(
-                      'Payout +/item',
-                      _money(_num(row['positive_payout_per_item'] ??
-                          row['payout_per_item_paid'] ??
-                          row['payout_per_item']))),
-                  _miniMetric(
-                      'Total payout',
-                      _money(_num(row['payout_total'] ??
-                          row['payout_amount'] ??
-                          row['received_amount']))),
-                  if (_num(row['negative_payout_total']) < 0)
-                    _miniMetric('Koreksi minus',
-                        _money(_num(row['negative_payout_total'])),
-                        warning: true),
-                  if (_num(row['net_payout_per_item_paid']) != 0 &&
-                      (_num(row['net_payout_per_item_paid']) -
-                                  _num(row['positive_payout_per_item'] ??
-                                      row['payout_per_item_paid'] ??
-                                      row['payout_per_item']))
-                              .abs() >
-                          0.49)
-                    _miniMetric('Net payout/item',
-                        _money(_num(row['net_payout_per_item_paid'])),
-                        warning: _num(row['net_payout_per_item_paid']) < 0),
-                  _miniMetric(
-                      'HPP/item',
-                      _money(_num(row['hpp_per_item'] ??
-                          ((_num(row['qty']) > 0)
-                              ? (_num(row['hpp']) / _num(row['qty']))
-                              : 0)))),
-                  _miniMetric(
-                      'Margin net', '${actualMargin.toStringAsFixed(2)}%',
-                      warning: belowTarget),
-                  _miniMetric(
-                      'Target',
-                      targetMargin <= 0
-                          ? '-'
-                          : '${targetMargin.toStringAsFixed(2)}%'),
-                  _orderRefMetric(row, payoutFilter: 'paid'),
-                  _orderRefMetric(row, payoutFilter: 'unpaid'),
+                  Icon(Icons.shopping_bag_outlined,
+                      size: 24, color: Theme.of(context).colorScheme.primary),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Belum ada data SKU finance.\nAuto finance sedang mengejar data periode ini di background. Pastikan mapping SKU lokal sudah benar agar HPP ikut terbaca.',
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.82),
+                          height: 1.4),
+                    ),
+                  ),
                 ],
-              );
-            }),
+              ),
+            )
+          else if (visibleRows.isEmpty && parsedRowsExist)
+            _emptyCard(
+                'Data SKU sudah diterima ($_lastSkuParsedRowCount parsed), sedang menunggu render ulang. Tekan muat ulang jika kartu belum muncul.')
+          else
+            ...visibleRows.map((row) => _buildSkuRowCard(row)),
         ],
       ),
     );
@@ -6137,14 +10686,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _summary['manual_expense_total'],
       _summary['manual_operational_expense']
     ]);
+    final production = _numFirstNonZero([
+      _summary['production_paid_total'],
+      _summary['paid_production_total'],
+      _summary['production_tailor_paid_total']
+    ]);
     final purchases = _numFirstNonZero([
       _summary['approved_purchase_total'],
       _summary['purchase_cashout'],
       _summary['approved_purchase_cashout']
     ]);
-    final netCash = summaryPayout - manual - purchases;
-    if (summaryPayout == 0 && manual == 0 && purchases == 0 && netCash == 0)
-      return <Map<String, dynamic>>[];
+    final netCash = summaryPayout - manual - production - purchases;
+    if (summaryPayout == 0 &&
+        manual == 0 &&
+        production == 0 &&
+        purchases == 0 &&
+        netCash == 0) return <Map<String, dynamic>>[];
     return <Map<String, dynamic>>[
       {
         'category': 'Marketplace',
@@ -6166,11 +10723,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'amount': -purchases.abs(),
           'description': 'Pembelian yang sudah disetujui finance'
         },
+      if (production > 0)
+        {
+          'category': 'Produksi Paid',
+          'type': 'out',
+          'amount': -production.abs(),
+          'description': 'Pembayaran produksi/tailor yang sudah dibayar'
+        },
       {
-        'category': 'Arus Kas Bersih',
+        'category': 'Jumlah Arus Kas',
         'type': netCash >= 0 ? 'in' : 'out',
         'amount': netCash,
-        'description': 'Payout - biaya manual - pembelian disetujui'
+        'description':
+            'Payout - biaya manual - pembelian disetujui - produksi paid'
       },
     ];
   }
@@ -6198,16 +10763,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _summary['manual_expense_total'],
       _summary['manual_operational_expense']
     ]);
+    final production = _numFirstNonZero([
+      _summary['production_paid_total'],
+      _summary['paid_production_total'],
+      _summary['production_tailor_paid_total']
+    ]);
     final purchases = _numFirstNonZero([
       _summary['approved_purchase_total'],
       _summary['purchase_cashout'],
       _summary['approved_purchase_cashout']
     ]);
-    final profit = payout - hpp - manual - purchases;
+    final profit = payout - hpp - manual - production - purchases;
     if (gross == 0 &&
         payout == 0 &&
         hpp == 0 &&
         manual == 0 &&
+        production == 0 &&
         purchases == 0 &&
         profit == 0) return <Map<String, dynamic>>[];
     return <Map<String, dynamic>>[
@@ -6238,41 +10809,666 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'amount': -purchases.abs(),
           'description': 'Pembelian yang sudah disetujui finance'
         },
+      if (production > 0)
+        {
+          'label': 'Produksi Paid',
+          'amount': -production.abs(),
+          'description': 'Pembayaran produksi/tailor yang sudah dibayar'
+        },
       {
         'label': 'Laba Bersih',
         'amount': profit,
-        'description': 'Payout - HPP - biaya manual - pembelian disetujui'
+        'description':
+            'Payout - HPP - biaya manual - pembelian disetujui - produksi paid'
       },
     ];
   }
 
+  bool _cashFlowRowIsOut(Map<String, dynamic> row) {
+    final direction =
+        _text(row['direction'] ?? row['cash_type'] ?? row['type'], '')
+            .trim()
+            .toLowerCase()
+            .replaceAll('_', ' ');
+
+    final source = _text(row['source'] ?? row['source_module'], '')
+        .trim()
+        .toLowerCase()
+        .replaceAll('_', ' ');
+    final category = _text(row['category'] ?? row['label'] ?? row['title'], '')
+        .trim()
+        .toLowerCase()
+        .replaceAll('_', ' ');
+    final description =
+        _text(row['description'] ?? row['note'] ?? row['items'], '')
+            .trim()
+            .toLowerCase()
+            .replaceAll('_', ' ');
+
+    final text = '$direction $source $category $description';
+
+    // Payout marketplace dan kas masuk manual adalah inflow.
+    // Jangan pakai contains("out") karena kata "payout" mengandung "out".
+    if (direction == 'in' ||
+        direction == 'cash in' ||
+        direction == 'masuk' ||
+        category.contains('kas masuk') ||
+        source.contains('marketplace payout') ||
+        source.contains('marketplace payout') ||
+        source.contains('marketplacepayout') ||
+        source.contains('payout') ||
+        category.contains('payout') ||
+        description.contains('payout marketplace') ||
+        description.contains('payout diterima')) {
+      return false;
+    }
+
+    if (direction == 'out' ||
+        direction == 'cash out' ||
+        direction == 'keluar' ||
+        direction == 'expense' ||
+        direction == 'withdrawal') {
+      return true;
+    }
+
+    return text.contains('biaya') ||
+        text.contains('expense') ||
+        text.contains('operasional') ||
+        text.contains('pembelian') ||
+        text.contains('purchase') ||
+        text.contains('cashout') ||
+        text.contains('cash out') ||
+        text.contains('penarikan') ||
+        text.contains('withdrawal');
+  }
+
+  num _cashFlowSignedAmount(Map<String, dynamic> row) {
+    final raw = _num(row['amount'] ??
+        row['value'] ??
+        row['total'] ??
+        row['nominal'] ??
+        row['expense_amount'] ??
+        row['purchase_amount']);
+
+    if (raw == 0) return 0;
+    return _cashFlowRowIsOut(row) ? -raw.abs() : raw.abs();
+  }
+
+  bool _isManualCashAdjustmentRow(Map<String, dynamic> row) {
+    if (_isUuid(_text(row['cash_adjustment_id'], ''))) return true;
+
+    final sourceText = [
+      row['source_table'],
+      row['source_module'],
+      row['source'],
+      row['table'],
+      row['_cash_wallet_kind'],
+    ].map((value) => _text(value, '').toLowerCase()).join(' ');
+
+    return sourceText.contains('finance_company_cash_adjustments') ||
+        sourceText.contains('cash_adjustment') ||
+        sourceText.contains('cash adjustment') ||
+        sourceText.contains('adjustment');
+  }
+
+  Map<String, dynamic>? _editableManualCashAdjustmentRow(
+      Map<String, dynamic> row) {
+    if (_isDemoSuperAdmin || !_canWriteFinance) return null;
+    if (!_isManualCashAdjustmentRow(row)) return null;
+    final id = _text(row['cash_adjustment_id'], '').trim();
+    if (!_isUuid(id)) return null;
+    return {
+      ...row,
+      'cash_adjustment_id': id,
+      'source_table': 'finance_company_cash_adjustments',
+    };
+  }
+
+  bool _financeSkuHasRealLocalMapping(
+    Map<String, dynamic> row, [
+    Map<String, dynamic>? detailRow,
+  ]) {
+    final local = _text(
+      row['mapped_local_sku'] ??
+          detailRow?['mapped_local_sku'] ??
+          row['local_sku'] ??
+          detailRow?['local_sku'],
+      '',
+    ).trim();
+
+    if (local.isEmpty ||
+        local == '-' ||
+        local.toLowerCase() == 'null' ||
+        local.toLowerCase() == 'unmapped' ||
+        local.toLowerCase().contains('belum mapping')) {
+      return false;
+    }
+
+    final mappingText = [
+      row['mapping_status'],
+      detailRow?['mapping_status'],
+      row['hpp_status'],
+      detailRow?['hpp_status'],
+      row['hpp_label'],
+      detailRow?['hpp_label'],
+    ].map((value) => _text(value, '').toLowerCase()).join(' ');
+
+    if (mappingText.contains('unmapped') ||
+        mappingText.contains('not mapped') ||
+        mappingText.contains('missing') ||
+        mappingText.contains('pending') ||
+        mappingText.contains('belum mapping') ||
+        mappingText.contains('hpp belum mapping')) {
+      return false;
+    }
+
+    final marketplaceValues = <String>[
+      _text(row['sku'], ''),
+      _text(row['marketplace_sku'], ''),
+      _text(row['marketplace_sku_id'], ''),
+      _text(row['marketplace_seller_sku'], ''),
+      _text(row['seller_sku'], ''),
+      _text(detailRow?['sku'], ''),
+      _text(detailRow?['marketplace_sku'], ''),
+      _text(detailRow?['marketplace_sku_id'], ''),
+      _text(detailRow?['marketplace_seller_sku'], ''),
+      _text(detailRow?['seller_sku'], ''),
+    ]
+        .map((value) => value.trim().toLowerCase())
+        .where((value) => value.isNotEmpty && value != '-' && value != 'null')
+        .toSet();
+
+    final localLower = local.toLowerCase();
+    final hppValue = _num(row['hpp_per_item'] ??
+        row['unit_hpp'] ??
+        row['hpp'] ??
+        detailRow?['hpp_per_item'] ??
+        detailRow?['unit_hpp'] ??
+        detailRow?['hpp']);
+
+    // Kalau local_sku sama dengan marketplace/seller SKU dan HPP belum ada,
+    // itu fallback marketplace, bukan mapping SKU lokal.
+    if (marketplaceValues.contains(localLower) && hppValue <= 0) return false;
+
+    return true;
+  }
+
+  String _financeSkuLocalMappingLabel(
+    Map<String, dynamic> item,
+    Map<String, dynamic> detailRow,
+  ) {
+    if (!_financeSkuHasRealLocalMapping(item, detailRow)) {
+      return 'Belum mapping';
+    }
+    return _cleanText(
+      item['mapped_local_sku'] ??
+          detailRow['mapped_local_sku'] ??
+          item['local_sku'] ??
+          detailRow['local_sku'] ??
+          detailRow['sku'],
+      'Belum mapping',
+    );
+  }
+
+  List<Map<String, dynamic>> _normalizedCashFlowRows() {
+    final out = <Map<String, dynamic>>[];
+    final seen = <String>{};
+
+    void addRow(Map<String, dynamic> row) {
+      final amount = _cashFlowSignedAmount(row);
+      if (amount == 0) return;
+
+      final normalized = Map<String, dynamic>.from(row);
+      normalized['amount'] = amount;
+      normalized['type'] = amount < 0 ? 'out' : 'in';
+      normalized['cash_type'] = normalized['type'];
+
+      final key = _text(
+          normalized['cash_adjustment_id'] ??
+              normalized['marketplace_cashflow_key'] ??
+              normalized['source_ref'] ??
+              normalized['id'] ??
+              '${normalized['source']}|${normalized['category']}|${normalized['date']}|${normalized['amount']}',
+          '');
+      if (seen.add(key)) out.add(normalized);
+    }
+
+    String marketplaceName(Map<String, dynamic> row) {
+      final raw = _text(
+          row['marketplace'] ??
+              row['marketplace_group'] ??
+              row['account_name'] ??
+              row['shop_name'] ??
+              row['store_alias'],
+          '');
+      final lower = raw.toLowerCase();
+      if (lower.contains('tiktok')) return 'TikTok';
+      if (lower.contains('shopee')) return 'Shopee';
+      return raw.isEmpty ? 'Marketplace' : raw;
+    }
+
+    // 1. Marketplace payout = kas masuk.
+    var hasMarketplacePayout = false;
+    for (final row in _byMarketplace) {
+      final payout = _numFirstNonZero([
+        row['payout_total'],
+        row['payout_amount'],
+        row['received_amount'],
+        row['net_received'],
+        row['net_settlement'],
+      ]);
+      if (payout <= 0) continue;
+
+      final name = marketplaceName(row);
+      final marketplace =
+          _text(row['marketplace'] ?? row['marketplace_group'], '');
+      final accountId = _text(
+        row['marketplace_account_id'] ?? row['account_id'] ?? row['id'],
+        '',
+      );
+
+      addRow({
+        'marketplace_cashflow_key':
+            'marketplace_payout|$marketplace|$accountId',
+        'date': _end,
+        'source': '${name} Payout',
+        'category': '${name} Payout',
+        'title': '${name} Payout',
+        'description':
+            '${name} payout periode ${_date(_start)} - ${_date(_end)}',
+        'type': 'in',
+        'cash_type': 'in',
+        'direction': 'in',
+        'amount': payout,
+        'marketplace': marketplace,
+        'marketplace_account_id': accountId,
+      });
+
+      hasMarketplacePayout = true;
+    }
+
+    // Fallback kalau by_marketplace belum ada.
+    if (!hasMarketplacePayout) {
+      final payout = _numFirstNonZero([
+        _summary['payout_total'],
+        _summary['payout_amount'],
+        _summary['received_amount'],
+        _summary['net_received'],
+        _summary['net_settlement'],
+      ]);
+      if (payout > 0) {
+        addRow({
+          'marketplace_cashflow_key': 'marketplace_payout|all',
+          'date': _end,
+          'source': 'Marketplace Payout',
+          'category': 'Marketplace Payout',
+          'title': 'Marketplace Payout',
+          'description':
+              'Marketplace payout periode ${_date(_start)} - ${_date(_end)}',
+          'type': 'in',
+          'cash_type': 'in',
+          'direction': 'in',
+          'amount': payout,
+        });
+      }
+    }
+
+    // 2. Kas masuk/keluar manual. HAR membuktikan data ini ada di
+    // finance_company_cash_adjustments, jadi harus ikut.
+    for (final row in _cashAdjustments) {
+      addRow({
+        ...row,
+        'source_table': 'finance_company_cash_adjustments',
+        'source': _text(row['category'], 'Kas manual'),
+        'category': _text(row['category'], 'Kas manual'),
+        'title': _text(row['category'], 'Kas manual'),
+        'date': row['adjustment_date'] ?? row['date'] ?? row['created_at'],
+      });
+    }
+
+    // Fallback manual cash dari _cashFlow, untuk case state _cashFlow sudah berisi
+    // finance_company_cash_adjustments tapi _cashAdjustments belum keisi.
+    for (final row in _cashFlow) {
+      final hasCashAdjustmentId =
+          _text(row['cash_adjustment_id'], '').trim().isNotEmpty;
+      final category =
+          _text(row['category'] ?? row['title'] ?? row['source'], '')
+              .toLowerCase();
+      final isMarketplacePayoutRow = category.contains('marketplace') ||
+          category.contains('payout') ||
+          category.contains('shopee') ||
+          category.contains('tiktok');
+      if (isMarketplacePayoutRow && hasMarketplacePayout) {
+        continue;
+      }
+
+      final dir =
+          _text(row['direction'] ?? row['cash_type'] ?? row['type'], '')
+              .toLowerCase();
+
+      if (hasCashAdjustmentId ||
+          category.contains('kas masuk') ||
+          category.contains('kas manual') ||
+          (dir == 'in' && !isMarketplacePayoutRow)) {
+        addRow({
+          ...row,
+          if (hasCashAdjustmentId)
+            'source_table': 'finance_company_cash_adjustments',
+          'source': _text(row['category'] ?? row['source'], 'Kas manual'),
+          'category': _text(row['category'] ?? row['source'], 'Kas manual'),
+          'title': _text(row['category'] ?? row['source'], 'Kas manual'),
+          'date': row['adjustment_date'] ?? row['date'] ?? row['created_at'],
+        });
+      }
+    }
+
+    // 3. Saldo awal kalau ada.
+    for (final row in _cashOpeningBalances) {
+      addRow({
+        ...row,
+        'source': 'Saldo awal',
+        'category': 'Saldo awal',
+        'title': 'Saldo awal',
+        'type': 'in',
+        'cash_type': 'in',
+        'direction': 'in',
+        'date': row['balance_date'] ?? row['date'] ?? row['created_at'],
+      });
+    }
+
+    // 4. Biaya + pembelian cukup satu card ringkas.
+    final expenseTotal = _numFirstNonZero([
+      _summary['operational_cost_total'],
+      _summary['expense_total'],
+    ]);
+    final manualExpense = _numFirstNonZero([
+      _summary['manual_expense_total'],
+      _summary['manual_operational_expense'],
+      _summary['operational_expense'],
+    ]);
+    final purchaseCashout = _numFirstNonZero([
+      _summary['purchase_cashout'],
+      _summary['approved_purchase_cashout'],
+      _summary['approved_purchase_total'],
+    ]);
+
+    final mergedOut =
+        expenseTotal > 0 ? expenseTotal : (manualExpense + purchaseCashout);
+
+    if (mergedOut > 0) {
+      addRow({
+        'marketplace_cashflow_key': 'expense_purchase_merged',
+        'date': _end,
+        'source': 'Biaya & Pembelian',
+        'category': 'Biaya & Pembelian',
+        'title': 'Biaya & Pembelian',
+        'description': 'Detail lihat tab Biaya',
+        'type': 'out',
+        'cash_type': 'out',
+        'direction': 'out',
+        'amount': -mergedOut.abs(),
+      });
+    }
+
+    out.sort((a, b) {
+      final ad = _parseDate(a['date'] ??
+              a['adjustment_date'] ??
+              a['balance_date'] ??
+              a['created_at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = _parseDate(b['date'] ??
+              b['adjustment_date'] ??
+              b['balance_date'] ??
+              b['created_at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return bd.compareTo(ad);
+    });
+
+    return out;
+  }
+
   Widget _cashFlowTab() {
-    if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
-    final cashRows = _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
+    if (_loading) {
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
+    }
+    if (!_operationalCostsLoaded &&
+        !_operationalCostsLoading &&
+        _operationalCostsError == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadOperationalCostsSupplemental());
+      });
+    }
+    final cashRows = _normalizedCashFlowRows();
+    final walletRows = _cashWalletRowsForDisplay(
+      opening: _cashOpeningBalances,
+      adjustments: _cashAdjustments,
+      withdrawals: _marketplaceWithdrawals,
+    );
+    bool isNetRow(Map<String, dynamic> row) {
+      final label = _text(row['source'] ?? row['category']).toLowerCase();
+      return label.contains('arus kas bersih') ||
+          label.contains('total arus kas') ||
+          label.contains('jumlah arus kas');
+    }
+
+    final detailCashRows =
+        cashRows.where((row) => !isNetRow(row)).toList(growable: false);
+
+    num totalIn = 0;
+    num totalOut = 0;
+    for (final row in [
+      ...cashRows.where((row) => !isNetRow(row)),
+      ...walletRows,
+    ]) {
+      if (row['_cash_wallet_kind'] == 'withdrawal' ||
+          row['_cash_wallet_kind'] == 'adjustment') {
+        continue;
+      }
+      final amount = _cashFlowSignedAmount(row);
+      if (amount >= 0) {
+        totalIn += amount;
+      } else {
+        totalOut += amount.abs();
+      }
+    }
+    final netCash = totalIn - totalOut;
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
       child: ListView(
         padding: const EdgeInsets.all(14),
         children: [
-          _sectionHeader('Arus Kas'),
+          _sectionHeader('Jumlah / Total Arus Kas'),
           SizedBox(height: 8),
-          if (cashRows.isEmpty)
+          if (!_operationalCostsLoaded) ...[
+            if (_operationalCostsLoading)
+              _emptyCard('Memuat rincian biaya dan pembelian...')
+            else ...[
+              if (_operationalCostsError != null)
+                _emptyCard(
+                    'Rincian biaya belum termuat: $_operationalCostsError'),
+              _emptyCard('Rincian biaya akan dimuat otomatis.'),
+              const SizedBox(height: 12),
+            ],
+          ],
+          _metricGrid([
+            _Metric('Total Masuk', _money(totalIn), Icons.south_west_rounded),
+            _Metric('Total Keluar', _money(totalOut), Icons.north_east_rounded),
+            _Metric(
+              'Jumlah Arus Kas',
+              _money(netCash),
+              Icons.account_balance_wallet_rounded,
+            ),
+          ]),
+          SizedBox(height: 12),
+          if (_canWriteFinance) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _processing ? null : _editCashOpeningBalance,
+                  icon: Icon(Icons.account_balance_wallet_rounded, size: 18),
+                  label: Text('Saldo awal'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _processing
+                      ? null
+                      : () => _editCashAdjustment(direction: 'in'),
+                  icon: Icon(Icons.south_west_rounded, size: 18),
+                  label: Text('Kas masuk'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _processing
+                      ? null
+                      : () => _editCashAdjustment(direction: 'out'),
+                  icon: Icon(Icons.north_east_rounded, size: 18),
+                  label: Text('Kas keluar'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _processing ? null : _editMarketplaceWithdrawal,
+                  icon: Icon(Icons.account_balance_rounded, size: 18),
+                  label: Text('Penarikan'),
+                ),
+              ],
+            ),
+            SizedBox(height: 12),
+          ],
+          if (detailCashRows.isEmpty)
             _emptyCard('Belum ada arus kas pada periode ini.')
           else
-            ...cashRows.map((row) {
+            ...detailCashRows.map((row) {
               final type = _text(row['cash_type'] ?? row['type']);
-              final amount = _num(row['amount']);
+              final amount = _cashFlowSignedAmount(row);
+              final editableCashAdjustment =
+                  _editableManualCashAdjustmentRow(row);
               return _simpleRowCard(
-                title: _sourceLabel(
-                    _text(row['source'] ?? row['category'] ?? type)),
+                title: _sourceLabel(_text(
+                    row['title'] ?? row['category'] ?? row['source'] ?? type)),
                 subtitle:
-                    '${_date(row['date'] ?? row['created_at'])}  ·  ${type.toUpperCase()}',
+                    '${_date(row['date'] ?? row['created_at'])} - ${type.toUpperCase()}',
                 trailing: (amount >= 0 ? '+ ' : '- ') + _money(amount.abs()),
                 positive: amount >= 0,
+                actions: editableCashAdjustment == null
+                    ? const <Widget>[]
+                    : [
+                        _tinyActionButton(
+                            Icons.edit_rounded,
+                            'Edit',
+                            () => _editCashAdjustment(
+                                  row: editableCashAdjustment,
+                                )),
+                        _tinyActionButton(
+                          Icons.delete_outline_rounded,
+                          'Hapus',
+                          () => _deleteCashAdjustment(editableCashAdjustment),
+                          danger: true,
+                        ),
+                      ],
               );
             }),
+          if (_cashOpeningBalances.isNotEmpty ||
+              _cashAdjustments.isNotEmpty ||
+              _marketplaceWithdrawals.isNotEmpty) ...[
+            SizedBox(height: 16),
+            _sectionHeader('Kelola Input Arus Kas'),
+            SizedBox(height: 8),
+            ...walletRows.map(_cashWalletInputRowCard),
+          ],
+          if (_withdrawalAllocations.isNotEmpty) ...[
+            SizedBox(height: 16),
+            _sectionHeader('Alokasi Penarikan'),
+            SizedBox(height: 8),
+            ..._withdrawalAllocations.map(_withdrawalAllocationRowCard),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _manualExpenseRowCard(Map<String, dynamic> row) {
+    final amount = _numFirstNonZero(
+      [row['amount'], row['total_amount'], row['expense_total']],
+    );
+    final editable =
+        !_isDemoSuperAdmin && _isEditableOperationalExpenseRow(row);
+    final sourceLabel = _expenseSourceLabel(row);
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _text(row['category'] ?? row['title'], 'Operasional'),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: Theme.of(context).textTheme.bodyLarge?.color,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  [
+                    _date(row['expense_date'] ??
+                        row['paid_at'] ??
+                        row['created_at']),
+                    sourceLabel,
+                    _text(row['note'] ?? row['description'], '-'),
+                  ]
+                      .where((item) =>
+                          item.trim().isNotEmpty && item.trim() != '-')
+                      .join('  ·  '),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.82),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _money(amount),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+              fontWeight: FontWeight.w800,
+              fontSize: 13,
+            ),
+          ),
+          if (editable) ...[
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Edit biaya',
+              onPressed: _processing ? null : () => _editManualExpense(row),
+              icon: Icon(Icons.edit_note_rounded, size: 20),
+            ),
+            IconButton(
+              tooltip: 'Hapus biaya',
+              onPressed: _processing ? null : () => _deleteManualExpense(row),
+              icon: Icon(Icons.delete_outline_rounded, size: 20),
+            ),
+          ],
         ],
       ),
     );
@@ -6280,7 +11476,42 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _expensesTab() {
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
+    if (!_operationalCostsLoaded &&
+        !_operationalCostsLoading &&
+        _operationalCostsError == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadOperationalCostsSupplemental());
+      });
+    }
+
+    final summaryManualExpense = _num(_summary['manual_expense_total']);
+    final summaryProductionPaid = _num(_summary['production_paid_total']);
+    final summaryApprovedPurchase = _num(_summary['approved_purchase_total']);
+
+    bool isNetRow(Map<String, dynamic> row) {
+      final label = _text(row['source'] ?? row['category']).toLowerCase();
+      return label.contains('arus kas bersih') ||
+          label.contains('total arus kas') ||
+          label.contains('jumlah arus kas');
+    }
+
+    final hasCashFlowOutflow = () {
+      final cashRows =
+          _cashFlow.isNotEmpty ? _cashFlow : _fallbackCashFlowRows();
+      for (final row in cashRows) {
+        if (isNetRow(row)) continue;
+        final amount = _num(row['amount']);
+        if (amount < 0) return true;
+      }
+      return false;
+    }();
+
+    final hasBiayaSummaryOrCashFlow = summaryManualExpense > 0 ||
+        summaryProductionPaid > 0 ||
+        summaryApprovedPurchase > 0 ||
+        hasCashFlowOutflow;
+
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -6288,43 +11519,113 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 130),
         children: [
           _sectionHeader('Biaya Operasional'),
-          SizedBox(height: 8),
-          if (_expenses.isEmpty && _approvedPurchases.isEmpty)
-            _emptyCard(
-                'Belum ada biaya operasional atau pembelian yang sudah disetujui.')
-          else ...[
-            ..._expenses.map(_expenseRowCard),
-            if (_approvedPurchases.isNotEmpty) ...[
-              SizedBox(height: 14),
-              _sectionHeader('Pembelian Disetujui'),
-              SizedBox(height: 8),
-              ..._approvedPurchases.map((row) => _simpleRowCard(
-                    title: _text(
-                        row['title'] ??
-                            row['item'] ??
-                            row['item_name'] ??
-                            row['nama_barang'] ??
-                            row['category'],
-                        'Pembelian'),
-                    subtitle: <String>[
-                      _date(row['expense_date'] ??
-                          row['date'] ??
-                          row['tanggal'] ??
-                          row['approved_at'] ??
-                          row['created_at']),
-                      _text(
-                          row['supplier_name'] ??
-                              row['description'] ??
-                              row['source'],
-                          ''),
-                      if (_purchaseQty(row) > 0) 'Qty ${_purchaseQty(row)}',
-                    ]
-                        .where((item) =>
-                            item.trim().isNotEmpty && item.trim() != '-')
-                        .join('  ·  '),
-                    trailing: _money(_purchaseAmount(row)),
+          const SizedBox(height: 8),
+          if (!_operationalCostsLoaded) ...[
+            if (_operationalCostsLoading)
+              _emptyCard('Memuat rincian biaya dan pembelian...')
+            else ...[
+              if (_operationalCostsError != null)
+                _emptyCard(
+                    'Rincian biaya belum termuat: $_operationalCostsError'),
+              _emptyCard('Rincian biaya akan dimuat otomatis.'),
+            ],
+          ] else ...[
+            if (_expenses.isEmpty && _approvedPurchases.isEmpty) ...[
+              if (hasBiayaSummaryOrCashFlow) ...[
+                if (summaryManualExpense > 0)
+                  _simpleRowCard(
+                    title: 'Total Biaya Operasional',
+                    subtitle: 'Berdasarkan data Ringkasan/Snapshot',
+                    trailing: _money(summaryManualExpense),
                     positive: false,
-                  )),
+                  ),
+                if (summaryProductionPaid > 0)
+                  _simpleRowCard(
+                    title: 'Total Ongkos Produksi',
+                    subtitle: 'Berdasarkan data Ringkasan/Snapshot',
+                    trailing: _money(summaryProductionPaid),
+                    positive: false,
+                  ),
+                if (summaryApprovedPurchase > 0)
+                  _simpleRowCard(
+                    title: 'Total Pembelian Disetujui',
+                    subtitle: 'Berdasarkan data Ringkasan/Snapshot',
+                    trailing: _money(summaryApprovedPurchase),
+                    positive: false,
+                  ),
+                if (hasCashFlowOutflow &&
+                    summaryManualExpense == 0 &&
+                    summaryProductionPaid == 0 &&
+                    summaryApprovedPurchase == 0)
+                  _simpleRowCard(
+                    title: 'Total Biaya (Arus Kas Keluar)',
+                    subtitle: 'Berdasarkan data Arus Kas',
+                    trailing: _money(
+                      () {
+                        num totalOut = 0;
+                        final cashRows = _cashFlow.isNotEmpty
+                            ? _cashFlow
+                            : _fallbackCashFlowRows();
+                        final walletRows = _cashWalletRowsForDisplay(
+                          opening: _cashOpeningBalances,
+                          adjustments: _cashAdjustments,
+                          withdrawals: _marketplaceWithdrawals,
+                        );
+                        for (final row in [
+                          ...cashRows.where((row) => !isNetRow(row)),
+                          ...walletRows,
+                        ]) {
+                          if (row['_cash_wallet_kind'] == 'withdrawal') {
+                            continue;
+                          }
+                          final amount = _num(row['amount']);
+                          if (amount < 0) {
+                            totalOut += amount.abs();
+                          }
+                        }
+                        return totalOut;
+                      }(),
+                    ),
+                    positive: false,
+                  ),
+              ] else
+                _emptyCard(
+                    'Belum ada biaya operasional atau pembelian yang sudah disetujui.')
+            ] else ...[
+              ..._expenses.map(_manualExpenseRowCard),
+              if (_approvedPurchases.isNotEmpty) ...[
+                SizedBox(height: 14),
+                _sectionHeader('Pembelian Disetujui'),
+                SizedBox(height: 8),
+                ..._approvedPurchases.map((row) => _simpleRowCard(
+                      title: _text(
+                          row['title'] ??
+                              row['item'] ??
+                              row['item_name'] ??
+                              row['nama_barang'] ??
+                              row['category'],
+                          'Pembelian'),
+                      subtitle: <String>[
+                        _date(row['expense_date'] ??
+                            row['date'] ??
+                            row['tanggal'] ??
+                            row['approved_at'] ??
+                            row['created_at']),
+                        _expenseSourceLabel(row),
+                        _text(
+                            row['supplier_name'] ??
+                                row['description'] ??
+                                row['source'],
+                            ''),
+                        if (_purchaseQty(row) > 0) 'Qty ${_purchaseQty(row)}',
+                      ]
+                          .where((item) =>
+                              item.trim().isNotEmpty && item.trim() != '-')
+                          .join('  ·  '),
+                      trailing: _money(_purchaseAmount(row)),
+                      positive: false,
+                    )),
+              ],
             ],
           ],
         ],
@@ -6332,11 +11633,616 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
+  bool _isGenericSettlementProfitLossRow(Map<String, dynamic> row) {
+    final raw = _text(row['category'] ?? row['name'] ?? row['label']);
+    final key = raw.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+
+    if (key == 'omzet' ||
+        key == 'gross_sales' ||
+        key.contains('payout_diterima') ||
+        key.contains('payout_received') ||
+        key.contains('potongan_marketplace')) {
+      return true;
+    }
+    return false;
+  }
+
+  Widget _profitLossMiniMetric(
+    String label,
+    String value, {
+    bool positive = false,
+    bool warning = false,
+  }) {
+    final color = warning
+        ? Theme.of(context).colorScheme.error
+        : positive
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).textTheme.bodyLarge?.color;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: warning
+              ? Theme.of(context).colorScheme.error.withOpacity(0.25)
+              : Theme.of(context).colorScheme.primary.withOpacity(0.15),
+          width: 0.8,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _profitLossByMarketplaceCard() {
+    if (_profitLossByMarketplace.isEmpty) return const SizedBox.shrink();
+
+    Widget marketplaceCard(Map<String, dynamic> row) {
+      final marketplace =
+          _marketplaceName(_text(row['marketplace'], 'Marketplace'));
+      final shop = _text(row['shop_name'] ?? row['account_name'], marketplace);
+      final orderCount =
+          _num(row['order_count'] ?? row['finance_order_count']).toInt();
+      final gross =
+          _num(row['gross_sales'] ?? row['omzet_total'] ?? row['gross_total']);
+      final payout = _num(row['payout_total'] ??
+          row['received_amount'] ??
+          row['net_settlement']);
+      final hpp = _num(row['hpp_total'] ?? row['total_hpp']);
+      final profit = _num(row['net_profit'] ?? row['profit'] ?? (payout - hpp));
+      final margin = payout > 0
+          ? _num(row['margin_percent'] ??
+              row['net_margin_percent'] ??
+              (profit / payout * 100))
+          : 0;
+      final discount = _numFirstNonZero([
+        row['discount_amount'],
+        row['voucher_amount'],
+        row['discount'],
+        row['voucher'],
+        row['shopee_discount'],
+        row['tiktok_discount'],
+        row['seller_discount'],
+        row['platform_discount'],
+        row['seller_voucher'],
+        row['platform_voucher'],
+      ]);
+      final refund = _numFirstNonZero([
+        row['refund_amount'],
+        row['return_refund_amount'],
+        row['refund'],
+        row['retur'],
+        row['buyer_refund_amount'],
+      ]);
+      final adjustment = _numFirstNonZero([
+        row['adjustment_amount'],
+        row['adjustment'],
+        row['koreksi'],
+        row['settlement_correction'],
+      ]);
+      final platformFee = _numFirstNonZero([
+        row['platform_fee'],
+        row['service_fee'],
+        row['biaya_layanan'],
+        row['platform_service_fee'],
+        row['service_fee_amount'],
+      ]);
+      final commissionFee = _numFirstNonZero([
+        row['commission_fee'],
+        row['commission'],
+        row['biaya_komisi'],
+        row['total_commission'],
+        row['commission_fee_amount'],
+      ]);
+      final affiliateFee = _numFirstNonZero([
+        row['affiliate_fee'],
+        row['affiliate_commission'],
+        row['biaya_afiliasi'],
+        row['affiliate_cost'],
+        row['affiliate_commission_amount'],
+      ]);
+      final shippingFee = _numFirstNonZero([
+        row['shipping_fee'],
+        row['shipping_cost'],
+        row['biaya_pengiriman'],
+        row['ongkir_seller'],
+      ]);
+      final feeAmount = _num(row['fee_amount'] ??
+          row['total_fees'] ??
+          row['total_deductions'] ??
+          row['biaya'] ??
+          row['deductions'] ??
+          (gross - payout > 0 ? gross - payout : 0));
+      final knownFeesTotal = platformFee.abs() + commissionFee.abs() + affiliateFee.abs() + shippingFee.abs();
+      final otherFees = feeAmount.abs() > knownFeesTotal + 0.49 ? feeAmount.abs() - knownFeesTotal : 0.0;
+      final subsidy = _num(row['subsidy_amount'] ??
+          row['marketplace_subsidy'] ??
+          row['seller_subsidy']);
+      final sampleFree = _num(row['sample_order_count'] ??
+          row['free_order_count'] ??
+          row['gratis_order_count']);
+      final payoutMinus = _num(row['sample_negative_payout_total'] ??
+          row['negative_payout_total'] ??
+          row['minus_payout_total']);
+      final auditedFields = const [
+        'platform_fee',
+        'commission_fee',
+        'affiliate_fee',
+        'shipping_fee',
+        'discount_amount',
+        'voucher_amount',
+        'refund_amount',
+        'return_refund_amount',
+        'adjustment_amount',
+        'fee_amount',
+        'total_fees',
+        'subsidy_amount',
+        'marketplace_subsidy',
+        'seller_subsidy',
+        'sample_order_count',
+        'free_order_count',
+        'gratis_order_count',
+      ];
+      final hasAuditedBreakdown =
+          auditedFields.any((key) => row.containsKey(key));
+      final breakdownWidgets = <Widget>[
+        if (platformFee.abs() > 0.49)
+          _profitLossMiniMetric('Platform fee', _money(platformFee.abs()),
+              warning: true),
+        if (commissionFee.abs() > 0.49)
+          _profitLossMiniMetric('Komisi', _money(commissionFee.abs()),
+              warning: true),
+        if (affiliateFee.abs() > 0.49)
+          _profitLossMiniMetric('Afiliasi', _money(affiliateFee.abs()),
+              warning: true),
+        if (shippingFee.abs() > 0.49)
+          _profitLossMiniMetric('Ongkir', _money(shippingFee.abs()),
+              warning: true),
+        if (otherFees > 0.49)
+          _profitLossMiniMetric('Biaya marketplace lainnya', _money(otherFees),
+              warning: true),
+        if (discount.abs() > 0.49)
+          _profitLossMiniMetric('Voucher / diskon', _money(discount.abs()),
+              warning: true),
+        if (subsidy.abs() > 0.49)
+          _profitLossMiniMetric('Subsidi', _money(subsidy.abs()),
+              positive: subsidy > 0, warning: subsidy < 0),
+        if (refund.abs() > 0.49)
+          _profitLossMiniMetric('Refund / retur', _money(refund.abs()),
+              warning: true),
+        if (adjustment.abs() > 0.49)
+          _profitLossMiniMetric('Koreksi settlement', _money(adjustment),
+              warning: adjustment < 0),
+        if (payoutMinus.abs() > 0.49)
+          _profitLossMiniMetric('Payout minus', _money(payoutMinus.abs()),
+              warning: true),
+        if (sampleFree > 0)
+          _profitLossMiniMetric(
+              'Sample / gratis', sampleFree.toStringAsFixed(0),
+              warning: true),
+      ];
+
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+            width: 0.8,
+          ),
+          boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$marketplace · $shop',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Theme.of(context).textTheme.bodyLarge?.color,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '$orderCount pesanan · periode ${_date(_start)} - ${_date(_end)}',
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color:
+                    Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+              ),
+            ),
+            const SizedBox(height: 10),
+            // Primary Metrics Grid
+            GridView.count(
+              crossAxisCount: MediaQuery.of(context).size.width > 600 ? 5 : 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 6,
+              crossAxisSpacing: 6,
+              childAspectRatio: 2.3,
+              children: [
+                _profitLossMiniMetric('Omzet', _money(gross), positive: true),
+                _profitLossMiniMetric('Payout', _money(payout), positive: true),
+                _profitLossMiniMetric('HPP', _money(hpp), warning: hpp > 0),
+                _profitLossMiniMetric('Laba', _money(profit),
+                    positive: profit >= 0, warning: profit < 0),
+                _profitLossMiniMetric(
+                    'Margin', '${margin.toStringAsFixed(2)}%'),
+              ],
+            ),
+            const SizedBox(height: 14),
+            // Detailed Reconciliation Section
+            () {
+              Widget reconcileItemRow(String label, double val,
+                  {bool bold = false, bool positiveColor = false, bool isDeduction = false}) {
+                if (val == 0 &&
+                    !bold &&
+                    !isDeduction &&
+                    label != 'Gross before marketplace discount') {
+                  return const SizedBox.shrink();
+                }
+                final clr = positiveColor
+                    ? Colors.green
+                    : ((val < 0 || isDeduction)
+                        ? Colors.redAccent
+                        : Theme.of(context).textTheme.bodyLarge?.color);
+                final formattedVal = isDeduction
+                    ? '- ${_money(val.abs())}'
+                    : (val < 0 ? '- ${_money(val.abs())}' : _money(val));
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.82),
+                        ),
+                      ),
+                      Text(
+                        formattedVal,
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: bold ? FontWeight.w800 : FontWeight.w700,
+                          color: clr,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              final subFees = platformFee.abs() +
+                  commissionFee.abs() +
+                  affiliateFee.abs() +
+                  shippingFee.abs() +
+                  (otherFees > 0 ? otherFees.abs() : _num(row['other_fee']).abs());
+              final totalFees = subFees > 0
+                  ? subFees
+                  : _num(row['biaya'] ?? row['total_deductions'] ?? row['deductions'] ?? (gross - payout)).abs();
+              final calculatedPayout = gross -
+                  discount.abs() -
+                  totalFees.abs() -
+                  refund.abs() +
+                  adjustment;
+              final diff = (calculatedPayout - payout).abs();
+
+              if (!_profitLossLoaded) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.04),
+                        border: Border.all(
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withOpacity(0.15)),
+                      ),
+                      child: Text(
+                        _profitLossLoading
+                            ? 'Memuat rincian rekonsiliasi...'
+                            : (_profitLossError != null
+                                ? 'Gagal memuat rincian: $_profitLossError'
+                                : 'Rekonsiliasi belum selesai dimuat'),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.82),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              final key = '$marketplace|$shop';
+              final isExpanded = _expandedReconciliations.contains(key);
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        if (isExpanded) {
+                          _expandedReconciliations.remove(key);
+                        } else {
+                          _expandedReconciliations.add(key);
+                        }
+                      });
+                    },
+                    icon: Icon(
+                      isExpanded ? Icons.expand_less : Icons.expand_more,
+                      size: 16,
+                    ),
+                    label: Text(
+                      isExpanded
+                          ? 'Sembunyikan Rincian Rekonsiliasi'
+                          : 'Lihat Rincian Rekonsiliasi',
+                      style:
+                          TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  if (isExpanded) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.04),
+                        border: Border.all(
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withOpacity(0.15)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Rincian Rekonsiliasi (Diaudit)',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color:
+                                  Theme.of(context).textTheme.bodyLarge?.color,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          reconcileItemRow(
+                              'Gross before marketplace discount', gross),
+                          if (discount.abs() > 0.01)
+                            reconcileItemRow('Marketplace voucher/discount', discount.abs(), isDeduction: true),
+                          reconcileItemRow('Omzet normal / customer paid sales',
+                              gross - discount.abs(),
+                              bold: true),
+                          if (commissionFee.abs() > 0.01)
+                            reconcileItemRow('Biaya Komisi / Commission Fee', commissionFee.abs(), isDeduction: true),
+                          if (affiliateFee.abs() > 0.01)
+                            reconcileItemRow('Biaya Afiliasi / Affiliate Fee', affiliateFee.abs(), isDeduction: true),
+                          if (platformFee.abs() > 0.01)
+                            reconcileItemRow('Biaya Layanan / Platform Fee', platformFee.abs(), isDeduction: true),
+                          if (shippingFee.abs() > 0.01)
+                            reconcileItemRow('Biaya Pengiriman / Shipping Fee', shippingFee.abs(), isDeduction: true),
+                          if (subFees == 0 && totalFees > 0)
+                            reconcileItemRow('Biaya & Potongan Marketplace', totalFees.abs(), isDeduction: true),
+                          if (otherFees > 0.01 || _num(row['other_fee']).abs() > 0.01)
+                            reconcileItemRow('Biaya Lain-lain / Other Fee', (otherFees > 0 ? otherFees : _num(row['other_fee'])).abs(), isDeduction: true),
+                          if (refund.abs() > 0.01)
+                            reconcileItemRow('Refund / Return Pembeli', refund.abs(), isDeduction: true),
+                          if (adjustment != 0)
+                            reconcileItemRow('Settlement correction/gap', adjustment),
+                          reconcileItemRow('Net payout (Diterima)', payout,
+                              bold: true, positiveColor: true),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Reconciliation Formula Note
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withOpacity(0.06),
+                        border: Border.all(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withOpacity(0.2)),
+                      ),
+                      child: Text(
+                        'Note Rekonsiliasi: Omzet Normal (${_money(gross - discount.abs())}) - Biaya (${_money(totalFees.abs())}) - Refund (${_money(refund.abs())}) ${adjustment >= 0 ? '+' : '-'} Koreksi (${_money(adjustment.abs())}) = ${_money(calculatedPayout)} vs Net Payout ${_money(payout)}.' +
+                            (diff > 1.0
+                                ? ' (Selisih Gap: ${_money(diff)})'
+                                : ' (Tersegel Rekonsiliasi Cocok 100%)'),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          height: 1.35,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            }(),
+          ],
+        ),
+      );
+    }
+
+    final totalGross = _profitLossByMarketplace.fold<num>(
+        0, (sum, row) => sum + _num(row['gross_sales'] ?? row['omzet_total']));
+    final totalPayout = _profitLossByMarketplace.fold<num>(
+        0,
+        (sum, row) =>
+            sum + _num(row['payout_total'] ?? row['received_amount']));
+    final totalHpp = _profitLossByMarketplace.fold<num>(
+        0, (sum, row) => sum + _num(row['hpp_total'] ?? row['total_hpp']));
+    final totalProfit = _profitLossByMarketplace.fold<num>(
+        0,
+        (sum, row) =>
+            sum +
+            _num(row['net_profit'] ??
+                row['profit'] ??
+                (_num(row['payout_total'] ??
+                        row['received_amount'] ??
+                        row['net_settlement']) -
+                    _num(row['hpp_total'] ?? row['total_hpp']))));
+    final totalMargin = totalPayout > 0 ? (totalProfit / totalPayout) * 100 : 0;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Breakdown Laba Rugi per Marketplace',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: Theme.of(context).textTheme.bodyLarge?.color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Tampilan kartu. Bukan tabel rekonsiliasi panjang.',
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _profitLossMiniMetric('Total omzet', _money(totalGross),
+                  positive: true),
+              _profitLossMiniMetric('Total payout', _money(totalPayout),
+                  positive: true),
+              _profitLossMiniMetric('Total HPP', _money(totalHpp),
+                  warning: true),
+              _profitLossMiniMetric('Total laba', _money(totalProfit),
+                  positive: totalProfit >= 0, warning: totalProfit < 0),
+              _profitLossMiniMetric(
+                  'Margin total', '${totalMargin.toStringAsFixed(2)}%'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ..._profitLossByMarketplace.map(marketplaceCard),
+        ],
+      ),
+    );
+  }
+
   Widget _profitLossTab() {
-    if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
-    final profitRows =
+    if (!_profitLossLoaded && !_profitLossLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadProfitLossSupplemental());
+      });
+    }
+
+    final paidSkuTotals = _totalsFromSkuRows(paidOnly: true);
+    final summaryGross = _num(_summary['gross_sales'] ??
+        _summary['gross_total'] ??
+        _summary['gross'] ??
+        _summary['omzet_total'] ??
+        _summary['omzet']);
+    final summaryPayout = _num(_summary['payout_total'] ??
+        _summary['payout_amount'] ??
+        _summary['payout'] ??
+        _summary['received_amount'] ??
+        _summary['net_received']);
+    final summaryHpp =
+        _num(_summary['hpp_total'] ?? _summary['hpp'] ?? _summary['total_hpp']);
+    final operational = _num(_summary['operational_cost_total'] ??
+        _summary['operational_expense'] ??
+        _summary['expense_total']);
+
+    final mktGross = _profitLossByMarketplace.fold<double>(
+        0.0, (sum, r) => sum + _num(r['gross_sales'] ?? r['omzet_total'] ?? r['gross_total'] ?? r['gross']));
+    final mktPayout = _profitLossByMarketplace.fold<double>(
+        0.0, (sum, r) => sum + _num(r['payout_total'] ?? r['payout_amount'] ?? r['received_amount'] ?? r['payout']));
+    final mktHpp = _profitLossByMarketplace.fold<double>(
+        0.0, (sum, r) => sum + _num(r['hpp_total'] ?? r['total_hpp'] ?? r['hpp']));
+
+    final gross = summaryGross > 0 ? summaryGross : (mktGross > 0 ? mktGross : paidSkuTotals['gross']!);
+    final payout = summaryPayout > 0 ? summaryPayout : (mktPayout > 0 ? mktPayout : paidSkuTotals['payout']!);
+    final hpp = summaryHpp > 0 ? summaryHpp : (mktHpp > 0 ? mktHpp : paidSkuTotals['hpp']!);
+    final profit = payout - hpp - operational;
+    final margin = payout > 0 ? (profit / payout) * 100 : 0.0;
+
+    final rawProfitRows =
         _profitLoss.isNotEmpty ? _profitLoss : _fallbackProfitLossRows();
+    final profitRows = _profitLossByMarketplace.isNotEmpty
+        ? rawProfitRows
+            .where((row) => !_isGenericSettlementProfitLossRow(row))
+            .toList()
+        : rawProfitRows;
+
     return RefreshIndicator(
       color: Theme.of(context).colorScheme.primary,
       onRefresh: _safeRefreshFinanceView,
@@ -6344,36 +12250,124 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         padding: const EdgeInsets.all(14),
         children: [
           _sectionHeader('Laba Rugi'),
-          SizedBox(height: 8),
-          if (profitRows.isEmpty)
-            _emptyCard('Belum ada data laba rugi pada periode ini.')
-          else
-            ...profitRows.map((row) {
-              final amount = _num(row['amount']);
-              return _simpleRowCard(
-                title: _sourceLabel(
-                    _text(row['name'] ?? row['label'] ?? row['category'])),
-                subtitle: _text(row['description'], 'Komponen laporan'),
-                trailing: _profitLossValue(row),
-                positive: amount >= 0,
-              );
-            }),
+          const SizedBox(height: 8),
+
+          // Show Card Summary First
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                    Theme.of(context).brightness == Brightness.dark
+                        ? 0.25
+                        : 0.45),
+                width: 0.8,
+              ),
+              boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Ringkasan Laba Rugi',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: Theme.of(context).textTheme.bodyLarge?.color,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _profitLossMiniMetric('Total Omzet', _money(gross),
+                        positive: true),
+                    _profitLossMiniMetric('Total Payout', _money(payout),
+                        positive: true),
+                    _profitLossMiniMetric('Total HPP', _money(hpp),
+                        warning: true),
+                    _profitLossMiniMetric('Biaya Ops', _money(operational),
+                        warning: true),
+                    _profitLossMiniMetric('Estimasi Laba', _money(profit),
+                        positive: profit >= 0, warning: profit < 0),
+                    _profitLossMiniMetric(
+                        'Margin Laba', '${margin.toStringAsFixed(2)}%'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          if (!_profitLossLoaded) ...[
+            if (_profitLossLoading)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: FuturisticLoader(
+                      message: 'Memuat Rincian Rekonsiliasi...'),
+                ),
+              )
+            else ...[
+              if (_profitLossError != null) ...[
+                _emptyCard(
+                    'Gagal memuat rincian rekonsiliasi: $_profitLossError'),
+                const SizedBox(height: 8),
+              ],
+              _emptyCard(
+                  'Ringkasan laba rugi belum tersedia untuk filter ini.'),
+            ],
+          ] else ...[
+            if (_profitLossByMarketplace.isNotEmpty) ...[
+              _profitLossByMarketplaceCard(),
+              const SizedBox(height: 8),
+            ],
+            if (profitRows.isEmpty)
+              _emptyCard('Belum ada rincian laba rugi pada periode ini.')
+            else
+              ...profitRows.map((row) {
+                final amount = _num(row['amount']);
+                return _simpleRowCard(
+                  title: _sourceLabel(
+                      _text(row['name'] ?? row['label'] ?? row['category'])),
+                  subtitle: _text(row['description'], 'Komponen laporan'),
+                  trailing: _profitLossValue(row),
+                  positive: amount >= 0,
+                );
+              }),
+          ],
         ],
       ),
     );
   }
 
   Widget _abnormalTab() {
+    if (!_abnormalServerLoaded && !_abnormalSearchBusy) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_refreshAbnormalTab(resetPage: true));
+      });
+    }
+    if (_abnormalStatusFilter == 'sample_free' &&
+        !_sampleFreeDetailsLoaded &&
+        !_sampleFreeDetailsLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadSampleFreeOrdersDetails());
+      });
+    }
     if (_loading)
-      return Center(child: FuturisticLoader(message: 'Memuat data¦'));
+      return Center(child: FuturisticLoader(message: 'Memuat data...'));
     final visibleAbnormales = _filteredAbnormales();
-    final pageMax = (_abnormalTotal <= 0)
+    final visibleTotal = _visibleAbnormalTotal();
+    final pageMax = (visibleTotal <= 0)
         ? 1
-        : ((_abnormalTotal + _abnormalPageSize - 1) ~/ _abnormalPageSize);
+        : ((visibleTotal + _abnormalPageSize - 1) ~/ _abnormalPageSize);
     final startRow =
-        _abnormalTotal <= 0 ? 0 : ((_abnormalPage - 1) * _abnormalPageSize) + 1;
+        visibleTotal <= 0 ? 0 : ((_abnormalPage - 1) * _abnormalPageSize) + 1;
     final endRow =
-        (_abnormalPage * _abnormalPageSize).clamp(0, _abnormalTotal).toInt();
+        (_abnormalPage * _abnormalPageSize).clamp(0, visibleTotal).toInt();
 
     // Count true refresh-payout datas for the info banner.
     final dataCount = visibleAbnormales.where(_isRefreshPayoutCandidate).length;
@@ -6390,8 +12384,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           // Search bar
           TextField(
             controller: _abnormalSearchController,
-            style:
-                TextStyle(color: Theme.of(context).dividerColor, fontSize: 13),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
             textInputAction: TextInputAction.search,
             onSubmitted: (_) => _refreshAbnormalTab(resetPage: true),
             decoration: InputDecoration(
@@ -6418,9 +12412,37 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               ),
             ),
           ),
-          SizedBox(height: 8),
-          _abnormalStatusFilterBar(),
-          SizedBox(height: 8),
+          SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _abnormalStatusOptions().map((value) {
+              final selected = _abnormalStatusFilter == value;
+              return ChoiceChip(
+                label: Text(_abnormalFilterLabel(value)),
+                selected: selected,
+                onSelected: _abnormalSearchBusy
+                    ? null
+                    : (_) {
+                        setState(() {
+                          _abnormalStatusFilter = value;
+                          _abnormalPage = 1;
+                        });
+                        _refreshAbnormalTab(resetPage: true);
+                      },
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .outlineVariant
+                        .withOpacity(0.5),
+                    width: 0.8,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
 
           // Action buttons row
           Row(
@@ -6443,28 +12465,58 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ),
           SizedBox(height: 8),
 
-          if (_abnormalSearchBusy)
+          if (_abnormalSearchBusy ||
+              (_abnormalStatusFilter == 'sample_free' &&
+                  _sampleFreeDetailsLoading))
             Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
-              child:
-                  Center(child: FuturisticLoader(message: 'Mencari abnormal¦')),
+              child: Center(
+                  child: FuturisticLoader(
+                      message: _abnormalSearchBusy
+                          ? 'Mencari abnormal...'
+                          : 'Memuat detail order sample...')),
             )
           else ...[
+            if (_abnormalLoadError != null) ...[
+              _emptyCard('Data abnormal belum termuat: $_abnormalLoadError'),
+              SizedBox(height: 8),
+            ],
+            if (_abnormalStatusFilter == 'sample_free' &&
+                _sampleFreeDetailsError != null) ...[
+              _emptyCard(
+                  'Gagal memuat detail sample: $_sampleFreeDetailsError'),
+              SizedBox(height: 8),
+            ],
             // Info bar
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: Theme.of(context).cardColor.withOpacity(0.72),
-                borderRadius: BorderRadius.zero,
-                border: Border.all(color: Theme.of(context).dividerColor),
+                color: Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .outlineVariant
+                      .withOpacity(
+                          Theme.of(context).brightness == Brightness.dark
+                              ? 0.25
+                              : 0.45),
+                  width: 0.8,
+                ),
               ),
               child: Text(
-                _abnormalServerLoaded
-                    ? 'Hal $_abnormalPage/$pageMax · $startRow-$endRow dari $_abnormalTotal · $dataCount perlu cek payout'
-                    : 'Belum ada hasil pencarian.',
+                _abnormalStatusFilter == 'sample_free' &&
+                        !_sampleFreeDetailsLoaded
+                    ? 'Memuat data...'
+                    : (_abnormalServerLoaded
+                        ? 'Hal $_abnormalPage/$pageMax · $startRow-$endRow dari $visibleTotal · $dataCount perlu cek payout'
+                        : 'Belum ada hasil pencarian.'),
                 style: TextStyle(
                     fontSize: 11,
-                    color: Theme.of(context).colorScheme.outline,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.82),
                     fontWeight: FontWeight.w700),
               ),
             ),
@@ -6495,6 +12547,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     payout > 0 ? ((payout - hpp) / payout * 100) : 0.0;
                 final statusInfo = _abnormalStatusInfo(row);
                 final isCandidate = _isRefreshPayoutCandidate(row);
+                final sampleFree = _isSampleFreeAbnormalRow(row);
 
                 return _detailCard(
                   title: _text(
@@ -6532,8 +12585,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     // Status badge
                     Padding(
                       padding: const EdgeInsets.only(bottom: 6),
-                      child: _abnormalStatusBadge(
-                          statusInfo.label, statusInfo.color),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          _abnormalStatusBadge(
+                              statusInfo.label, statusInfo.color),
+                          if (sampleFree)
+                            _abnormalStatusBadge(
+                                'Sample/Gratis - keluar dari omzet normal',
+                                Colors.amberAccent),
+                        ],
+                      ),
                     ),
                     _miniMetric('Order ID',
                         count > 1 && orderId == '-' ? '$count order' : orderId),
@@ -6594,8 +12657,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 );
               }),
 
-            if (_abnormalServerLoaded &&
-                _abnormalTotal > _abnormalPageSize) ...[
+            if (_abnormalServerLoaded && visibleTotal > _abnormalPageSize) ...[
               SizedBox(height: 10),
               Row(
                 children: [
@@ -6614,7 +12676,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   SizedBox(width: 10),
                   Text('$_abnormalPage / $pageMax',
                       style: TextStyle(
-                          color: Theme.of(context).colorScheme.outline,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.82),
                           fontWeight: FontWeight.w800)),
                   SizedBox(width: 10),
                   Expanded(
@@ -6643,9 +12708,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: color.withOpacity(0.12),
-        border: Border.all(color: color.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(16),
+        color: color.withOpacity(0.10),
+        border: Border.all(color: color.withOpacity(0.22), width: 0.8),
       ),
       child: Text(label,
           style: TextStyle(
@@ -6659,20 +12724,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       children: [
         Container(
           width: 3,
-          height: 14,
+          height: 16,
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.zero,
+            borderRadius: BorderRadius.circular(2),
           ),
         ),
         SizedBox(width: 8),
         Text(
           text,
           style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: Theme.of(context).colorScheme.outline,
-            letterSpacing: 0.3,
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            color: AppUi.mutedText(context, 0.90),
+            letterSpacing: 0,
           ),
         ),
       ],
@@ -6690,21 +12755,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final color = positive
         ? Theme.of(context).colorScheme.primary
         : Theme.of(context).colorScheme.error;
-    final borderColor = isDark ? Colors.white : Colors.black;
 
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
-        border: Border.all(color: borderColor, width: 2.5),
-        boxShadow: [
-          BoxShadow(
-            color: borderColor.withOpacity(0.8),
-            blurRadius: 0,
-            offset: const Offset(5, 5),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(16),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context)
+              .colorScheme
+              .outlineVariant
+              .withOpacity(isDark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Row(
         children: [
@@ -6712,9 +12776,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.16),
-              borderRadius: BorderRadius.zero,
-              border: Border.all(color: color.withOpacity(0.32)),
+              color: color.withOpacity(isDark ? 0.12 : 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: color.withOpacity(isDark ? 0.22 : 0.14), width: 0.8),
             ),
             child: Icon(icon, color: color, size: 26),
           ),
@@ -6727,22 +12792,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   title,
                   style: TextStyle(
                       fontSize: 12,
-                      color: color.withOpacity(0.8),
-                      fontWeight: FontWeight.w700),
+                      color: AppUi.mutedText(context, 0.88),
+                      fontWeight: FontWeight.w600),
                 ),
                 SizedBox(height: 3),
                 Text(
                   value,
                   style: TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.w900, color: color),
+                      fontSize: 22, fontWeight: FontWeight.w800, color: color),
                 ),
                 SizedBox(height: 3),
                 Text(
                   subtitle,
                   style: TextStyle(
                     fontSize: 11.5,
-                    color: Theme.of(context).textTheme.bodyMedium?.color,
-                    fontWeight: FontWeight.w700,
+                    color: AppUi.mutedText(context, 0.88),
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -6775,14 +12840,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           itemBuilder: (context, index) {
             final metric = metrics[index];
             final isDark = Theme.of(context).brightness == Brightness.dark;
-            final borderColor = isDark ? Colors.white70 : Colors.black;
 
             return Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.zero,
-                color: isDark ? const Color(0xFF0F172A) : Colors.white,
-                border: Border.all(color: borderColor, width: 2),
+                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context).cardColor,
+                border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .outlineVariant
+                      .withOpacity(isDark ? 0.25 : 0.45),
+                  width: 0.8,
+                ),
+                boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
               ),
               child: Row(
                 children: [
@@ -6793,9 +12864,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       color: Theme.of(context)
                           .colorScheme
                           .primary
-                          .withOpacity(0.12),
-                      borderRadius: BorderRadius.zero,
-                      border: Border.all(color: borderColor, width: 1.5),
+                          .withOpacity(isDark ? 0.12 : 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withOpacity(isDark ? 0.2 : 0.12),
+                        width: 0.8,
+                      ),
                     ),
                     child: Icon(metric.icon,
                         color: Theme.of(context).colorScheme.primary, size: 19),
@@ -6811,10 +12888,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              fontSize: 10.5,
-                              color:
-                                  Theme.of(context).textTheme.bodyMedium?.color,
-                              fontWeight: FontWeight.w800),
+                              fontSize: 11,
+                              color: AppUi.mutedText(context, 0.88),
+                              fontWeight: FontWeight.w600),
                         ),
                         SizedBox(height: 3),
                         Text(
@@ -6823,8 +12899,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            color: Theme.of(context).textTheme.bodyLarge?.color,
+                            fontWeight: FontWeight.w800,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                       ],
@@ -6843,29 +12919,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 2.5),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black,
-            offset: Offset(4, 4),
-          ),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(Icons.info_outline_rounded,
-              size: 18, color: Theme.of(context).colorScheme.outline),
+              size: 18,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.82)),
           SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
               style: TextStyle(
                   fontSize: 13,
-                  color: Theme.of(context).colorScheme.outline,
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withOpacity(0.82),
                   height: 1.4),
             ),
           ),
@@ -6879,10 +12947,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(10),
         color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
         border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
+            width: 0.8),
       ),
       child: Row(
         children: [
@@ -6909,6 +12978,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required String subtitle,
     required String trailing,
     bool positive = true,
+    List<Widget> actions = const <Widget>[],
   }) {
     final color = positive
         ? Theme.of(context).colorScheme.primary
@@ -6917,9 +12987,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: (Theme.of(context).cardColor),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(12),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -6935,7 +13010,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
-                      color: Theme.of(context).dividerColor),
+                      color: Theme.of(context).colorScheme.onSurface),
                 ),
                 SizedBox(height: 3),
                 Text(
@@ -6944,21 +13019,39 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                       fontSize: 11.5,
-                      color: Theme.of(context).colorScheme.outline),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.82)),
                 ),
               ],
             ),
           ),
           SizedBox(width: 10),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 140),
-            child: Text(
-              trailing,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                  fontWeight: FontWeight.w800, fontSize: 13, color: color),
+            constraints: const BoxConstraints(maxWidth: 148),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  trailing,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w800, fontSize: 13, color: color),
+                ),
+                if (actions.isNotEmpty) ...[
+                  SizedBox(height: 4),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.end,
+                    children: actions,
+                  ),
+                ],
+              ],
             ),
           ),
         ],
@@ -6966,14 +13059,252 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
-  Widget _expenseRowCard(Map<String, dynamic> row) {
+  Widget _cashWalletInputRowCard(Map<String, dynamic> row) {
+    final kind = _text(row['_cash_wallet_kind'], '');
+    final amount = _num(row['amount']);
+    final positive = amount >= 0;
+    final title = _sourceLabel(_text(row['source'] ?? row['category']));
+    final subtitleParts = <String>[
+      if (kind == 'opening')
+        _monthLabel(_parseDate(row['period_month']) ?? _start)
+      else
+        _date(row['date'] ?? row['created_at']),
+      if (kind == 'withdrawal')
+        _bankLabel(_text(row['bank_account_name'], ''),
+            _text(row['bank_reference'], '')),
+      if (kind == 'withdrawal')
+        _accountNameById(_text(row['marketplace_account_id'])),
+      if (_text(row['note'], '').trim().isNotEmpty) _text(row['note'], ''),
+    ].where((item) => item.trim().isNotEmpty && item != '-').toList();
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: (Theme.of(context).cardColor),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(12),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurface),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  subtitleParts.join(' - '),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.82)),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                (positive ? '+ ' : '- ') + _money(amount.abs()),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  color: positive
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.error,
+                ),
+              ),
+              SizedBox(height: 4),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                alignment: WrapAlignment.end,
+                children: [
+                  _tinyActionButton(Icons.edit_rounded, 'Edit', () {
+                    if (kind == 'opening') {
+                      _editCashOpeningBalance(row);
+                    } else if (kind == 'adjustment') {
+                      _editCashAdjustment(row: row);
+                    } else if (kind == 'withdrawal') {
+                      _editMarketplaceWithdrawal(row);
+                    }
+                  }),
+                  if (kind == 'opening')
+                    _tinyActionButton(Icons.restart_alt_rounded, 'Reset',
+                        () => _resetCashOpeningBalance(row)),
+                  if (kind == 'withdrawal')
+                    _tinyActionButton(Icons.account_tree_rounded, 'Alokasi',
+                        () => _editWithdrawalAllocation(withdrawal: row)),
+                  _tinyActionButton(Icons.delete_outline_rounded, 'Hapus', () {
+                    if (kind == 'opening') {
+                      _deleteCashOpeningBalance(row);
+                    } else if (kind == 'adjustment') {
+                      _deleteCashAdjustment(row);
+                    } else if (kind == 'withdrawal') {
+                      _deleteMarketplaceWithdrawal(row);
+                    }
+                  }, danger: true),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _withdrawalAllocationRowCard(Map<String, dynamic> row) {
+    final parent = _withdrawalById(_text(row['marketplace_withdrawal_id'], ''));
+    final bank = parent == null
+        ? '-'
+        : _bankLabel(_text(parent['bank_account_name'], ''),
+            _text(parent['bank_reference'], ''));
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Alokasi ${_monthLabel(_parseDate(row['source_period_month']) ?? _start)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurface),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  [
+                    bank,
+                    _text(row['allocation_method'], 'manual').toUpperCase(),
+                    if (_text(row['note'], '').trim().isNotEmpty)
+                      _text(row['note'], ''),
+                  ]
+                      .where((item) => item.trim().isNotEmpty && item != '-')
+                      .join(' - '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.82)),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _money(_num(row['amount'])),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.primary),
+              ),
+              SizedBox(height: 4),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                alignment: WrapAlignment.end,
+                children: [
+                  _tinyActionButton(Icons.edit_rounded, 'Edit',
+                      () => _editWithdrawalAllocation(row: row)),
+                  _tinyActionButton(Icons.delete_outline_rounded, 'Hapus',
+                      () => _deleteWithdrawalAllocation(row),
+                      danger: true),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _expenseRowCard(Map<String, dynamic> row) {
+    String firstUuid(List<dynamic> values) {
+      for (final value in values) {
+        final clean = _text(value, '').trim();
+        if (_isUuid(clean)) return clean;
+      }
+      return '';
+    }
+
+    final realExpenseId = firstUuid([
+      row['expense_id'],
+      row['finance_operational_expense_id'],
+      row['operational_expense_id'],
+      row['finance_expense_id'],
+      row['manual_expense_id'],
+      row['id'],
+    ]);
+    final editableRow = realExpenseId.isEmpty
+        ? row
+        : <String, dynamic>{...row, 'expense_id': realExpenseId};
+    final canEditExpense = realExpenseId.isNotEmpty &&
+        !_isSyntheticExpenseRow(row) &&
+        !_isPurchaseExpenseRow(row);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -6989,7 +13320,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
-                      color: Theme.of(context).dividerColor),
+                      color: Theme.of(context).colorScheme.onSurface),
                 ),
                 SizedBox(height: 3),
                 Text(
@@ -6998,7 +13329,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                       fontSize: 11.5,
-                      color: Theme.of(context).colorScheme.outline),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.82)),
                 ),
               ],
             ),
@@ -7024,18 +13358,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   ),
                 ),
                 SizedBox(height: 4),
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
-                  alignment: WrapAlignment.end,
-                  children: [
-                    _tinyActionButton(Icons.edit_rounded, 'Edit',
-                        () => _editManualExpense(row)),
-                    _tinyActionButton(Icons.delete_outline_rounded, 'Hapus',
-                        () => _deleteManualExpense(row),
-                        danger: true),
-                  ],
-                ),
+                if (canEditExpense)
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      _tinyActionButton(Icons.edit_rounded, 'Edit',
+                          () => _editManualExpense(editableRow)),
+                      _tinyActionButton(Icons.delete_outline_rounded, 'Hapus',
+                          () => _deleteManualExpense(editableRow),
+                          danger: true),
+                    ],
+                  ),
               ],
             ),
           ),
@@ -7051,10 +13386,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         : Theme.of(context).colorScheme.primary;
     return Material(
       color: color.withOpacity(0.08),
-      borderRadius: BorderRadius.zero,
+      borderRadius: BorderRadius.circular(6),
       child: InkWell(
         onTap: _processing ? null : onTap,
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(6),
         child: Tooltip(
           message: tooltip,
           child: SizedBox(
@@ -7077,9 +13412,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: (Theme.of(context).cardColor),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(14),
+        color: Theme.of(context).cardColor,
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          width: 0.8,
+        ),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -7093,117 +13433,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Theme.of(context).dividerColor),
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.onSurface),
                 ),
               ),
               if (trailing != null) trailing,
             ],
           ),
-          SizedBox(height: 3),
+          SizedBox(height: 4),
           Text(
             subtitle,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                fontSize: 11.5, color: Theme.of(context).colorScheme.outline),
+            style:
+                TextStyle(fontSize: 12, color: AppUi.mutedText(context, 0.88)),
           ),
           SizedBox(height: 12),
           Wrap(spacing: 6, runSpacing: 6, children: children),
         ],
-      ),
-    );
-  }
-
-  Widget _orderRefMetric(Map<String, dynamic> row,
-      {String payoutFilter = 'all'}) {
-    final rows = _filteredSkuOrderRows(_safeOrderRefRows(row), payoutFilter);
-    final refs = rows
-        .map(_orderRefLine)
-        .where((item) => item.trim().isNotEmpty && item.trim() != '-')
-        .toList();
-    final count = rows.length;
-    final labelPrefix = payoutFilter == 'paid'
-        ? 'Sudah payout'
-        : payoutFilter == 'unpaid'
-            ? 'Belum payout'
-            : 'Semua payout';
-    final label = count > 0
-        ? '$labelPrefix: Pesanan / Resi + Gross/Payout ($count)'
-        : '$labelPrefix: Pesanan / Resi + Gross/Payout';
-    final visibleRefs = refs.take(4).toList();
-    final hidden = refs.length - visibleRefs.length;
-    final expectedQty = payoutFilter == 'paid'
-        ? _numFirstNonZero(
-            [row['paid_qty'], row['settled_qty'], row['qty_paid']]).round()
-        : payoutFilter == 'unpaid'
-            ? _numFirstNonZero([
-                row['unpaid_qty'],
-                row['pending_payout_qty'],
-                row['qty_unpaid']
-              ]).round()
-            : _num(row['qty']).round();
-    final value = refs.isEmpty
-        ? (expectedQty > 0
-            ? 'Tap ikon info untuk muat detail resi/order dari server.'
-            : '-')
-        : visibleRefs.join('\n') +
-            (hidden > 0 ? '\n+$hidden pesanan lagi' : '');
-    final warning = payoutFilter == 'unpaid' && (count > 0 || expectedQty > 0);
-    return InkWell(
-      borderRadius: BorderRadius.zero,
-      onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: payoutFilter),
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 180, maxWidth: 340),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: warning
-              ? Colors.red.withOpacity(0.08)
-              : Theme.of(context).colorScheme.primary.withOpacity(0.08),
-          borderRadius: BorderRadius.zero,
-          border: Border.all(
-              color: warning
-                  ? Colors.red.withOpacity(0.22)
-                  : Theme.of(context).colorScheme.primary.withOpacity(0.18)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: Theme.of(context).colorScheme.outline,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ),
-                Icon(
-                    rows.isEmpty
-                        ? Icons.info_outline_rounded
-                        : Icons.open_in_new_rounded,
-                    size: 13,
-                    color: warning
-                        ? Colors.redAccent
-                        : Theme.of(context).colorScheme.primary),
-              ],
-            ),
-            SizedBox(height: 2),
-            Text(
-              value,
-              maxLines: 6,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: Theme.of(context).dividerColor,
-                  height: 1.25),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -7264,7 +13511,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       useSafeArea: true,
       backgroundColor: (Theme.of(context).cardColor),
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(8))),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (sheetContext) => Padding(
         padding: EdgeInsets.only(
           left: 16,
@@ -7286,7 +13533,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       title,
                       style: TextStyle(
                           fontSize: 20,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w800,
                           color: Theme.of(context).textTheme.bodyLarge?.color),
                     ),
                   ),
@@ -7345,6 +13592,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['payout'],
       row['payout_amount'],
       row['payout_total'],
+      row['order_payout'],
       row['received_amount'],
       row['net_received'],
       row['net_settlement'],
@@ -7375,20 +13623,29 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _skuDetailOrderStatusV82o(Map<String, dynamic> row) {
-    return _text(
+    final status = _text(
       row['order_status'] ??
           row['status_order'] ??
           row['live_order_status'] ??
           row['raw_order_status'] ??
           row['status'],
-      '-',
+      '',
     ).trim();
+    return status.isEmpty || status == '-'
+        ? 'Status order belum tersimpan'
+        : status;
   }
 
   bool _skuDetailNeedsMarketplaceRefreshV82o(Map<String, dynamic> row) {
-    if (_skuOrderDetailPayoutValueV82o(row) <= 0) return false;
+    final payout = _skuOrderDetailPayoutValueV82o(row);
     final status = _skuDetailOrderStatusV82o(row).toUpperCase();
     if (status.isEmpty || status == '-') return false;
+    
+    // If order is completed or delivered but payout is still 0/negative, we need to refresh.
+    if (payout <= 0) {
+      return status == 'COMPLETED' || status == 'DELIVERED';
+    }
+    
     const nonFinal = <String>{
       'AWAITING_SHIPMENT',
       'AWAITING_COLLECTION',
@@ -7403,19 +13660,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Widget _skuRefreshWarningBannerV82o(Map<String, dynamic> item) {
     final status = _skuDetailOrderStatusV82o(item);
+    final payout = _skuOrderDetailPayoutValueV82o(item);
+    final String msg = payout <= 0
+        ? 'Status order sudah $status, tetapi payout masih Rp 0. Perlu refresh marketplace.'
+        : 'Payout sudah masuk, tetapi status order masih $status. Perlu refresh marketplace.';
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.10),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: Colors.orange.withOpacity(0.35)),
+        color: Colors.orange.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.withOpacity(0.28), width: 0.8),
       ),
       child: Text(
-        'Payout sudah masuk, tetapi status order masih $status. Perlu refresh marketplace.',
+        msg,
         style: TextStyle(
           fontSize: 11.5,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w600,
           color: Colors.orange.shade800,
           height: 1.35,
         ),
@@ -7438,11 +13699,47 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       copy['order_status'] = orderStatus;
     }
 
-    final payout = _skuOrderDetailPayoutValueV82o(copy);
+    var payout = _skuOrderDetailPayoutValueV82o(copy);
+    final exactItemPayout = _numFirstNonZero([
+      copy['exact_item_settlement'],
+      copy['exact_item_payout'],
+      copy['exact_line_settlement'],
+      copy['exact_line_payout'],
+    ]);
+    final orderPayout = _numFirstNonZero([
+      copy['order_payout'],
+      copy['order_payout_total'],
+      copy['order_settlement_total'],
+      copy['order_net_settlement'],
+    ]);
+    final orderGross = _numFirstNonZero([
+      copy['order_line_gross'],
+      copy['order_gross_total'],
+      copy['order_line_gross_total'],
+    ]);
+    final lineGross = _numFirstNonZero([
+      copy['gross'],
+      copy['gross_amount'],
+      copy['gross_total'],
+    ]);
+    if (exactItemPayout != 0) {
+      payout = exactItemPayout;
+      copy['exact_item_settlement'] = exactItemPayout;
+    } else if (orderPayout != 0 &&
+        orderGross > 0 &&
+        lineGross > 0 &&
+        (orderGross - lineGross).abs() <= 0.01) {
+      payout = orderPayout;
+      copy['single_item_order_payout_exact'] = true;
+    }
     copy['payout'] = payout;
     copy['payout_amount'] = payout;
 
-    final payoutPerItem = _skuOrderDetailPayoutPerItemValueV82o(copy);
+    var payoutPerItem = _skuOrderDetailPayoutPerItemValueV82o(copy);
+    final qty = _num(copy['qty'] ?? copy['quantity']);
+    if (payoutPerItem == 0 && payout != 0) {
+      payoutPerItem = payout / (qty > 0 ? qty : 1.0);
+    }
     if (payoutPerItem != 0) {
       copy['payout_per_item'] = payoutPerItem;
     }
@@ -7486,10 +13783,25 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           copy['waybill_no'];
     }
 
+    final rawReference = copy['resi'] ??
+        copy['tracking_number'] ??
+        copy['tracking_no'] ??
+        copy['logistics_tracking_number'] ??
+        copy['awb'] ??
+        copy['waybill_no'] ??
+        copy['label_code'] ??
+        copy['package_id'];
+    final displayTracking =
+        _cleanMarketplaceTrackingDisplayTextV82o(rawReference);
+    copy['stockout_reference'] = _text(rawReference, '-');
+    copy['resi'] = displayTracking;
+    copy['tracking_display'] = displayTracking;
+
     return copy;
   }
 
   bool _skuDetailHasPayoutV82o(Map<String, dynamic> row) {
+
     final payout = _skuOrderDetailPayoutValueV82o(row);
 
     final rawStatus = _text(
@@ -7510,9 +13822,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return false;
     }
 
+    if (row.containsKey('has_payout') && row['has_payout'] != null) {
+      return row['has_payout'] == true;
+    }
+
     if (payout != 0) return true;
 
-    return financeStatus.contains('SETTLED') ||
+    if (row['positive_payout_exists'] == true) return true;
+
+    return (financeStatus.contains('SETTLED') && !financeStatus.contains('UNSETTLED')) ||
         financeStatus.contains('PAID') ||
         financeStatus.contains('RELEASE') ||
         financeStatus.contains('PAYOUT_MINUS') ||
@@ -7540,12 +13858,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return false;
     }
 
+    if (row.containsKey('has_payout') && row['has_payout'] != null) {
+      return row['has_payout'] == false;
+    }
+
     if (payout != 0) return false;
+
+    if (row['positive_payout_exists'] == true) return false;
 
     return financeStatus.contains('BELUM') ||
         financeStatus.contains('PENDING') ||
         financeStatus.contains('UNPAID') ||
         financeStatus.contains('MISSING') ||
+        financeStatus.contains('UNSETTLED') ||
         financeStatus.trim().isEmpty;
   }
 
@@ -7554,16 +13879,113 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final normalized = rows
         .map(_normalizeSkuOrderDetailDisplayRowV82o)
         .toList(growable: false);
+    final deduped = _dedupeSkuDetailRows(normalized);
 
     if (payoutFilter == 'paid') {
-      return normalized.where(_skuDetailHasPayoutV82o).toList();
+      return deduped.where(_skuDetailHasPayoutV82o).toList();
     }
 
     if (payoutFilter == 'unpaid') {
-      return normalized.where(_skuDetailIsPendingPayoutV82o).toList();
+      return deduped.where(_skuDetailIsPendingPayoutV82o).toList();
     }
 
-    return normalized;
+    return deduped;
+  }
+
+  Widget _buildFeeBreakdownV82o(Map<String, dynamic> item) {
+    final qty = _num(item['qty']);
+    final divider = qty > 0 ? qty : 1;
+    final platformFee = _numAny(item, ['admin_fee', 'platform_fee_item']) / divider;
+    final commissionFee = _numAny(item, ['commission_fee', 'commission_fee_item']) / divider;
+    final affiliateFee = _numAny(item, ['affiliate_fee', 'affiliate_fee_item']) / divider;
+    final shippingFee = _numAny(item, ['shipping_fee', 'shipping_fee_item']) / divider;
+    final discount = _numAny(item, ['discount_amount', 'discount_amount_item']) / divider;
+    final voucher = _num(item['voucher_amount']) / divider;
+    final refund = _numAny(item, ['refund_amount', 'refund_amount_item']) / divider;
+    final adjustment = _numAny(item, ['adjustment_amount', 'adjustment_amount_item']) / divider;
+
+    final list = <Widget>[];
+
+    void addIfNonZero(String label, double val) {
+      if (val != 0) {
+        list.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(label,
+                    style: TextStyle(
+                        fontSize: 10, color: AppUi.mutedText(context, 0.90))),
+                Text(_money(val),
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: val < 0 ? Colors.red : Colors.green)),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    addIfNonZero('Admin Fee/item', platformFee);
+    addIfNonZero('Komisi/item', commissionFee);
+    addIfNonZero('Afiliasi/item', affiliateFee);
+    addIfNonZero('Ongkir/item', shippingFee);
+    addIfNonZero('Diskon/item', discount);
+    addIfNonZero('Voucher/item', voucher);
+    addIfNonZero('Refund/item', refund);
+    addIfNonZero('Koreksi/item', adjustment);
+
+    if (list.isEmpty) return const SizedBox.shrink();
+
+    final recon = item['reconciliation_status'] as String?;
+    final isMismatch = recon == 'MISMATCH';
+
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.44),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.fromBorderSide(AppUi.softBorderSide(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Rincian Biaya/Item:',
+                style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: AppUi.mutedText(context, 0.90)),
+              ),
+              if (recon != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isMismatch ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    recon,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: isMismatch ? Colors.red : Colors.green,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ...list,
+        ],
+      ),
+    );
   }
 
   List<dynamic> _extractSkuOrderDetailRowsV82o(Object? payload) {
@@ -7708,73 +14130,187 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return 'Menampilkan $start-$end dari $total · Hal $page/$totalPages';
   }
 
-  String? _marketplaceRpcParam() {
+  String? _marketplaceForAccountId(
+    String? accountId, {
+    List<Map<String, dynamic>>? accounts,
+  }) {
+    final id = accountId?.trim().toLowerCase() ?? '';
+    if (id.isEmpty) return null;
+    final source = accounts ?? _accounts;
+    for (final account in source) {
+      final accountKey = _accountId(account).toLowerCase();
+      if (accountKey != id) continue;
+      final normalized = _normalizeMarketplaceFilter(
+        _text(
+            account['marketplace'] ?? account['platform'] ?? account['channel'],
+            ''),
+      );
+      if (normalized != null && normalized != 'all') return normalized;
+    }
+    return null;
+  }
+
+  String? _marketplaceRpcParam({List<Map<String, dynamic>>? accounts}) {
     final value = _text(_marketplaceParam(), '').trim();
-    if (value.isEmpty || value.toLowerCase() == 'all') return null;
-    return value;
+    if (value.isNotEmpty && value.toLowerCase() != 'all') return value;
+    final inferred =
+        _marketplaceForAccountId(_accountUuidParam(), accounts: accounts);
+    if (inferred != null && inferred != 'all') return inferred;
+    return null;
   }
 
   Map<String, String> _skuOrderLookupParamsV82o(Map<String, dynamic> row) {
-    final productSearch = _text(
-      row['product_name'] ??
-          row['nama_barang'] ??
-          row['title'] ??
-          row['marketplace_product_name'] ??
-          row['product_title'],
-      '',
-    ).trim();
+    String valueOf(dynamic value) => _text(value, '').trim();
 
-    final variantSearch = _text(
-      row['variant_name'] ??
-          row['marketplace_variation_name'] ??
-          row['variation_name'],
-      '',
-    ).trim();
+    bool isPseudoUnmapped(String value) {
+      final clean = value.trim().toLowerCase().replaceAll('_', ' ');
+      if (clean.isEmpty || clean == '-' || clean == 'null') return false;
+      return clean == 'unmapped' ||
+          clean == '__unmapped__' ||
+          clean == 'belum mapping' ||
+          clean == 'belum ada sku marketplace' ||
+          clean == 'produk belum diberi nama' ||
+          clean.contains('unmapped') ||
+          clean.contains('belum mapping');
+    }
 
-    final marketplaceSku = _text(
-      row['marketplace_sku_id'] ??
-          row['marketplace_sku'] ??
-          row['marketplace_seller_sku'] ??
-          row['seller_sku'] ??
-          row['sku_marketplace'] ??
-          row['external_sku_id'] ??
-          row['sku_id'],
-      '',
-    ).trim();
+    bool sameText(String a, String b) {
+      final left = a.trim().toLowerCase();
+      final right = b.trim().toLowerCase();
+      return left.isNotEmpty && left != '-' && left == right;
+    }
 
-    final explicitLocalSku = _text(
-      row['local_sku'] ??
-          row['product_sku'] ??
-          row['local_product_sku'] ??
-          row['mapped_local_sku'],
-      '',
-    ).trim();
+    final rowSku = valueOf(row['sku']);
+    final title = valueOf(row['title']);
+    final localSkuRaw = valueOf(row['local_sku'] ??
+        row['product_sku'] ??
+        row['local_product_sku'] ??
+        row['mapped_local_sku']);
+    final marketplaceSkuRaw = valueOf(row['marketplace_sku_id'] ??
+        row['marketplace_sku'] ??
+        row['marketplace_seller_sku'] ??
+        row['seller_sku'] ??
+        row['sku_marketplace'] ??
+        row['external_sku_id'] ??
+        row['remote_sku_id'] ??
+        row['sku_id']);
+    final marketplaceProductId = valueOf(row['marketplace_product_id']);
+    final marketplaceSellerSku = valueOf(
+      row['marketplace_seller_sku'] ?? row['seller_sku'],
+    );
+    final mappingStatus =
+        valueOf(row['mapping_status'] ?? row['mapping_label']);
+    final rowType = valueOf(row['row_type']);
+    final hppStatus = valueOf(row['hpp_status'] ?? row['hpp_label']);
+    final productName = valueOf(row['product_name'] ??
+        row['marketplace_product_name'] ??
+        row['nama_barang']);
+    final variantName = valueOf(row['variant_name'] ??
+        row['marketplace_variant_name'] ??
+        row['marketplace_variation_name']);
 
-    final rowSku = _text(row['sku'], '').trim();
-    final localSku = explicitLocalSku.isNotEmpty
-        ? explicitLocalSku
-        : (rowSku.isNotEmpty &&
-                rowSku != '-' &&
-                rowSku.toLowerCase() != productSearch.toLowerCase()
-            ? rowSku
-            : '');
+    final marketplaceSku =
+        isPseudoUnmapped(marketplaceSkuRaw) ? '' : marketplaceSkuRaw;
 
-    final fallbackSearch = productSearch.isNotEmpty
-        ? productSearch
-        : (variantSearch.isNotEmpty ? variantSearch : '');
+    final localLooksLikeMarketplaceFallback =
+        sameText(localSkuRaw, marketplaceSkuRaw) ||
+            sameText(localSkuRaw, marketplaceSellerSku) ||
+            sameText(localSkuRaw, rowSku);
+
+    final hppNotMapped = hppStatus.toLowerCase().contains('belum mapping') ||
+        hppStatus.toLowerCase().contains('belum map') ||
+        (_num(row['hpp_per_item'] ?? row['unit_hpp'] ?? row['hpp']) <= 0 &&
+            _num(row['hpp_total'] ?? row['total_hpp'] ?? row['hpp_amount']) <=
+                0);
+
+    final missingMarketplaceIdentity = marketplaceProductId.isEmpty &&
+        productName.isEmpty &&
+        variantName.isEmpty;
+
+    final isUnmappedBucket = rowType == 'unmapped_marketplace_sku' ||
+        isPseudoUnmapped(rowSku) ||
+        isPseudoUnmapped(title) ||
+        isPseudoUnmapped(localSkuRaw) ||
+        isPseudoUnmapped(mappingStatus) ||
+        (localLooksLikeMarketplaceFallback && missingMarketplaceIdentity);
+
+    if (isUnmappedBucket) {
+      final specificMarketplaceKey = marketplaceSku.isNotEmpty
+          ? marketplaceSku
+          : marketplaceSellerSku.isNotEmpty
+              ? marketplaceSellerSku
+              : marketplaceProductId;
+
+      return {
+        'marketplace_sku': specificMarketplaceKey,
+        'local_sku': 'unmapped',
+        'fallback_search': [
+          'unmapped',
+          marketplaceProductId,
+          marketplaceSku,
+          marketplaceSellerSku,
+          productName,
+          variantName,
+        ].where((part) => part.isNotEmpty && part != '-').join(' '),
+      };
+    }
+
+    var localSku = isPseudoUnmapped(localSkuRaw) ? '' : localSkuRaw;
+    if (localSku.isEmpty &&
+        rowSku.isNotEmpty &&
+        !isPseudoUnmapped(rowSku) &&
+        rowSku != marketplaceSku) {
+      localSku = rowSku;
+    }
+
+    final fallbackParts = <String>[
+      productName,
+      variantName,
+      marketplaceProductId,
+      valueOf(row['marketplace_sku_id']),
+      marketplaceSellerSku,
+    ].where((part) => part.isNotEmpty && part != '-').toList();
 
     return {
       'marketplace_sku': marketplaceSku,
       'local_sku': localSku,
-      'fallback_search': fallbackSearch,
+      'fallback_search': fallbackParts.join(' ').trim(),
     };
+  }
+
+  String _canonicalSkuPayoutFilterV82o(String value) {
+    final clean = value.trim().toLowerCase().replaceAll('_', ' ');
+    if (clean == 'settled' ||
+        clean == 'released' ||
+        clean == 'release' ||
+        clean == 'payout' ||
+        clean == 'paid payout' ||
+        clean == 'sudah payout') {
+      return 'paid';
+    }
+    if (clean == 'pending' ||
+        clean == 'belum payout' ||
+        clean == 'no payout' ||
+        clean == 'missing payout') {
+      return 'unpaid';
+    }
+    return clean.isEmpty ? 'all' : value.trim().toLowerCase();
+  }
+
+  String _cleanMarketplaceTrackingDisplayTextV82o(Object? value) {
+    final raw = _text(value, '').trim();
+    if (raw.isEmpty || raw == '-') return '-';
+    final upper = raw.toUpperCase();
+    if (upper.startsWith('OFG')) return '-';
+    if (RegExp(r'^\\d{16,}$').hasMatch(raw)) return '-';
+    return raw;
   }
 
   Future<Map<String, dynamic>> _fetchSkuOrderDetailsV82oPageForRow(
     Map<String, dynamic> row,
     String payoutFilter, {
     int page = 1,
-    int pageSize = 100,
+    int pageSize = _skuDetailPageSize,
     String keyword = '',
   }) async {
     final lookup = _skuOrderLookupParamsV82o(row);
@@ -7795,46 +14331,184 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       };
     }
 
-    final response = await _client.rpc(
+    final rpcPayoutFilter = _canonicalSkuPayoutFilterV82o(payoutFilter);
+    final rowMarketplace = _text(row['marketplace'], '').trim();
+    final rowAccountId = _text(
+      row['marketplace_account_id'] ?? row['account_id'],
       '',
-      params: {
-        'p_start': _toDateParam(_start),
-        'p_end': _toDateParam(_end),
-        'p_marketplace': _marketplaceRpcParam(),
-        'p_account_id': _accountUuidParam(),
-        'p_marketplace_sku': marketplaceSku.isEmpty ? null : marketplaceSku,
-        'p_local_sku': localSku.isEmpty || localSku == '-' ? null : localSku,
-        'p_search': searchText.isEmpty ? null : searchText,
-        'p_payout_filter': payoutFilter,
-        'p_page': page,
-        'p_page_size': pageSize,
-      },
+    ).trim();
+    final detailMarketplace = _marketplaceRpcParam() ??
+        (rowMarketplace.isEmpty ? null : rowMarketplace);
+    final detailAccountId =
+        _accountUuidParam() ?? (_isUuid(rowAccountId) ? rowAccountId : null);
+
+    Future<Map<String, dynamic>> requestDetails({
+      required String? marketplaceSkuParam,
+      required String? localSkuParam,
+      required String? searchParam,
+    }) async {
+      bool isPseudoUnmapped(String value) {
+        final clean = value.trim().toLowerCase().replaceAll('_', ' ');
+        if (clean.isEmpty || clean == '-' || clean == 'null') return false;
+        return clean == 'unmapped' ||
+            clean == '__unmapped__' ||
+            clean == 'belum mapping' ||
+            clean == 'belum ada sku marketplace' ||
+            clean == 'produk belum diberi nama' ||
+            clean.contains('unmapped') ||
+            clean.contains('belum mapping');
+      }
+
+      bool sameText(String a, String b) {
+        final left = a.trim().toLowerCase();
+        final right = b.trim().toLowerCase();
+        return left.isNotEmpty && left != '-' && left == right;
+      }
+
+      final String rowType = _text(row['row_type'], '').trim();
+      final String title = _text(row['title'], '').trim();
+      final String rowSku = _text(row['sku'], '').trim();
+      final String localSkuRaw = _text(
+              row['local_sku'] ??
+                  row['product_sku'] ??
+                  row['local_product_sku'] ??
+                  row['mapped_local_sku'],
+              '')
+          .trim();
+      final String canonicalLocalSku = _text(
+              row['canonical_local_sku'] ??
+                  row['canonical_sku'] ??
+                  row['local_sku'],
+              '')
+          .trim();
+      final String mappingStatus =
+          _text(row['mapping_status'] ?? row['mapping_label'], '').trim();
+      final String hppStatus =
+          _text(row['hpp_status'] ?? row['hpp_label'], '').trim();
+      final String mSkuRaw = _text(
+              row['marketplace_sku_id'] ??
+                  row['marketplace_sku'] ??
+                  row['marketplace_seller_sku'] ??
+                  row['seller_sku'] ??
+                  row['sku_marketplace'] ??
+                  row['external_sku_id'] ??
+                  row['remote_sku_id'] ??
+                  row['sku_id'],
+              '')
+          .trim();
+      final String mProductId = _text(row['marketplace_product_id'], '').trim();
+      final String mSellerSku =
+          _text(row['marketplace_seller_sku'] ?? row['seller_sku'], '').trim();
+      final String pName = _text(
+              row['product_name'] ??
+                  row['marketplace_product_name'] ??
+                  row['nama_barang'],
+              '')
+          .trim();
+      final String vName = _text(
+              row['variant_name'] ??
+                  row['marketplace_variant_name'] ??
+                  row['marketplace_variation_name'],
+              '')
+          .trim();
+
+      final bool localLooksLikeMarketplaceFallback =
+          sameText(localSkuRaw, mSkuRaw) ||
+              sameText(localSkuRaw, mSellerSku) ||
+              sameText(localSkuRaw, rowSku);
+      final bool missingMarketplaceIdentity =
+          mProductId.isEmpty && pName.isEmpty && vName.isEmpty;
+
+      final bool isUnmappedBucket = rowType == 'unmapped_marketplace_sku' ||
+          isPseudoUnmapped(rowSku) ||
+          isPseudoUnmapped(title) ||
+          isPseudoUnmapped(localSkuRaw) ||
+          isPseudoUnmapped(mappingStatus) ||
+          (localLooksLikeMarketplaceFallback && missingMarketplaceIdentity);
+
+      print('--- TRACE_CLICK_BEFORE_RPC ---');
+      print('rowType: $rowType');
+      print('title: $title');
+      print('rowSku: $rowSku');
+      print('localSkuRaw: $localSkuRaw');
+      print('canonical_local_sku: $canonicalLocalSku');
+      print('mappingStatus: $mappingStatus');
+      print('hppStatus: $hppStatus');
+      print('isUnmappedBucket: $isUnmappedBucket');
+      print('--- RPC_PAYLOAD ---');
+      print('p_local_sku: $localSkuParam');
+      print('p_marketplace_sku: $marketplaceSkuParam');
+      print('p_search: $searchParam');
+      print('p_page: $page');
+      print('p_limit: $pageSize');
+      print('-------------------------------');
+
+      final response = await _client.rpc(
+        'finance_sku_order_line_details',
+        params: {
+          'p_start': _toDateParam(_start),
+          'p_end': _toDateParam(_end),
+          'p_marketplace': detailMarketplace,
+          'p_account_id': detailAccountId,
+          'p_marketplace_sku': marketplaceSkuParam,
+          'p_local_sku': localSkuParam,
+          'p_search': searchParam,
+          'p_payout_filter': rpcPayoutFilter,
+          'p_page': page,
+          'p_page_size': pageSize,
+        },
+      );
+
+      final rawRows = _extractSkuOrderDetailRowsV82o(response);
+      final filteredRows = _filteredSkuOrderRowsV82o(
+        rawRows
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList(),
+        payoutFilter,
+      );
+      final rows = _dedupeSkuDetailRows(filteredRows);
+      final resolvedPage = _skuDetailPageV82o(response, page);
+      final resolvedPageSize = _skuDetailPageSizeV82o(response, pageSize);
+      final rawTotal = _skuDetailTotalV82o(response, rows.length);
+      final total =
+          rows.length < filteredRows.length && rawTotal <= filteredRows.length
+              ? rows.length
+              : rawTotal;
+      final totalPages = _skuDetailTotalPagesV82o(
+        response,
+        total,
+        resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
+      );
+      return {
+        'rows': rows,
+        'page': resolvedPage,
+        'page_size': resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
+        'total': total,
+        'total_pages': totalPages,
+      };
+    }
+
+    var result = await requestDetails(
+      marketplaceSkuParam: marketplaceSku.isEmpty ? null : marketplaceSku,
+      localSkuParam: localSku.isEmpty || localSku == '-' ? null : localSku,
+      searchParam: searchText.isEmpty ? null : searchText,
     );
 
-    final rawRows = _extractSkuOrderDetailRowsV82o(response);
-    final rows = _filteredSkuOrderRowsV82o(
-      rawRows
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList(),
-      payoutFilter,
-    );
-    final total = _skuDetailTotalV82o(response, rows.length);
-    final resolvedPage = _skuDetailPageV82o(response, page);
-    final resolvedPageSize = _skuDetailPageSizeV82o(response, pageSize);
-    final totalPages = _skuDetailTotalPagesV82o(
-      response,
-      total,
-      resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
-    );
+    final resultRows = result['rows'];
+    if (keyword.trim().isEmpty &&
+        fallbackSearch.isNotEmpty &&
+        (marketplaceSku.isNotEmpty || localSku.isNotEmpty) &&
+        resultRows is List &&
+        resultRows.isEmpty) {
+      result = await requestDetails(
+        marketplaceSkuParam: null,
+        localSkuParam: null,
+        searchParam: fallbackSearch,
+      );
+    }
 
-    return {
-      'rows': rows,
-      'page': resolvedPage,
-      'page_size': resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
-      'total': total,
-      'total_pages': totalPages,
-    };
+    return result;
   }
 
   Future<List<Map<String, dynamic>>> _fetchSkuOrderDetailsV82oForRow(
@@ -7844,7 +14518,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         row,
         payoutFilter,
         page: 1,
-        pageSize: 100,
+        pageSize: _skuDetailPageSize,
       );
       final rows = result['rows'];
       if (rows is List<Map<String, dynamic>>) return rows;
@@ -7858,8 +14532,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return <Map<String, dynamic>>[];
   }
 
+  String _skuDetailBusyKeyV82o(Map<String, dynamic> row, String payoutFilter) {
+    final lookup = _skuOrderLookupParamsV82o(row);
+    return [
+      payoutFilter,
+      lookup['marketplace_sku'] ?? '',
+      lookup['local_sku'] ?? '',
+      lookup['fallback_search'] ?? '',
+    ].join('|');
+  }
+
   Future<void> _showSkuOrderRefsV82o(Map<String, dynamic> row,
       {String payoutFilter = 'all'}) async {
+    final busyKey = _skuDetailBusyKeyV82o(row, payoutFilter);
+    if (_skuDetailBusyKey != null) return;
+    if (mounted) setState(() => _skuDetailBusyKey = busyKey);
+
     final payoutLabel = payoutFilter == 'paid'
         ? 'sudah ada payout'
         : payoutFilter == 'unpaid'
@@ -7872,9 +14560,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         row,
         payoutFilter,
         page: 1,
-        pageSize: 100,
+        pageSize: _skuDetailPageSize,
       );
     } catch (error) {
+      if (mounted && _skuDetailBusyKey == busyKey) {
+        setState(() => _skuDetailBusyKey = null);
+      }
       _setMessage(
           'Detail order SKU ($payoutLabel) gagal dimuat: ${_cleanError(error)}');
       return;
@@ -7886,14 +14577,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             .toList() ??
         <Map<String, dynamic>>[];
     var page = _positiveIntV82o(pageResult['page'], 1);
-    var pageSize = _positiveIntV82o(pageResult['page_size'], 100);
+    var pageSize =
+        _positiveIntV82o(pageResult['page_size'], _skuDetailPageSize);
     var total = _intFromV82o(pageResult['total'], rows.length);
     var totalPages = _positiveIntV82o(pageResult['total_pages'], 1);
 
+    if (payoutFilter == 'unpaid') {
+      _skuUnpaidCountMap[busyKey] = total;
+    } else if (payoutFilter == 'paid') {
+      _skuPaidCountMap[busyKey] = total;
+    }
+
+    // Ensure detail modal always opens even if rows are empty
     if (rows.isEmpty && total <= 0) {
-      _setMessage(
-          'Detail order SKU ($payoutLabel) belum ditemukan dari server.');
-      return;
+      // Keep going, do not return early so the modal sheet opens cleanly.
     }
 
     final detailRow = Map<String, dynamic>.from(row);
@@ -7920,7 +14617,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           row,
           payoutFilter,
           page: nextPage < 1 ? 1 : nextPage,
-          pageSize: 100,
+          pageSize: _skuDetailPageSize,
           keyword: cleanKeyword,
         );
         if (!sheetOpen) return;
@@ -7932,7 +14629,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         setSheetState(() {
           rows = nextRows;
           page = _positiveIntV82o(result['page'], nextPage);
-          pageSize = _positiveIntV82o(result['page_size'], 100);
+          pageSize = _positiveIntV82o(result['page_size'], _skuDetailPageSize);
           total = _intFromV82o(result['total'], nextRows.length);
           totalPages = _positiveIntV82o(result['total_pages'], 1);
           loadingPage = false;
@@ -7951,7 +14648,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
-        backgroundColor: (Theme.of(context).cardColor),
+        backgroundColor: Theme.of(context).colorScheme.surface,
         shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(8))),
         builder: (sheetContext) {
@@ -7997,17 +14694,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                       'Detail SKU'),
                                   style: TextStyle(
                                       fontSize: 20,
-                                      fontWeight: FontWeight.w900,
-                                      color: Theme.of(context).dividerColor),
+                                      fontWeight: FontWeight.w800,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface),
                                 ),
                                 SizedBox(height: 4),
                                 Text(
-                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel',
+                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel · Deduped by order line/facts',
                                   style: TextStyle(
                                       fontSize: 12,
                                       color: Theme.of(context)
                                           .colorScheme
-                                          .outline),
+                                          .onSurface
+                                          .withValues(alpha: 0.96)),
                                 ),
                               ],
                             ),
@@ -8015,7 +14715,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           IconButton(
                             onPressed: () => Navigator.pop(sheetContext),
                             icon: Icon(Icons.close_rounded,
-                                color: Theme.of(context).dividerColor),
+                                color: Theme.of(context).colorScheme.onSurface),
                           ),
                         ],
                       ),
@@ -8026,7 +14726,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         decoration: InputDecoration(
                           hintText:
                               'Cari nomor pesanan, resi, tanggal, gross, atau payout',
-                          prefixIcon: const Icon(Icons.search_rounded),
+                          prefixIcon: Icon(Icons.search_rounded),
                           suffixIcon: IconButton(
                             tooltip: 'Cari',
                             onPressed: loadingPage
@@ -8036,7 +14736,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                       searchController.text,
                                       setSheetState,
                                     ),
-                            icon: const Icon(Icons.search),
+                            icon: Icon(Icons.search),
                           ),
                           border: const OutlineInputBorder(),
                         ),
@@ -8052,7 +14752,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w800,
-                                  color: Theme.of(context).colorScheme.outline),
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withValues(alpha: 0.96)),
                             ),
                           ),
                           TextButton.icon(
@@ -8063,8 +14766,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                       setSheetState,
                                     )
                                 : null,
-                            icon: const Icon(Icons.chevron_left_rounded),
-                            label: const Text('Sebelumnya'),
+                            icon: Icon(Icons.chevron_left_rounded),
+                            label: Text('Sebelumnya'),
                           ),
                           SizedBox(width: 6),
                           TextButton.icon(
@@ -8075,8 +14778,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                       setSheetState,
                                     )
                                 : null,
-                            icon: const Icon(Icons.chevron_right_rounded),
-                            label: const Text('Berikutnya'),
+                            icon: Icon(Icons.chevron_right_rounded),
+                            label: Text('Berikutnya'),
                           ),
                         ],
                       ),
@@ -8109,11 +14812,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             decoration: BoxDecoration(
                                               color:
                                                   (Theme.of(context).cardColor),
-                                              borderRadius: BorderRadius.zero,
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
                                               border: Border.all(
                                                   color: Theme.of(context)
-                                                      .dividerColor
-                                                      .withOpacity(0.75)),
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.22)),
                                             ),
                                             child: Row(
                                               crossAxisAlignment:
@@ -8126,9 +14831,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                     color: Theme.of(context)
                                                         .colorScheme
                                                         .primary
-                                                        .withOpacity(0.10),
+                                                        .withValues(
+                                                            alpha: 0.22),
                                                     borderRadius:
-                                                        BorderRadius.zero,
+                                                        BorderRadius.circular(
+                                                            12),
                                                   ),
                                                   child: Icon(
                                                       Icons
@@ -8146,24 +14853,31 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                             .start,
                                                     children: [
                                                       SelectableText(
-                                                        'Order: ${_text(item['order'], '-')}',
+                                                        'Order: ${_cleanText(item['order'], 'Belum ada order')}',
                                                         style: TextStyle(
                                                             fontSize: 13.5,
                                                             fontWeight:
-                                                                FontWeight.w900,
+                                                                FontWeight.w800,
                                                             color: Theme.of(
                                                                     context)
-                                                                .dividerColor),
+                                                                .colorScheme
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.90)),
                                                       ),
                                                       SizedBox(height: 4),
                                                       SelectableText(
-                                                        'Resi: ${_text(item['resi'], '-')}',
+                                                        'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
                                                             color: Theme.of(
                                                                     context)
                                                                 .colorScheme
-                                                                .outline,
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.86),
                                                             height: 1.35),
                                                       ),
                                                       SizedBox(height: 4),
@@ -8174,7 +14888,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                             color: Theme.of(
                                                                     context)
                                                                 .colorScheme
-                                                                .outline,
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.86),
                                                             height: 1.35),
                                                       ),
                                                       SizedBox(height: 4),
@@ -8185,7 +14902,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                             color: Theme.of(
                                                                     context)
                                                                 .colorScheme
-                                                                .outline,
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.86),
                                                             height: 1.35),
                                                       ),
                                                       if (_skuDetailNeedsMarketplaceRefreshV82o(
@@ -8221,13 +14941,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                       ],
                                                       SizedBox(height: 4),
                                                       Text(
-                                                        'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  ·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  ·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                                        'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  ·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  ·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  ·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                                         style: TextStyle(
                                                             fontSize: 12,
                                                             color: Theme.of(
                                                                     context)
                                                                 .colorScheme
-                                                                .outline,
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.86),
                                                             height: 1.35),
                                                       ),
                                                       SizedBox(height: 8),
@@ -8242,73 +14965,106 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                                       0)),
                                                           _miniMetric(
                                                               'Harga jual/item',
-                                                              _money(_num(item[
-                                                                  'gross_per_item']))),
+                                                              _skuDetailGrossPerItemText(
+                                                                  item)),
                                                           _miniMetric(
-                                                              'Payout/item',
-                                                              _moneyNullable(item[
-                                                                  'payout_per_item'])),
+                                                              'Payout order marketplace',
+                                                              _skuDetailOrderPayoutText(
+                                                                  item)),
+                                                          _miniMetric(
+                                                              _skuDetailPayoutItemLabel(
+                                                                  item),
+                                                              _skuDetailPayoutItemText(
+                                                                  item)),
                                                           _miniMetric(
                                                               'HPP/item',
-                                                              _money(_num(item[
-                                                                      'hpp_per_item'] ??
-                                                                  item[
-                                                                      'hpp']))),
+                                                              _skuDetailHppItemText(
+                                                                  item)),
                                                         ],
                                                       ),
                                                       SizedBox(height: 6),
                                                       Text(
-                                                        'Statement: ${_text(item['statement_id'], '-')}  ·   ${_text(item['source'], '-')}',
+                                                        'Settlement: ${_skuDetailSettlementText(item)}',
                                                         style: TextStyle(
                                                             fontSize: 10.5,
                                                             color: Theme.of(
                                                                     context)
                                                                 .colorScheme
-                                                                .outline,
+                                                                .onSurface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.86),
                                                             height: 1.3),
+                                                      ),
+                                                      if (_skuDetailAllocationText(
+                                                              item)
+                                                          .isNotEmpty) ...[
+                                                        SizedBox(height: 4),
+                                                        Text(
+                                                          _skuDetailAllocationText(
+                                                              item),
+                                                          style: TextStyle(
+                                                              fontSize: 10.5,
+                                                              color: Theme.of(
+                                                                      context)
+                                                                  .colorScheme
+                                                                  .onSurface
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.86),
+                                                              height: 1.3),
+                                                        ),
+                                                      ],
+                                                      _buildFeeBreakdownV82o(
+                                                          item),
+                                                      SizedBox(height: 8),
+                                                      Wrap(
+                                                        spacing: 6,
+                                                        runSpacing: 6,
+                                                        children: [
+                                                          _copyFieldButton(
+                                                            sheetContext,
+                                                            label:
+                                                                'Copy Order ID',
+                                                            icon: Icons
+                                                                .receipt_long_rounded,
+                                                            value:
+                                                                item['order'],
+                                                          ),
+                                                          _copyFieldButton(
+                                                            sheetContext,
+                                                            label: 'Copy Resi',
+                                                            icon: Icons
+                                                                .local_shipping_rounded,
+                                                            value: item['resi'],
+                                                          ),
+                                                          _copyFieldButton(
+                                                            sheetContext,
+                                                            label:
+                                                                'Copy Settlement',
+                                                            icon: Icons
+                                                                .payments_rounded,
+                                                            value: item[
+                                                                    'statement_id'] ??
+                                                                item[
+                                                                    'settlement_ref'],
+                                                          ),
+                                                          _copyFieldButton(
+                                                            sheetContext,
+                                                            label: 'Copy SKU',
+                                                            icon: Icons
+                                                                .inventory_2_rounded,
+                                                            value: item[
+                                                                    'local_sku'] ??
+                                                                item[
+                                                                    'marketplace_sku'] ??
+                                                                item[
+                                                                    'marketplace_seller_sku'],
+                                                          ),
+                                                        ],
                                                       ),
                                                     ],
                                                   ),
-                                                ),
-                                                IconButton(
-                                                  tooltip: 'Salin',
-                                                  onPressed: () {
-                                                    final text = [
-                                                      'Order: ${_text(item['order'], '-')}',
-                                                      'Resi: ${_text(item['resi'], '-')}',
-                                                      'Tanggal pesanan: ${_dateTime(item['order_date'])}',
-                                                      'Status: ${_skuDetailOrderStatusV82o(item)}',
-                                                      'Payout status: ${_payoutStatusText(item)}',
-                                                      'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? '-' : _payoutExplainText(item)}',
-                                                      'Catatan resi: ${_text(item['resi_reason'], '-')}',
-                                                      'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}',
-                                                      'SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}',
-                                                      'Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
-                                                      'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
-                                                      'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
-                                                      'Payout/item: ${_moneyNullable(item['payout_per_item'])}',
-                                                      'HPP/item: ${_money(_num(item['hpp_per_item'] ?? item['hpp']))}',
-                                                      'Statement: ${_text(item['statement_id'], '-')}',
-                                                      ' ${_text(item['source'], '-')}',
-                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(
-                                                          item))
-                                                        'Warning: Payout sudah masuk, tetapi status order masih ${_skuDetailOrderStatusV82o(item)}. Perlu refresh marketplace.',
-                                                    ].join('\n');
-                                                    Clipboard.setData(
-                                                        ClipboardData(
-                                                            text: text));
-                                                    ScaffoldMessenger.of(
-                                                            sheetContext)
-                                                        .showSnackBar(
-                                                            const SnackBar(
-                                                                content: Text(
-                                                                    'Detail order disalin.')));
-                                                  },
-                                                  icon: Icon(Icons.copy_rounded,
-                                                      size: 18,
-                                                      color: Theme.of(context)
-                                                          .colorScheme
-                                                          .outline),
                                                 ),
                                               ],
                                             ),
@@ -8320,7 +15076,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                           child: ColoredBox(
                                             color: Theme.of(context)
                                                 .cardColor
-                                                .withOpacity(0.55),
+                                                .withValues(alpha: 0.22),
                                             child: const Center(
                                                 child:
                                                     CircularProgressIndicator()),
@@ -8340,6 +15096,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     } finally {
       sheetOpen = false;
       searchController.dispose();
+      if (mounted && _skuDetailBusyKey == busyKey) {
+        setState(() => _skuDetailBusyKey = null);
+      }
     }
   }
 
@@ -8348,10 +15107,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var detailRow = row;
     var allRows =
         _filteredSkuOrderRows(_safeOrderRefRows(detailRow), payoutFilter);
-    final isV82oServerDetail = _text(detailRow['sku_detail_source'], '') ==
-            'v82o' ||
-        allRows.any((item) =>
-            _text(item['source'], '').contains(''));
+    final isV82oServerDetail =
+        _text(detailRow['sku_detail_source'], '') == 'v82o' ||
+            allRows.any((item) => _text(item['source'], '').contains(''));
 
     final needsLazyDetail = !isV82oServerDetail &&
         (allRows.isEmpty ||
@@ -8429,16 +15187,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                     'Detail SKU'),
                                 style: TextStyle(
                                     fontSize: 20,
-                                    fontWeight: FontWeight.w900,
-                                    color: Theme.of(context).dividerColor),
+                                    fontWeight: FontWeight.w800,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface),
                               ),
                               SizedBox(height: 4),
                               Text(
                                 '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · ${allRows.length} detail order SKU · $payoutLabel',
                                 style: TextStyle(
                                     fontSize: 12,
-                                    color:
-                                        Theme.of(context).colorScheme.outline),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withOpacity(0.82)),
                               ),
                             ],
                           ),
@@ -8446,7 +15208,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         IconButton(
                           onPressed: () => Navigator.pop(sheetContext),
                           icon: Icon(Icons.close_rounded,
-                              color: Theme.of(context).dividerColor),
+                              color: Theme.of(context).colorScheme.onSurface),
                         ),
                       ],
                     ),
@@ -8474,12 +15236,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                 return Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: (Theme.of(context).cardColor),
-                                    borderRadius: BorderRadius.zero,
+                                    color: Theme.of(context).cardColor,
+                                    borderRadius: BorderRadius.circular(10),
                                     border: Border.all(
                                         color: Theme.of(context)
-                                            .dividerColor
-                                            .withOpacity(0.75)),
+                                            .colorScheme
+                                            .outlineVariant
+                                            .withOpacity(
+                                                Theme.of(context).brightness ==
+                                                        Brightness.dark
+                                                    ? 0.25
+                                                    : 0.45),
+                                        width: 0.8),
                                   ),
                                   child: Row(
                                     crossAxisAlignment:
@@ -8492,8 +15260,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                           color: Theme.of(context)
                                               .colorScheme
                                               .primary
-                                              .withOpacity(0.10),
-                                          borderRadius: BorderRadius.zero,
+                                              .withOpacity(0.08),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
                                         ),
                                         child: Icon(Icons.receipt_long_rounded,
                                             color: Theme.of(context)
@@ -8508,21 +15277,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                               CrossAxisAlignment.start,
                                           children: [
                                             SelectableText(
-                                              'Order: ${_text(item['order'], '-')}',
+                                              'Order: ${_cleanText(item['order'], 'Belum ada order')}',
                                               style: TextStyle(
                                                   fontSize: 13.5,
-                                                  fontWeight: FontWeight.w900,
+                                                  fontWeight: FontWeight.w800,
                                                   color: Theme.of(context)
-                                                      .dividerColor),
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90)),
                                             ),
                                             SizedBox(height: 4),
                                             SelectableText(
-                                              'Resi: ${_text(item['resi'], '-')}',
+                                              'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
                                                       .colorScheme
-                                                      .outline,
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 4),
@@ -8532,17 +15304,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                   fontSize: 12,
                                                   color: Theme.of(context)
                                                       .colorScheme
-                                                      .outline,
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 4),
                                             Text(
-                                              'Status: ${_text(item['order_status'], '-')}  ·  Payout: ${_payoutStatusText(item)}',
+                                              'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
                                                       .colorScheme
-                                                      .outline,
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             if (_payoutExplainText(item)
@@ -8568,12 +15342,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                             ],
                                             SizedBox(height: 4),
                                             Text(
-                                              'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}  ·  SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}  ·  Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
+                                              'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  ·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  ·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  ·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
                                                       .colorScheme
-                                                      .outline,
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90),
                                                   height: 1.35),
                                             ),
                                             SizedBox(height: 8),
@@ -8587,65 +15362,85 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                         .toStringAsFixed(0)),
                                                 _miniMetric(
                                                     'Harga jual/item',
-                                                    _money(_num(item[
-                                                        'gross_per_item']))),
+                                                    _skuDetailGrossPerItemText(
+                                                        item)),
                                                 _miniMetric(
-                                                    'Payout/item',
-                                                    _moneyNullable(item[
-                                                        'payout_per_item'])),
+                                                    'Payout order marketplace',
+                                                    _skuDetailOrderPayoutText(
+                                                        item)),
                                                 _miniMetric(
                                                     'HPP/item',
-                                                    _money(_num(
-                                                        item['hpp_per_item'] ??
-                                                            item['hpp']))),
+                                                    _skuDetailHppItemText(
+                                                        item)),
                                               ],
                                             ),
                                             SizedBox(height: 6),
                                             Text(
-                                              'Statement: ${_text(item['statement_id'], '-')}  ·   ${_text(item['source'], '-')}',
+                                              'Settlement: ${_skuDetailSettlementText(item)}',
                                               style: TextStyle(
                                                   fontSize: 10.5,
                                                   color: Theme.of(context)
                                                       .colorScheme
-                                                      .outline,
+                                                      .onSurface
+                                                      .withValues(alpha: 0.90),
                                                   height: 1.3),
+                                            ),
+                                            if (_skuDetailAllocationText(item)
+                                                .isNotEmpty) ...[
+                                              SizedBox(height: 4),
+                                              Text(
+                                                _skuDetailAllocationText(item),
+                                                style: TextStyle(
+                                                    fontSize: 10.5,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface
+                                                        .withValues(
+                                                            alpha: 0.90),
+                                                    height: 1.3),
+                                              ),
+                                            ],
+                                            _buildFeeBreakdownV82o(item),
+                                            SizedBox(height: 8),
+                                            Wrap(
+                                              spacing: 6,
+                                              runSpacing: 6,
+                                              children: [
+                                                _copyFieldButton(
+                                                  sheetContext,
+                                                  label: 'Copy Order ID',
+                                                  icon: Icons
+                                                      .receipt_long_rounded,
+                                                  value: item['order'],
+                                                ),
+                                                _copyFieldButton(
+                                                  sheetContext,
+                                                  label: 'Copy Resi',
+                                                  icon: Icons
+                                                      .local_shipping_rounded,
+                                                  value: item['resi'],
+                                                ),
+                                                _copyFieldButton(
+                                                  sheetContext,
+                                                  label: 'Copy Settlement',
+                                                  icon: Icons.payments_rounded,
+                                                  value: item['statement_id'] ??
+                                                      item['settlement_ref'],
+                                                ),
+                                                _copyFieldButton(
+                                                  sheetContext,
+                                                  label: 'Copy SKU',
+                                                  icon:
+                                                      Icons.inventory_2_rounded,
+                                                  value: item['local_sku'] ??
+                                                      item['marketplace_sku'] ??
+                                                      item[
+                                                          'marketplace_seller_sku'],
+                                                ),
+                                              ],
                                             ),
                                           ],
                                         ),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Salin',
-                                        onPressed: () {
-                                          final text = [
-                                            'Order: ${_text(item['order'], '-')}',
-                                            'Resi: ${_text(item['resi'], '-')}',
-                                            'Tanggal pesanan: ${_dateTime(item['order_date'])}',
-                                            'Status: ${_text(item['order_status'], '-')}',
-                                            'Payout status: ${_payoutStatusText(item)}',
-                                            'Catatan payout: ${_payoutExplainText(item).trim().isEmpty ? '-' : _payoutExplainText(item)}',
-                                            'Catatan resi: ${_text(item['resi_reason'], '-')}',
-                                            'SKU lokal: ${_text(item['local_sku'], _text(detailRow['local_sku'] ?? detailRow['sku'], '-'))}',
-                                            'SKU marketplace: ${_text(item['marketplace_sku'] ?? item['marketplace_seller_sku'], '-')}',
-                                            'Varian: ${_text(item['variant_name'] ?? item['marketplace_variation_name'], '-')}',
-                                            'Qty: ${_num(item['qty']).toStringAsFixed(0)}',
-                                            'Harga jual/item: ${_money(_num(item['gross_per_item']))}',
-                                            'Payout/item: ${_moneyNullable(item['payout_per_item'])}',
-                                            'HPP/item: ${_money(_num(item['hpp_per_item'] ?? item['hpp']))}',
-                                            'Statement: ${_text(item['statement_id'], '-')}',
-                                            ' ${_text(item['source'], '-')}',
-                                          ].join('\n');
-                                          Clipboard.setData(
-                                              ClipboardData(text: text));
-                                          ScaffoldMessenger.of(sheetContext)
-                                              .showSnackBar(const SnackBar(
-                                                  content: Text(
-                                                      'Detail order disalin.')));
-                                        },
-                                        icon: Icon(Icons.copy_rounded,
-                                            size: 18,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .outline),
                                       ),
                                     ],
                                   ),
@@ -8670,9 +15465,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: color.withOpacity(0.18)),
+        color: color.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.15), width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -8682,19 +15477,84 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             label,
             style: TextStyle(
                 fontSize: 10,
-                color: Theme.of(context).colorScheme.outline,
-                fontWeight: FontWeight.w600),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.90),
+                fontWeight: FontWeight.w500),
           ),
           SizedBox(height: 2),
           Text(
             value,
             style: TextStyle(
               fontSize: 12.5,
-              fontWeight: FontWeight.w800,
-              color: warning ? color : Theme.of(context).dividerColor,
+              fontWeight: FontWeight.w700,
+              color: warning ? color : Theme.of(context).colorScheme.onSurface,
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _copyFieldButton(
+    BuildContext targetContext, {
+    required String label,
+    required IconData icon,
+    required dynamic value,
+  }) {
+    final clean = _cleanText(value, '');
+    final enabled = clean.isNotEmpty;
+    final scheme = Theme.of(targetContext).colorScheme;
+    final foreground = enabled
+        ? scheme.primary
+        : Theme.of(targetContext).disabledColor.withValues(alpha: 0.75);
+    return Tooltip(
+      message: enabled ? label : '$label belum tersedia',
+      child: InkWell(
+        onTap: enabled
+            ? () {
+                Clipboard.setData(ClipboardData(text: clean));
+                ScaffoldMessenger.of(targetContext).showSnackBar(
+                  SnackBar(content: Text('$label disalin.')),
+                );
+              }
+            : null,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: enabled
+                ? scheme.primary.withValues(alpha: 0.08)
+                : Theme.of(targetContext).disabledColor.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: enabled
+                  ? scheme.primary.withValues(alpha: 0.28)
+                  : Theme.of(targetContext)
+                      .colorScheme
+                      .outlineVariant
+                      .withValues(alpha: 0.45),
+              width: 0.8,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 13, color: foreground),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: foreground,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -8706,10 +15566,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         child: Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.zero,
-            color: (Theme.of(context).cardColor),
+            borderRadius: BorderRadius.circular(16),
+            color: Theme.of(context).cardColor,
             border: Border.all(
-                color: Theme.of(context).colorScheme.error.withOpacity(0.3)),
+                color: Theme.of(context).colorScheme.error.withOpacity(0.25),
+                width: 0.8),
+            boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -8718,13 +15580,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 width: 56,
                 height: 56,
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.error.withOpacity(0.10),
-                  borderRadius: BorderRadius.zero,
+                  color: Theme.of(context).colorScheme.error.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .error
-                          .withOpacity(0.25)),
+                      color:
+                          Theme.of(context).colorScheme.error.withOpacity(0.18),
+                      width: 0.8),
                 ),
                 child: Icon(Icons.error_outline_rounded,
                     size: 28, color: Theme.of(context).colorScheme.error),
@@ -8733,9 +15594,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               Text(
                 'Laporan gagal dimuat',
                 style: TextStyle(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     fontSize: 15,
-                    color: Theme.of(context).dividerColor),
+                    color: Theme.of(context).colorScheme.onSurface),
               ),
               SizedBox(height: 8),
               Text(
@@ -8743,7 +15604,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     fontSize: 12.5,
-                    color: Theme.of(context).colorScheme.outline,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.82),
                     height: 1.5),
               ),
               SizedBox(height: 20),
@@ -8925,12 +15789,249 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _expenseId(Map<String, dynamic> row) {
-    final datas = [row['expense_id'], row['id'], row['operational_expense_id']];
+    final datas = [
+      row['expense_id'],
+      row['adjustment_id'],
+      row['cash_adjustment_id'],
+      row['finance_operational_expense_id'],
+      row['operational_expense_id'],
+      row['finance_expense_id'],
+      row['manual_expense_id'],
+      row['id'],
+    ];
     for (final value in datas) {
       final text = value?.toString().trim() ?? '';
       if (_isUuid(text)) return text;
     }
     return '';
+  }
+
+  bool _isCashAdjustmentExpenseRow(Map<String, dynamic> row) {
+    final haystack = [
+      row['source'],
+      row['source_table'],
+      row['source_module'],
+      row['type'],
+    ].map((value) => _text(value, '').toLowerCase()).join(' ');
+    return haystack.contains('finance_company_cash_adjustments') ||
+        haystack.contains('cash_adjustment') ||
+        row.containsKey('cash_adjustment_id') ||
+        row.containsKey('adjustment_id');
+  }
+
+  bool _isEditableOperationalExpenseRow(Map<String, dynamic> row) {
+    if (_isSyntheticExpenseRow(row) ||
+        _isPurchaseExpenseRow(row) ||
+        _isCashAdjustmentExpenseRow(row)) {
+      return false;
+    }
+    final targetId = _firstStableText([
+      row['expense_id'],
+      row['finance_operational_expense_id'],
+      row['operational_expense_id'],
+      row['finance_expense_id'],
+      row['manual_expense_id'],
+    ]);
+    if (!_isUuid(targetId)) return false;
+    if (targetId.startsWith('prod_progress_') ||
+        targetId.startsWith('prod_stage_') ||
+        targetId.startsWith('summary_')) {
+      return false;
+    }
+    return true;
+  }
+
+  String _expenseSourceLabel(Map<String, dynamic> row) {
+    final explicit = _text(row['source_label'], '').trim();
+    if (explicit.isNotEmpty && explicit != '-') return explicit;
+    final haystack = [
+      row['source'],
+      row['source_table'],
+      row['source_module'],
+      row['type'],
+      row['category'],
+      row['title'],
+      row['label'],
+    ].map((value) => _text(value, '').toLowerCase()).join(' ');
+    if (_isCashAdjustmentExpenseRow(row) || haystack.contains('kas keluar')) {
+      return 'Kas keluar manual';
+    }
+    if (_isProductionPaymentExpenseRow(row)) {
+      return 'Ongkos produksi terbayar';
+    }
+    if (haystack.contains('purchase') || haystack.contains('pembelian')) {
+      return 'Pembelian disetujui';
+    }
+    if (haystack.contains('finance_operational_expenses') ||
+        haystack.contains('operational') ||
+        haystack.contains('operasional')) {
+      return 'Biaya operasional disetujui';
+    }
+    return _sourceLabel(_text(row['source'] ?? row['category'], 'Data'));
+  }
+
+  String _skuDetailStableLineKey(Map<String, dynamic> row) {
+    String cleanPart(dynamic value) {
+      final text = _cleanText(value, '').trim();
+      if (text == '-' || text.toLowerCase() == 'null') return '';
+      return text.toLowerCase();
+    }
+
+    String firstPart(List<String> keys) {
+      for (final key in keys) {
+        final value = cleanPart(row[key]);
+        if (value.isNotEmpty) return value;
+      }
+      return '';
+    }
+
+    final orderId = firstPart(const [
+      'order',
+      'order_sn',
+      'external_order_id',
+      'remote_order_id',
+      'order_id',
+    ]);
+    final externalLineId = firstPart(const [
+      'external_order_item_id',
+      'platform_order_item_id',
+      'remote_order_item_id',
+      'line_item_id',
+      'line_id',
+    ]);
+
+    final resi = firstPart(const [
+      'resi',
+      'tracking_number',
+      'tracking_no',
+      'logistics_tracking_number',
+      'awb',
+      'waybill_no',
+    ]);
+    final settlement = firstPart(const [
+      'statement_id',
+      'settlement_ref',
+      'settlement_id',
+      'statement_ref',
+    ]);
+    final sku = firstPart(const [
+      'local_sku',
+      'sku',
+      'marketplace_sku_id',
+      'marketplace_sku',
+      'marketplace_seller_sku',
+    ]);
+    final variant = firstPart(const [
+      'variant_name',
+      'marketplace_variation_name',
+      'product_name',
+      'title',
+    ]);
+    final qty = _num(row['qty'] ?? row['quantity']).toStringAsFixed(4);
+    final gross = _num(row['gross'] ?? row['gross_amount']).toStringAsFixed(2);
+    final payout =
+        _num(row['payout'] ?? row['payout_amount']).toStringAsFixed(2);
+    final hpp = _num(row['hpp_item'] ?? row['hpp']).toStringAsFixed(2);
+    final facts = [
+      'facts',
+      orderId,
+      resi,
+      settlement,
+      sku,
+      variant,
+      qty,
+      gross,
+      payout,
+      hpp,
+    ].join('|');
+    if ('$orderId$resi$settlement$sku$variant'.isNotEmpty) return facts;
+    if (orderId.isNotEmpty && externalLineId.isNotEmpty) {
+      return 'line|$orderId|$externalLineId';
+    }
+    return 'row|${identityHashCode(row)}';
+  }
+
+  Map<String, dynamic> _preferSkuDetailRow(
+    Map<String, dynamic> existing,
+    Map<String, dynamic> incoming,
+  ) {
+    final copy = Map<String, dynamic>.from(existing);
+    final existingHasPayout =
+        _hasReleasedPayout(copy) || _skuDetailHasPayoutV82o(copy);
+    final incomingHasPayout =
+        _hasReleasedPayout(incoming) || _skuDetailHasPayoutV82o(incoming);
+    if (!existingHasPayout && incomingHasPayout) {
+      copy.addAll(incoming);
+      return copy;
+    }
+
+    for (final entry in incoming.entries) {
+      final currentText = _text(copy[entry.key], '').trim();
+      final nextText = _text(entry.value, '').trim();
+      if ((currentText.isEmpty || currentText == '-') &&
+          nextText.isNotEmpty &&
+          nextText != '-') {
+        copy[entry.key] = entry.value;
+      }
+    }
+
+    for (final key in const [
+      'qty',
+      'quantity',
+      'gross',
+      'gross_amount',
+      'payout',
+      'payout_amount',
+      'hpp',
+      'hpp_amount',
+      'hpp_item',
+      'platform_fee_item',
+      'commission_fee_item',
+      'affiliate_fee_item',
+      'shipping_fee_item',
+      'discount_amount_item',
+      'refund_amount_item',
+      'adjustment_amount_item',
+    ]) {
+      if (_num(copy[key]) == 0 && _num(incoming[key]) != 0) {
+        copy[key] = incoming[key];
+      }
+    }
+    return copy;
+  }
+
+  List<Map<String, dynamic>> _dedupeSkuDetailRows(
+      List<Map<String, dynamic>> rows) {
+    final out = <Map<String, dynamic>>[];
+    final byKey = <String, int>{};
+    for (final row in rows) {
+      final key = _skuDetailStableLineKey(row);
+      final index = byKey[key];
+      if (index == null) {
+        byKey[key] = out.length;
+        out.add(Map<String, dynamic>.from(row));
+      } else {
+        out[index] = _preferSkuDetailRow(out[index], row);
+      }
+    }
+    return out;
+  }
+
+  String _summaryBreakdownText(dynamic value, {int limit = 8}) {
+    final map = _asMap(value);
+    if (map.isEmpty) return '';
+    final entries = map.entries
+        .map(
+            (entry) => MapEntry(_text(entry.key, '').trim(), _num(entry.value)))
+        .where((entry) => entry.key.isNotEmpty && entry.value > 0)
+        .toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    if (entries.isEmpty) return '';
+    return entries
+        .take(limit)
+        .map((entry) =>
+            '${entry.key}: ${entry.value.toStringAsFixed(entry.value % 1 == 0 ? 0 : 2)}')
+        .join('  ·  ');
   }
 
   Future<void> _refreshExpenseCategories() async {
@@ -9005,21 +16106,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           status.contains('RETURN');
     }
 
+    final deduped = _dedupeSkuDetailRows(rows);
+
     if (payoutFilter == 'paid') {
-      return rows
+      return deduped
           .where(
               (item) => !isCancelRefundReturn(item) && _hasReleasedPayout(item))
           .toList();
     }
 
     if (payoutFilter == 'unpaid') {
-      return rows
+      return deduped
           .where((item) =>
               !isCancelRefundReturn(item) && !_hasReleasedPayout(item))
           .toList();
     }
 
-    return rows;
+    return deduped;
   }
 
   String _orderRefLine(Map<String, dynamic> item) {
@@ -9543,6 +16646,50 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return false;
   }
 
+  Map<String, double> _positivePayoutRangeForSku({
+    required Map<String, dynamic> row,
+    required List<Map<String, dynamic>> detailRows,
+    required int settledQty,
+  }) {
+    final values = <double>[];
+    for (final detail in detailRows) {
+      final qty = _num(detail['qty'] ?? detail['quantity']);
+      final safeQty = qty > 0 ? qty : 1.0;
+      final linePayout = _linePayoutAmount(detail, defaultQty: safeQty);
+      if (linePayout <= 0) continue;
+      final explicitPerItem = _numFirstNonZero([
+        detail['payout_per_item'],
+        detail['payout_item'],
+        detail['settlement_per_item'],
+      ]);
+      final perItem =
+          explicitPerItem > 0 ? explicitPerItem : linePayout / safeQty;
+      if (perItem > 0) values.add(perItem.toDouble());
+    }
+
+    if (values.isEmpty) {
+      final positiveTotal = _num(row['positive_payout_total']);
+      final positiveQty = _numFirstNonZero([
+        row['positive_payout_qty'],
+        row['settled_qty'],
+        row['paid_qty'],
+        settledQty,
+      ]);
+      if (positiveTotal > 0 && positiveQty > 0) {
+        values.add((positiveTotal / positiveQty).toDouble());
+      }
+    }
+
+    if (values.isEmpty) return const {'highest': 0.0, 'lowest': 0.0};
+    var highest = values.first;
+    var lowest = values.first;
+    for (final value in values.skip(1)) {
+      if (value > highest) highest = value;
+      if (value < lowest) lowest = value;
+    }
+    return {'highest': highest, 'lowest': lowest};
+  }
+
   double _linePayoutAmount(Map<String, dynamic> detail,
       {double defaultQty = 1.0}) {
     const directKeys = [
@@ -9567,6 +16714,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _hasReleasedPayout(Map<String, dynamic> detail) {
+    if (detail.containsKey('has_payout') && detail['has_payout'] != null) {
+      if (detail['has_payout'] == true) return true;
+    }
+
     final orderStatus = _text(
       detail['status'] ?? detail['order_status'],
       '',
@@ -9584,8 +16735,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     if (joinedStatus.contains('CANCEL') ||
         joinedStatus.contains('REFUND') ||
-        joinedStatus.contains('RETURN')) {
+        joinedStatus.contains('RETURN') ||
+        joinedStatus.contains('BATAL')) {
       return false;
+    }
+
+    final marketplace = _text(detail['marketplace'] ?? detail['marketplace_name'], '').toLowerCase();
+    if (marketplace.contains('shopee')) {
+      final bool isUnpaidStatus = financeStatus.contains('SHIPPED') ||
+          financeStatus.contains('DIKIRIM') ||
+          financeStatus.contains('RECEIVE') ||
+          financeStatus.contains('BELUM') ||
+          financeStatus.contains('PENDING') ||
+          financeStatus.contains('UNPAID') ||
+          financeStatus.contains('PERLU') ||
+          financeStatus.contains('READY') ||
+          financeStatus.contains('DITERIMA') ||
+          financeStatus.contains('TERIMA');
+      return !isUnpaidStatus &&
+          (financeStatus.contains('SELESAI') ||
+              financeStatus.contains('COMPLETED') ||
+              financeStatus.contains('IMPORT') ||
+              financeStatus.contains('PROCESSED'));
     }
 
     final payout = _linePayoutAmount(detail);
@@ -9603,11 +16774,257 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _text(detail['payout_status'] ?? detail['settlement_status'], '')
             .trim();
     final payout = _linePayoutAmount(detail);
+    final explicitUpper = explicit.toUpperCase();
+    if (explicitUpper.contains('PENDING') ||
+        explicitUpper.contains('WAIT') ||
+        explicitUpper.contains('NO_PAYOUT')) {
+      return 'Menunggu settlement';
+    }
     if (explicit.isNotEmpty && explicit != '-') return explicit;
     if (payout < 0) return 'payout minus/koreksi';
     if (payout > 0) return 'sudah release';
     if (_hasReleasedPayout(detail)) return 'sudah release Rp 0';
-    return 'belum ada payout';
+    return 'Menunggu settlement';
+  }
+
+  String _cleanText(dynamic value, String fallback) {
+    final text = _text(value, '').trim();
+    if (text.isEmpty || text == '-') return fallback;
+    return text;
+  }
+
+  String _skuDetailPayoutItemLabel(Map<String, dynamic> detail) {
+    if (!_hasReleasedPayout(detail)) return 'Payout/item';
+    if (_skuDetailHasExactItemPayout(detail) ||
+        _skuDetailSingleItemOrderIsExact(detail)) {
+      return 'Payout exact/item';
+    }
+    final source = _text(detail['payout_source'] ?? detail['source'], '')
+        .trim()
+        .toLowerCase();
+    if (source.contains('marketplace_finance_reports') ||
+        source.contains('net_settlement') ||
+        source.contains('settlement')) {
+      return 'Estimasi payout/item';
+    }
+    return 'Rata-rata payout/item';
+  }
+
+  bool _skuDetailHasExactItemPayout(Map<String, dynamic> detail) {
+    final exact = _numFirstNonZero([
+      detail['exact_item_settlement'],
+      detail['exact_item_payout'],
+      detail['exact_line_settlement'],
+      detail['exact_line_payout'],
+    ]);
+    if (exact != 0) return true;
+    final source = _text(detail['payout_source'] ?? detail['source'], '')
+        .trim()
+        .toLowerCase();
+    return source.contains('exact_item') || source.contains('exact_line');
+  }
+
+  bool _skuDetailSingleItemOrderIsExact(Map<String, dynamic> detail) {
+    if (detail['single_item_order_payout_exact'] == true) return true;
+    final orderPayout = _numFirstNonZero([
+      detail['order_payout'],
+      detail['order_payout_total'],
+      detail['order_settlement_total'],
+      detail['order_net_settlement'],
+    ]);
+    final orderGross = _numFirstNonZero([
+      detail['order_line_gross'],
+      detail['order_gross_total'],
+      detail['order_line_gross_total'],
+    ]);
+    final lineGross = _numFirstNonZero([
+      detail['gross'],
+      detail['gross_amount'],
+      detail['gross_total'],
+    ]);
+    return orderPayout != 0 &&
+        orderGross > 0 &&
+        lineGross > 0 &&
+        (orderGross - lineGross).abs() <= 0.01;
+  }
+
+  String _skuDetailSourceText(Map<String, dynamic> detail) {
+    return _cleanText(
+      detail['payout_source'] ?? detail['source'],
+      'Sumber tidak tersimpan',
+    );
+  }
+
+  String _skuDetailPayoutItemText(Map<String, dynamic> detail) {
+    if (!_hasReleasedPayout(detail)) return 'Belum ada payout';
+    final qty = _num(detail['qty'] ?? detail['quantity']);
+    final safeQty = qty > 0 ? qty : 1.0;
+    final perItem = _numFirstNonZero([
+      detail['payout_per_item'],
+      detail['payout_item'],
+      detail['settlement_per_item'],
+      _linePayoutAmount(detail, defaultQty: safeQty) / safeQty,
+    ]);
+    return perItem > 0 ? _money(perItem) : 'Payout item belum tersimpan';
+  }
+
+  double _skuDetailOrderPayoutAmount(Map<String, dynamic> detail) {
+    return _numFirstNonZero([
+      detail['order_payout'],
+      detail['order_payout_total'],
+      detail['order_settlement_total'],
+      detail['order_net_settlement'],
+      detail['settlement_total'],
+      detail['net_settlement'],
+      detail['received_amount'],
+      if (_skuDetailSingleItemOrderIsExact(detail))
+        detail['payout'] ?? detail['payout_amount'],
+    ]);
+  }
+
+  String _skuDetailOrderPayoutText(Map<String, dynamic> detail) {
+    if (!_hasReleasedPayout(detail)) return 'Belum ada payout';
+    final orderPayout = _skuDetailOrderPayoutAmount(detail);
+    if (orderPayout != 0) return _money(orderPayout);
+    final fallback = _linePayoutAmount(detail);
+    return fallback != 0 ? _money(fallback) : 'Payout order belum tersimpan';
+  }
+
+  String _skuDetailAllocationText(Map<String, dynamic> detail) {
+    if (!_hasReleasedPayout(detail)) return '';
+    final source = _text(detail['payout_source'] ?? detail['source'], '')
+        .trim()
+        .toLowerCase();
+    if (!source.contains('marketplace_finance_reports') &&
+        !source.contains('settlement') &&
+        !source.contains('page_first') &&
+        !_skuDetailHasExactItemPayout(detail)) {
+      return '';
+    }
+
+    final orderPayout = _numFirstNonZero([
+      detail['order_payout'],
+      detail['order_payout_total'],
+      detail['order_settlement_total'],
+      detail['order_net_settlement'],
+    ]);
+    final orderGross = _numFirstNonZero([
+      detail['order_line_gross'],
+      detail['order_gross_total'],
+      detail['order_line_gross_total'],
+    ]);
+    final lineGross = _numFirstNonZero([
+      detail['gross'],
+      detail['gross_amount'],
+      detail['gross_total'],
+    ]);
+    final linePayout = _numFirstNonZero([
+      detail['payout'],
+      detail['payout_amount'],
+    ]);
+
+    if (_skuDetailHasExactItemPayout(detail)) {
+      return 'Payout exact dari settlement marketplace per item: ${_money(linePayout)}.';
+    }
+
+    if (orderGross > 0 && lineGross > 0) {
+      if (_skuDetailSingleItemOrderIsExact(detail)) {
+        return 'Payout exact dari settlement order single-item: ${_money(orderPayout)}.';
+      } else {
+        return 'Payout/item ditampilkan sebagai Rata-rata/Estimasi karena settlement exact per item belum tersedia.';
+      }
+    }
+    return 'Payout/item ditampilkan sebagai Rata-rata/Estimasi.';
+  }
+
+  bool _skuDetailGrossMissing(Map<String, dynamic> detail) {
+    final missingFlag =
+        _text(detail['is_gross_missing'], '').trim().toLowerCase();
+    if (missingFlag == 'true' || missingFlag == '1' || missingFlag == 'yes') {
+      return true;
+    }
+
+    final validFlag =
+        _text(detail['is_marketplace_gross_valid'], '').trim().toLowerCase();
+    if (validFlag == 'false' || validFlag == '0' || validFlag == 'no') {
+      return true;
+    }
+
+    final source = _text(detail['gross_source'], '').trim().toLowerCase();
+    if (source == 'missing') return true;
+
+    final gross = _num(detail['gross_sales'] ??
+        detail['gross'] ??
+        detail['gross_amount'] ??
+        detail['gross_total']);
+    final unit = _num(detail['gross_per_item'] ??
+        detail['harga_jual_per_item'] ??
+        detail['unit_price'] ??
+        detail['price_per_item'] ??
+        detail['unit_gross_amount']);
+
+    return gross <= 0 && unit <= 0;
+  }
+
+  String _skuDetailGrossMissingLabel(Map<String, dynamic> detail) {
+    final rawLabel = _cleanText(
+      detail['gross_missing_label'] ??
+          detail['gross_sales_display'] ??
+          detail['harga_jual_per_item_display'],
+      '',
+    ).trim();
+
+    final normalized = rawLabel.toLowerCase();
+    final looksZero = RegExp(r'^(rp\s*)?0([,.]0+)?$').hasMatch(normalized);
+
+    if (rawLabel.isNotEmpty &&
+        normalized != 'null' &&
+        rawLabel != '-' &&
+        !looksZero) {
+      return rawLabel;
+    }
+
+    return 'Harga marketplace belum tersedia';
+  }
+
+  String _skuDetailGrossPerItemText(Map<String, dynamic> detail) {
+    if (_skuDetailGrossMissing(detail)) {
+      return _skuDetailGrossMissingLabel(detail);
+    }
+
+    final unit = _num(detail['gross_per_item'] ??
+        detail['harga_jual_per_item'] ??
+        detail['unit_price'] ??
+        detail['price_per_item'] ??
+        detail['unit_gross_amount']);
+    if (unit > 0) return _money(unit);
+
+    final gross = _num(detail['gross_sales'] ??
+        detail['gross'] ??
+        detail['gross_amount'] ??
+        detail['gross_total']);
+    final qty = _num(detail['qty'] ?? detail['quantity']);
+    if (gross > 0 && qty > 0) return _money(gross / qty);
+
+    return _skuDetailGrossMissingLabel(detail);
+  }
+
+  String _skuDetailHppItemText(Map<String, dynamic> detail) {
+    final hpp = _num(detail['hpp_per_item'] ?? detail['hpp']);
+    if (hpp <= 0) return 'HPP belum mapping';
+    return _money(hpp);
+  }
+
+  String _skuDetailSettlementText(Map<String, dynamic> detail) {
+    if (!_hasReleasedPayout(detail)) return 'Belum ada settlement';
+    final statement = _cleanText(
+      detail['statement_id'] ??
+          detail['settlement_id'] ??
+          detail['statement_ref'] ??
+          detail['settlement_ref'],
+      '',
+    );
+    return statement.isEmpty ? 'Ref settlement belum tersimpan' : statement;
   }
 
   String _payoutExplainText(Map<String, dynamic> detail) {
@@ -9644,7 +17061,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final text = _text(value, '').toUpperCase();
     return text.contains('CANCEL') ||
         text.contains('CANCELED') ||
-        text.contains('CANCELLED');
+        text.contains('CANCELLED') ||
+        text.contains('BATAL') ||
+        text.contains('RETURN') ||
+        text.contains('REFUND') ||
+        text.contains('RTS') ||
+        text.contains('GAGAL') ||
+        text.contains('FAILED') ||
+        text.contains('CLOSED');
   }
 
   bool _shouldHideZeroCancelAbnormal(Map<String, dynamic> row) {
@@ -9688,19 +17112,127 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _dateTime(dynamic value) {
-    final date = _parseDate(value);
-    if (date == null) return '-';
-    return '${_date(date)} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    return AppUi.formatWibDateTime(value);
   }
 
   DateTime? _parseDate(dynamic value) {
     if (value == null) return null;
-    if (value is DateTime) return value.toLocal();
-    return DateTime.tryParse(value.toString())?.toLocal();
+    final parsed =
+        value is DateTime ? value : DateTime.tryParse(value.toString());
+    if (parsed == null) return null;
+    return parsed.toUtc().add(const Duration(hours: 7));
   }
 
   DateTime _dateOnly(DateTime value) =>
       DateTime(value.year, value.month, value.day);
+
+  DateTime _monthStart(DateTime value) => DateTime(value.year, value.month, 1);
+
+  String _monthLabel(DateTime value) {
+    const names = [
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember',
+    ];
+    final monthName = names[(value.month - 1).clamp(0, 11).toInt()];
+    return '$monthName ${value.year}';
+  }
+
+  Future<DateTime?> _pickMonth(DateTime initial) async {
+    var year = initial.year;
+    var selectedMonth = initial.month;
+    return showDialog<DateTime>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          title: Text('Pilih bulan'),
+          content: SizedBox(
+            width: 320,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Tahun sebelumnya',
+                      onPressed: () => setDialogState(() => year--),
+                      icon: Icon(Icons.chevron_left_rounded),
+                    ),
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          '$year',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Tahun berikutnya',
+                      onPressed: () => setDialogState(() => year++),
+                      icon: Icon(Icons.chevron_right_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: 12,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisExtent: 42,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemBuilder: (context, index) {
+                    final month = index + 1;
+                    final selected = month == selectedMonth;
+                    return OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: selected
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
+                        foregroundColor: selected
+                            ? Theme.of(context).colorScheme.onPrimary
+                            : null,
+                      ),
+                      onPressed: () =>
+                          setDialogState(() => selectedMonth = month),
+                      child: Text(_monthLabel(DateTime(year, month, 1))
+                          .split(' ')
+                          .first),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context), child: Text('Batal')),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(context, DateTime(year, selectedMonth, 1)),
+              child: Text('Pilih'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   String _toDateParam(DateTime value) {
     return '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
@@ -9716,6 +17248,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   String _sourceLabel(String value) {
     final clean = value.toLowerCase().replaceAll('_', ' ').trim();
+    if (clean.contains('arus kas bersih') ||
+        clean.contains('jumlah arus kas') ||
+        clean.contains('total arus kas')) return 'Jumlah Arus Kas';
     if (clean.contains('potongan marketplace')) return 'Potongan marketplace';
     if (clean.contains('marketplace')) return 'Marketplace';
     if (clean.contains('purchase') || clean.contains('pembelian'))
@@ -9759,6 +17294,34 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         .replaceAll(', hint:', '\nSaran:')
         .replaceAll(')', ''));
   }
+
+  Future<void> _syncSkuHppFromMapping() async {
+    if (_isSyncingHpp) return;
+    setState(() => _isSyncingHpp = true);
+    try {
+      await _client.rpc(
+        'marketplace_sync_hpp_from_sku_maps',
+        params: {
+          'p_tenant_id': _currentTenantId,
+          'p_marketplace_account_id': _marketplaceFilter == 'all' ? null : _marketplaceFilter,
+          'p_overwrite': false,
+        },
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('HPP disinkronisasi.')));
+        _hardReloadFinanceView();
+      }
+    } catch (e) {
+      if (mounted) {
+        final err = _cleanError(e);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal sinkron HPP: $err')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSyncingHpp = false);
+      }
+    }
+  }
 }
 
 class _Metric {
@@ -9778,18 +17341,3 @@ class _ThousandsInputFormatter extends TextInputFormatter {
     return const AppMoneyInputFormatter().formatEditUpdate(oldValue, newValue);
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

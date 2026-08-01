@@ -35,7 +35,11 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
   }
 
   bool _isHrOrSuper(String role) {
-    return role == 'hr' || role == 'super_admin' || role == 'superadmin' || role == 'admin' || role == 'owner';
+    return role == 'hr' ||
+        role == 'super_admin' ||
+        role == 'superadmin' ||
+        role == 'admin' ||
+        role == 'owner';
   }
 
   String? _textOrNull(dynamic value) {
@@ -51,7 +55,8 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
 
     try {
       final authUser = _client.auth.currentUser;
-      if (authUser == null) throw Exception('Sesi login tidak ditemukan. Silakan login kembali.');
+      if (authUser == null)
+        throw Exception('Sesi login tidak ditemukan. Silakan login kembali.');
 
       final profile = await _client
           .from('users')
@@ -103,18 +108,26 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
 
       final dynamic rawData = _canManage
           ? await query.order('created_at', ascending: false).limit(250)
-          : await query.eq('assigned_to', authUser.id).order('created_at', ascending: false).limit(250);
+          : await query
+              .eq('assigned_to', authUser.id)
+              .order('created_at', ascending: false)
+              .limit(250);
 
       final usersData = await _client
           .from('users')
           .select('user_id, nama, email, role_id, status')
           .eq('status', 'active')
+          .neq('role_id', 'platform_owner')
           .order('nama', ascending: true);
 
       if (!mounted) return;
       setState(() {
-        _items = (rawData as List).map((item) => Map<String, dynamic>.from(item as Map)).toList();
-        _users = (usersData as List).map((item) => Map<String, dynamic>.from(item as Map)).toList();
+        _items = (rawData as List)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+        _users = (usersData as List)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
       });
     } on PostgrestException catch (error) {
       if (!mounted) return;
@@ -128,7 +141,16 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
   }
 
   List<String> _statusOptions() {
-    if (_canManage) return const ['planned', 'in_progress', 'uploaded', 'approved', 'revision', 'rejected', 'cancelled'];
+    if (_canManage)
+      return const [
+        'planned',
+        'in_progress',
+        'uploaded',
+        'approved',
+        'revision',
+        'rejected',
+        'cancelled'
+      ];
     return const ['planned', 'in_progress', 'uploaded'];
   }
 
@@ -158,8 +180,13 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
       await _client.from('content_tasks').update({
         'status': status,
         'updated_at': DateTime.now().toIso8601String(),
-        if (status == 'uploaded') 'uploaded_at': DateTime.now().toIso8601String(),
-        if (_canManage && (status == 'approved' || status == 'revision' || status == 'rejected' || status == 'cancelled')) ...{
+        if (status == 'uploaded')
+          'uploaded_at': DateTime.now().toIso8601String(),
+        if (_canManage &&
+            (status == 'approved' ||
+                status == 'revision' ||
+                status == 'rejected' ||
+                status == 'cancelled')) ...{
           'verified_by': _currentUser?['user_id'],
           'verified_by_name': _currentUser?['nama'],
           'verified_at': DateTime.now().toIso8601String(),
@@ -183,10 +210,16 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Hapus task konten?'),
-        content: Text("Task konten ${AppUi.text(contentTask['title'] ?? contentTask['judul_konten'])} akan dihapus."),
+        content: Text(
+            "Task konten ${AppUi.text(contentTask['title'] ?? contentTask['judul_konten'])} akan dihapus."),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Batal')),
-          FilledButton.icon(onPressed: () => Navigator.pop(dialogContext, true), icon: const Icon(Icons.delete_outline), label: const Text('Hapus')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Batal')),
+          FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Hapus')),
         ],
       ),
     );
@@ -249,7 +282,9 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
               final platform = platformController.text.trim();
 
               if (title.isEmpty || platform.isEmpty || assignedTo == null) {
-                AppUi.showSnack(_isContentCreator ? 'Judul dan platform wajib diisi.' : 'Judul, platform, dan PIC wajib diisi.');
+                AppUi.showSnack(_isContentCreator
+                    ? 'Judul dan platform wajib diisi.'
+                    : 'Judul, platform, dan PIC wajib diisi.');
                 return;
               }
 
@@ -307,34 +342,63 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Tambah Task Konten', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+                    Text('Tambah Task Konten',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w800)),
                     const SizedBox(height: 14),
-                    TextField(controller: titleController, decoration: const InputDecoration(labelText: 'Judul konten', border: OutlineInputBorder())),
+                    TextField(
+                        controller: titleController,
+                        decoration: const InputDecoration(
+                            labelText: 'Judul konten',
+                            border: OutlineInputBorder())),
                     const SizedBox(height: 12),
-                    TextField(controller: platformController, decoration: const InputDecoration(labelText: 'Platform', border: OutlineInputBorder())),
+                    TextField(
+                        controller: platformController,
+                        decoration: const InputDecoration(
+                            labelText: 'Platform',
+                            border: OutlineInputBorder())),
                     const SizedBox(height: 12),
-                    TextField(controller: descriptionController, maxLines: 3, decoration: const InputDecoration(labelText: 'Brief / deskripsi', border: OutlineInputBorder())),
+                    TextField(
+                        controller: descriptionController,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                            labelText: 'Brief / deskripsi',
+                            border: OutlineInputBorder())),
                     const SizedBox(height: 12),
                     if (_canManage) ...[
                       DropdownButtonFormField<String>(
                         value: assignedTo,
-                        decoration: const InputDecoration(labelText: 'PIC content creator', border: OutlineInputBorder()),
-                        items: _users.map((user) => DropdownMenuItem<String>(value: _textOrNull(user['user_id']), child: Text('${user['nama'] ?? '-'} • ${user['role_id'] ?? '-'}'))).toList(),
-                        onChanged: (value) => setSheetState(() => assignedTo = value),
+                        decoration: const InputDecoration(
+                            labelText: 'PIC content creator',
+                            border: OutlineInputBorder()),
+                        items: _users
+                            .map((user) => DropdownMenuItem<String>(
+                                value: _textOrNull(user['user_id']),
+                                child: Text(
+                                    '${user['nama'] ?? '-'} • ${user['role_id'] ?? '-'}')))
+                            .toList(),
+                        onChanged: (value) =>
+                            setSheetState(() => assignedTo = value),
                       ),
                       const SizedBox(height: 12),
                     ],
                     DropdownButtonFormField<String>(
                       value: contentType,
-                      decoration: const InputDecoration(labelText: 'Tipe konten', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                          labelText: 'Tipe konten',
+                          border: OutlineInputBorder()),
                       items: const [
                         DropdownMenuItem(value: 'video', child: Text('Video')),
                         DropdownMenuItem(value: 'photo', child: Text('Photo')),
-                        DropdownMenuItem(value: 'carousel', child: Text('Carousel')),
+                        DropdownMenuItem(
+                            value: 'carousel', child: Text('Carousel')),
                         DropdownMenuItem(value: 'story', child: Text('Story')),
                         DropdownMenuItem(value: 'other', child: Text('Other')),
                       ],
-                      onChanged: (value) => setSheetState(() => contentType = value ?? 'video'),
+                      onChanged: (value) =>
+                          setSheetState(() => contentType = value ?? 'video'),
                     ),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
@@ -345,15 +409,26 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
                           firstDate: DateTime(2020),
                           lastDate: DateTime(2100),
                         );
-                        if (picked != null) setSheetState(() => deadline = picked);
+                        if (picked != null)
+                          setSheetState(() => deadline = picked);
                       },
                       icon: const Icon(Icons.event_outlined),
-                      label: Text(deadline == null ? 'Pilih deadline' : 'Deadline: ${AppUi.date(deadline)}'),
+                      label: Text(deadline == null
+                          ? 'Pilih deadline'
+                          : 'Deadline: ${AppUi.date(deadline)}'),
                     ),
                     const SizedBox(height: 12),
-                    TextField(controller: noteController, maxLines: 2, decoration: const InputDecoration(labelText: 'Catatan', border: OutlineInputBorder())),
+                    TextField(
+                        controller: noteController,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                            labelText: 'Catatan',
+                            border: OutlineInputBorder())),
                     const SizedBox(height: 16),
-                    FilledButton.icon(onPressed: save, icon: const Icon(Icons.save_outlined), label: const Text('Simpan')),
+                    FilledButton.icon(
+                        onPressed: save,
+                        icon: const Icon(Icons.save_outlined),
+                        label: const Text('Simpan')),
                   ],
                 ),
               ),
@@ -373,7 +448,8 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
     final status = item['status']?.toString() ?? 'planned';
     final rawTitle = (item['judul_konten'] ?? item['title'] ?? '-').toString();
     final title = rawTitle.trim().isEmpty ? '-' : rawTitle;
-    final proofUrl = (item['bukti_upload_foto'] ?? item['proof_url'] ?? '').toString();
+    final proofUrl =
+        (item['bukti_upload_foto'] ?? item['proof_url'] ?? '').toString();
     final link = (item['link_konten'] ?? item['post_url'] ?? '').toString();
 
     return NiceCard(
@@ -388,15 +464,21 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                    Text(title,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 16)),
                     const SizedBox(height: 4),
-                    Text('${item['platform'] ?? '-'} • ${item['content_type'] ?? 'video'}'),
+                    Text(
+                        '${item['platform'] ?? '-'} • ${item['content_type'] ?? 'video'}'),
                     Text('PIC: ${item['assigned_to_name'] ?? '-'}'),
-                    Text('Deadline: ${AppUi.date(item['deadline_date'] ?? item['deadline'] ?? item['due_date'])}'),
+                    Text(
+                        'Deadline: ${AppUi.date(item['deadline_date'] ?? item['deadline'] ?? item['due_date'])}'),
                   ],
                 ),
               ),
-              Chip(label: Text(_statusLabel(status)), backgroundColor: AppUi.statusColor(status).withOpacity(0.13)),
+              Chip(
+                  label: Text(_statusLabel(status)),
+                  backgroundColor: AppUi.statusColor(status).withOpacity(0.13)),
               if (_isSuperAdmin)
                 IconButton(
                   tooltip: 'Hapus task konten',
@@ -408,10 +490,21 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
           const SizedBox(height: 10),
           Row(
             children: [
-              Icon(link.trim().isEmpty ? Icons.link_off_outlined : Icons.link_outlined, size: 18),
+              Icon(
+                  link.trim().isEmpty
+                      ? Icons.link_off_outlined
+                      : Icons.link_outlined,
+                  size: 18),
               const SizedBox(width: 6),
-              Expanded(child: Text(link.trim().isEmpty ? 'Link konten belum diisi' : 'Link konten tersedia')),
-              Icon(proofUrl.trim().isEmpty ? Icons.image_not_supported_outlined : Icons.image_outlined, size: 18),
+              Expanded(
+                  child: Text(link.trim().isEmpty
+                      ? 'Link konten belum diisi'
+                      : 'Link konten tersedia')),
+              Icon(
+                  proofUrl.trim().isEmpty
+                      ? Icons.image_not_supported_outlined
+                      : Icons.image_outlined,
+                  size: 18),
               const SizedBox(width: 6),
               Text(proofUrl.trim().isEmpty ? 'No proof' : 'Proof'),
             ],
@@ -426,10 +519,15 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Konten'),
-        actions: [IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh))],
+        actions: [
+          IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh))
+        ],
       ),
       floatingActionButton: _canCreate
-          ? FloatingActionButton.extended(onPressed: _showAddForm, icon: const Icon(Icons.add), label: const Text('Konten'))
+          ? FloatingActionButton.extended(
+              onPressed: _showAddForm,
+              icon: const Icon(Icons.add),
+              label: const Text('Konten'))
           : null,
       body: _isLoading
           ? const LoadingState()
@@ -447,14 +545,35 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
                             ? 'Pantau brief, link konten, proof foto, dan approval.'
                             : 'Update progress konten, isi link konten, dan upload bukti kerja.',
                         stats: [
-                          StatPill(label: 'Total', value: _items.length.toString()),
-                          StatPill(label: 'Uploaded', value: _items.where((item) => item['status'] == 'uploaded' || item['status'] == 'approved').length.toString()),
-                          StatPill(label: 'Proof', value: _items.where((item) => ((item['bukti_upload_foto'] ?? item['proof_url'] ?? '').toString()).isNotEmpty).length.toString()),
+                          StatPill(
+                              label: 'Total', value: _items.length.toString()),
+                          StatPill(
+                              label: 'Uploaded',
+                              value: _items
+                                  .where((item) =>
+                                      item['status'] == 'uploaded' ||
+                                      item['status'] == 'approved')
+                                  .length
+                                  .toString()),
+                          StatPill(
+                              label: 'Proof',
+                              value: _items
+                                  .where((item) =>
+                                      ((item['bukti_upload_foto'] ??
+                                                  item['proof_url'] ??
+                                                  '')
+                                              .toString())
+                                          .isNotEmpty)
+                                  .length
+                                  .toString()),
                         ],
                       ),
                       const SizedBox(height: 16),
                       if (_items.isEmpty)
-                        const EmptyState(title: 'Belum ada konten', subtitle: 'Data monitoring konten akan tampil di sini.')
+                        const EmptyState(
+                            title: 'Belum ada konten',
+                            subtitle:
+                                'Data monitoring konten akan tampil di sini.')
                       else
                         ..._items.map(_contentCard),
                     ],
@@ -491,8 +610,10 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
   void initState() {
     super.initState();
     _item = Map<String, dynamic>.from(widget.item);
-    _linkController = TextEditingController(text: (_item['link_konten'] ?? _item['post_url'] ?? '').toString());
-    _noteController = TextEditingController(text: (_item['catatan'] ?? _item['note'] ?? '').toString());
+    _linkController = TextEditingController(
+        text: (_item['link_konten'] ?? _item['post_url'] ?? '').toString());
+    _noteController = TextEditingController(
+        text: (_item['catatan'] ?? _item['note'] ?? '').toString());
   }
 
   @override
@@ -503,7 +624,16 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
   }
 
   List<String> _statusOptions() {
-    if (widget.canManage) return const ['planned', 'in_progress', 'uploaded', 'approved', 'revision', 'rejected', 'cancelled'];
+    if (widget.canManage)
+      return const [
+        'planned',
+        'in_progress',
+        'uploaded',
+        'approved',
+        'revision',
+        'rejected',
+        'cancelled'
+      ];
     return const ['planned', 'in_progress', 'uploaded'];
   }
 
@@ -560,8 +690,13 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
       await _client.from('content_tasks').update({
         'status': status,
         'updated_at': DateTime.now().toIso8601String(),
-        if (status == 'uploaded') 'uploaded_at': DateTime.now().toIso8601String(),
-        if (widget.canManage && (status == 'approved' || status == 'revision' || status == 'rejected' || status == 'cancelled')) ...{
+        if (status == 'uploaded')
+          'uploaded_at': DateTime.now().toIso8601String(),
+        if (widget.canManage &&
+            (status == 'approved' ||
+                status == 'revision' ||
+                status == 'rejected' ||
+                status == 'cancelled')) ...{
           'verified_by': widget.currentUser['user_id'],
           'verified_by_name': widget.currentUser['nama'],
           'verified_at': DateTime.now().toIso8601String(),
@@ -617,7 +752,10 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 116, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700))),
+          SizedBox(
+              width: 116,
+              child: Text(label,
+                  style: const TextStyle(fontWeight: FontWeight.w700))),
           Expanded(child: Text(value.isEmpty ? '-' : value)),
         ],
       ),
@@ -627,9 +765,11 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
   @override
   Widget build(BuildContext context) {
     final status = _item['status']?.toString() ?? 'planned';
-    final rawTitle = (_item['judul_konten'] ?? _item['title'] ?? 'Detail Konten').toString();
+    final rawTitle =
+        (_item['judul_konten'] ?? _item['title'] ?? 'Detail Konten').toString();
     final title = rawTitle.trim().isEmpty ? 'Detail Konten' : rawTitle;
-    final proofUrl = (_item['bukti_upload_foto'] ?? _item['proof_url'] ?? '').toString();
+    final proofUrl =
+        (_item['bukti_upload_foto'] ?? _item['proof_url'] ?? '').toString();
 
     return WillPopScope(
       onWillPop: () async {
@@ -639,7 +779,9 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Detail Konten'),
-          leading: IconButton(onPressed: () => Navigator.pop(context, _changed), icon: const Icon(Icons.arrow_back)),
+          leading: IconButton(
+              onPressed: () => Navigator.pop(context, _changed),
+              icon: const Icon(Icons.arrow_back)),
         ),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
@@ -650,7 +792,9 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
               subtitle: 'Link konten, bukti foto, catatan, dan approval.',
               stats: [
                 StatPill(label: 'Status', value: _label(status)),
-                StatPill(label: 'Platform', value: _item['platform']?.toString() ?? '-'),
+                StatPill(
+                    label: 'Platform',
+                    value: _item['platform']?.toString() ?? '-'),
               ],
             ),
             const SizedBox(height: 14),
@@ -659,27 +803,48 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _row('PIC', _item['assigned_to_name']?.toString() ?? '-'),
-                  _row('Creator', _item['creator_name']?.toString() ?? _item['created_by_name']?.toString() ?? '-'),
+                  _row(
+                      'Creator',
+                      _item['creator_name']?.toString() ??
+                          _item['created_by_name']?.toString() ??
+                          '-'),
                   _row('Tipe', _item['content_type']?.toString() ?? '-'),
-                  _row('Deadline', AppUi.date(_item['deadline_date'] ?? _item['deadline'] ?? _item['due_date'])),
+                  _row(
+                      'Deadline',
+                      AppUi.date(_item['deadline_date'] ??
+                          _item['deadline'] ??
+                          _item['due_date'])),
                   _row('Brief', _item['description']?.toString() ?? '-'),
-                  _row('Proof', proofUrl.trim().isEmpty ? 'Belum ada foto bukti' : 'Foto bukti tersedia'),
+                  _row(
+                      'Proof',
+                      proofUrl.trim().isEmpty
+                          ? 'Belum ada foto bukti'
+                          : 'Foto bukti tersedia'),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _linkController,
-                    decoration: const InputDecoration(labelText: 'Link konten', border: OutlineInputBorder(), prefixIcon: Icon(Icons.link_outlined)),
+                    decoration: const InputDecoration(
+                        labelText: 'Link konten',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.link_outlined)),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _noteController,
                     maxLines: 3,
-                    decoration: const InputDecoration(labelText: 'Catatan', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                        labelText: 'Catatan', border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     value: _statusOptions().contains(status) ? status : null,
-                    decoration: const InputDecoration(labelText: 'Update status', border: OutlineInputBorder()),
-                    items: _statusOptions().map((item) => DropdownMenuItem(value: item, child: Text(_label(item)))).toList(),
+                    decoration: const InputDecoration(
+                        labelText: 'Update status',
+                        border: OutlineInputBorder()),
+                    items: _statusOptions()
+                        .map((item) => DropdownMenuItem(
+                            value: item, child: Text(_label(item))))
+                        .toList(),
                     onChanged: (value) {
                       if (value != null) _updateStatus(value);
                     },
@@ -687,7 +852,10 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
-                    child: FilledButton.icon(onPressed: _saveLinkAndNote, icon: const Icon(Icons.save_outlined), label: const Text('Simpan Link dan Catatan')),
+                    child: FilledButton.icon(
+                        onPressed: _saveLinkAndNote,
+                        icon: const Icon(Icons.save_outlined),
+                        label: const Text('Simpan Link dan Catatan')),
                   ),
                 ],
               ),
@@ -695,7 +863,8 @@ class _ContentDetailPageState extends State<ContentDetailPage> {
             const SizedBox(height: 14),
             EvidenceCameraField(
               label: 'Bukti Foto Pekerjaan Konten',
-              helperText: 'Foto bebas lokasi. GPS, tanggal, dan jam tetap tercatat otomatis.',
+              helperText:
+                  'Foto bebas lokasi. GPS, tanggal, dan jam tetap tercatat otomatis.',
               moduleName: 'content_tasks',
               purpose: 'content_proof',
               referenceId: _item['content_task_id']?.toString(),

@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-product-pull-shopee-item-parser-v32-2026-06-09";
+const FUNCTION_VERSION = "marketplace-product-pull-cursor-v36-2026-06-18";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -13,8 +13,13 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-    try {
-      if (req.method !== "POST") {
+  let tenantId = "unknown";
+  let marketplaceAccountId = "unknown";
+  let account: any = null;
+  let body: any = {};
+
+  try {
+    if (req.method !== "POST") {
       return json({ ok: false, message: "Method not allowed" }, 405);
     }
 
@@ -24,32 +29,54 @@ Deno.serve(async (req) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
-    if (!bearer) return json({ ok: false, message: "Missing authorization header" }, 401);
+    body = await safeJson(req);
+    const configuredCronSecret = envCronSecret();
+    const incomingCronSecret = requestCronSecret(req, body);
+    const isCronRequest = await verifyMarketplaceCronSecret(admin, incomingCronSecret)
+      || (configuredCronSecret.length > 0 && incomingCronSecret === configuredCronSecret);
 
-    const { data: userData, error: userError } = await admin.auth.getUser(bearer);
-    if (userError || !userData?.user) {
-      return json({ ok: false, message: "Invalid user session" }, 401);
+    let profile: any = null;
+
+    if (isCronRequest) {
+      profile = {
+        user_id: "00000000-0000-0000-0000-000000000000",
+        tenant_id: text(body.tenant_id),
+        role_id: "super_admin",
+        status: "active",
+      };
+    } else {
+      const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+      if (!bearer) return json({ ok: false, message: "Missing authorization header" }, 401);
+
+      const { data: userData, error: userError } = await admin.auth.getUser(bearer);
+      if (userError || !userData?.user) {
+        return json({ ok: false, message: "Invalid user session" }, 401);
+      }
+
+      const { data: loadedProfile, error: profileError } = await admin
+        .from("users")
+        .select("user_id, tenant_id, role_id, status")
+        .eq("user_id", userData.user.id)
+        .maybeSingle();
+
+      if (profileError || !loadedProfile) {
+        return json({ ok: false, message: profileError?.message || "User profile not found" }, 403);
+      }
+
+      if (loadedProfile.status !== "active") {
+        return json({ ok: false, message: "User is not active" }, 403);
+      }
+      profile = loadedProfile;
     }
 
-    const { data: profile, error: profileError } = await admin
-      .from("users")
-      .select("user_id, tenant_id, role_id, status")
-      .eq("user_id", userData.user.id)
-      .maybeSingle();
-
-    if (profileError || !profile) {
-      return json({ ok: false, message: profileError?.message || "User profile not found" }, 403);
-    }
-
-    if (profile.status !== "active") {
-      return json({ ok: false, message: "User is not active" }, 403);
-    }
-
-    const body = await safeJson(req);
-    const tenantId = String(body.tenant_id || profile.tenant_id || "").trim();
-    const marketplaceAccountId = String(body.marketplace_account_id || "").trim();
-    const limit = clampInt(body.limit, 1, 100, 30);
+    tenantId = String(body.tenant_id || profile.tenant_id || "").trim();
+    marketplaceAccountId = String(body.marketplace_account_id || "").trim();
+    const limit = clampInt(body.limit ?? body.page_size, 1, 100, 10);
+    const cursor = body.cursor && typeof body.cursor === "object" && !Array.isArray(body.cursor)
+      ? body.cursor
+      : {};
+    const clearCache = body.clear_cache === true;
+    const maxProductsPerRun = clampInt(body.max_products_per_run ?? limit, 1, 20, Math.min(limit, 5));
 
     if (!tenantId) return json({ ok: false, message: "tenant_id is required" }, 400);
     if (!marketplaceAccountId) return json({ ok: false, message: "marketplace_account_id is required" }, 400);
@@ -66,15 +93,16 @@ Deno.serve(async (req) => {
       return json({ ok: false, message: "Demo account tidak boleh pull API marketplace production." }, 403);
     }
 
-    const { data: account, error: accountError } = await admin
+    const { data: loadedAccount, error: accountError } = await admin
       .from("marketplace_accounts")
       .select("marketplace_account_id, tenant_id, marketplace, app_key, shop_id, shop_cipher, shop_region, shop_name, store_alias, status, environment, default_warehouse_id, access_token_encrypted, refresh_token_encrypted, access_token_expired_at, refresh_token_expired_at, raw_shop_response")
       .eq("marketplace_account_id", marketplaceAccountId)
       .maybeSingle();
 
-    if (accountError || !account) {
+    if (accountError || !loadedAccount) {
       return json({ ok: false, message: accountError?.message || "Marketplace account not found" }, 404);
     }
+    account = loadedAccount;
 
     if (account.tenant_id !== tenantId) {
       return json({ ok: false, message: "Marketplace account tenant mismatch" }, 403);
@@ -85,24 +113,56 @@ Deno.serve(async (req) => {
     }
 
     if (account.marketplace === "tiktok_shop") {
-      const result = await pullTiktokProducts(admin, account, limit);
+      const result = await pullTiktokProducts(admin, account, { limit, cursor, clearCache, maxProductsPerRun });
       return json(result);
     }
 
     if (account.marketplace === "shopee") {
-      const result = await pullShopeeProducts(admin, account, limit);
+      const result = await pullShopeeProducts(admin, account, { limit, cursor, clearCache, maxProductsPerRun });
       return json(result);
     }
 
-    return json({ ok: false, message: `Marketplace ${account.marketplace} belum didukung.` }, 400);
+    return json({ ok: false, message: `Marketplace ${account.marketplace} belum dig.` }, 400);
   } catch (err) {
-    const message = String(err);
-    const status = message.includes("TikTok API") || message.includes("PageSize") || message.includes("shop_cipher") ? 400 : 500;
-    return json({ ok: false, message }, status);
+    const message = String(err.message || err);
+    console.error("Product pull error caught:", message);
+
+    let errorCode = "UNKNOWN_ERROR";
+    let httpStatus = 500;
+
+    if (message.includes("is not configured") || message.includes("Missing env") || message.includes("kosong")) {
+      errorCode = "MISSING_CONFIGURATION";
+      httpStatus = 400;
+    } else if (message.includes("belum dig") || message.includes("not supported")) {
+      errorCode = "UNSUPPORTED_MARKETPLACE";
+      httpStatus = 400;
+    } else if (message.includes("decrypt") || message.includes("terenkripsi") || message.includes("decryption")) {
+      errorCode = "DECRYPTION_ERROR";
+      httpStatus = 400;
+    } else if (message.includes("expired") || message.includes("token") || message.includes("re-authorize") || message.includes("reauth")) {
+      errorCode = "AUTH_ERROR";
+      httpStatus = 400;
+    }
+
+    return json({
+      ok: false,
+      error_code: errorCode,
+      message: message,
+      marketplace: account?.marketplace || body?.marketplace || "unknown",
+      marketplace_account_id: marketplaceAccountId || null,
+      tenant_id: tenantId || null,
+      api_status: null,
+      api_code: null
+    }, httpStatus);
   }
 });
 
-async function pullTiktokProducts(admin: any, account: any, limit: number) {
+async function pullTiktokProducts(admin: any, account: any, options: { limit: number; cursor: any; clearCache: boolean; maxProductsPerRun: number }) {
+  const limit = options.limit;
+  const cursor = options.cursor || {};
+  const clearCache = options.clearCache === true;
+  const maxProductsPerRun = Math.max(1, Math.min(options.maxProductsPerRun || limit, limit));
+
   const tokenBundle = await refreshTikTokAccessTokenIfNeeded(admin, account);
   account = tokenBundle.account;
   const appKey = Deno.env.get("TIKTOK_APP_KEY")?.trim() || account.app_key;
@@ -167,10 +227,12 @@ async function pullTiktokProducts(admin: any, account: any, limit: number) {
   const resolvedWarehouseId = warehouseResult.warehouse_id;
 
   const baseQuery: Record<string, string> = {
-    page_size: String(limit),
+    page_size: String(Math.max(1, Math.min(limit, maxProductsPerRun))),
     version: "202309",
   };
   if (shopId) baseQuery.shop_id = shopId;
+  const tiktokPageToken = text(cursor.page_token) || text(cursor.pageToken) || text(cursor.next_page_token);
+  if (tiktokPageToken) baseQuery.page_token = tiktokPageToken;
 
   let searchJson: any = null;
   let firstError: unknown = null;
@@ -200,7 +262,7 @@ async function pullTiktokProducts(admin: any, account: any, limit: number) {
         accessToken,
         shopCipher,
         query: {
-          page_size: String(limit),
+          page_size: String(Math.max(1, Math.min(limit, maxProductsPerRun))),
         },
         body: {},
       });
@@ -234,14 +296,14 @@ async function pullTiktokProducts(admin: any, account: any, limit: number) {
   }
 
   const pulledProducts = collectProducts(searchJson);
-  const productList = pulledProducts.filter(isActiveMarketplaceProductRecord).slice(0, limit);
+  const productList = pulledProducts.filter(isActiveMarketplaceProductRecord).slice(0, maxProductsPerRun);
   let productCount = 0;
   let variantCount = 0;
   let skippedInactiveProducts = Math.max(0, pulledProducts.length - productList.length);
   let skippedInactiveVariants = 0;
   const errors: string[] = [];
 
-  if (pulledProducts.length > 0) {
+  if (clearCache && pulledProducts.length > 0) {
     await clearProductSnapshotCache(admin, account);
   }
 
@@ -319,9 +381,15 @@ async function pullTiktokProducts(admin: any, account: any, limit: number) {
     await cacheWarehouseIdForMappedVariants(admin, account, resolvedWarehouseId);
   }
 
+  const nextPageToken = tiktokNextPageToken(searchJson);
+  const hasMore = Boolean(nextPageToken);
+  const nextCursor = nextPageToken ? { page_token: nextPageToken } : null;
+
   return {
     ok: true,
     marketplace: "tiktok_shop",
+    has_more: hasMore,
+    next_cursor: nextCursor,
     products: productCount,
     variants: variantCount,
     skipped_inactive_products: skippedInactiveProducts,
@@ -336,48 +404,47 @@ async function pullTiktokProducts(admin: any, account: any, limit: number) {
   };
 }
 
-async function pullShopeeProducts(admin: any, account: any, limit: number) {
+async function pullShopeeProducts(admin: any, account: any, options: { limit: number; cursor: any; clearCache: boolean; maxProductsPerRun: number }) {
   const { account: activeAccount, accessToken } = await refreshShopeeAccessTokenIfNeeded(admin, account);
-  const pageSize = Math.min(50, Math.max(1, limit));
+  const limit = options.limit;
+  const cursor = options.cursor || {};
+  const clearCache = options.clearCache === true;
+  const maxProductsPerRun = Math.max(1, Math.min(options.maxProductsPerRun || limit, limit));
+  const pageSize = Math.min(50, Math.max(1, Math.min(limit, maxProductsPerRun)));
   const itemIds: string[] = [];
   const errors: string[] = [];
-  let offset = 0;
-  let pages = 0;
+  const rawOffset = Number(cursor.offset ?? cursor.next_offset ?? 0);
+  const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+  let nextOffset = offset;
+  let hasMore = false;
 
-  while (itemIds.length < limit && pages < 10) {
-    pages += 1;
-    try {
-      const listJson = await shopeeRequest({
-        method: "GET",
-        account: activeAccount,
-        accessToken,
-        path: "/api/v2/product/get_item_list",
-        query: {
-          offset,
-          page_size: Math.min(pageSize, limit - itemIds.length),
-          item_status: "NORMAL",
-        },
-      });
-      const list = collectShopeeItemList(listJson);
-      if (list.length === 0) {
-        const listData = (listJson?.response ?? listJson?.data ?? listJson) || {};
-        errors.push(`Shopee item list kosong. response_keys=${Object.keys(listData).slice(0, 12).join(",")}; total_count=${text(listData.total_count)}; has_next_page=${text(listData.has_next_page)}`);
-      }
-      for (const item of list) {
-        const id = text(item.item_id) || text(item.id);
-        if (id && !itemIds.includes(id)) itemIds.push(id);
-        if (itemIds.length >= limit) break;
-      }
-      const nextOffset = Number((listJson?.response ?? listJson)?.next_offset ?? offset + list.length);
-      if (!Number.isFinite(nextOffset) || nextOffset <= offset || list.length === 0 || (listJson?.response?.has_next_page === false)) break;
-      offset = nextOffset;
-    } catch (err) {
-      errors.push(`Get Shopee item list gagal: ${String(err)}`);
-      break;
+  try {
+    const listJson = await shopeeRequest({
+      method: "GET",
+      account: activeAccount,
+      accessToken,
+      path: "/api/v2/product/get_item_list",
+      query: { offset, page_size: pageSize, item_status: "NORMAL" },
+    });
+    const list = collectShopeeItemList(listJson);
+    if (list.length === 0) {
+      const listData = (listJson?.response ?? listJson?.data ?? listJson) || {};
+      errors.push(`Shopee item list kosong. response_keys=${Object.keys(listData).slice(0, 12).join(",")}; total_count=${text(listData.total_count)}; has_next_page=${text(listData.has_next_page)}`);
     }
+    for (const item of list) {
+      const id = text(item.item_id) || text(item.id);
+      if (id && !itemIds.includes(id)) itemIds.push(id);
+      if (itemIds.length >= maxProductsPerRun) break;
+    }
+    const responseData = listJson?.response ?? listJson?.data ?? listJson ?? {};
+    const parsedNextOffset = Number(responseData.next_offset ?? offset + list.length);
+    nextOffset = Number.isFinite(parsedNextOffset) && parsedNextOffset > offset ? parsedNextOffset : offset + list.length;
+    hasMore = responseData.has_next_page === true && nextOffset > offset;
+  } catch (err) {
+    errors.push(`Get Shopee item list gagal: ${String(err)}`);
   }
 
-  if (itemIds.length > 0) {
+  if (clearCache && itemIds.length > 0) {
     await clearProductSnapshotCache(admin, activeAccount);
   }
 
@@ -388,32 +455,21 @@ async function pullShopeeProducts(admin: any, account: any, limit: number) {
 
   for (const itemId of itemIds) {
     let detail: any = null;
-    try {
-      detail = await fetchShopeeItemBaseInfo({ account: activeAccount, accessToken, itemId });
-    } catch (err) {
-      errors.push(`Get Shopee item ${itemId} gagal: ${String(err)}`);
-    }
+    try { detail = await fetchShopeeItemBaseInfo({ account: activeAccount, accessToken, itemId }); }
+    catch (err) { errors.push(`Get Shopee item ${itemId} gagal: ${String(err)}`); }
 
     const product = normalizeProduct(detail, { item_id: itemId }, itemId);
-    if (!isActiveMarketplaceProductRecord(product.raw)) {
-      skippedInactiveProducts += 1;
-      continue;
-    }
-
+    if (!isActiveMarketplaceProductRecord(product.raw)) { skippedInactiveProducts += 1; continue; }
     await upsertProductSnapshot(admin, activeAccount, product);
     productCount += 1;
 
     let modelJson: any = null;
-    try {
-      modelJson = await fetchShopeeModelList({ account: activeAccount, accessToken, itemId });
-    } catch (err) {
-      errors.push(`Get Shopee model ${itemId} gagal: ${String(err)}`);
-    }
+    try { modelJson = await fetchShopeeModelList({ account: activeAccount, accessToken, itemId }); }
+    catch (err) { errors.push(`Get Shopee model ${itemId} gagal: ${String(err)}`); }
 
     const variants = normalizeShopeeVariants(modelJson, product);
     const activeVariants = variants.filter(isActiveMarketplaceVariantRecord);
     skippedInactiveVariants += Math.max(0, variants.length - activeVariants.length);
-
     if (variants.length > 0 && activeVariants.length === 0) continue;
 
     if (variants.length === 0) {
@@ -434,20 +490,13 @@ async function pullShopeeProducts(admin: any, account: any, limit: number) {
       variantCount += 1;
       continue;
     }
-
-    for (const variant of activeVariants) {
-      await upsertVariantSnapshot(admin, activeAccount, variant);
-      variantCount += 1;
-    }
+    for (const variant of activeVariants) { await upsertVariantSnapshot(admin, activeAccount, variant); variantCount += 1; }
   }
 
-  await admin
-    .from("marketplace_accounts")
-    .update({
-      last_error: errors.length > 0 ? errors.slice(0, 3).join(" | ") : null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("marketplace_account_id", activeAccount.marketplace_account_id);
+  await admin.from("marketplace_accounts").update({
+    last_error: errors.length > 0 ? errors.slice(0, 3).join(" | ") : null,
+    updated_at: new Date().toISOString(),
+  }).eq("marketplace_account_id", activeAccount.marketplace_account_id);
 
   return {
     ok: true,
@@ -458,10 +507,23 @@ async function pullShopeeProducts(admin: any, account: any, limit: number) {
     skipped_inactive_variants: skippedInactiveVariants,
     warning_count: errors.length,
     warnings: errors.slice(0, 5),
-    message: errors.length > 0
-      ? `Pull produk Shopee selesai dengan ${errors.length} warning.`
-      : "Pull produk Shopee aktif selesai.",
+    has_more: hasMore,
+    next_cursor: hasMore ? { offset: nextOffset } : null,
+    message: errors.length > 0 ? `Pull produk Shopee selesai dengan ${errors.length} warning.` : `Pull produk Shopee aktif selesai. Offset berikutnya: ${hasMore ? nextOffset : "selesai"}.`,
   };
+}
+
+
+
+function tiktokNextPageToken(jsonRes: any): string | null {
+  const response = jsonRes?.response ?? jsonRes;
+  const data = response?.data ?? response;
+  return text(data?.next_page_token)
+    || text(data?.nextPageToken)
+    || text(response?.next_page_token)
+    || text(response?.nextPageToken)
+    || text(jsonRes?.next_page_token)
+    || text(jsonRes?.nextPageToken);
 }
 
 
@@ -1019,8 +1081,33 @@ async function shopeeRequest(args: {
     body: args.method === "POST" ? JSON.stringify(args.body || {}) : undefined,
   });
   const payload = await res.json().catch(() => null);
-  if (!res.ok || !payload) throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(payload)}`);
-  if (payload.error) throw new Error(`Shopee API error: ${JSON.stringify(maskTokenObject(payload))}`);
+
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(`Shopee API Rate Limit (HTTP 429) pada ${args.path}`);
+    }
+    if (res.status >= 500) {
+      throw new Error(`Shopee API Server Error (HTTP ${res.status}) pada ${args.path}: ${text(payload ? JSON.stringify(maskTokenObject(payload)) : res.statusText).slice(0, 200)}`);
+    }
+    throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(maskTokenObject(payload))}`);
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Shopee API Abnormal Response (non-JSON payload) pada ${args.path}`);
+  }
+
+  if (payload.error) {
+    const errCode = text(payload.error).toLowerCase();
+    const errMsg = text(payload.message || payload.msg || payload.error_description || payload.error_msg);
+    if (errCode.includes("rate_limit") || errCode.includes("frequency") || errCode.includes("limit_exceeded")) {
+      throw new Error(`Shopee API Rate Limit [${payload.error}]: ${errMsg || "Frequency limit reached."}`);
+    }
+    if (errCode.includes("auth") || errCode.includes("permission") || errCode.includes("token") || errCode.includes("sign") || errCode.includes("shop_not_found") || errCode.includes("user_not_found") || errCode.includes("banned")) {
+      throw new Error(`Shopee API Auth Error [${payload.error}]: ${errMsg || "Authorization invalid or expired."}`);
+    }
+    throw new Error(`Shopee API error [${payload.error}]: ${errMsg || JSON.stringify(maskTokenObject(payload))}`);
+  }
+
   return payload;
 }
 
@@ -1848,4 +1935,41 @@ function json(data: unknown, status = 200): Response {
       "cache-control": "no-store",
     },
   });
+}
+
+function envCronSecret(): string {
+  return String(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
+    "",
+  ).trim();
+}
+
+function requestCronSecret(req: Request, body?: any): string {
+  return String(
+    req.headers.get("x-marketplace-cron-secret") ||
+    req.headers.get("x-stock-sync-cron-secret") ||
+    body?.cron_secret ||
+    body?.marketplace_cron_secret ||
+    body?.x_marketplace_cron_secret ||
+    body?.secret ||
+    "",
+  ).trim();
+}
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<boolean> {
+  if (!incomingSecret) return false;
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) return true;
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return false;
 }

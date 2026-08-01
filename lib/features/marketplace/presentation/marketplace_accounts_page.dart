@@ -1,4 +1,5 @@
 // ignore_for_file: unused_element
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -9,6 +10,7 @@ import '../../../core/constants/marketplace_providers.dart';
 import '../../../models/app_user.dart';
 import '../models/marketplace_account_public.dart';
 import '../services/marketplace_service.dart';
+import 'marketplace_historical_import_page.dart';
 
 class MarketplaceAccountsPage extends StatefulWidget {
   final AppUser currentUser;
@@ -267,6 +269,24 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
     }
   }
 
+  Future<void> _openHistoricalImport() async {
+    if (_isDemoSuperAdmin) {
+      _showDemoBlocked();
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MarketplaceHistoricalImportPage(
+          currentUser: widget.currentUser,
+          accounts: _accounts,
+        ),
+      ),
+    );
+
+    if (mounted) await _loadAccounts();
+  }
+
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -498,9 +518,10 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppUi.orange.withOpacity(0.12),
-                borderRadius: BorderRadius.zero,
-                border: Border.all(color: AppUi.orange.withOpacity(0.36)),
+                color: AppUi.orange.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                    color: AppUi.orange.withOpacity(0.22), width: 0.8),
               ),
               child: const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -557,24 +578,13 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Color.alphaBlend(
-            (isTesting
-                    ? Theme.of(context).colorScheme.secondary
-                    : Theme.of(context).colorScheme.primary)
-                .withOpacity(.12),
-            (Theme.of(context).cardColor),
-          ),
-          borderRadius: BorderRadius.zero,
-          border:
-              Border.all(color: (Theme.of(context).dividerColor), width: 1.4),
-          boxShadow: [
-            BoxShadow(
-              color: (Theme.of(context).dividerColor).withOpacity(.12),
-              blurRadius: 0,
-              offset: const Offset(3, 3),
-            ),
-          ],
+        decoration: AppUi.tintedDecoration(
+          context,
+          color: isTesting
+              ? Theme.of(context).colorScheme.secondary
+              : Theme.of(context).colorScheme.primary,
+          radius: 16,
+          shadow: true,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -588,9 +598,11 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                     color: isTesting
                         ? Theme.of(context).colorScheme.secondary
                         : Theme.of(context).colorScheme.primary,
-                    borderRadius: BorderRadius.zero,
+                    borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                        color: (Theme.of(context).dividerColor), width: 1.2),
+                      color: Colors.white.withOpacity(0.20),
+                      width: 0.8,
+                    ),
                   ),
                   child: Icon(
                     isTesting
@@ -608,7 +620,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                       Text(
                         _generatedLinkTitle ?? 'Link otorisasi siap',
                         style: TextStyle(
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w800,
                           color: (Theme.of(context).textTheme).bodyLarge?.color,
                         ),
                       ),
@@ -618,7 +630,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                             : 'Mode Production / Real Account',
                         style: TextStyle(
                           fontSize: 12,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w600,
                           color:
                               (Theme.of(context).textTheme).bodyMedium?.color,
                         ),
@@ -663,9 +675,11 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.error.withOpacity(.14),
-                  borderRadius: BorderRadius.zero,
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: (Theme.of(context).dividerColor).withOpacity(.22),
+                    color:
+                        Theme.of(context).colorScheme.error.withOpacity(0.22),
+                    width: 0.8,
                   ),
                 ),
                 child: Text(
@@ -683,9 +697,13 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                 decoration: BoxDecoration(
                   color:
                       Theme.of(context).colorScheme.secondary.withOpacity(.18),
-                  borderRadius: BorderRadius.zero,
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: (Theme.of(context).dividerColor).withOpacity(.22),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .secondary
+                        .withOpacity(0.22),
+                    width: 0.8,
                   ),
                 ),
                 child: Text(
@@ -828,9 +846,9 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppUi.orange.withOpacity(0.14),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: AppUi.orange.withOpacity(0.42)),
+        color: AppUi.orange.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppUi.orange.withOpacity(0.22), width: 0.8),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -859,18 +877,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 2.5),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black,
-            blurRadius: 0,
-            offset: Offset(5, 5),
-          ),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
@@ -883,18 +890,14 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                   width: 54,
                   height: 54,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.zero,
+                    borderRadius: BorderRadius.circular(16),
                     color: accent,
                     border: Border.all(
-                        color: (Theme.of(context).dividerColor), width: 1.3),
-                    boxShadow: [
-                      BoxShadow(
-                        color:
-                            (Theme.of(context).dividerColor).withOpacity(0.16),
-                        blurRadius: 0,
-                        offset: const Offset(3, 3),
-                      ),
-                    ],
+                      color: Colors.white.withOpacity(0.18),
+                      width: 0.8,
+                    ),
+                    boxShadow:
+                        AppTheme.softShadow(Theme.of(context).brightness),
                   ),
                   child: Icon(_marketplaceIcon(account),
                       color: Colors.white, size: 30),
@@ -910,7 +913,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: (Theme.of(context).textTheme).bodyLarge?.color,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w800,
                           fontSize: 19,
                           height: 1.15,
                         ),
@@ -947,18 +950,19 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: AppUi.statusColor(account.status).withOpacity(0.16),
-                    borderRadius: BorderRadius.zero,
+                    color: AppUi.statusColor(account.status).withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(999),
                     border: Border.all(
-                        color: AppUi.statusColor(account.status)
-                            .withOpacity(0.46)),
+                        color:
+                            AppUi.statusColor(account.status).withOpacity(0.22),
+                        width: 0.8),
                   ),
                   child: Text(
-                    account.status.toUpperCase(),
+                    account.status,
                     style: TextStyle(
-                        color: (Theme.of(context).textTheme).bodyLarge?.color,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 11,
+                        color: AppUi.statusColor(account.status),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
                         letterSpacing: 0),
                   ),
                 ),
@@ -969,10 +973,21 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.76),
-                borderRadius: BorderRadius.zero,
+                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(
+                      Theme.of(context).brightness == Brightness.dark
+                          ? 0.24
+                          : 0.48,
+                    ),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                    color: (Theme.of(context).dividerColor), width: 1.2),
+                  color:
+                      Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                            Theme.of(context).brightness == Brightness.dark
+                                ? 0.28
+                                : 0.44,
+                          ),
+                  width: 0.8,
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1000,7 +1015,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                               color: (Theme.of(context).textTheme)
                                   .bodyLarge
                                   ?.color,
-                              fontWeight: FontWeight.w900),
+                              fontWeight: FontWeight.w800),
                         ),
                       ),
                     ],
@@ -1050,8 +1065,9 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: AppUi.red.withOpacity(0.12),
-                  borderRadius: BorderRadius.zero,
-                  border: Border.all(color: AppUi.red.withOpacity(0.38)),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: AppUi.red.withOpacity(0.22), width: 0.8),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1164,20 +1180,11 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Color.alphaBlend(
-          accent.withOpacity(0.10),
-          Theme.of(context).cardColor,
-        ),
-        borderRadius: BorderRadius.zero,
-        border: Border.all(color: accent.withOpacity(0.48), width: 1.4),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).dividerColor.withOpacity(0.12),
-            blurRadius: 0,
-            offset: const Offset(3, 3),
-          ),
-        ],
+      decoration: AppUi.tintedDecoration(
+        context,
+        color: accent,
+        radius: 16,
+        shadow: true,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1190,9 +1197,11 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                 height: 38,
                 decoration: BoxDecoration(
                   color: accent,
-                  borderRadius: BorderRadius.zero,
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                      color: Theme.of(context).dividerColor, width: 1.2),
+                    color: Colors.white.withOpacity(0.18),
+                    width: 0.8,
+                  ),
                 ),
                 child: Icon(
                   _bootstrapSeverityIcon(status.severity),
@@ -1209,7 +1218,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                       status.title,
                       style: TextStyle(
                         color: Theme.of(context).textTheme.bodyLarge?.color,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         fontSize: 15,
                       ),
                     ),
@@ -1229,11 +1238,12 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
           ),
           const SizedBox(height: 12),
           ClipRRect(
-            borderRadius: BorderRadius.zero,
+            borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
               value: progress.isNaN ? null : progress,
               minHeight: 8,
-              backgroundColor: Theme.of(context).dividerColor.withOpacity(.18),
+              backgroundColor:
+                  Theme.of(context).colorScheme.outlineVariant.withOpacity(.24),
               color: accent,
             ),
           ),
@@ -1274,10 +1284,12 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withOpacity(0.74),
-        borderRadius: BorderRadius.zero,
-        border:
-            Border.all(color: Theme.of(context).dividerColor.withOpacity(.22)),
+        color: Theme.of(context).cardColor.withOpacity(0.82),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color:
+                Theme.of(context).colorScheme.outlineVariant.withOpacity(.28),
+            width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1294,7 +1306,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Theme.of(context).textTheme.bodyLarge?.color,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                     fontSize: 12.5,
                   ),
                 ),
@@ -1304,9 +1316,9 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                 account.bootstrapStatus.toUpperCase(),
                 style: TextStyle(
                   color: accent,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 10,
-                  letterSpacing: .4,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                  letterSpacing: 0,
                 ),
               ),
             ],
@@ -1315,7 +1327,8 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
           LinearProgressIndicator(
             value: value.isNaN ? null : value,
             minHeight: 6,
-            backgroundColor: Theme.of(context).dividerColor.withOpacity(.16),
+            backgroundColor:
+                Theme.of(context).colorScheme.outlineVariant.withOpacity(.22),
             color: accent,
           ),
           const SizedBox(height: 7),
@@ -1348,21 +1361,23 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withOpacity(.72),
-        borderRadius: BorderRadius.zero,
-        border:
-            Border.all(color: Theme.of(context).dividerColor.withOpacity(.22)),
+        color: Theme.of(context).cardColor.withOpacity(.82),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color:
+                Theme.of(context).colorScheme.outlineVariant.withOpacity(.28),
+            width: 0.8),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            label.toUpperCase(),
+            label,
             style: TextStyle(
               color: Theme.of(context).textTheme.bodySmall?.color,
-              fontWeight: FontWeight.w900,
-              fontSize: 9.5,
-              letterSpacing: .3,
+              fontWeight: FontWeight.w600,
+              fontSize: 11,
+              letterSpacing: 0,
             ),
           ),
           const SizedBox(height: 2),
@@ -1370,7 +1385,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
             value,
             style: TextStyle(
               color: Theme.of(context).textTheme.bodyLarge?.color,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
               fontSize: 12,
             ),
           ),
@@ -1478,6 +1493,12 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
       appBar: AppBar(
         title: Text('Akun Marketplace'),
         actions: [
+          if (kIsWeb)
+            IconButton(
+              onPressed: _openHistoricalImport,
+              icon: Icon(Icons.upload_file_outlined),
+              tooltip: 'Import Historical Data',
+            ),
           IconButton(onPressed: _loadAccounts, icon: Icon(Icons.refresh)),
         ],
       ),
@@ -1498,9 +1519,13 @@ class _GlassPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
         color: (Theme.of(context).cardColor).withOpacity(0.78),
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.circular(999),
         border: Border.all(
-            color: (Theme.of(context).dividerColor).withOpacity(0.24)),
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.44,
+              ),
+          width: 0.8,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1545,9 +1570,13 @@ class _AccountInfoTile extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: (Theme.of(context).cardColor),
-          borderRadius: BorderRadius.zero,
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-              color: (Theme.of(context).dividerColor).withOpacity(0.22)),
+            color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                  Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.44,
+                ),
+            width: 0.8,
+          ),
         ),
         child: Row(
           children: [
@@ -1556,7 +1585,7 @@ class _AccountInfoTile extends StatelessWidget {
               height: 34,
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.primary.withOpacity(0.14),
-                borderRadius: BorderRadius.zero,
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon,
                   color: Theme.of(context).colorScheme.primary, size: 18),
@@ -1567,13 +1596,13 @@ class _AccountInfoTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    label.toUpperCase(),
+                    label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                         color: (Theme.of(context).textTheme).bodySmall?.color,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
                         letterSpacing: 0),
                   ),
                   const SizedBox(height: 4),
@@ -1583,7 +1612,7 @@ class _AccountInfoTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                         color: (Theme.of(context).textTheme).bodyLarge?.color,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w800,
                         fontSize: 13),
                   ),
                 ],

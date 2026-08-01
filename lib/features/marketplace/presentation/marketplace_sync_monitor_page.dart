@@ -590,73 +590,77 @@ class _MarketplaceSyncMonitorPageState
 
   Widget _logCard(MarketplaceSyncLogItem item) {
     final color = _statusColor(item.syncStatus);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _openDetail(item),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${item.localSku} · ${item.localProductName}',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: NiceCard(
+        padding: EdgeInsets.zero,
+        child: InkWell(
+          borderRadius: AppTheme.radiusMd,
+          onTap: () => _openDetail(item),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${item.localSku} · ${item.localProductName}',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
                     ),
-                  ),
-                  _statusBadge(item.statusLabel, color),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text('${item.marketplaceLabel} · ${item.safeAccountName}'),
-              const SizedBox(height: 4),
-              Text(
-                  '${item.marketplaceProductName} · ${item.marketplaceVariantText}'),
-              const SizedBox(height: 4),
-              Text(
-                  'Qty: ${item.stockText} · Attempt: ${item.attemptCount} · ${item.finishedText}'),
-              if (item.isFailed) ...[
-                const SizedBox(height: 6),
+                    _statusBadge(item.statusLabel, color),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text('${item.marketplaceLabel} · ${item.safeAccountName}'),
+                const SizedBox(height: 4),
                 Text(
-                  item.visibleError,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    '${item.marketplaceProductName} · ${item.marketplaceVariantText}'),
+                const SizedBox(height: 4),
+                Text(
+                    'Qty: ${item.stockText} · Attempt: ${item.attemptCount} · ${item.finishedText}'),
+                if (item.isFailed) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    item.visibleError,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => _openDetail(item),
+                      icon: const Icon(Icons.info_outline_rounded),
+                      label: const Text('Detail'),
+                    ),
+                    const Spacer(),
+                    if (item.canRetry)
+                      FilledButton.tonalIcon(
+                        onPressed: _isRetrying ? null : () => _retryOne(item),
+                        icon: const Icon(Icons.replay_rounded),
+                        label: const Text('Coba Lagi'),
+                      ),
+                    if (item.canHapus) ...[
+                      const SizedBox(width: 6),
+                      IconButton(
+                        onPressed: _isDeleting ? null : () => _deleteOne(item),
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        tooltip: 'Hapus log',
+                      ),
+                    ],
+                  ],
                 ),
               ],
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: () => _openDetail(item),
-                    icon: const Icon(Icons.info_outline_rounded),
-                    label: const Text('Detail'),
-                  ),
-                  const Spacer(),
-                  if (item.canRetry)
-                    FilledButton.tonalIcon(
-                      onPressed: _isRetrying ? null : () => _retryOne(item),
-                      icon: const Icon(Icons.replay_rounded),
-                      label: const Text('Coba Lagi'),
-                    ),
-                  if (item.canHapus) ...[
-                    const SizedBox(width: 6),
-                    IconButton(
-                      onPressed: _isDeleting ? null : () => _deleteOne(item),
-                      icon: const Icon(Icons.delete_outline_rounded),
-                      tooltip: 'Hapus log',
-                    ),
-                  ],
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -754,7 +758,12 @@ class _MarketplaceSyncMonitorPageState
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.44,
+              ),
+          width: 0.8,
+        ),
       ),
       child: const Text('Belum ada log sesuai filter.'),
     );

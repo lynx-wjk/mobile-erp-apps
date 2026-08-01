@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-const FUNCTION_VERSION = "marketplace-return-refund-pull-v5-cron-nonblocking-single-row-upsert-2026-05-19";
+const FUNCTION_VERSION = "marketplace-return-refund-pull";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -22,18 +22,10 @@ Deno.serve(async (req) => {
 
 
     const body = await safeJson(req);
-    const configuredCronSecret = String(
-      Deno.env.get("MARKETPLACE_CRON_SECRET") ||
-      Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
-      Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
-      ""
-    ).trim();
-    const incomingCronSecret = String(
-      req.headers.get("x-marketplace-cron-secret") ||
-      req.headers.get("x-stock-sync-cron-secret") ||
-      ""
-    ).trim();
-    const isCronRequest = configuredCronSecret.length > 0 && incomingCronSecret === configuredCronSecret;
+    const configuredCronSecret = envCronSecret();
+    const incomingCronSecret = requestCronSecret(req, body);
+    const isCronRequest = await verifyMarketplaceCronSecret(admin, incomingCronSecret)
+      || (configuredCronSecret.length > 0 && incomingCronSecret === configuredCronSecret);
 
     let profile: any = null;
 
@@ -879,8 +871,33 @@ async function shopeeRequest(args: {
     body: args.method === "POST" ? JSON.stringify(args.body || {}) : undefined,
   });
   const payload = await res.json().catch(() => null);
-  if (!res.ok || !payload) throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(payload)}`);
-  if (payload.error) throw new Error(`Shopee API error: ${JSON.stringify(maskTokenObject(payload))}`);
+
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(`Shopee API Rate Limit (HTTP 429) pada ${args.path}`);
+    }
+    if (res.status >= 500) {
+      throw new Error(`Shopee API Server Error (HTTP ${res.status}) pada ${args.path}: ${text(payload ? JSON.stringify(maskTokenObject(payload)) : res.statusText).slice(0, 200)}`);
+    }
+    throw new Error(`Shopee API HTTP ${res.status}: ${JSON.stringify(maskTokenObject(payload))}`);
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Shopee API Abnormal Response (non-JSON payload) pada ${args.path}`);
+  }
+
+  if (payload.error) {
+    const errCode = text(payload.error).toLowerCase();
+    const errMsg = text(payload.message || payload.msg || payload.error_description || payload.error_msg);
+    if (errCode.includes("rate_limit") || errCode.includes("frequency") || errCode.includes("limit_exceeded")) {
+      throw new Error(`Shopee API Rate Limit [${payload.error}]: ${errMsg || "Frequency limit reached."}`);
+    }
+    if (errCode.includes("auth") || errCode.includes("permission") || errCode.includes("token") || errCode.includes("sign") || errCode.includes("shop_not_found") || errCode.includes("user_not_found") || errCode.includes("banned")) {
+      throw new Error(`Shopee API Auth Error [${payload.error}]: ${errMsg || "Authorization invalid or expired."}`);
+    }
+    throw new Error(`Shopee API error [${payload.error}]: ${errMsg || JSON.stringify(maskTokenObject(payload))}`);
+  }
+
   return payload;
 }
 
@@ -1242,3 +1259,45 @@ function json(payload: unknown, status = 200) {
     headers: { ...corsHeaders, "content-type": "application/json" },
   });
 }
+
+function envCronSecret(): string {
+  return String(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
+    "",
+  ).trim();
+}
+
+function requestCronSecret(req: Request, body?: any, params?: any): string {
+  return String(
+    req.headers.get("x-marketplace-cron-secret") ||
+    req.headers.get("x-stock-sync-cron-secret") ||
+    params?.cron_secret ||
+    params?.marketplace_cron_secret ||
+    params?.x_marketplace_cron_secret ||
+    params?.secret ||
+    body?.cron_secret ||
+    body?.marketplace_cron_secret ||
+    body?.x_marketplace_cron_secret ||
+    body?.secret ||
+    "",
+  ).trim();
+}
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<boolean> {
+  if (!incomingSecret) return false;
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) return true;
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return false;
+}
+

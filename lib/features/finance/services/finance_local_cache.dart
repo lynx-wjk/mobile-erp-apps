@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class FinanceLocalCache {
-  static const String _prefix = 'finance_cache_live_20260528';
+  static const String _prefix = 'finance_cache_live_20260619_v29_scope';
   static const int defaultTtlDays = 90;
 
   static String _dateOnly(DateTime value) {
@@ -18,8 +18,12 @@ class FinanceLocalCache {
     required DateTime end,
     required String marketplace,
     required String accountId,
+    required String tenantId,
+    required String tab,
+    required int page,
+    required String cacheVersion,
   }) {
-    return '$_prefix:snapshot:${_dateOnly(start)}:${_dateOnly(end)}:$marketplace:$accountId';
+    return '$_prefix:snapshot:$tenantId:${_dateOnly(start)}:${_dateOnly(end)}:$marketplace:$accountId:$tab:$page:$cacheVersion';
   }
 
   static String skuDetailKey({
@@ -27,10 +31,27 @@ class FinanceLocalCache {
     required DateTime end,
     required String marketplace,
     required String accountId,
+    required String tenantId,
+    required String tab,
+    required int page,
+    required String cacheVersion,
     required String sku,
   }) {
     final safeSku = base64Url.encode(utf8.encode(sku.trim().toLowerCase()));
-    return '$_prefix:sku_detail:${_dateOnly(start)}:${_dateOnly(end)}:$marketplace:$accountId:$safeSku';
+    return '$_prefix:sku_detail:$tenantId:${_dateOnly(start)}:${_dateOnly(end)}:$marketplace:$accountId:$tab:$page:$cacheVersion:$safeSku';
+  }
+
+  static String skuPageKey({
+    required DateTime start,
+    required DateTime end,
+    required String marketplace,
+    required String accountId,
+    required String tenantId,
+    required String payoutFilter,
+    required int page,
+    required String cacheVersion,
+  }) {
+    return '$_prefix:sku_page:$tenantId:${_dateOnly(start)}:${_dateOnly(end)}:$marketplace:$accountId:$payoutFilter:$page:$cacheVersion';
   }
 
   static Future<Map<String, dynamic>?> readJson(String key,
@@ -109,8 +130,7 @@ class FinanceLocalCache {
         .toList();
     for (final key in keys) {
       if (!key.startsWith(_prefix)) {
-        // Jangan hapus cache finance versi lama. Patch sebelumnya sering ganti
-        // suffix key, sementara cache lama tetap berguna saat server timeout.
+        await prefs.remove(key);
         continue;
       }
       final raw = prefs.getString(key);

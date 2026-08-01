@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
 
 class AuditLogPage extends StatefulWidget {
@@ -15,7 +16,9 @@ class _AuditLogPageState extends State<AuditLogPage> {
 
   bool _isLoading = true;
   bool _isDemoSuperAdmin = false;
-  bool get _canDeleteAuditLog => !_isDemoSuperAdmin;
+  String _currentRoleId = '';
+  bool get _canDeleteAuditLog =>
+      !_isDemoSuperAdmin && AppRolePermissions.isSuperRoleId(_currentRoleId);
   String? _errorMessage;
   DateTime? _selectedDate;
   List<Map<String, dynamic>> _items = [];
@@ -43,10 +46,12 @@ class _AuditLogPageState extends State<AuditLogPage> {
           .maybeSingle();
 
       final role = profile?['role_id']?.toString().toLowerCase().trim() ?? '';
-      final username = profile?['username']?.toString().toLowerCase().trim() ?? '';
+      final username =
+          profile?['username']?.toString().toLowerCase().trim() ?? '';
       final email = profile?['email']?.toString().toLowerCase().trim() ?? '';
 
-      _isDemoSuperAdmin = role == 'demo_super_admin' ||
+      _currentRoleId = role;
+      _isDemoSuperAdmin = AppRolePermissions.isDemoSuperAdminId(role) ||
           profile?['is_demo_account'] == true ||
           username == 'demo_super_admin' ||
           email.contains('demo_super_admin');
@@ -55,11 +60,23 @@ class _AuditLogPageState extends State<AuditLogPage> {
     }
   }
 
+  int _currentPage = 1;
+  static const int _pageSize = 100;
+
+  int get _totalPages => (_items.length / _pageSize).ceil();
+
+  List<Map<String, dynamic>> get _paginatedItems {
+    final startIndex = (_currentPage - 1) * _pageSize;
+    if (startIndex >= _items.length) return [];
+    return _items.skip(startIndex).take(_pageSize).toList();
+  }
+
   Future<void> _loadData() async {
     if (mounted) {
       setState(() {
         _isLoading = true;
         _errorMessage = null;
+        _currentPage = 1;
       });
     }
 
@@ -90,7 +107,8 @@ class _AuditLogPageState extends State<AuditLogPage> {
     }
   }
 
-  String _firstText(Map<String, dynamic> item, List<String> keys, [String fallback = '-']) {
+  String _firstText(Map<String, dynamic> item, List<String> keys,
+      [String fallback = '-']) {
     for (final key in keys) {
       final value = AppUi.text(item[key], '');
       if (value.trim().isNotEmpty) return value;
@@ -112,13 +130,15 @@ class _AuditLogPageState extends State<AuditLogPage> {
 
   Future<void> _deleteOne(Map<String, dynamic> item) async {
     if (!_canDeleteAuditLog) {
-      AppUi.showSnack('Mode demo hanya bisa melihat audit log. Hapus log dikunci.');
+      AppUi.showSnack(
+          'Mode demo hanya bisa melihat audit log. Hapus log dikunci.');
       return;
     }
 
     final auditLogId = AppUi.text(item['audit_log_id'], '').trim();
     if (auditLogId.isEmpty) {
-      AppUi.showSnack('ID audit log tidak ditemukan. Refresh halaman lalu coba lagi.');
+      AppUi.showSnack(
+          'ID audit log tidak ditemukan. Refresh halaman lalu coba lagi.');
       return;
     }
 
@@ -158,6 +178,12 @@ class _AuditLogPageState extends State<AuditLogPage> {
   }
 
   Future<void> _clearAll() async {
+    if (!_canDeleteAuditLog) {
+      AppUi.showSnack(
+          'Mode demo hanya bisa melihat audit log. Hapus log dikunci.');
+      return;
+    }
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -212,7 +238,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
             Text(
               'Detail Riwayat Aktivitas',
               style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                   ),
             ),
             const SizedBox(height: 12),
@@ -222,7 +248,8 @@ class _AuditLogPageState extends State<AuditLogPage> {
                 children: [
                   _detailRow('Aktivitas', activity),
                   _detailRow('Modul', module),
-                  _detailRow('User', _firstText(item, ['user_name', 'nama_user'])),
+                  _detailRow(
+                      'User', _firstText(item, ['user_name', 'nama_user'])),
                   _detailRow('Email', _firstText(item, ['user_email'])),
                   _detailRow('Role', AppUi.text(item['role_id'])),
                   _detailRow('Waktu', AppUi.dateTime(item['created_at'])),
@@ -238,12 +265,14 @@ class _AuditLogPageState extends State<AuditLogPage> {
                 children: [
                   Text(
                     'Data Sebelum',
-                    style: Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
+                    style:
+                        Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
                   ),
                   const SizedBox(height: 8),
-                  SelectableText(_firstText(item, ['before_data', 'data_sebelum'])),
+                  SelectableText(
+                      _firstText(item, ['before_data', 'data_sebelum'])),
                 ],
               ),
             ),
@@ -254,12 +283,14 @@ class _AuditLogPageState extends State<AuditLogPage> {
                 children: [
                   Text(
                     'Data Sesudah',
-                    style: Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
+                    style:
+                        Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
                   ),
                   const SizedBox(height: 8),
-                  SelectableText(_firstText(item, ['after_data', 'data_sesudah'])),
+                  SelectableText(
+                      _firstText(item, ['after_data', 'data_sesudah'])),
                 ],
               ),
             ),
@@ -286,7 +317,8 @@ class _AuditLogPageState extends State<AuditLogPage> {
         children: [
           SizedBox(
             width: 110,
-            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+            child: Text(label,
+                style: const TextStyle(fontWeight: FontWeight.w800)),
           ),
           Expanded(child: SelectableText(value)),
         ],
@@ -296,7 +328,9 @@ class _AuditLogPageState extends State<AuditLogPage> {
 
   Widget _body() {
     if (_isLoading) return const LoadingState();
-    if (_errorMessage != null) return ErrorState(message: _errorMessage!, onRetry: _loadData);
+    if (_errorMessage != null) {
+      return ErrorState(message: _errorMessage!, onRetry: _loadData);
+    }
 
     return RefreshIndicator(
       onRefresh: _loadData,
@@ -306,10 +340,12 @@ class _AuditLogPageState extends State<AuditLogPage> {
           FuturisticHeader(
             icon: Icons.history_outlined,
             title: 'Riwayat Aktivitas',
-            subtitle: 'Jejak aktivitas sistem untuk kontrol internal dan pemeriksaan operasional.',
+            subtitle:
+                'Jejak aktivitas sistem untuk kontrol internal dan pemeriksaan operasional.',
             stats: [
               StatPill(label: 'Log tampil', value: _items.length.toString()),
-              if (_selectedDate != null) StatPill(label: 'Tanggal', value: AppUi.date(_selectedDate)),
+              if (_selectedDate != null)
+                StatPill(label: 'Tanggal', value: AppUi.date(_selectedDate)),
             ],
           ),
           const SizedBox(height: 14),
@@ -320,7 +356,9 @@ class _AuditLogPageState extends State<AuditLogPage> {
               OutlinedButton.icon(
                 onPressed: _pickDate,
                 icon: const Icon(Icons.date_range),
-                label: Text(_selectedDate == null ? 'Filter Hari' : AppUi.date(_selectedDate)),
+                label: Text(_selectedDate == null
+                    ? 'Filter Hari'
+                    : AppUi.date(_selectedDate)),
               ),
               if (_selectedDate != null)
                 OutlinedButton.icon(
@@ -334,33 +372,65 @@ class _AuditLogPageState extends State<AuditLogPage> {
               if (_canDeleteAuditLog)
                 FilledButton.icon(
                   onPressed: _clearAll,
-                icon: const Icon(Icons.delete_sweep_outlined),
-                label: const Text('Hapus Semua'),
-              ),
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                  label: const Text('Hapus Semua'),
+                ),
             ],
           ),
           const SizedBox(height: 14),
           if (_items.isEmpty)
             const EmptyState(
               title: 'Audit log kosong',
-              subtitle: 'Aktivitas modul akan otomatis tampil setelah user menambah, mengubah, atau menghapus data.',
+              subtitle:
+                  'Aktivitas modul akan otomatis tampil setelah user menambah, mengubah, atau menghapus data.',
             )
-          else
-            ..._items.map((item) {
+          else ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Menampilkan ${(_currentPage - 1) * _pageSize + 1} - ${(_currentPage * _pageSize).clamp(0, _items.length)} dari ${_items.length} log (Max 500)',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
+                        icon: const Icon(Icons.chevron_left),
+                        tooltip: 'Halaman Sebelumnya',
+                      ),
+                      Text('$_currentPage / ${_totalPages == 0 ? 1 : _totalPages}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      IconButton(
+                        onPressed: _currentPage < _totalPages ? () => setState(() => _currentPage++) : null,
+                        icon: const Icon(Icons.chevron_right),
+                        tooltip: 'Halaman Berikutnya',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            ..._paginatedItems.map((item) {
               final module = _firstText(item, ['module', 'modul']);
               final activity = _firstText(item, ['activity', 'aktivitas']);
               final user = _firstText(item, ['user_name', 'nama_user']);
               final email = _firstText(item, ['user_email'], '');
-              final initial = module.isEmpty ? '?' : module.substring(0, 1).toUpperCase();
+              final initial =
+                  module.isEmpty ? '?' : module.substring(0, 1).toUpperCase();
               return NiceCard(
                 padding: EdgeInsets.zero,
                 onTap: () => _openDetail(item),
                 child: ListTile(
                   contentPadding: const EdgeInsets.all(14),
                   leading: CircleAvatar(child: Text(initial)),
-                  title: Text(activity, style: const TextStyle(fontWeight: FontWeight.w900)),
+                  title: Text(activity,
+                      style: const TextStyle(fontWeight: FontWeight.w800)),
                   subtitle: Text(
-                    '$module • $user\n${email.isEmpty ? AppUi.text(item['role_id']) : email}\n${AppUi.dateTime(item['created_at'])}',
+                    '$module - $user\n${email.isEmpty ? AppUi.text(item['role_id']) : email}\n${AppUi.dateTime(item['created_at'])}',
                   ),
                   isThreeLine: true,
                   trailing: _canDeleteAuditLog
@@ -373,6 +443,28 @@ class _AuditLogPageState extends State<AuditLogPage> {
                 ),
               );
             }),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
+                    icon: const Icon(Icons.chevron_left),
+                    label: const Text('Sebelumnya'),
+                  ),
+                  const SizedBox(width: 16),
+                  Text('Halaman $_currentPage dari ${_totalPages == 0 ? 1 : _totalPages}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 16),
+                  OutlinedButton.icon(
+                    onPressed: _currentPage < _totalPages ? () => setState(() => _currentPage++) : null,
+                    icon: const Icon(Icons.chevron_right),
+                    label: const Text('Berikutnya'),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -383,7 +475,9 @@ class _AuditLogPageState extends State<AuditLogPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Riwayat Aktivitas'),
-        actions: [IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh))],
+        actions: [
+          IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh))
+        ],
       ),
       body: _body(),
     );

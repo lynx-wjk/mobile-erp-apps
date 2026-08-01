@@ -1,0 +1,94 @@
+# MOBILE ERP Runtime TODO Tracker
+
+This file is the active runtime backlog. Keep this list in every handoff until each item is explicitly closed.
+
+## P0 - Active failures
+- Finance Dashboard chart does not render on initial dashboard.
+- Finance local cache must render fast on first load and then refresh in background.
+- Finance SKU settled tab is still partial.
+- Laba Rugi marketplace breakdown is visible but numbers require validation.
+- Cashflow/biaya is still double in UI although backend duplicate probe is clean.
+- Marketplace HPP cards show 0 even when backend by_marketplace has hpp_total/total_hpp.
+- Stock Out marketplace must search by physical shipping-label resi/tracking number only.
+- Order page must not show OFG/package/order reference as Stock Out resi.
+
+## P1 - Required next work
+- Marketplace Job Monitoring must be a dedicated page for order/finance/product/retention/bootstrap dispatchers.
+- Token refresh audit final for product/order/finance across Shopee and TikTok.
+- Incremental order status validation after cron settle.
+- Incremental payout/finance validation after cron settle.
+- Repo hygiene: archive audit/temp/scripts outside repo and review untracked migrations one by one.
+- RPC cleanup dependency audit before any drop.
+- Cleanup sarcastic/satire wording in UI/docs/source/logs.
+- Regression check old modules: upload evidence, demo read-only, stock in/out normal, finance purchases/expenses, refund/return.
+
+## Hard rules
+- No git add .
+- No new RPC/function version unless explicitly approved.
+- Overwrite existing canonical wrappers/functions when possible.
+- No audit/tmp/log/env/secret/tar/zip commits.
+- Self-host Docker/psql only.
+- Product pull manual/onboarding only, not cron.
+- 90-day finance/order scope.
+- HPP and target margin from HPP mapping, not SKU mapping.
+- SKU mapping only variant to local SKU/product/barcode/sync settings.
+
+## 2026-06-19 remaining runtime patch
+- Dashboard Finance chart visibility no longer depends on finance trend being non-empty.
+- Dashboard Finance chart visibility no longer depends only on plan gate for owner/super-admin/admin/finance roles.
+- Finance SKU loader now pulls all pages from existing finance_sku_order_details for settled and unpaid filters.
+- Physical resi backfill tries to extract true tracking/AWB/waybill keys from raw marketplace JSON and explicitly excludes OFG/package/order references.
+
+## 2026-06-19 chart sku pl ui follow-up
+- Dashboard Finance chart must show full month-to-date range, not only sparse non-zero backend dates.
+- SKU merge must preserve settled qty/payout/HPP when settled and unpaid rows share the same SKU key.
+- Laba Rugi marketplace breakdown must use compact per-marketplace cards, not the old reconciliation matrix table.
+- Order status/resi settle requires cron/logistics audit; Shopee physical resi remains 0 until logistics/AWB pull fills it.
+
+## 2026-06-19 active handoff reminder
+P0 still active:
+- Finance daily chart source must be fixed from actual daily transaction/order/finance data; chart UI alone is not enough.
+- SKU settled/HPP row-level must be fixed; HPP/item Rp 0 on settled rows means mapping/join source is still wrong.
+- Shopee physical resi is not available from order pull yet; do not fallback to OFG/long package/order references.
+- Order status/logistics update job must be validated and patched after cron/logistics audit.
+- Laba Rugi card layout is improved but final formula/label validation remains.
+- Cashflow double requires regression check.
+
+P1 still active:
+- Dedicated Marketplace Job Monitoring page.
+- Token refresh audit for product/order/finance Shopee and TikTok.
+- Incremental order+payout settle validation.
+- Repo hygiene and migration review.
+- RPC cleanup dependency audit before any drop.
+- Cleanup sarcastic/satire wording in UI/docs/source.
+- Regression: upload evidence, demo read-only, stock in/out, purchases/expenses, refund/return.
+- Detail SKU sample rows after SKU/HPP base is correct.
+
+## 2026-06-19 dashboard cache v24 merge fix
+- Dashboard Finance must not overwrite Finance snapshot daily trend with 90D marketplace order analytics.
+- Dashboard marketplace order analytics is fallback only when Finance snapshot/cache is unusable.
+- Finance cache version bumped to v24 so stale v23 SKU/chart cache does not keep showing old HPP/settled values.
+
+## 2026-06-19 ui hpp expense mapping guard
+- Removed duplicate lower Finance trend card for Owner/Super Admin dashboard because the main Analytics Finance card is the source of truth.
+- SKU card HPP/item now uses first non-zero HPP source and recalculates margin from payout/item minus HPP/item.
+- Expense row edit/delete actions are shown only for real manual expense UUID rows, not synthetic/fallback rows.
+- Mapping tables must carry tenant_id; orphan mapping rows from deleted marketplace accounts are cleaned when account FK is present.
+
+## 2026-06-19 live SKU rows v26
+- Finance SKU tab must prefer live finance_sku_order_details rows over snapshot SKU rows because live rows carry settled HPP correctly.
+- Snapshot SKU rows are fallback only when live rows are empty.
+- Manual expense edit/delete uses the real UUID from expense_id/finance_operational_expense_id/operational_expense_id/id and hides actions for synthetic/purchase rows.
+
+## 2026-06-19 hpp mapping expense rls v27
+- Backfilled central marketplace_variant_hpp_mappings from mapped marketplace_order_items + products.harga_hpp_default.
+- finance_sku_order_details now enriches existing v82o rows from central HPP mapping and marks unmapped rows as "HPP belum mapping".
+- finance_operational_expenses RLS policies added for authenticated tenant select/insert/update/delete so manual expense edit/delete works from Flutter.
+- Finance/Dashboard local cache version bumped to v27.
+
+## 2026-06-19 finance v28 dashboard expense hpp
+- Dashboard marketplace finance filter now prefers raw marketplace_finance_reports for selected Shopee/TikTok filter and supports tiktok_shop.
+- Biaya tab uses explicit manual expense row card with always-visible edit/delete for valid manual UUID rows.
+- Manual expense update/delete RPCs are overwritten as SECURITY DEFINER wrappers.
+- SKU tab displays "HPP belum mapping" and hides fake 100% margin when HPP is missing.
+- HPP mapping enrichment tries finance_sku_order_details_v24_6_82o rows against product master HPP.

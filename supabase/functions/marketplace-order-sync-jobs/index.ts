@@ -1,5 +1,5 @@
-﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const FUNCTION_VERSION = "marketplace-order-sync-jobs-bootstrap-pagination-v53-2026-06-10";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+const FUNCTION_VERSION = "marketplace-order-sync-jobs";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-marketplace-cron-secret, x-stock-sync-cron-secret",
@@ -35,11 +35,13 @@ Deno.serve(async (req)=>{
     });
     const body = await safeJson(req);
     const params = normalizeParams(body);
-    const cronSecret = String(Deno.env.get("MARKETPLACE_CRON_SECRET") || Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") || Deno.env.get("STOCK_SYNC_CRON_SECRET") || "").trim();
+    const configuredCronSecret = envCronSecret();
+    const incomingCronSecret = requestCronSecret(req, params, params);
+    const cronSecret = incomingCronSecret || configuredCronSecret;
     const ctx = await authenticate({
       req,
       admin,
-      cronSecret,
+      cronSecret: configuredCronSecret,
       params
     });
     if (normalizeRole(ctx.roleId) === "demo_super_admin") {
@@ -54,6 +56,7 @@ Deno.serve(async (req)=>{
       const delegated = await delegateOrderCronToAutoRunner({
         supabaseUrl,
         serviceRoleKey,
+        edgeAuthKey,
         cronSecret,
         params
       });
@@ -193,10 +196,20 @@ async function delegateOrderCronToAutoRunner(args) {
         run_stock: false,
         run_order: true,
         run_finance: false,
+        run_order_enqueue: args.params.run_order_enqueue,
+        run_pending_drain: args.params.run_pending_drain,
+        run_order_status_refresh: args.params.run_order_status_refresh,
         force: args.params.force === true,
         max_accounts: args.params.max_accounts,
+        max_order_accounts: args.params.max_order_accounts,
+        max_order_jobs: args.params.max_order_jobs,
+        max_pages_per_account: args.params.max_pages_per_account ?? args.params.max_pages,
+        max_orders_per_account: args.params.max_orders_per_account ?? args.params.page_size ?? args.params.limit,
+        max_details_per_account: args.params.max_details_per_account ?? args.params.max_details,
+        max_status_refresh_per_account: args.params.max_status_refresh_per_account ?? args.params.max_existing_orders,
+        child_timeout_ms: args.params.child_timeout_ms,
         account_id: args.params.account_id || args.params.marketplace_account_id,
-        source: "marketplace-order-sync-jobs-v24-6-44-delegated-cron"
+        source: "marketplace-order-sync-jobs-delegated-cron"
       })
     });
     const data = await response.json().catch(async ()=>({
@@ -229,8 +242,9 @@ function normalizeParams(body) {
   return body;
 }
 async function authenticate(args) {
-  const incomingSecret = String(args.req.headers.get("x-marketplace-cron-secret") || args.req.headers.get("x-stock-sync-cron-secret") || args.params.cron_secret || args.params.marketplace_cron_secret || args.params.x_marketplace_cron_secret || args.params.secret || "").trim();
-  const isCron = args.cronSecret.length > 0 && incomingSecret === args.cronSecret;
+  const incomingSecret = requestCronSecret(args.req, args.params, args.params);
+  const isCron = await verifyMarketplaceCronSecret(args.admin, incomingSecret)
+    || (args.cronSecret.length > 0 && incomingSecret === args.cronSecret);
   const originalBearer = (args.req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (isCron) {
     return {
@@ -352,16 +366,23 @@ async function enqueueOrderPullJobs(args) {
   };
 }
 async function countActiveAutoOrderJobs(admin, tenantId, accountId) {
-  const { count, error } = await admin.from("marketplace_order_pull_jobs").select("order_pull_job_id", {
-    count: "exact",
-    head: true
-  }).eq("tenant_id", tenantId).eq("marketplace_account_id", accountId).in("status", [
+  const { data, error } = await admin.from("marketplace_order_pull_jobs").select("order_pull_job_id, payload, window_label").eq("tenant_id", tenantId).eq("marketplace_account_id", accountId).in("status", [
     "pending",
     "retry",
     "running"
   ]).like("job_type", "auto_%");
   if (error) throw new Error(`Cek antrean order aktif gagal: ${error.message}`);
-  return Number(count || 0);
+
+  const activeRealJobs = (data || []).filter((j) => {
+    const payload = j.payload || {};
+    const source = String(payload.source || "");
+    const label = String(j.window_label || "");
+    if (source.includes("stale_status_refresh") || label.includes("stale refresh")) {
+      return false; // ignore stale status refresh jobs
+    }
+    return true;
+  });
+  return activeRealJobs.length;
 }
 async function processOrderPullJobs(args) {
   await resetStaleBootstrapJobs(args.admin, args.tenantId, args.accountId);
@@ -936,7 +957,7 @@ function buildDateRanges(modeRaw, startDateRaw, endDateRaw) {
         startDate: today,
         endDate: today,
         jobType: "auto_today_window",
-        priority: 90
+        priority: 3000
       }
     ];
   }
@@ -948,13 +969,13 @@ function buildDateRanges(modeRaw, startDateRaw, endDateRaw) {
         startDate: today,
         endDate: today,
         jobType: "auto_today_window",
-        priority: 90
+        priority: 3000
       },
       {
         startDate: yesterday,
         endDate: yesterday,
         jobType: "auto_yesterday_window",
-        priority: 70
+        priority: 2000
       }
     ];
   }
@@ -972,7 +993,7 @@ function buildDateRanges(modeRaw, startDateRaw, endDateRaw) {
       startDate: date,
       endDate: date,
       jobType: "manual_period_window",
-      priority: 80
+      priority: 1000
     });
     cursorSeconds += 86400;
   }
@@ -1100,5 +1121,44 @@ function getSafeErrorResult(message, tokenAuditExists) {
   };
 }
 
+function envCronSecret(): string {
+  return String(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
+    "",
+  ).trim();
+}
 
+function requestCronSecret(req: Request, body?: any, params?: any): string {
+  return String(
+    req.headers.get("x-marketplace-cron-secret") ||
+    req.headers.get("x-stock-sync-cron-secret") ||
+    params?.cron_secret ||
+    params?.marketplace_cron_secret ||
+    params?.x_marketplace_cron_secret ||
+    params?.secret ||
+    body?.cron_secret ||
+    body?.marketplace_cron_secret ||
+    body?.x_marketplace_cron_secret ||
+    body?.secret ||
+    "",
+  ).trim();
+}
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<boolean> {
+  if (!incomingSecret) return false;
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) return true;
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return false;
+}
 

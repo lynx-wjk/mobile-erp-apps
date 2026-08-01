@@ -280,101 +280,104 @@ class _MarketplaceStockOutReviewPageState
   Widget _card(_StockOutReviewItem item) {
     final color = _statusColor(item.reviewStatus, item.isHighRisk);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    item.externalOrderId == '-'
-                        ? item.trackingNumber
-                        : item.externalOrderId,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w900),
-                  ),
-                ),
-                _badge(_reviewLabel(item.reviewStatus), color),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text('${item.marketplace} · ${item.accountName}'),
-            const SizedBox(height: 4),
-            Text('Resi: ${item.trackingNumber}'),
-            const SizedBox(height: 4),
-            Text('Status order: ${item.marketplaceOrderStatus}'),
-            const SizedBox(height: 4),
-            Text(
-                'Stok keluar: ${item.stockOutAtText} · User: ${item.createdByName} (${item.createdByRole})'),
-            const Divider(height: 18),
-            Text('${item.localSku} · ${item.productName}',
-                style: const TextStyle(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 4),
-            Text('Qty keluar: ${item.qtyText} · Tujuan: ${item.tujuan}'),
-            const SizedBox(height: 8),
-            _riskBox(item),
-            if ((item.reviewNote ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('Catatan review: ${item.reviewNote}'),
-            ],
-            if (item.reviewedAtText != '-') ...[
-              const SizedBox(height: 4),
-              Text(
-                  'Reviewed: ${item.reviewedAtText} · ${item.reviewedByName ?? '-'}'),
-            ],
-            if (item.reviewStatus == 'pending') ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: NiceCard(
+        padding: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  FilledButton.tonalIcon(
-                    onPressed: _isSaving
-                        ? null
-                        : () => _submitReview(
-                              item: item,
-                              status: 'matched',
-                              title: 'Tandai stock out sesuai order',
-                              confirmLabel: 'Matched',
-                            ),
-                    icon: const Icon(Icons.verified_outlined),
-                    label: const Text('Matched'),
+                  Expanded(
+                    child: Text(
+                      item.externalOrderId == '-'
+                          ? item.trackingNumber
+                          : item.externalOrderId,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: _isSaving
-                        ? null
-                        : () => _submitReview(
-                              item: item,
-                              status: 'needs_action',
-                              title: 'Butuh tindakan lanjut',
-                              confirmLabel: 'Perlu Tindak Lanjut',
-                            ),
-                    icon: const Icon(Icons.report_problem_outlined),
-                    label: const Text('Perlu Tindak Lanjut'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _isSaving
-                        ? null
-                        : () => _submitReview(
-                              item: item,
-                              status: 'ignored',
-                              title: 'Abaikan review ini',
-                              confirmLabel: 'Ignore',
-                            ),
-                    icon: const Icon(Icons.visibility_off_outlined),
-                    label: const Text('Ignore'),
-                  ),
+                  _badge(_reviewLabel(item.reviewStatus), color),
                 ],
               ),
+              const SizedBox(height: 8),
+              Text('${item.marketplace} · ${item.accountName}'),
+              const SizedBox(height: 4),
+              Text('Resi: ${item.trackingNumber}'),
+              const SizedBox(height: 4),
+              Text('Status order: ${item.marketplaceOrderStatus}'),
+              const SizedBox(height: 4),
+              Text(
+                  'Stok keluar: ${item.stockOutAtText} · User: ${item.createdByName} (${item.createdByRole})'),
+              const Divider(height: 18),
+              Text('${item.localSku} · ${item.productName}',
+                  style: const TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text('Qty keluar: ${item.qtyText} · Tujuan: ${item.tujuan}'),
+              const SizedBox(height: 8),
+              _riskBox(item),
+              if ((item.reviewNote ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Catatan review: ${item.reviewNote}'),
+              ],
+              if (item.reviewedAtText != '-') ...[
+                const SizedBox(height: 4),
+                Text(
+                    'Reviewed: ${item.reviewedAtText} · ${item.reviewedByName ?? '-'}'),
+              ],
+              if (item.reviewStatus == 'pending') ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.tonalIcon(
+                      onPressed: _isSaving
+                          ? null
+                          : () => _submitReview(
+                                item: item,
+                                status: 'matched',
+                                title: 'Tandai stock out sesuai order',
+                                confirmLabel: 'Matched',
+                              ),
+                      icon: const Icon(Icons.verified_outlined),
+                      label: const Text('Matched'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _isSaving
+                          ? null
+                          : () => _submitReview(
+                                item: item,
+                                status: 'needs_action',
+                                title: 'Butuh tindakan lanjut',
+                                confirmLabel: 'Perlu Tindak Lanjut',
+                              ),
+                      icon: const Icon(Icons.report_problem_outlined),
+                      label: const Text('Perlu Tindak Lanjut'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _isSaving
+                          ? null
+                          : () => _submitReview(
+                                item: item,
+                                status: 'ignored',
+                                title: 'Abaikan review ini',
+                                confirmLabel: 'Ignore',
+                              ),
+                      icon: const Icon(Icons.visibility_off_outlined),
+                      label: const Text('Ignore'),
+                    ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -390,13 +393,13 @@ class _MarketplaceStockOutReviewPageState
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         color: color.withOpacity(0.10),
-        border: Border.all(color: color.withOpacity(0.30)),
+        border: Border.all(color: color.withOpacity(0.22), width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(_riskLabel(item.riskFlag),
-              style: TextStyle(color: color, fontWeight: FontWeight.w900)),
+              style: TextStyle(color: color, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
           Text(item.riskMessage),
           if (item.hasBatalRequest ||
@@ -463,7 +466,12 @@ class _MarketplaceStockOutReviewPageState
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.44,
+              ),
+          width: 0.8,
+        ),
       ),
       child: Text(text),
     );

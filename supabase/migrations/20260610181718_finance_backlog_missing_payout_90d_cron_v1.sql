@@ -1,4 +1,4 @@
-﻿create or replace function public.marketplace_finance_backlog_missing_payout_90d_v1()
+create or replace function public.marketplace_finance_backlog_missing_payout_90d_v1()
 returns jsonb
 language plpgsql
 security definer

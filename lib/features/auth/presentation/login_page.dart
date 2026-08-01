@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
-import 'dart:math' as math;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/constants/app_roles.dart';
+import '../../../repositories/user_repository.dart';
+import '../../admin/presentation/platform_owner_dashboard.dart';
+import '../../dashboard/presentation/dashboard_page.dart';
+import '../../finance/services/finance_local_cache.dart';
+import 'register_page.dart';
+import 'request_access_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -17,26 +23,17 @@ class _LoginPageState extends State<LoginPage>
   final SupabaseClient _client = Supabase.instance.client;
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
 
   bool _isLoading = false;
-  bool _isRegister = false;
   bool _obscure = true;
 
   late final AnimationController _animCtrl;
-  late final Animation<double> _fadeAnim;
-  late final Animation<Offset> _slideAnim;
 
   @override
   void initState() {
     super.initState();
     _animCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 400));
-    _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
-    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
     _animCtrl.forward();
   }
 
@@ -45,9 +42,6 @@ class _LoginPageState extends State<LoginPage>
     _animCtrl.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _nameController.dispose();
-    _usernameController.dispose();
-    _phoneController.dispose();
     super.dispose();
   }
 
@@ -56,59 +50,86 @@ class _LoginPageState extends State<LoginPage>
       final msg = error.message.toLowerCase();
       if (msg.contains('invalid login') ||
           msg.contains('invalid credentials') ||
-          msg.contains('wrong password')) {
-        return 'Email atau password salah.';
+          msg.contains('wrong password') ||
+          msg.contains('username tidak ditemukan') ||
+          msg.contains('email/username atau password salah')) {
+        return 'Email/Username atau password salah.';
       }
       return error.message;
     }
     return 'Gagal. Coba lagi.';
   }
 
-  Future<void> _login() async {
-    FocusManager.instance.primaryFocus?.unfocus();
-    final email = _emailController.text.trim().toLowerCase();
-    final password = _passwordController.text;
-    if (email.isEmpty || password.isEmpty) {
-      AppUi.showSnack('Isi semua bidang.');
-      return;
+  Future<String> _resolveUsername(String username) async {
+    final response = await _client.functions.invoke(
+      'admin-auth',
+      body: {
+        'action': 'lookup_username',
+        'username': username,
+      },
+    );
+    if (response.status == 200) {
+      final data = response.data;
+      if (data is Map && data.containsKey('email')) {
+        return data['email'].toString();
+      }
     }
-    setState(() => _isLoading = true);
-    try {
-      await _client.auth.signInWithPassword(email: email, password: password);
-    } catch (error) {
-      AppUi.showSnack(_friendlyAuthError(error));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    throw const AuthException('Email/Username atau password salah.');
   }
 
-  Future<void> _register() async {
+  Future<void> _login() async {
     FocusManager.instance.primaryFocus?.unfocus();
-    final email = _emailController.text.trim().toLowerCase();
+    final input = _emailController.text.trim().toLowerCase();
     final password = _passwordController.text;
-    final nama = _nameController.text.trim();
-    if (nama.isEmpty || email.isEmpty || password.isEmpty) {
+    if (input.isEmpty || password.isEmpty) {
       AppUi.showSnack('Isi semua bidang.');
       return;
     }
     setState(() => _isLoading = true);
     try {
-      final response = await _client.auth.signUp(
-        email: email,
-        password: password,
-        data: {'nama': nama},
-      );
-      final userId = response.user?.id;
-      if (userId != null) {
-        await _client.rpc('register_pending_user_profile', params: {
-          'p_user_id': userId,
-          'p_nama': nama,
-          'p_email': email,
-        });
+      String resolvedEmail = input;
+      if (!input.contains('@')) {
+        try {
+          resolvedEmail = await _resolveUsername(input);
+        } catch (_) {
+          throw const AuthException('Email/Username atau password salah.');
+        }
       }
-      AppUi.showSnack('Berhasil. Tunggu approval admin.');
-      await _client.auth.signOut();
-      if (mounted) setState(() => _isRegister = false);
+
+      final authResponse = await _client.auth
+          .signInWithPassword(email: resolvedEmail, password: password);
+
+      if (authResponse.session == null || authResponse.user == null) {
+        AppUi.showSnack('Login berhasil tapi sesi belum aktif. Coba lagi.');
+        return;
+      }
+
+      final appUser = await UserRepository().getCurrentUserProfile();
+      if (!mounted) return;
+
+      if (appUser == null) {
+        AppUi.showSnack(
+          'Login berhasil, tapi profil aplikasi belum tersedia.',
+        );
+        return;
+      }
+
+      if (!appUser.isActive) {
+        AppUi.showSnack('Akun tidak aktif. Hubungi admin.');
+        await _client.auth.signOut();
+        return;
+      }
+
+      await FinanceLocalCache.clearAllFinanceCaches();
+
+      final target = appUser.role == AppRole.platformOwner
+          ? const PlatformOwnerDashboard()
+          : DashboardPage(currentUser: appUser);
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => target),
+        (_) => false,
+      );
     } catch (error) {
       AppUi.showSnack(_friendlyAuthError(error));
     } finally {
@@ -119,41 +140,44 @@ class _LoginPageState extends State<LoginPage>
   // ── Hero section ─────────────────────────────────────────────────────────────
   Widget _hero() {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Container(
-          width: 80,
-          height: 80,
+          width: 72,
+          height: 72,
           decoration: BoxDecoration(
-            color: theme.colorScheme.primary,
-            border: Border.all(color: Colors.black, width: 3),
-            boxShadow: const [
-              BoxShadow(color: Colors.black, offset: Offset(5, 5)),
-            ],
+            color: theme.colorScheme.primary.withOpacity(isDark ? 0.12 : 0.08),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color:
+                  theme.colorScheme.primary.withOpacity(isDark ? 0.22 : 0.12),
+              width: 0.8,
+            ),
+            boxShadow: AppTheme.softShadow(theme.brightness),
           ),
-          child: const Icon(Icons.account_balance_rounded, color: Colors.black, size: 42),
-        ),
-        const SizedBox(height: 28),
-        Text(
-          'Mobile ERP'.toUpperCase(),
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: theme.colorScheme.onSurface,
-            fontSize: 32,
-            fontWeight: FontWeight.w900,
-            height: 1,
-            letterSpacing: -1,
+          child: Icon(
+            Icons.account_balance_rounded,
+            color: theme.colorScheme.primary,
+            size: 38,
           ),
         ),
+        const SizedBox(height: 24),
         Text(
-          'OMNICHANNEL MANAGEMENT SYSTEM'.toUpperCase(),
+          'Mobile ERP',
           textAlign: TextAlign.center,
-          style: TextStyle(
+          style: theme.textTheme.displaySmall?.copyWith(
+            fontWeight: FontWeight.w800,
+            height: 1.05,
+          ),
+        ),
+        Text(
+          'Omnichannel management system',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.titleMedium?.copyWith(
             color: theme.colorScheme.primary,
-            fontSize: 22,
-            fontWeight: FontWeight.w900,
-            height: 1.2,
+            fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 24),
@@ -168,34 +192,41 @@ class _LoginPageState extends State<LoginPage>
       spacing: 10,
       runSpacing: 10,
       children: [
-        _previewChip(Icons.trending_up_rounded, 'FINANCE', AppTheme.primaryColor),
-        _previewChip(Icons.inventory_2_rounded, 'STOCK', AppTheme.accentColor),
-        _previewChip(Icons.store_rounded, 'MARKET', AppTheme.pinkColor),
+        _previewChip(
+            Icons.trending_up_rounded, 'Finance', AppTheme.primaryColor),
+        _previewChip(Icons.inventory_2_rounded, 'Stock', AppTheme.accentColor),
+        _previewChip(Icons.store_rounded, 'Market', AppTheme.indigoColor),
       ],
     );
   }
 
   Widget _previewChip(IconData icon, String label, Color color) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final background = isDark ? color.withOpacity(0.92) : color.withOpacity(0.22);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final background = Color.alphaBlend(
+      color.withOpacity(isDark ? 0.12 : 0.08),
+      theme.cardColor,
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: background,
-        border: Border.all(color: Colors.black, width: 2),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+            color: color.withOpacity(isDark ? 0.24 : 0.15), width: 0.8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.circle, size: 0, color: Colors.transparent),
-          Icon(icon, size: 16, color: Colors.black),
+          Icon(Icons.circle, size: 0, color: Colors.transparent),
+          Icon(icon, size: 16, color: color),
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(
-              color: Colors.black,
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
+            style: TextStyle(
+              color: isDark ? color.withOpacity(0.95) : color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -205,37 +236,30 @@ class _LoginPageState extends State<LoginPage>
 
   // ── Form card ────────────────────────────────────────────────────────────────
   Widget _form() {
-    final theme = Theme.of(context);
     return NiceCard(
-      borderColor: Colors.black,
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            (_isRegister ? 'REGISTER' : 'LOGIN').toUpperCase(),
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 24),
+            'Masuk ke workspace',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22),
           ),
           const SizedBox(height: 22),
-          if (_isRegister) ...[
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'FULL NAME', prefixIcon: Icon(Icons.badge)),
-            ),
-            const SizedBox(height: 14),
-          ],
           TextField(
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(labelText: 'EMAIL', prefixIcon: Icon(Icons.email)),
+            decoration: const InputDecoration(
+                labelText: 'Email atau username',
+                prefixIcon: Icon(Icons.email)),
           ),
           const SizedBox(height: 14),
           TextField(
             controller: _passwordController,
             obscureText: _obscure,
             decoration: InputDecoration(
-              labelText: 'PASSWORD',
-              prefixIcon: const Icon(Icons.lock),
+              labelText: 'Password',
+              prefixIcon: Icon(Icons.lock),
               suffixIcon: IconButton(
                 icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
                 onPressed: () => setState(() => _obscure = !_obscure),
@@ -244,15 +268,32 @@ class _LoginPageState extends State<LoginPage>
           ),
           const SizedBox(height: 24),
           FilledButton(
-            onPressed: _isLoading ? null : (_isRegister ? _register : _login),
+            onPressed: _isLoading ? null : _login,
             child: _isLoading
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : Text((_isRegister ? 'CREATE ACCOUNT' : 'SYSTEM LOGIN').toUpperCase()),
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : Text('Masuk'),
           ),
           const SizedBox(height: 12),
           TextButton(
-            onPressed: () => setState(() => _isRegister = !_isRegister),
-            child: Text(_isRegister ? 'BACK TO LOGIN' : 'REQUEST ACCESS'),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const RequestAccessPage()),
+              );
+            },
+            child: Text('Lihat paket dan request access'),
+          ),
+          const SizedBox(height: 4),
+          TextButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const RegisterPage()),
+              );
+            },
+            icon: Icon(Icons.mail_outline_rounded, size: 16),
+            label: Text('Daftar lewat undangan'),
           ),
         ],
       ),
@@ -276,12 +317,12 @@ class _LoginPageState extends State<LoginPage>
                     _form(),
                     const SizedBox(height: 24),
                     Text(
-                      'AUTHORIZED PERSONNEL ONLY'.toUpperCase(),
+                      'Akses khusus pengguna terdaftar',
                       style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 2,
+                        color: AppUi.mutedText(context, 0.92).withOpacity(0.5),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0,
                       ),
                     ),
                   ],

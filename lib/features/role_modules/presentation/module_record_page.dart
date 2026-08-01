@@ -260,40 +260,61 @@ class _ModuleRecordPageState extends State<ModuleRecordPage> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Text(widget.description),
+          NiceCard(
+            child: Text(
+              widget.description,
+              style: TextStyle(
+                color:
+                    Theme.of(context).colorScheme.onSurface.withOpacity(0.72),
+                height: 1.35,
+              ),
             ),
           ),
           const SizedBox(height: 12),
           if (_records.isEmpty)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(18),
-                child: Text('Belum ada data.'),
-              ),
+            const NiceCard(
+              child: Text('Belum ada data.'),
             )
           else
             ..._records.map((record) {
-              return Card(
-                child: ListTile(
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.folder_copy_outlined),
-                  ),
-                  title: Text(record.title),
-                  subtitle: Text(
-                    'Status: ${record.status}\n'
-                    'Assign: ${record.assignedRole ?? '-'}\n'
-                    '${_config.amountLabel}: ${_formatNumber(record.amount)}\n'
-                    'Pembuat: ${record.createdByName ?? '-'} | ${record.createdByEmail ?? '-'}\n'
-                    'Bukti: ${record.proofUrl ?? '-'}\n'
-                    'Tanggal: ${_formatDate(record.createdAt)}\n\n'
-                    '${record.description ?? '-'}',
-                  ),
-                  isThreeLine: false,
-                  trailing: const Icon(Icons.chevron_right),
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: NiceCard(
+                  padding: EdgeInsets.zero,
                   onTap: () => _openUpdateDialog(record),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(14),
+                    leading: CircleAvatar(
+                      backgroundColor: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withOpacity(0.12),
+                      foregroundColor: Theme.of(context).colorScheme.primary,
+                      child: const Icon(Icons.folder_copy_outlined),
+                    ),
+                    title: Text(
+                      record.title,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(
+                      'Status: ${record.status}\n'
+                      'Assign: ${record.assignedRole ?? '-'}\n'
+                      '${_config.amountLabel}: ${_formatNumber(record.amount)}\n'
+                      'Pembuat: ${record.createdByName ?? '-'} | ${record.createdByEmail ?? '-'}\n'
+                      'Bukti: ${record.proofUrl ?? '-'}\n'
+                      'Tanggal: ${_formatDate(record.createdAt)}\n\n'
+                      '${record.description ?? '-'}',
+                      style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.68),
+                        height: 1.35,
+                      ),
+                    ),
+                    isThreeLine: false,
+                    trailing: const Icon(Icons.chevron_right),
+                  ),
                 ),
               );
             }),
@@ -501,122 +522,123 @@ class _ModuleRecordFormPageState extends State<ModuleRecordFormPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Text(widget.description),
+            NiceCard(
+              child: Text(
+                widget.description,
+                style: TextStyle(
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withOpacity(0.72),
+                  height: 1.35,
+                ),
               ),
             ),
             const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    children: [
-                      TextFormField(
-                        controller: _titleController,
-                        validator: _required,
-                        decoration: InputDecoration(
-                          labelText: config.titleLabel,
-                          hintText: config.titleHint,
-                          border: const OutlineInputBorder(),
-                        ),
+            NiceCard(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: _titleController,
+                      validator: _required,
+                      decoration: InputDecoration(
+                        labelText: config.titleLabel,
+                        hintText: config.titleHint,
+                        border: const OutlineInputBorder(),
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _descriptionController,
+                      maxLines: 4,
+                      decoration: InputDecoration(
+                        labelText: config.descriptionLabel,
+                        hintText: config.descriptionHint,
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                    if (config.showAmount) ...[
                       const SizedBox(height: 12),
                       TextFormField(
-                        controller: _descriptionController,
-                        maxLines: 4,
+                        controller: _amountController,
+                        keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          labelText: config.descriptionLabel,
-                          hintText: config.descriptionHint,
+                          labelText: config.amountLabel,
+                          hintText: 'Isi angka, boleh 0 kalau tidak perlu',
                           border: const OutlineInputBorder(),
                         ),
                       ),
-                      if (config.showAmount) ...[
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _amountController,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText: config.amountLabel,
-                            hintText: 'Isi angka, boleh 0 kalau tidak perlu',
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
-                      ],
-                      if (config.showAssignedRole) ...[
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: _assignedRole,
-                          decoration: const InputDecoration(
-                            labelText: 'Assign ke Role',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: _roleOptions.map((role) {
-                            return DropdownMenuItem<String>(
-                              value: role,
-                              child: Text(_roleLabel(role)),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            if (value == null) return;
-
-                            setState(() {
-                              _assignedRole = value;
-                            });
-                          },
-                        ),
-                      ],
+                    ],
+                    if (config.showAssignedRole) ...[
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        value: _status,
+                        value: _assignedRole,
                         decoration: const InputDecoration(
-                          labelText: 'Status Awal',
+                          labelText: 'Assign ke Role',
                           border: OutlineInputBorder(),
                         ),
-                        items: config.statusOptions.map((status) {
+                        items: _roleOptions.map((role) {
                           return DropdownMenuItem<String>(
-                            value: status,
-                            child: Text(status),
+                            value: role,
+                            child: Text(_roleLabel(role)),
                           );
                         }).toList(),
                         onChanged: (value) {
                           if (value == null) return;
 
                           setState(() {
-                            _status = value;
+                            _assignedRole = value;
                           });
                         },
                       ),
-                      if (config.showProof) ...[
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _proofController,
-                          decoration: InputDecoration(
-                            labelText: config.proofLabel,
-                            hintText: config.proofHint,
-                            border: const OutlineInputBorder(),
-                          ),
+                    ],
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: _status,
+                      decoration: const InputDecoration(
+                        labelText: 'Status Awal',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: config.statusOptions.map((status) {
+                        return DropdownMenuItem<String>(
+                          value: status,
+                          child: Text(status),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        if (value == null) return;
+
+                        setState(() {
+                          _status = value;
+                        });
+                      },
+                    ),
+                    if (config.showProof) ...[
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _proofController,
+                        decoration: InputDecoration(
+                          labelText: config.proofLabel,
+                          hintText: config.proofHint,
+                          border: const OutlineInputBorder(),
                         ),
-                      ],
-                      const SizedBox(height: 20),
-                      FilledButton.icon(
-                        onPressed: _isSaving ? null : _save,
-                        icon: _isSaving
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.save_outlined),
-                        label: Text(_isSaving ? 'Menyimpan...' : 'Simpan'),
                       ),
                     ],
-                  ),
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: _isSaving ? null : _save,
+                      icon: _isSaving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(Icons.save_outlined),
+                      label: Text(_isSaving ? 'Menyimpan...' : 'Simpan'),
+                    ),
+                  ],
                 ),
               ),
             ),

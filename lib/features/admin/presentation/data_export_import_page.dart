@@ -1,15 +1,14 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:excel/excel.dart';
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/utils/file_download.dart';
 
 class DataExportImportPage extends StatefulWidget {
   const DataExportImportPage({super.key});
@@ -24,6 +23,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
   bool _busy = false;
   String _log = 'Siap. Export data XLSX atau import update SKU/stock.';
   String _roleId = '';
+  String? _tenantId;
 
   static const List<String> _tablesToExport = [
     'roles',
@@ -48,7 +48,6 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     'content_proofs',
     'content_task',
     'work_locations',
-    'locations_geofence',
     'module_records',
     'photo_evidences',
     'audit_logs',
@@ -68,7 +67,6 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     'marketplace_accounts',
     'marketplace_finance_reports',
     'marketplace_finance_items',
-    'marketplace_finance_abnormals',
     'marketplace_finance_reconciliations',
     'marketplace_orders',
     'marketplace_order_items',
@@ -79,6 +77,72 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     'marketplace_closing_books',
     'marketplace_closing_book_files',
   ];
+
+  static const Set<String> _globalStaticExportTables = {
+    'roles',
+  };
+
+  static const Set<String> _tenantScopedExportTables = {
+    'users',
+    'products',
+    'stock_transactions',
+    'suppliers',
+    'purchases',
+    'purchase_items',
+    'purchase_receipts',
+    'finance_verifications',
+    'production_progress',
+    'attendance',
+    'attendance_logs',
+    'tasks',
+    'task_comments',
+    'live_schedules',
+    'live_proofs',
+    'live_verifications',
+    'host_live_sessions',
+    'content_tasks',
+    'content_proofs',
+    'content_task',
+    'work_locations',
+    'module_records',
+    'photo_evidences',
+    'audit_logs',
+    'finance_operational_expenses',
+    'finance_sku_margin_settings',
+    'marketplace_accounts',
+    'marketplace_finance_reports',
+    'marketplace_finance_items',
+    'marketplace_finance_reconciliations',
+    'marketplace_orders',
+    'marketplace_order_items',
+    'marketplace_sku_maps',
+    'marketplace_return_refund_cases',
+    'marketplace_return_reviews',
+    'marketplace_return_item_reviews',
+    'marketplace_closing_books',
+    'marketplace_closing_book_files',
+  };
+
+  static const Set<String> _redactedExportColumns = {
+    'access_token',
+    'refresh_token',
+    'access_token_encrypted',
+    'refresh_token_encrypted',
+    'token_encrypted',
+    'app_secret',
+    'client_secret',
+    'partner_key',
+    'secret_key',
+    'service_role_key',
+    'anon_key',
+    'api_key',
+    'authorization',
+    'password',
+    'encrypted_password',
+    'raw_shop_response',
+    'request_headers',
+    'response_headers',
+  };
 
   @override
   void initState() {
@@ -102,14 +166,22 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
 
       final user = await _client
           .from('users')
-          .select('role_id')
+          .select('role_id, tenant_id')
           .eq('user_id', authUser.id)
           .maybeSingle();
 
       if (!mounted) return;
-      setState(() => _roleId = user?['role_id']?.toString() ?? '');
+      setState(() {
+        _roleId = user?['role_id']?.toString() ?? '';
+        _tenantId = user?['tenant_id']?.toString();
+      });
     } catch (_) {
-      if (mounted) setState(() => _roleId = '');
+      if (mounted) {
+        setState(() {
+          _roleId = '';
+          _tenantId = null;
+        });
+      }
     }
   }
 
@@ -129,6 +201,14 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     if (!_isSuperRole(_roleId) && !_isFinanceRole(_roleId)) {
       throw Exception('Download finance hanya untuk Finance dan Super Admin.');
     }
+  }
+
+  String _requireTenantIdForDataAction(String action) {
+    final tenantId = _tenantId?.trim() ?? '';
+    if (tenantId.isEmpty) {
+      throw Exception('Tenant aktif tidak terbaca. $action dibatalkan.');
+    }
+    return tenantId;
   }
 
   CellValue _cell(dynamic value) {
@@ -177,14 +257,42 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     return num.tryParse(cleaned);
   }
 
-  Future<File> _saveWorkbook(Excel workbook, String fileName) async {
+  Future<void> _shareWorkbook(
+    Excel workbook,
+    String fileName, {
+    required String subject,
+    required String text,
+  }) async {
     final bytes = workbook.save();
     if (bytes == null) throw Exception('Gagal membuat file XLSX');
+    final data = Uint8List.fromList(bytes);
+    const mimeType =
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/$fileName');
-    await file.writeAsBytes(bytes, flush: true);
-    return file;
+    final downloaded = await downloadBytesAsFile(
+      bytes: data,
+      fileName: fileName,
+      mimeType: mimeType,
+    );
+    if (downloaded) {
+      if (mounted) {
+        setState(() => _log = 'Download dimulai: $fileName');
+        AppUi.safeSnack(context, 'Download dimulai: $fileName');
+      }
+      return;
+    }
+
+    await Share.shareXFiles(
+      [
+        XFile.fromData(
+          data,
+          name: fileName,
+          mimeType: mimeType,
+        ),
+      ],
+      subject: subject,
+      text: text,
+    );
   }
 
   void _appendMapSheet(
@@ -214,6 +322,48 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     }
   }
 
+  bool get _isPlatformOwner => AppRolePermissions.isPlatformOwnerId(_roleId);
+
+  bool _isKnownExportTable(String table) {
+    return _globalStaticExportTables.contains(table) ||
+        _tenantScopedExportTables.contains(table);
+  }
+
+  bool _needsTenantFilter(String table) {
+    if (_isPlatformOwner) return false;
+    return _tenantScopedExportTables.contains(table);
+  }
+
+  void _assertExportAllowed(String table) {
+    if (!_isKnownExportTable(table)) {
+      throw Exception(
+          'Table "$table" belum dikonfigurasi sebagai export aman.');
+    }
+
+    if (_needsTenantFilter(table) &&
+        (_tenantId == null || _tenantId!.isEmpty)) {
+      throw Exception(
+          'Tenant aktif tidak terbaca. Export "$table" dibatalkan.');
+    }
+  }
+
+  Map<String, dynamic> _redactExportRow(Map<String, dynamic> row) {
+    final out = <String, dynamic>{};
+    for (final entry in row.entries) {
+      final key = entry.key;
+      final lowerKey = key.toLowerCase().trim();
+      final shouldRedact = _redactedExportColumns.contains(lowerKey) ||
+          lowerKey.contains('access_token') ||
+          lowerKey.contains('refresh_token') ||
+          lowerKey.contains('secret') ||
+          lowerKey.contains('password') ||
+          lowerKey.contains('encrypted');
+
+      out[key] = shouldRedact ? '[REDACTED]' : entry.value;
+    }
+    return out;
+  }
+
   Future<void> _exportTables({
     required List<String> tables,
     required String filePrefix,
@@ -224,9 +374,16 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
 
     for (final table in tables) {
       try {
-        final response = await _client.from(table).select('*').limit(50000);
+        _assertExportAllowed(table);
+
+        dynamic query = _client.from(table).select('*');
+        if (_needsTenantFilter(table)) {
+          query = query.eq('tenant_id', _tenantId!);
+        }
+
+        final response = await query.limit(50000);
         final rows = (response as List)
-            .map((e) => Map<String, dynamic>.from(e))
+            .map((e) => _redactExportRow(Map<String, dynamic>.from(e)))
             .toList();
         _appendMapSheet(workbook, table, rows);
       } catch (error) {
@@ -243,15 +400,15 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
 
     final stamp =
         DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
-    final file = await _saveWorkbook(workbook, '${filePrefix}_$stamp.xlsx');
-
-    await Share.shareXFiles(
-      [XFile(file.path)],
+    final fileName = '${filePrefix}_$stamp.xlsx';
+    await _shareWorkbook(
+      workbook,
+      fileName,
       subject: subject,
       text: 'File export berhasil dibuat.',
     );
 
-    setState(() => _log = 'Berhasil export: ${file.path}');
+    setState(() => _log = 'Berhasil export: $fileName');
   }
 
   Future<void> _exportAllData() async {
@@ -277,8 +434,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
   Future<void> _exportFinanceData() async {
     setState(() {
       _busy = true;
-      _log =
-          'Export data finance dan seluruh marketplace laporan keuangan berjalan...';
+      _log = 'Export data finance dan marketplace tenant berjalan...';
     });
 
     try {
@@ -303,12 +459,14 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
 
     try {
       await _guardSuperAdmin();
+      final tenantId = _requireTenantIdForDataAction('Export template produk');
 
       final response = await _client
           .from('products')
           .select(
             'product_id, nama_barang, kode_sku, kode_barcode, kategori, satuan, harga_hpp_default, stock_saat_ini, low_stock_limit, lokasi_rak, status',
           )
+          .eq('tenant_id', tenantId)
           .order('nama_barang');
 
       final rows =
@@ -359,15 +517,15 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         workbook.delete(defaultSheet);
       }
 
-      final file =
-          await _saveWorkbook(workbook, 'template_update_sku_stock.xlsx');
-      await Share.shareXFiles(
-        [XFile(file.path)],
+      const fileName = 'template_update_sku_stock.xlsx';
+      await _shareWorkbook(
+        workbook,
+        fileName,
         subject: 'Template update SKU dan stock',
         text: 'Edit file ini lalu import kembali dari menu Super Admin.',
       );
 
-      setState(() => _log = 'Template berhasil dibuat: ${file.path}');
+      setState(() => _log = 'Template berhasil dibuat: $fileName');
     } catch (error) {
       setState(() => _log = 'Gagal membuat template: $error');
     } finally {
@@ -410,6 +568,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
 
     try {
       await _guardSuperAdmin();
+      final tenantId = _requireTenantIdForDataAction('Import produk');
 
       final bytes = await _pickXlsxBytes();
       if (bytes == null) {
@@ -465,25 +624,17 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         throw Exception(
             'File ini bukan template Update SKU / Stock. Import produk lokal hanya menerima template UPDATE_SKU_STOCK dari menu Backup Data. Template mapping/HPP marketplace tidak boleh dipakai di sini.');
       }
-      if (skuIndex < 0 && barcodeIndex < 0) {
-        throw Exception('Kolom kode_sku atau kode_barcode wajib ada.');
+      if (barcodeIndex < 0) {
+        throw Exception('Kolom kode_barcode wajib ada.');
       }
       if (nameIndex < 0 && productIdIndex < 0 && barcodeIndex < 0) {
         throw Exception(
-            'Template tidak valid. Minimal harus ada nama_barang dan kode_barcode/kode_sku.');
+            'Template tidak valid. Minimal harus ada nama_barang dan kode_barcode.');
       }
 
       String valueAt(List<Data?> row, int index) {
         if (index < 0 || index >= row.length) return '';
         return _cellText(row[index]).trim();
-      }
-
-      final skuCounts = <String, int>{};
-      for (int rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
-        final sku = valueAt(sheet.rows[rowIndex], skuIndex);
-        if (sku.isEmpty) continue;
-        final key = sku.trim().toLowerCase();
-        skuCounts[key] = (skuCounts[key] ?? 0) + 1;
       }
 
       int inserted = 0;
@@ -499,6 +650,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         final found = await _client
             .from('products')
             .select('product_id,kode_sku,kode_barcode')
+            .eq('tenant_id', tenantId)
             .eq(column, trimmed)
             .maybeSingle();
         return found == null ? null : Map<String, dynamic>.from(found);
@@ -509,6 +661,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         await _client
             .from('products')
             .update(payload)
+            .eq('tenant_id', tenantId)
             .eq('product_id', productId);
       }
 
@@ -527,14 +680,6 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         final lowStock = _parseNumber(valueAt(row, lowStockIndex));
         final hpp = _parseNumber(valueAt(row, hppIndex));
         final margin = _parseNumber(valueAt(row, marginIndex));
-        final duplicateSkuInFile = inputSku.isNotEmpty &&
-            (skuCounts[inputSku.trim().toLowerCase()] ?? 0) > 1;
-
-        final identitySku = duplicateSkuInFile ? '' : inputSku;
-        final skuForNewProduct = duplicateSkuInFile && inputBarcode.isNotEmpty
-            ? inputBarcode
-            : (inputSku.isNotEmpty ? inputSku : inputBarcode);
-        final barcode = inputBarcode.isNotEmpty ? inputBarcode : inputSku;
 
         if (productId.isEmpty &&
             inputSku.isEmpty &&
@@ -543,15 +688,14 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
           skipped++;
           continue;
         }
-        if (productId.isEmpty && inputSku.isEmpty && inputBarcode.isEmpty) {
+        if (productId.isEmpty && inputBarcode.isEmpty) {
           skipped++;
-          errors.add('Baris ${rowIndex + 1}: kode_sku/kode_barcode kosong');
+          errors.add('Baris ${rowIndex + 1}: kode_barcode wajib diisi');
           continue;
         }
 
         final update = <String, dynamic>{};
-        if (inputSku.isNotEmpty && !duplicateSkuInFile)
-          update['kode_sku'] = inputSku;
+        if (inputSku.isNotEmpty) update['kode_sku'] = inputSku;
         if (inputBarcode.isNotEmpty) update['kode_barcode'] = inputBarcode;
         if (name.isNotEmpty) update['nama_barang'] = name;
         if (category.isNotEmpty) update['kategori'] = category;
@@ -564,11 +708,6 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
         if (margin != null) update['target_margin_percent'] = margin;
         update['updated_at'] = DateTime.now().toIso8601String();
 
-        if (duplicateSkuInFile && notes.length < 3) {
-          notes.add(
-              'Baris ${rowIndex + 1}: kode_sku "$inputSku" duplikat di file, jadi kolom kode_sku tidak diubah. Update tetap dicari lewat product_id/barcode.');
-        }
-
         Map<String, dynamic>? existing;
         try {
           existing = productId.isNotEmpty
@@ -576,9 +715,6 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
               : null;
           existing ??= inputBarcode.isNotEmpty
               ? await findProduct('kode_barcode', inputBarcode)
-              : null;
-          existing ??= identitySku.isNotEmpty
-              ? await findProduct('kode_sku', identitySku)
               : null;
 
           if (existing != null) {
@@ -590,41 +726,27 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
             try {
               await updateByProductId(id, update);
             } on PostgrestException catch (error) {
-              if (error.code == '23505' && update.containsKey('kode_sku')) {
-                final retry = Map<String, dynamic>.from(update)
-                  ..remove('kode_sku');
-                await updateByProductId(id, retry);
-                if (notes.length < 6) {
-                  notes.add(
-                      'Baris ${rowIndex + 1}: kode_sku bentrok dengan produk lain, data lain tetap diupdate.');
-                }
+              if (error.code == '23505' && update.containsKey('kode_barcode')) {
+                errors.add(
+                    'Baris ${rowIndex + 1}: kode_barcode "$inputBarcode" sudah dipakai produk lain.');
+                skipped++;
+                continue;
               } else {
                 rethrow;
               }
             }
             updated++;
           } else {
-            if (duplicateSkuInFile && inputBarcode.isEmpty) {
+            if (inputBarcode.isEmpty || name.isEmpty) {
               skipped++;
               errors.add(
-                  'Baris ${rowIndex + 1}: kode_sku "$inputSku" duplikat di file. Produk baru wajib punya kode_barcode unik agar bisa dibuat.');
-              continue;
-            }
-            if (duplicateSkuInFile &&
-                inputBarcode.isNotEmpty &&
-                notes.length < 8) {
-              notes.add(
-                  'Baris ${rowIndex + 1}: produk baru dibuat memakai kode_barcode "$inputBarcode" sebagai kode_sku internal karena kode_sku "$inputSku" duplikat di file.');
-            }
-            if (skuForNewProduct.isEmpty || name.isEmpty) {
-              skipped++;
-              errors.add(
-                  'Baris ${rowIndex + 1}: produk baru wajib punya kode_sku/kode_barcode dan nama_barang');
+                  'Baris ${rowIndex + 1}: produk baru wajib punya kode_barcode dan nama_barang');
               continue;
             }
             final insert = <String, dynamic>{
-              'kode_sku': skuForNewProduct,
-              'kode_barcode': barcode,
+              'tenant_id': tenantId,
+              'kode_sku': inputSku.isNotEmpty ? inputSku : inputBarcode,
+              'kode_barcode': inputBarcode,
               'nama_barang': name,
               'kategori': category.isNotEmpty ? category : '-',
               'satuan': unit.isNotEmpty ? unit : 'pcs',
@@ -642,12 +764,10 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
               inserted++;
             } on PostgrestException catch (error) {
               if (error.code == '23505') {
-                final fallback = inputBarcode.isNotEmpty
-                    ? await findProduct('kode_barcode', inputBarcode)
-                    : await findProduct('kode_sku', skuForNewProduct);
+                final fallback =
+                    await findProduct('kode_barcode', inputBarcode);
                 if (fallback != null) {
-                  final retry = Map<String, dynamic>.from(update)
-                    ..remove('kode_sku');
+                  final retry = Map<String, dynamic>.from(update);
                   if (retry.length > 1) {
                     await updateByProductId('${fallback['product_id']}', retry);
                     updated++;
@@ -700,7 +820,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
-                    style: const TextStyle(fontWeight: FontWeight.w900)),
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
                 Text(subtitle),
               ],
@@ -793,7 +913,7 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
                       ),
                     if (_busy) const SizedBox(width: 10),
                     const Text('Log',
-                        style: TextStyle(fontWeight: FontWeight.w900)),
+                        style: TextStyle(fontWeight: FontWeight.w800)),
                   ],
                 ),
                 const SizedBox(height: 8),

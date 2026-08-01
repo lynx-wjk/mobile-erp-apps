@@ -32,8 +32,14 @@ class MarketplaceResiOrderResult {
   final bool ok;
   final String message;
   final String? marketplaceOrderId;
+  final String? marketplace;
+  final String? marketplaceAccountId;
+  final String? accountName;
   final String? externalOrderId;
   final String? trackingNumber;
+  final String? marketplaceNote;
+  final String? buyerNote;
+  final String? sellerNote;
   final bool orderReadyToFinalize;
   final int processed;
   final int failed;
@@ -42,8 +48,14 @@ class MarketplaceResiOrderResult {
     required this.ok,
     required this.message,
     this.marketplaceOrderId,
+    this.marketplace,
+    this.marketplaceAccountId,
+    this.accountName,
     this.externalOrderId,
     this.trackingNumber,
+    this.marketplaceNote,
+    this.buyerNote,
+    this.sellerNote,
     this.orderReadyToFinalize = false,
     this.processed = 0,
     this.failed = 0,
@@ -54,8 +66,15 @@ class MarketplaceResiOrderResult {
       ok: map['ok'] == true,
       message: map['message']?.toString() ?? 'Selesai.',
       marketplaceOrderId: map['marketplace_order_id']?.toString(),
+      marketplace: map['marketplace']?.toString(),
+      marketplaceAccountId: map['marketplace_account_id']?.toString(),
+      accountName: (map['account_name'] ?? map['shop_name'])?.toString(),
       externalOrderId: map['external_order_id']?.toString(),
       trackingNumber: map['tracking_number']?.toString(),
+      marketplaceNote:
+          (map['marketplace_note'] ?? map['seller_note'])?.toString(),
+      buyerNote: map['buyer_note']?.toString(),
+      sellerNote: map['seller_note']?.toString(),
       orderReadyToFinalize: map['order_ready_to_finalize'] == true,
       processed: _asInt(map['processed'] ?? map['scanned_qty']),
       failed: _asInt(map['failed']),
@@ -200,10 +219,47 @@ class MarketplaceOrderPickService {
     return MarketplaceResiOrderResult.fromMap(_rpcMap(response));
   }
 
+  Future<MarketplaceResiOrderResult> scanOrderItemManualOverrideByResi({
+    required String tenantId,
+    required String resiCode,
+    required String marketplaceOrderItemId,
+    required String actualProductId,
+    String? overrideNote,
+  }) async {
+    final response = await _client.rpc(
+      'marketplace_scan_order_item_manual_override_by_resi',
+      params: {
+        'p_tenant_id': tenantId,
+        'p_resi_code': resiCode,
+        'p_marketplace_order_item_id': marketplaceOrderItemId,
+        'p_actual_product_id': actualProductId,
+        'p_override_note': overrideNote,
+      },
+    );
+
+    return MarketplaceResiOrderResult.fromMap(_rpcMap(response));
+  }
+
   Future<MarketplaceResiOrderResult> finalizeScannedOrderStockOutByResi({
     required String tenantId,
     required String resiCode,
   }) async {
+    final order = await findOrderByResi(
+      tenantId: tenantId,
+      resiCode: resiCode,
+    );
+    final accountId = order.marketplaceAccountId?.trim();
+    if (accountId != null && accountId.isNotEmpty) {
+      await _client.rpc(
+        'marketplace_apply_sku_maps_to_order_items',
+        params: {
+          'p_tenant_id': tenantId,
+          'p_marketplace_account_id': accountId,
+          'p_days_back': 90,
+        },
+      );
+    }
+
     final response = await _client.rpc(
       'marketplace_finalize_scanned_order_stock_out_by_resi_guarded',
       params: {
@@ -256,6 +312,11 @@ class MarketplaceOrderPickService {
   Future<List<MarketplaceReturnReviewItem>> listReturnReviews({
     required String tenantId,
     String? marketplaceAccountId,
+    String? marketplace,
+    String? startDate,
+    String? endDate,
+    String? search,
+    int page = 1,
     String status = 'all',
     int limit = 150,
   }) async {
@@ -277,15 +338,52 @@ class MarketplaceOrderPickService {
       query = query.eq('marketplace_account_id', accountId);
     }
 
+    final cleanMarketplace = marketplace?.trim();
+    if (cleanMarketplace != null &&
+        cleanMarketplace.isNotEmpty &&
+        cleanMarketplace != 'all') {
+      query = query.eq('marketplace', cleanMarketplace);
+    }
+
     final cleanStatus = status.trim();
     if (cleanStatus.isNotEmpty && cleanStatus != 'all') {
       query = query.eq('review_status', cleanStatus);
     }
 
-    final safeLimit = limit.clamp(1, 150).toInt();
+    final cleanStartDate = startDate?.trim();
+    if (cleanStartDate != null &&
+        RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(cleanStartDate)) {
+      final parts = cleanStartDate.split('-').map(int.parse).toList();
+      final startUtc = DateTime.utc(parts[0], parts[1], parts[2])
+          .subtract(const Duration(hours: 7));
+      query = query.gte('order_created_at', startUtc.toIso8601String());
+    }
+
+    final cleanEndDate = endDate?.trim();
+    if (cleanEndDate != null &&
+        RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(cleanEndDate)) {
+      final parts = cleanEndDate.split('-').map(int.parse).toList();
+      final endUtc = DateTime.utc(parts[0], parts[1], parts[2] + 1)
+          .subtract(const Duration(hours: 7));
+      query = query.lt('order_created_at', endUtc.toIso8601String());
+    }
+
+    final keyword = search?.trim();
+    if (keyword != null && keyword.isNotEmpty) {
+      final safeKeyword = keyword.replaceAll(',', ' ').trim();
+      if (safeKeyword.isNotEmpty) {
+        query = query.or(
+          'external_order_id.ilike.%$safeKeyword%,order_sn.ilike.%$safeKeyword%,tracking_number.ilike.%$safeKeyword%,return_tracking_number.ilike.%$safeKeyword%,marketplace_product_name.ilike.%$safeKeyword%,marketplace_variant_name.ilike.%$safeKeyword%,seller_sku.ilike.%$safeKeyword%,marketplace_sku_id.ilike.%$safeKeyword%,mapped_local_sku.ilike.%$safeKeyword%,local_product_name.ilike.%$safeKeyword%,local_barcode.ilike.%$safeKeyword%',
+        );
+      }
+    }
+
+    final safePage = page < 1 ? 1 : page;
+    final safeLimit = limit.clamp(1, 50).toInt();
+    final offset = (safePage - 1) * safeLimit;
     final data = await query
         .order('order_updated_at', ascending: false)
-        .range(0, safeLimit - 1);
+        .range(offset, offset + safeLimit - 1);
 
     return (data as List<dynamic>)
         .map((item) => MarketplaceReturnReviewItem.fromMap(

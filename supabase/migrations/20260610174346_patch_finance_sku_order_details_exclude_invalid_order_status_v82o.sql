@@ -1,4 +1,4 @@
-﻿do $$
+do $$
 declare
   v_def text;
   v_old text;

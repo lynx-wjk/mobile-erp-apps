@@ -97,7 +97,7 @@ class _PurchaseVerificationPageState extends State<PurchaseVerificationPage> {
       case 'submitted':
         return Colors.blue;
       case 'draft':
-        return Colors.grey;
+        return AppUi.mutedText(context, 0.90);
       default:
         return Colors.blueGrey;
     }
@@ -115,7 +115,8 @@ class _PurchaseVerificationPageState extends State<PurchaseVerificationPage> {
     final revision = _items.where((item) => item.status == 'revision').length;
 
     final total = _items
-        .where((item) => item.status != 'rejected' && item.status != 'cancelled')
+        .where(
+            (item) => item.status != 'rejected' && item.status != 'cancelled')
         .fold<num>(
           0,
           (sum, item) => sum + item.totalPembelian,
@@ -123,18 +124,7 @@ class _PurchaseVerificationPageState extends State<PurchaseVerificationPage> {
 
     return Container(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 3),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black,
-            blurRadius: 0,
-            offset: Offset(6, 6),
-          ),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -149,7 +139,7 @@ class _PurchaseVerificationPageState extends State<PurchaseVerificationPage> {
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurface,
               fontSize: 22,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
             ),
           ),
           SizedBox(height: 6),
@@ -197,7 +187,7 @@ class _PurchaseVerificationPageState extends State<PurchaseVerificationPage> {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurface,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
             ),
           ),
           SizedBox(height: 4),
@@ -232,9 +222,7 @@ class _PurchaseVerificationPageState extends State<PurchaseVerificationPage> {
         );
       },
       child: Card(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
-        ),
+        shape: AppUi.modernShape(context, radius: 22),
         child: ListTile(
           contentPadding: const EdgeInsets.all(14),
           leading: CircleAvatar(
@@ -247,7 +235,7 @@ class _PurchaseVerificationPageState extends State<PurchaseVerificationPage> {
           title: Text(
             item.nomorPembelian,
             style: TextStyle(
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
             ),
           ),
           subtitle: Text(
@@ -291,16 +279,13 @@ class _PurchaseVerificationPageState extends State<PurchaseVerificationPage> {
           Text(
             'Data Pembelian',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w800,
                 ),
           ),
           SizedBox(height: 10),
           if (_items.isEmpty)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(18),
-                child: Text('Belum ada data pembelian.'),
-              ),
+            const NiceCard(
+              child: Text('Belum ada data pembelian.'),
             )
           else
             ..._items.asMap().entries.map(
@@ -569,18 +554,7 @@ class _PurchaseVerificationDetailPageState
   Widget _headerCard() {
     return Container(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.zero,
-        color: Theme.of(context).cardColor,
-        border: Border.all(color: Colors.black, width: 3),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black,
-            blurRadius: 0,
-            offset: Offset(6, 6),
-          ),
-        ],
-      ),
+      decoration: AppUi.modernCardDecoration(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -595,7 +569,7 @@ class _PurchaseVerificationDetailPageState
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurface,
               fontSize: 22,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
             ),
           ),
           SizedBox(height: 8),
@@ -611,7 +585,7 @@ class _PurchaseVerificationDetailPageState
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurface,
               fontSize: 26,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w800,
             ),
           ),
         ],
@@ -621,9 +595,7 @@ class _PurchaseVerificationDetailPageState
 
   Widget _infoCard() {
     return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
-      ),
+      shape: AppUi.modernShape(context, radius: 22),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -651,19 +623,14 @@ class _PurchaseVerificationDetailPageState
     final url = _driveThumbnailUrl(widget.purchase.photoUrl);
 
     if (url == null) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('Foto nota tidak ada.'),
-        ),
+      return const NiceCard(
+        child: Text('Foto nota tidak ada.'),
       );
     }
 
     return Card(
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
-      ),
+      shape: AppUi.modernShape(context, radius: 22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -672,7 +639,7 @@ class _PurchaseVerificationDetailPageState
             child: Text(
               'Foto Nota',
               style: TextStyle(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
@@ -713,23 +680,18 @@ class _PurchaseVerificationDetailPageState
         Text(
           'Item Pembelian',
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w800,
               ),
         ),
         SizedBox(height: 8),
         if (_items.isEmpty)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Belum ada item.'),
-            ),
+          const NiceCard(
+            child: Text('Belum ada item.'),
           )
         else
           ..._items.map((item) {
             return Card(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
+              shape: AppUi.modernShape(context, radius: 18),
               child: ListTile(
                 title: Text(
                   item.namaBarang,
@@ -745,7 +707,7 @@ class _PurchaseVerificationDetailPageState
                 trailing: Text(
                   'Rp ${_money(item.subtotal)}',
                   style: TextStyle(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
@@ -757,9 +719,7 @@ class _PurchaseVerificationDetailPageState
 
   Widget _actionButtons() {
     return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
-      ),
+      shape: AppUi.modernShape(context, radius: 22),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -768,7 +728,7 @@ class _PurchaseVerificationDetailPageState
             Text(
               'Update Status Pembelian',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w800,
                   ),
             ),
             SizedBox(height: 12),

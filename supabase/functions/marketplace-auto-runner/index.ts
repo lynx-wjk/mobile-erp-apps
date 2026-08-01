@@ -1,5 +1,5 @@
-﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const FUNCTION_VERSION = "marketplace-auto-runner-status-finance-reconciliation-v52-2026-06-10";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+const FUNCTION_VERSION = "marketplace-auto-runner";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-marketplace-cron-secret, x-stock-sync-cron-secret",
@@ -16,46 +16,7 @@ Deno.serve(async (req)=>{
     }, 405);
     const supabaseUrl = requiredEnv("SUPABASE_URL");
     const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-    const cronSecret = String(Deno.env.get("MARKETPLACE_CRON_SECRET") || Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") || Deno.env.get("STOCK_SYNC_CRON_SECRET") || "").trim();
     const incomingSecret = String(req.headers.get("x-marketplace-cron-secret") || req.headers.get("x-stock-sync-cron-secret") || "").trim();
-    if (!cronSecret) {
-      return json({
-        ok: false,
-        message: "MARKETPLACE_CRON_SECRET belum diset di Supabase Edge Function secrets."
-      }, 500);
-    }
-    if (incomingSecret !== cronSecret) {
-      return json({
-        ok: false,
-        message: "Invalid cron secret"
-      }, 401);
-    }
-    const body = await safeJson(req);
-    const force = body.force === true;
-    const tenantFilter = text(body.tenant_id);
-    const accountFilter = text(body.marketplace_account_id);
-    const maxAccounts = clampInt(body.max_accounts, 1, 100, 50);
-    const maxOrderAccounts = clampInt(body.max_order_accounts ?? body.order_max_accounts ?? Deno.env.get("ORDER_PULL_MAX_ACCOUNTS"), 1, 100, 100);
-    const queueLimit = clampInt(body.stock_sync_limit, 1, 50, 20);
-    // v7: order cron 2 menit harus bounded. Default sengaja kecil supaya parent request tidak 546/timeout.
-    const maxOrderJobs = clampInt(body.max_order_jobs ?? Deno.env.get("ORDER_PULL_MAX_JOBS"), 1, 12, 1);
-    const maxPagesPerAccount = clampInt(body.max_pages_per_account ?? Deno.env.get("ORDER_PULL_MAX_PAGES_PER_ACCOUNT"), 1, 3, 1);
-    const maxOrdersPerAccount = clampInt(body.max_orders_per_account ?? Deno.env.get("ORDER_PULL_MAX_ORDERS_PER_ACCOUNT"), 10, 100, 50);
-    const maxDetailsPerAccount = clampInt(body.max_details_per_account ?? Deno.env.get("ORDER_PULL_MAX_DETAILS_PER_ACCOUNT"), 0, 120, 30);
-    const childTimeoutMs = clampInt(body.child_timeout_ms ?? Deno.env.get("MARKETPLACE_RUNNER_CHILD_TIMEOUT_MS"), 15000, 90000, 35000);
-    const statusRefreshRangeDays = clampInt(body.order_status_range_days ?? body.status_range_days ?? Deno.env.get("ORDER_STATUS_REFRESH_RANGE_DAYS"), 1, 90, 90);
-    const maxStatusRefreshPerAccount = clampInt(body.max_status_refresh_per_account ?? body.max_existing_orders ?? Deno.env.get("ORDER_STATUS_REFRESH_MAX_EXISTING"), 10, 200, 200);
-    const runPendingDrain = body.run_pending_drain !== false;
-    const runStatusRefresh = body.run_order_status_refresh !== false;
-    const runReturnRefund = body.run_return_refund_pull === true;
-    const maxFinanceJobs = clampInt(body.max_finance_jobs ?? Deno.env.get("FINANCE_SYNC_MAX_JOBS"), 1, 3, 3);
-    const maxFinanceOrders = clampInt(body.max_finance_orders ?? Deno.env.get("FINANCE_SYNC_MAX_ORDERS"), 1, 80, 50);
-    const maxFinanceBatches = clampInt(body.max_finance_batches ?? Deno.env.get("FINANCE_SYNC_MAX_BATCHES"), 1, 3, 3);
-    const cleanupStale = body.cleanup_stale !== false;
-    const runStock = body.run_stock === true;
-    const runOrder = body.run_order !== false;
-    const runFinanceStatement = body.run_finance_statement === true || body.run_finance === true || body.run_payout === true;
-    const runFinancePayout = body.run_finance_payout_direct === true || body.run_direct_payout === true;
     const admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
         persistSession: false,
@@ -67,6 +28,41 @@ Deno.serve(async (req)=>{
         }
       }
     });
+    const cronAuth = await verifyMarketplaceCronSecret(admin, incomingSecret);
+    if (!cronAuth.ok) {
+      return json({
+        ok: false,
+        message: cronAuth.message
+      }, cronAuth.status);
+    }
+    const cronSecret = incomingSecret;
+    const body = await safeJson(req);
+    const force = body.force === true;
+    const tenantFilter = text(body.tenant_id);
+    const accountFilter = text(body.marketplace_account_id);
+    const maxAccounts = clampInt(body.max_accounts, 1, 100, 50);
+    const maxOrderAccounts = clampInt(body.max_order_accounts ?? body.order_max_accounts ?? Deno.env.get("ORDER_PULL_MAX_ACCOUNTS"), 1, 100, 100);
+    const queueLimit = clampInt(body.stock_sync_limit, 1, 50, 20);
+    // v7: order cron 2 menit harus bounded. Default sengaja kecil supaya parent request tidak 546/timeout.
+    const maxOrderJobs = clampInt(body.max_order_jobs ?? Deno.env.get("ORDER_PULL_MAX_JOBS"), 1, 12, 1);
+    const maxPagesPerAccount = clampInt(body.max_pages_per_account ?? Deno.env.get("ORDER_PULL_MAX_PAGES_PER_ACCOUNT"), 1, 3, 1);
+    const maxOrdersPerAccount = clampInt(body.max_orders_per_account ?? Deno.env.get("ORDER_PULL_MAX_ORDERS_PER_ACCOUNT"), 1, 100, 10);
+    const maxDetailsPerAccount = clampInt(body.max_details_per_account ?? Deno.env.get("ORDER_PULL_MAX_DETAILS_PER_ACCOUNT"), 0, 120, 30);
+    const childTimeoutMs = clampInt(body.child_timeout_ms ?? Deno.env.get("MARKETPLACE_RUNNER_CHILD_TIMEOUT_MS"), 3000, 45000, 12000);
+    const statusRefreshRangeDays = clampInt(body.order_status_range_days ?? body.status_range_days ?? Deno.env.get("ORDER_STATUS_REFRESH_RANGE_DAYS"), 1, 90, 90);
+    const maxStatusRefreshPerAccount = clampInt(body.max_status_refresh_per_account ?? body.max_existing_orders ?? Deno.env.get("ORDER_STATUS_REFRESH_MAX_EXISTING"), 0, 200, 100);
+    const runPendingDrain = body.run_pending_drain !== false;
+    const runStatusRefresh = body.run_order_status_refresh !== false && body.skip_order_status_refresh !== true;
+    const runReturnRefund = body.run_return_refund_pull === true;
+    const maxFinanceJobs = clampInt(body.max_finance_jobs ?? Deno.env.get("FINANCE_SYNC_MAX_JOBS"), 1, 3, 3);
+    const maxFinanceOrders = clampInt(body.max_finance_orders ?? Deno.env.get("FINANCE_SYNC_MAX_ORDERS"), 1, 80, 50);
+    const maxFinanceBatches = clampInt(body.max_finance_batches ?? Deno.env.get("FINANCE_SYNC_MAX_BATCHES"), 1, 3, 3);
+    const cleanupStale = body.cleanup_stale !== false;
+    const runStock = body.run_stock === true;
+    const runOrder = body.run_order !== false;
+    const runOrderEnqueue = body.run_order_enqueue !== false && body.skip_order_enqueue !== true;
+    const runFinanceStatement = body.run_finance_statement === true || body.run_finance === true || body.run_payout === true;
+    const runFinancePayout = body.run_finance_payout_direct === true || body.run_direct_payout === true;
     const stockResult = runStock ? await withRunnerLock(admin, "stock_sync", 280, ()=>runAutoStockSync({
         admin,
         supabaseUrl,
@@ -97,6 +93,7 @@ Deno.serve(async (req)=>{
         childTimeoutMs,
         statusRefreshRangeDays,
         maxStatusRefreshPerAccount,
+        runOrderEnqueue,
         runPendingDrain,
         runStatusRefresh,
         runReturnRefund,
@@ -368,7 +365,13 @@ async function runAutoOrderPull(args) {
         status: "skipped_by_config"
       });
     }
-    if (!orderDue) {
+    if (!args.runOrderEnqueue) {
+      result.details.push({
+        type: "order_pull",
+        tenant_id: tenantId,
+        status: "skipped_enqueue_by_config"
+      });
+    } else if (!orderDue) {
       result.skipped += 1;
       result.details.push({
         type: "order_pull",
@@ -376,66 +379,67 @@ async function runAutoOrderPull(args) {
         status: "skipped_enqueue_interval_but_pending_drained",
         interval_minutes: interval
       });
-      continue;
-    }
-    result.tenants_run += 1;
-    const orderJobs = await invokeFunction(args.supabaseUrl, args.serviceRoleKey, args.cronSecret, "marketplace-order-sync-jobs", {
-      mode: args.force ? "backfill" : "today",
-      tenant_id: tenantId,
-      marketplace_account_id: args.accountFilter || undefined,
-      enqueue: true,
-      process: true,
-      max_accounts: args.maxAccounts,
-      max_jobs: args.maxOrderJobs,
-      window_minutes: args.force ? 720 : 10,
-      days_back: args.force ? 3 : 0,
-      page_size: Math.min(args.maxOrdersPerAccount, 50),
-      max_pages: args.force ? Math.max(args.maxPagesPerAccount, 2) : args.maxPagesPerAccount,
-      max_details: args.maxDetailsPerAccount,
-      include_update_time_search: true,
-      only_latest: true,
-      only_active_orders: true,
-      skip_completed_orders: true,
-      skip_final_orders: true,
-      include_completed: false,
-      source: "marketplace-auto-runner-v7-order-bounded-active-only",
-      refresh_existing_status: false
-    }, args.childTimeoutMs);
-    if (orderJobs.ok && orderJobs.http_status >= 200 && orderJobs.http_status < 300 && orderJobs.data?.ok !== false) {
-      const queued = Number(orderJobs.data?.queued || 0);
-      const processedJobs = Number(orderJobs.data?.processed || orderJobs.data?.processed_jobs || 0);
-      const remainingJobs = Number(orderJobs.data?.remaining || orderJobs.data?.remaining_jobs || 0);
-      const orders = Number(orderJobs.data?.orders || 0);
-      const items = Number(orderJobs.data?.items || 0);
-      const accounts = Number(orderJobs.data?.accounts || 0);
-      result.queued += queued;
-      result.processed_jobs += processedJobs;
-      result.remaining_jobs += remainingJobs;
-      result.orders += orders;
-      result.items += items;
-      result.accounts_run += accounts;
-      result.details.push({
-        type: "order_pull_jobs",
-        tenant_id: tenantId,
-        status: "jobs_processed",
-        queued,
-        processed_jobs: processedJobs,
-        remaining_jobs: remainingJobs,
-        orders,
-        items,
-        response: orderJobs.data
-      });
+      if (!args.runStatusRefresh && !args.runReturnRefund) continue;
     } else {
-      result.failed += 1;
-      result.details.push({
-        type: "order_pull_jobs",
+      result.tenants_run += 1;
+      const orderJobs = await invokeFunction(args.supabaseUrl, args.serviceRoleKey, args.cronSecret, "marketplace-order-sync-jobs", {
+        mode: args.force ? "backfill" : "today",
         tenant_id: tenantId,
-        status: "jobs_failed",
-        response: orderJobs.data,
-        http_status: orderJobs.http_status
-      });
-      await updateOrderSetting(args.admin, tenantId, `Auto order jobs gagal: ${JSON.stringify(orderJobs.data || {})}`);
-      continue;
+        marketplace_account_id: args.accountFilter || undefined,
+        enqueue: true,
+        process: true,
+        max_accounts: args.maxAccounts,
+        max_jobs: args.maxOrderJobs,
+        window_minutes: args.force ? 720 : 10,
+        days_back: args.force ? 3 : 0,
+        page_size: Math.min(args.maxOrdersPerAccount, 50),
+        max_pages: args.force ? Math.max(args.maxPagesPerAccount, 2) : args.maxPagesPerAccount,
+        max_details: args.maxDetailsPerAccount,
+        include_update_time_search: true,
+        only_latest: true,
+        only_active_orders: true,
+        skip_completed_orders: true,
+        skip_final_orders: true,
+        include_completed: false,
+        source: "marketplace-auto-runner-v7-order-bounded-active-only",
+        refresh_existing_status: false
+      }, args.childTimeoutMs);
+      if (orderJobs.ok && orderJobs.http_status >= 200 && orderJobs.http_status < 300 && orderJobs.data?.ok !== false) {
+        const queued = Number(orderJobs.data?.queued || 0);
+        const processedJobs = Number(orderJobs.data?.processed || orderJobs.data?.processed_jobs || 0);
+        const remainingJobs = Number(orderJobs.data?.remaining || orderJobs.data?.remaining_jobs || 0);
+        const orders = Number(orderJobs.data?.orders || 0);
+        const items = Number(orderJobs.data?.items || 0);
+        const accounts = Number(orderJobs.data?.accounts || 0);
+        result.queued += queued;
+        result.processed_jobs += processedJobs;
+        result.remaining_jobs += remainingJobs;
+        result.orders += orders;
+        result.items += items;
+        result.accounts_run += accounts;
+        result.details.push({
+          type: "order_pull_jobs",
+          tenant_id: tenantId,
+          status: "jobs_processed",
+          queued,
+          processed_jobs: processedJobs,
+          remaining_jobs: remainingJobs,
+          orders,
+          items,
+          response: orderJobs.data
+        });
+      } else {
+        result.failed += 1;
+        result.details.push({
+          type: "order_pull_jobs",
+          tenant_id: tenantId,
+          status: "jobs_failed",
+          response: orderJobs.data,
+          http_status: orderJobs.http_status
+        });
+        await updateOrderSetting(args.admin, tenantId, `Auto order jobs gagal: ${JSON.stringify(orderJobs.data || {})}`);
+        if (!args.runStatusRefresh && !args.runReturnRefund) continue;
+      }
     }
     const { data: accounts, error: accountsError } = await args.admin.from("marketplace_accounts").select("marketplace_account_id, marketplace, shop_name, store_alias, status").eq("tenant_id", tenantId).eq("status", "active").eq("is_deleted", false).order("created_at", {
       ascending: true
@@ -581,29 +585,34 @@ async function runAutoOrderPull(args) {
 }
 async function runAutoFinanceStatementJobs(args) {
   if (args.cleanupStale) await resetStaleJobs(args.admin);
-  // Pull finance/payout dibuat job-based supaya tidak menahan satu request panjang.
-  // Default v81: jadwal 5 menit, maksimal 3 job, 20 order per batch, 3 batch per job.
+  // statement-first-runner-v1: TikTok payout is statement-settlement based.
+  // Pull recent statements repeatedly so newly SETTLED payouts are picked up without order-probe spam.
+  const jakartaDateString = (offsetDays = 0)=>{
+    const now = new Date();
+    const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+    const jakarta = new Date(utc + 7 * 60 * 60000 + offsetDays * 24 * 60 * 60000);
+    const y = jakarta.getFullYear();
+    const m = String(jakarta.getMonth() + 1).padStart(2, '0');
+    const d = String(jakarta.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+  const statementEndDate = jakartaDateString(0);
+  const statementStartDate = jakartaDateString(args.force ? -21 : -15);
   const body = {
-    action: "process_finance_sync_jobs",
+    action: "pull_finance_statements_period",
     params: {
-      mode: "recent_unpaid",
-      days_back: args.force ? 7 : 3,
-      enqueue: true,
-      process: true,
-      max_jobs: args.maxFinanceJobs,
-      max_accounts: args.maxAccounts,
-      max_orders: args.maxFinanceOrders,
-      max_batches_per_job: args.maxFinanceBatches,
-      max_order_details: 120,
-      include_sku_details: true,
-      only_missing_payout: true,
-      include_recent_orders: true,
-      include_pending_payout: true,
-      include_all_missing_payout: true,
-      missing_payout_limit: args.maxFinanceOrders,
-      include_negative_refund_check: true,
-      skip_settled_with_payout: true,
-      source: "marketplace-auto-runner-v24-6-82o-finance-force-7d-unpaid"
+      start_date: statementStartDate,
+      end_date: statementEndDate,
+      page_size: 10,
+      max_statements: args.force ? 20 : 10,
+      max_transactions: 30,
+      max_order_details: 0,
+      include_sku_details: false,
+      time_fields: [
+        "payment_time",
+        "statement_time"
+      ],
+      source: "marketplace-auto-runner-statement-first-v1"
     }
   };
   if (args.tenantFilter) body.params = {
@@ -646,12 +655,14 @@ async function runAutoFinanceStatementJobs(args) {
       }
     };
   }
-  const cache = await refreshFinanceCacheSafe({
-    admin: args.admin,
-    marketplace: "all",
-    accountId: args.accountFilter || null,
-    reason: "auto_finance_statement"
-  });
+  // statement-first-skip-inline-cache-v1:
+  // Finance statement pull must not be blocked by heavy cache refresh RPC.
+  // Dashboard live RPC already reads marketplace_finance_reports by settlement_date.
+  const cache = {
+    skipped: true,
+    reason: "skip_inline_cache_refresh_after_statement_pull",
+    refresh_source: "finance_dashboard_snapshot_live"
+  };
   return {
     ...response,
     cache
@@ -662,7 +673,7 @@ async function withRunnerLock(admin, lockKey, ttlSeconds, run) {
   let locked = false;
   let lockWarning = "";
   try {
-    const { data, error } = await admin.rpc("marketplace_auto_runner_try_lock_v24_6_81b", {
+    const { data, error } = await admin.rpc("marketplace_auto_runner_try_lock", {
       p_lock_key: lockKey,
       p_ttl_seconds: ttlSeconds,
       p_owner: owner
@@ -693,7 +704,7 @@ async function withRunnerLock(admin, lockKey, ttlSeconds, run) {
   } finally{
     if (locked) {
       try {
-        await admin.rpc("marketplace_auto_runner_release_lock_v24_6_81b", {
+        await admin.rpc("marketplace_auto_runner_release_lock", {
           p_lock_key: lockKey,
           p_owner: owner
         });
@@ -705,7 +716,7 @@ async function withRunnerLock(admin, lockKey, ttlSeconds, run) {
 }
 async function resetStaleJobs(admin) {
   try {
-    const { data, error } = await admin.rpc("marketplace_reset_stale_auto_jobs_v24_6_81b", {
+    const { data, error } = await admin.rpc("marketplace_reset_stale_auto_jobs", {
       p_order_stale_minutes: 6,
       p_finance_stale_minutes: 15,
       p_revive_failed: false
@@ -838,7 +849,7 @@ function isDue(lastRunAt, intervalMinutes) {
   if (!lastRunAt) return true;
   const last = new Date(String(lastRunAt)).getTime();
   if (!Number.isFinite(last)) return true;
-  return Date.now() - last >= Math.max(1, intervalMinutes) * 60_000 - 5_000;
+  return Date.now() - last >= Math.max(1, intervalMinutes) * 60_000 - 50_000;
 }
 function text(value) {
   return String(value ?? "").trim();
@@ -848,6 +859,39 @@ function clampInt(value, min, max, fallback) {
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
 }
+
+async function verifyMarketplaceCronSecret(admin: any, incomingSecret: string): Promise<{ ok: boolean; status: number; message: string }> {
+  if (!incomingSecret) {
+    return { ok: false, status: 401, message: "Invalid cron secret" };
+  }
+
+  const { data, error } = await admin.rpc("verify_marketplace_cron_secret", {
+    p_secret: incomingSecret,
+  });
+
+  if (!error && data === true) {
+    return { ok: true, status: 200, message: "ok" };
+  }
+
+  const fallbackSecret = String(
+    Deno.env.get("MARKETPLACE_CRON_SECRET") ||
+    Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET") ||
+    Deno.env.get("STOCK_SYNC_CRON_SECRET") ||
+    "",
+  ).trim();
+
+  if (fallbackSecret && incomingSecret === fallbackSecret) {
+    return { ok: true, status: 200, message: "ok" };
+  }
+
+  if (error) {
+    console.error("verify_marketplace_cron_secret failed", error.message);
+  }
+
+  return { ok: false, status: 401, message: "Invalid cron secret" };
+}
+
+
 async function safeJson(req) {
   try {
     const raw = await req.text();
@@ -1015,7 +1059,7 @@ function sumNumbers(values) {
 }
 async function refreshFinanceCacheSafe(args) {
   try {
-    const { data, error } = await args.admin.rpc("finance_refresh_recent_caches_v24_6_81b", {
+    const { data, error } = await args.admin.rpc("finance_refresh_recent_caches", {
       p_marketplace: args.marketplace || "all",
       p_account_id: args.accountId || null,
       p_reason: args.reason
