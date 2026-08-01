@@ -192,9 +192,9 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
           _absentPenaltyRateController.text = _formatNumber(profileRes['absent_penalty_per_day']);
           _notesController.text = profileRes['notes'] ?? '';
         });
-
-        await _autoCalculatePayrollForPeriod();
       }
+
+      await _autoCalculatePayrollForPeriod();
     } catch (e) {
       debugPrint('Error loading user profile: $e');
     }
@@ -218,11 +218,34 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
           .maybeSingle();
 
       final salaryType = profileRes?['salary_type']?.toString() ?? _selectedSalaryType;
-      final baseSal = AppUi.toNum(profileRes?['base_salary']).toDouble();
-      final dailyRate = AppUi.toNum(profileRes?['daily_rate']).toDouble();
-      final hourlyRate = AppUi.toNum(profileRes?['hourly_rate']).toDouble();
-      final lateRate = AppUi.toNum(profileRes?['late_penalty_per_minute']).toDouble();
-      final absentRate = AppUi.toNum(profileRes?['absent_penalty_per_day']).toDouble();
+      double baseSal = AppUi.toNum(profileRes?['base_salary']).toDouble();
+      if (baseSal <= 0) {
+        baseSal = _parseVal(_baseSalaryController);
+      }
+      if (baseSal <= 0) {
+        final uRes = await _supabase.from('users').select('gaji_pokok').eq('user_id', userId).maybeSingle();
+        baseSal = AppUi.toNum(uRes?['gaji_pokok']).toDouble();
+      }
+      if (baseSal <= 0) {
+        baseSal = 200000;
+      }
+
+      final dailyRate = AppUi.toNum(profileRes?['daily_rate']).toDouble() > 0
+          ? AppUi.toNum(profileRes?['daily_rate']).toDouble()
+          : AppUi.toNum(_parseVal(_dailyRateController)).toDouble();
+      final hourlyRate = AppUi.toNum(profileRes?['hourly_rate']).toDouble() > 0
+          ? AppUi.toNum(profileRes?['hourly_rate']).toDouble()
+          : AppUi.toNum(_parseVal(_hourlyRateController)).toDouble();
+      final lateRate = AppUi.toNum(profileRes?['late_penalty_per_minute']).toDouble() > 0
+          ? AppUi.toNum(profileRes?['late_penalty_per_minute']).toDouble()
+          : (AppUi.toNum(_parseVal(_latePenaltyRateController)).toDouble() > 0
+              ? AppUi.toNum(_parseVal(_latePenaltyRateController)).toDouble()
+              : 5000.0);
+      final absentRate = AppUi.toNum(profileRes?['absent_penalty_per_day']).toDouble() > 0
+          ? AppUi.toNum(profileRes?['absent_penalty_per_day']).toDouble()
+          : (AppUi.toNum(_parseVal(_absentPenaltyRateController)).toDouble() > 0
+              ? AppUi.toNum(_parseVal(_absentPenaltyRateController)).toDouble()
+              : 80000.0);
 
       // 1. Overtime calculation
       final overtimeRes = await _supabase
@@ -1722,7 +1745,28 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
   Widget _buildField(String label, TextEditingController ctrl) {
     return TextField(
       controller: ctrl,
+      keyboardType: TextInputType.number,
+      onChanged: (val) => _formatCurrencyController(ctrl, val),
       decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
     );
+  }
+
+  void _formatCurrencyController(TextEditingController controller, String value) {
+    final clean = value.replaceAll(RegExp(r'[^\d]'), '');
+    if (clean.isEmpty) {
+      controller.value = const TextEditingValue(
+        text: '0',
+        selection: TextSelection.collapsed(offset: 1),
+      );
+      return;
+    }
+    final numVal = int.tryParse(clean) ?? 0;
+    final formatted = NumberFormat('#,##0', 'id_ID').format(numVal);
+    if (controller.text != formatted) {
+      controller.value = TextEditingValue(
+        text: formatted,
+        selection: TextSelection.collapsed(offset: formatted.length),
+      );
+    }
   }
 }
