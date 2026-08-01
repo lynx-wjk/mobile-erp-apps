@@ -668,177 +668,202 @@ class _AbsensiPageState extends State<AbsensiPage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) {
-          return Container(
-            padding: EdgeInsets.only(
-              left: 20, right: 20, top: 20,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-            ),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40, height: 4,
-                      decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)),
+      builder: (ctx) {
+        String? modalError;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              padding: EdgeInsets.only(
+                left: 20, right: 20, top: 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40, height: 4,
+                        decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('Pengajuan Tukar Shift / Ubah Jam Kerja', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  const Text('Pengajuan ini akan dikirim ke Super Admin / HR / Finance. Setelah disetujui, jam kerja hari tersebut otomatis diperbarui.', style: TextStyle(fontSize: 12.5, color: Colors.grey)),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: dateCtrl,
-                    readOnly: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Tanggal Shift',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.calendar_today_rounded),
-                    ),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.tryParse(dateCtrl.text) ?? DateTime.now(),
-                        firstDate: DateTime.now().subtract(const Duration(days: 30)),
-                        lastDate: DateTime.now().add(const Duration(days: 90)),
-                      );
-                      if (picked != null) {
-                        setModalState(() => dateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: startCtrl,
-                          readOnly: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Jam Mulai Baru',
-                            hintText: '12:00',
-                            border: OutlineInputBorder(),
-                            suffixIcon: Icon(Icons.access_time_rounded),
-                          ),
-                          onTap: () async {
-                            final parts = startCtrl.text.split(':');
-                            final initTime = parts.length == 2
-                                ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 12, minute: int.tryParse(parts[1]) ?? 0)
-                                : const TimeOfDay(hour: 12, minute: 0);
-                            final picked = await showTimePicker(context: context, initialTime: initTime);
-                            if (picked != null) {
-                              setModalState(() {
-                                startCtrl.text = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-                              });
-                            }
-                          },
+                    const SizedBox(height: 16),
+                    const Text('Pengajuan Tukar Shift / Ubah Jam Kerja', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text('Pengajuan ini akan dikirim ke Super Admin / HR / Finance. Setelah disetujui, jam kerja hari tersebut otomatis diperbarui.', style: TextStyle(fontSize: 12.5, color: Colors.grey)),
+                    const SizedBox(height: 16),
+                    if (modalError != null) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          border: Border.all(color: const Color(0xFFFCA5A5)),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626), size: 20),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                modalError!,
+                                style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: endCtrl,
-                          readOnly: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Jam Selesai Baru',
-                            hintText: '20:00',
-                            border: OutlineInputBorder(),
-                            suffixIcon: Icon(Icons.access_time_rounded),
-                          ),
-                          onTap: () async {
-                            final parts = endCtrl.text.split(':');
-                            final initTime = parts.length == 2
-                                ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 20, minute: int.tryParse(parts[1]) ?? 0)
-                                : const TimeOfDay(hour: 20, minute: 0);
-                            final picked = await showTimePicker(context: context, initialTime: initTime);
-                            if (picked != null) {
-                              setModalState(() {
-                                endCtrl.text = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-                              });
-                            }
-                          },
-                        ),
-                      ),
+                      const SizedBox(height: 12),
                     ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: reasonCtrl,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'Alasan Tukar Shift',
-                      hintText: 'Contoh: Keperluan mendesak pagi hari...',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: isSubmitting ? null : () async {
-                        final reason = reasonCtrl.text.trim();
-                        if (reason.isEmpty) {
-                          rootScaffoldMessengerKey.currentState?.showSnackBar(
-                            const SnackBar(content: Text('Alasan tukar shift wajib diisi')),
-                          );
-                          return;
-                        }
-                        setModalState(() => isSubmitting = true);
-                        try {
-                          final user = _client.auth.currentUser;
-                          final profile = await _currentProfile();
-                          final Map<String, dynamic> payload = {
-                            'user_id': user!.id,
-                            'user_name': profile?['nama'] ?? 'Karyawan',
-                            'user_email': profile?['email'] ?? '',
-                            'role_id': profile?['role_id'] ?? 'staff',
-                            'shift_date': dateCtrl.text.trim(),
-                            'new_start_time': startCtrl.text.trim(),
-                            'new_end_time': endCtrl.text.trim(),
-                            'reason': reason,
-                            'status': 'pending',
-                            'created_at': DateTime.now().toUtc().toIso8601String(),
-                            'updated_at': DateTime.now().toUtc().toIso8601String(),
-                          };
-                          final rawTenant = profile?['tenant_id'] ?? _profile?['tenant_id'];
-                          if (rawTenant != null && rawTenant.toString().isNotEmpty) {
-                            payload['tenant_id'] = rawTenant;
-                          }
-                          await _client.from('shift_change_requests').insert(payload);
-                          if (ctx.mounted) Navigator.pop(ctx);
-                          rootScaffoldMessengerKey.currentState?.showSnackBar(
-                            const SnackBar(content: Text('Pengajuan Tukar Shift dikirim! Menunggu persetujuan HR/Admin.')),
-                          );
-                          _loadData();
-                        } catch (e) {
-                          rootScaffoldMessengerKey.currentState?.showSnackBar(
-                            SnackBar(content: Text('Gagal mengirim pengajuan tukar shift: $e')),
-                          );
-                        } finally {
-                          setModalState(() => isSubmitting = false);
+                    TextField(
+                      controller: dateCtrl,
+                      readOnly: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Tanggal Shift',
+                        border: OutlineInputBorder(),
+                        suffixIcon: Icon(Icons.calendar_today_rounded),
+                      ),
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: DateTime.tryParse(dateCtrl.text) ?? DateTime.now(),
+                          firstDate: DateTime.now().subtract(const Duration(days: 30)),
+                          lastDate: DateTime.now().add(const Duration(days: 90)),
+                        );
+                        if (picked != null) {
+                          setModalState(() => dateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
                         }
                       },
-                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
-                      icon: isSubmitting
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.send_rounded),
-                      label: Text(isSubmitting ? 'Mengirim...' : 'Kirim Pengajuan Tukar Shift'),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: startCtrl,
+                            readOnly: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Jam Mulai Baru',
+                              hintText: '12:00',
+                              border: OutlineInputBorder(),
+                              suffixIcon: Icon(Icons.access_time_rounded),
+                            ),
+                            onTap: () async {
+                              final parts = startCtrl.text.split(':');
+                              final initTime = parts.length == 2
+                                  ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 12, minute: int.tryParse(parts[1]) ?? 0)
+                                  : const TimeOfDay(hour: 12, minute: 0);
+                              final picked = await showTimePicker(context: context, initialTime: initTime);
+                              if (picked != null) {
+                                setModalState(() {
+                                  startCtrl.text = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: endCtrl,
+                            readOnly: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Jam Selesai Baru',
+                              hintText: '20:00',
+                              border: OutlineInputBorder(),
+                              suffixIcon: Icon(Icons.access_time_rounded),
+                            ),
+                            onTap: () async {
+                              final parts = endCtrl.text.split(':');
+                              final initTime = parts.length == 2
+                                  ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 20, minute: int.tryParse(parts[1]) ?? 0)
+                                  : const TimeOfDay(hour: 20, minute: 0);
+                              final picked = await showTimePicker(context: context, initialTime: initTime);
+                              if (picked != null) {
+                                setModalState(() {
+                                  endCtrl.text = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: reasonCtrl,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Alasan Tukar Shift',
+                        hintText: 'Contoh: Keperluan mendesak pagi hari...',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: isSubmitting ? null : () async {
+                          final reason = reasonCtrl.text.trim();
+                          if (reason.isEmpty) {
+                            setModalState(() => modalError = 'Alasan tukar shift wajib diisi');
+                            AppUi.showSnack('Alasan tukar shift wajib diisi', isError: true);
+                            return;
+                          }
+                          setModalState(() {
+                            modalError = null;
+                            isSubmitting = true;
+                          });
+                          try {
+                            final user = _client.auth.currentUser;
+                            final profile = await _currentProfile();
+                            final Map<String, dynamic> payload = {
+                              'user_id': user!.id,
+                              'user_name': profile?['nama'] ?? 'Karyawan',
+                              'user_email': profile?['email'] ?? '',
+                              'role_id': profile?['role_id'] ?? 'staff',
+                              'shift_date': dateCtrl.text.trim(),
+                              'new_start_time': startCtrl.text.trim(),
+                              'new_end_time': endCtrl.text.trim(),
+                              'reason': reason,
+                              'status': 'pending',
+                              'created_at': DateTime.now().toUtc().toIso8601String(),
+                              'updated_at': DateTime.now().toUtc().toIso8601String(),
+                            };
+                            final rawTenant = profile?['tenant_id'] ?? _profile?['tenant_id'];
+                            if (rawTenant != null && rawTenant.toString().isNotEmpty) {
+                              payload['tenant_id'] = rawTenant;
+                            }
+                            await _client.from('shift_change_requests').insert(payload);
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            AppUi.showSnack('Pengajuan Tukar Shift dikirim! Menunggu persetujuan HR/Admin.');
+                            _loadData();
+                          } catch (e) {
+                            AppUi.showSnack('Gagal mengirim pengajuan tukar shift: $e', isError: true);
+                          } finally {
+                            setModalState(() => isSubmitting = false);
+                          }
+                        },
+                        style: FilledButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
+                        icon: isSubmitting
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.send_rounded),
+                        label: Text(isSubmitting ? 'Mengirim...' : 'Kirim Pengajuan Tukar Shift'),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
-        },
-      ),
+            );
+          },
+        );
+      },
     );
   }
 

@@ -244,44 +244,71 @@ class AppUi {
 
   static void showSnack(String message, {bool isError = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final overlay = rootNavigatorKey.currentState?.overlay;
+      if (overlay != null) {
+        late OverlayEntry entry;
+        entry = OverlayEntry(
+          builder: (ctx) => Positioned(
+            top: MediaQuery.of(ctx).padding.top + 16,
+            left: 16,
+            right: 16,
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: isError ? const Color(0xFFB91C1C) : const Color(0xFF0F172A),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isError ? Colors.redAccent : Colors.lightBlueAccent.withOpacity(0.5),
+                    width: 1.2,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black45, blurRadius: 18, offset: Offset(0, 8)),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        message,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        overlay.insert(entry);
+        Future.delayed(Duration(seconds: isError ? 5 : 4), () {
+          try {
+            entry.remove();
+          } catch (_) {}
+        });
+        return;
+      }
+
       final messenger = rootScaffoldMessengerKey.currentState;
       if (messenger == null) return;
-
       messenger.clearSnackBars();
       messenger.showSnackBar(
         SnackBar(
-          content: Row(
-            children: [
-              Icon(
-                isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
-                color: isError ? Colors.white : Colors.lightBlueAccent,
-                size: 22,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  message,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13.5,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          content: Text(message),
           backgroundColor: isError ? const Color(0xFFB91C1C) : const Color(0xFF0F172A),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.only(bottom: 140, left: 16, right: 16),
-          elevation: 12,
-          duration: Duration(seconds: isError ? 5 : 4),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(
-              color: isError ? Colors.redAccent : Colors.lightBlueAccent.withOpacity(0.5),
-              width: 1.2,
-            ),
-          ),
         ),
       );
     });
