@@ -860,19 +860,24 @@ class _AbsensiPageState extends State<AbsensiPage> {
                       }
                       try {
                         final user = _client.auth.currentUser;
-                        final profile = await _currentProfile();
-                        await _client.from('attendance_bug_reports').insert({
-                          'tenant_id': profile?['tenant_id'] ?? _profile?['tenant_id'],
+                        final userProfile = await _currentProfile();
+                        final Map<String, dynamic> insertPayload = {
                           'user_id': user!.id,
-                          'user_name': profile?['nama'] ?? 'Karyawan',
-                          'user_email': profile?['email'] ?? '',
-                          'role_id': profile?['role_id'] ?? 'staff',
+                          'user_name': userProfile?['nama'] ?? 'Karyawan',
+                          'user_email': userProfile?['email'] ?? '',
+                          'role_id': userProfile?['role_id'] ?? 'staff',
                           'report_date': dateController.text.trim(),
                           'issue_type': issueType,
                           'description': descController.text.trim(),
                           'status': 'pending',
                           'created_at': DateTime.now().toUtc().toIso8601String(),
-                        });
+                        };
+                        final rawTenant = userProfile?['tenant_id'] ?? _profile?['tenant_id'];
+                        if (rawTenant != null && rawTenant.toString().isNotEmpty) {
+                          insertPayload['tenant_id'] = rawTenant;
+                        }
+
+                        await _client.from('attendance_bug_reports').insert(insertPayload);
                         Navigator.pop(ctx);
                         AppUi.showSnack('Laporan kendala berhasil dikirim ke Super Admin / HR / Finance.');
                       } catch (e) {
