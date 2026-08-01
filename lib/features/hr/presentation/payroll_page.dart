@@ -78,7 +78,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _loadInitialData();
   }
 
@@ -922,6 +922,7 @@ Team Finance & HR ${_companySettings['company_name']}
           labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
           tabs: const [
             Tab(text: 'Buat Slip Gaji'),
+            Tab(text: 'Tarif & Jam Kerja'),
             Tab(text: 'Riwayat Slip Gaji'),
           ],
         ),
@@ -932,6 +933,7 @@ Team Finance & HR ${_companySettings['company_name']}
               controller: _tabController,
               children: [
                 _buildCreateSlipTab(),
+                _buildConfigTab(),
                 _buildHistoryTab(),
               ],
             ),
@@ -1305,6 +1307,288 @@ Team Finance & HR ${_companySettings['company_name']}
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildConfigTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          'Pengaturan Tarif & Jam Kerja Karyawan (${_activeUsers.length})',
+          style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Atur tipe gaji, tarif per hari/jam, jam kerja (start/end time), toleransi telat, dan tarif denda per karyawan.',
+          style: GoogleFonts.inter(fontSize: 13, color: Colors.grey),
+        ),
+        const SizedBox(height: 16),
+        if (_activeUsers.isEmpty)
+          const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Tidak ada karyawan aktif.')))
+        else
+          ..._activeUsers.map((u) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _UserPayrollConfigCard(
+                user: u,
+                tenantId: _tenantId,
+                supabase: _supabase,
+                onSaved: () => setState(() {}),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+}
+
+class _UserPayrollConfigCard extends StatefulWidget {
+  final Map<String, dynamic> user;
+  final String tenantId;
+  final SupabaseClient supabase;
+  final VoidCallback onSaved;
+
+  const _UserPayrollConfigCard({
+    required this.user,
+    required this.tenantId,
+    required this.supabase,
+    required this.onSaved,
+  });
+
+  @override
+  State<_UserPayrollConfigCard> createState() => _UserPayrollConfigCardState();
+}
+
+class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
+  bool _isLoading = true;
+  bool _isSaving = false;
+
+  String _salaryType = 'monthly';
+  final _baseSalaryCtrl = TextEditingController(text: '0');
+  final _dailyRateCtrl = TextEditingController(text: '0');
+  final _hourlyRateCtrl = TextEditingController(text: '0');
+  final _latePenaltyCtrl = TextEditingController(text: '0');
+  final _absentPenaltyCtrl = TextEditingController(text: '0');
+
+  final _startTimeCtrl = TextEditingController(text: '08:00');
+  final _endTimeCtrl = TextEditingController(text: '17:00');
+  final _lateToleranceCtrl = TextEditingController(text: '15');
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserConfig();
+  }
+
+  @override
+  void dispose() {
+    _baseSalaryCtrl.dispose();
+    _dailyRateCtrl.dispose();
+    _hourlyRateCtrl.dispose();
+    _latePenaltyCtrl.dispose();
+    _absentPenaltyCtrl.dispose();
+    _startTimeCtrl.dispose();
+    _endTimeCtrl.dispose();
+    _lateToleranceCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadUserConfig() async {
+    setState(() => _isLoading = true);
+    try {
+      final userId = widget.user['user_id'];
+      final tenantId = widget.tenantId;
+
+      final prof = await widget.supabase
+          .from('user_payroll_profiles')
+          .select()
+          .eq('tenant_id', tenantId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (prof != null) {
+        _salaryType = prof['salary_type']?.toString() ?? 'monthly';
+        _baseSalaryCtrl.text = _fmtNum(prof['base_salary']);
+        _dailyRateCtrl.text = _fmtNum(prof['daily_rate']);
+        _hourlyRateCtrl.text = _fmtNum(prof['hourly_rate']);
+        _latePenaltyCtrl.text = _fmtNum(prof['late_penalty_per_minute']);
+        _absentPenaltyCtrl.text = _fmtNum(prof['absent_penalty_per_day']);
+      }
+
+      final sched = await widget.supabase
+          .from('user_work_schedules')
+          .select()
+          .eq('tenant_id', tenantId)
+          .eq('user_id', userId)
+          .limit(1)
+          .maybeSingle();
+
+      if (sched != null) {
+        final sTime = sched['start_time']?.toString() ?? '08:00:00';
+        final eTime = sched['end_time']?.toString() ?? '17:00:00';
+        _startTimeCtrl.text = sTime.length >= 5 ? sTime.substring(0, 5) : '08:00';
+        _endTimeCtrl.text = eTime.length >= 5 ? eTime.substring(0, 5) : '17:00';
+        _lateToleranceCtrl.text = (sched['late_tolerance_minutes'] ?? 15).toString();
+      }
+    } catch (e) {
+      debugPrint('Error loading user config: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  String _fmtNum(dynamic val) {
+    if (val == null) return '0';
+    final numVal = double.tryParse(val.toString()) ?? 0;
+    return NumberFormat('#,##0', 'id_ID').format(numVal.toInt());
+  }
+
+  double _parseVal(TextEditingController ctrl) {
+    final clean = ctrl.text.replaceAll(RegExp(r'[^\d]'), '');
+    return double.tryParse(clean) ?? 0;
+  }
+
+  Future<void> _saveUserConfig() async {
+    setState(() => _isSaving = true);
+    try {
+      final userId = widget.user['user_id'];
+      final tenantId = widget.tenantId;
+
+      await widget.supabase.from('user_payroll_profiles').upsert({
+        'tenant_id': tenantId,
+        'user_id': userId,
+        'salary_type': _salaryType,
+        'base_salary': _parseVal(_baseSalaryCtrl),
+        'daily_rate': _parseVal(_dailyRateCtrl),
+        'hourly_rate': _parseVal(_hourlyRateCtrl),
+        'late_penalty_per_minute': _parseVal(_latePenaltyCtrl),
+        'absent_penalty_per_day': _parseVal(_absentPenaltyCtrl),
+        'updated_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'tenant_id, user_id');
+
+      final startTime = _startTimeCtrl.text.trim();
+      final endTime = _endTimeCtrl.text.trim();
+      final formattedStartTime = startTime.length == 5 ? '$startTime:00' : startTime;
+      final formattedEndTime = endTime.length == 5 ? '$endTime:00' : endTime;
+      final lateTolerance = int.tryParse(_lateToleranceCtrl.text.trim()) ?? 15;
+
+      for (int dow = 1; dow <= 6; dow++) {
+        await widget.supabase.from('user_work_schedules').upsert({
+          'tenant_id': tenantId,
+          'user_id': userId,
+          'day_of_week': dow,
+          'start_time': formattedStartTime,
+          'end_time': formattedEndTime,
+          'late_tolerance_minutes': lateTolerance,
+          'timezone': 'Asia/Jakarta',
+          'is_active': true,
+          'updated_at': DateTime.now().toIso8601String(),
+        }, onConflict: 'tenant_id, user_id, day_of_week');
+      }
+
+      AppUi.showSnack('Tarif & Jam Kerja ${widget.user['nama']} berhasil disimpan!');
+      widget.onSaved();
+    } catch (e) {
+      AppUi.showSnack('Gagal menyimpan: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return NiceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    AppUi.text(widget.user['nama']),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  Text(
+                    '${AppUi.text(widget.user['email'])} • ${AppUi.text(widget.user['role_id'])}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+              Chip(
+                label: Text(_salaryType.toUpperCase()),
+                backgroundColor: Colors.lightBlue.withOpacity(0.15),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: _salaryType,
+            decoration: const InputDecoration(labelText: 'Tipe Gaji Utama', border: OutlineInputBorder()),
+            items: const [
+              DropdownMenuItem(value: 'monthly', child: Text('Bulanan (Gaji Pokok Bulanan)')),
+              DropdownMenuItem(value: 'daily', child: Text('Harian (Per Hari Masuk)')),
+              DropdownMenuItem(value: 'hourly', child: Text('Per Jam (Per Jam Kerja)')),
+            ],
+            onChanged: (val) => setState(() => _salaryType = val ?? 'monthly'),
+          ),
+          const SizedBox(height: 12),
+          if (_salaryType == 'monthly')
+            _buildField('Gaji Pokok Bulanan (Rp)', _baseSalaryCtrl)
+          else if (_salaryType == 'daily')
+            _buildField('Tarif Gaji Per Hari (Rp/Hari)', _dailyRateCtrl)
+          else if (_salaryType == 'hourly')
+            _buildField('Tarif Gaji Per Jam (Rp/Jam)', _hourlyRateCtrl),
+          const SizedBox(height: 12),
+          Text('Jam Kerja Per User & Toleransi', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: _buildField('Jam Mulai (HH:mm)', _startTimeCtrl)),
+              const SizedBox(width: 8),
+              Expanded(child: _buildField('Jam Selesai (HH:mm)', _endTimeCtrl)),
+              const SizedBox(width: 8),
+              Expanded(child: _buildField('Toleransi (Menit)', _lateToleranceCtrl)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text('Tarif Denda & Potongan', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: _buildField('Denda Telat (Rp/Menit)', _latePenaltyCtrl)),
+              const SizedBox(width: 8),
+              Expanded(child: _buildField('Potongan Absen (Rp/Hari)', _absentPenaltyCtrl)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _isSaving ? null : _saveUserConfig,
+              icon: const Icon(Icons.save_rounded),
+              label: Text(_isSaving ? 'Menyimpan...' : 'Simpan Tarif & Jam Kerja'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildField(String label, TextEditingController ctrl) {
+    return TextField(
+      controller: ctrl,
+      decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
     );
   }
 }
