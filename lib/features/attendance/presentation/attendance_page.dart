@@ -465,17 +465,21 @@ class _AbsensiPageState extends State<AbsensiPage> {
       }
 
       // Check Early Check-out Guard against today's work schedule end_time
-      final schedule = _todaySchedule;
+      final userId = profile?['user_id']?.toString();
+      final schedule = userId == null ? null : await _loadTodaySchedule(userId);
       final isAuthorized = _isAuthorizedOverrideRole;
 
       bool isEarly = false;
       String earlyReason = '';
 
-      if (schedule != null && schedule.isWorkday && schedule.endLabel != '-') {
+      final endLabel = (schedule != null && schedule.endLabel != '-') ? schedule.endLabel : '17:00';
+      final isWorkday = (schedule != null) ? schedule.isWorkday : true;
+
+      if (isWorkday && endLabel != '-') {
         try {
           final nowWib = DateTime.now().toUtc().add(const Duration(hours: 7));
           final currentMin = nowWib.hour * 60 + nowWib.minute;
-          final endParts = schedule.endLabel.split(':');
+          final endParts = endLabel.split(':');
           if (endParts.length == 2) {
             final endMin = int.parse(endParts[0]) * 60 + int.parse(endParts[1]);
 
@@ -499,7 +503,7 @@ class _AbsensiPageState extends State<AbsensiPage> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Jadwal kerja selesai pukul ${schedule.endLabel} (tersisa $remainingMin menit).'),
+                        Text('Jadwal kerja selesai pukul $endLabel (tersisa $remainingMin menit).'),
                         const SizedBox(height: 10),
                         const Text('Anda melakukan Check-out lebih awal. Wajib isi Alasan Pulang Awal untuk persetujuan HR / Admin:'),
                         const SizedBox(height: 10),

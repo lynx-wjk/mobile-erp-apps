@@ -356,8 +356,12 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
         }
       }
 
+      final nowWib = DateTime.now().toUtc().add(const Duration(hours: 7));
+      final bool isCurrentMonth = (nowWib.year == year && nowWib.month == month);
+      final int maxDayToEvaluate = isCurrentMonth ? nowWib.day : lastDay;
+
       int totalScheduledWorkdays = 0;
-      for (int d = 1; d <= lastDay; d++) {
+      for (int d = 1; d <= maxDayToEvaluate; d++) {
         final date = DateTime(year, month, d);
         final dow = date.weekday == 7 ? 0 : date.weekday;
         if (activeDays.isNotEmpty) {

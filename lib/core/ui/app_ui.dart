@@ -242,7 +242,7 @@ class AppUi {
     return text;
   }
 
-  static void showSnack(String message) {
+  static void showSnack(String message, {bool isError = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final messenger = rootScaffoldMessengerKey.currentState;
       if (messenger == null) return;
@@ -252,19 +252,39 @@ class AppUi {
       messenger.clearSnackBars();
       messenger.showSnackBar(
         SnackBar(
-          content: Text(
-            message,
-            style: TextStyle(
-              color: isDark ? const Color(0xFF111827) : Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
+          content: Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline_rounded : Icons.info_outline_rounded,
+                color: isError ? Colors.redAccent : (isDark ? const Color(0xFF2563EB) : const Color(0xFF38BDF8)),
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: TextStyle(
+                    color: isDark ? const Color(0xFFF3F4F6) : Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: isError
+              ? (isDark ? const Color(0xFF450A0A) : const Color(0xFF991B1B))
+              : (isDark ? const Color(0xFF1E293B) : const Color(0xFF0F172A)),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.only(bottom: 70, left: 16, right: 16),
+          elevation: 12,
+          duration: Duration(seconds: isError ? 5 : 4),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: isError ? Colors.red.withOpacity(0.5) : (isDark ? Colors.white24 : Colors.white10),
             ),
           ),
-          backgroundColor:
-              isDark ? const Color(0xFFE5E7EB) : const Color(0xFF0F172A),
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
     });
