@@ -60,11 +60,23 @@ class _AuditLogPageState extends State<AuditLogPage> {
     }
   }
 
+  int _currentPage = 1;
+  static const int _pageSize = 100;
+
+  int get _totalPages => (_items.length / _pageSize).ceil();
+
+  List<Map<String, dynamic>> get _paginatedItems {
+    final startIndex = (_currentPage - 1) * _pageSize;
+    if (startIndex >= _items.length) return [];
+    return _items.skip(startIndex).take(_pageSize).toList();
+  }
+
   Future<void> _loadData() async {
     if (mounted) {
       setState(() {
         _isLoading = true;
         _errorMessage = null;
+        _currentPage = 1;
       });
     }
 
@@ -372,8 +384,37 @@ class _AuditLogPageState extends State<AuditLogPage> {
               subtitle:
                   'Aktivitas modul akan otomatis tampil setelah user menambah, mengubah, atau menghapus data.',
             )
-          else
-            ..._items.map((item) {
+          else ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Menampilkan ${(_currentPage - 1) * _pageSize + 1} - ${(_currentPage * _pageSize).clamp(0, _items.length)} dari ${_items.length} log (Max 500)',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
+                        icon: const Icon(Icons.chevron_left),
+                        tooltip: 'Halaman Sebelumnya',
+                      ),
+                      Text('$_currentPage / ${_totalPages == 0 ? 1 : _totalPages}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      IconButton(
+                        onPressed: _currentPage < _totalPages ? () => setState(() => _currentPage++) : null,
+                        icon: const Icon(Icons.chevron_right),
+                        tooltip: 'Halaman Berikutnya',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            ..._paginatedItems.map((item) {
               final module = _firstText(item, ['module', 'modul']);
               final activity = _firstText(item, ['activity', 'aktivitas']);
               final user = _firstText(item, ['user_name', 'nama_user']);
@@ -402,6 +443,28 @@ class _AuditLogPageState extends State<AuditLogPage> {
                 ),
               );
             }),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
+                    icon: const Icon(Icons.chevron_left),
+                    label: const Text('Sebelumnya'),
+                  ),
+                  const SizedBox(width: 16),
+                  Text('Halaman $_currentPage dari ${_totalPages == 0 ? 1 : _totalPages}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 16),
+                  OutlinedButton.icon(
+                    onPressed: _currentPage < _totalPages ? () => setState(() => _currentPage++) : null,
+                    icon: const Icon(Icons.chevron_right),
+                    label: const Text('Berikutnya'),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

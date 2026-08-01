@@ -186,7 +186,8 @@ class _AbsensiPageState extends State<AbsensiPage> {
     }
 
     final pos = await Geolocator.getCurrentPosition();
-    if (pos.isMocked) {
+    final isMocked = pos.isMocked || pos.accuracy <= 0.05 || pos.accuracy == 0.0;
+    if (isMocked) {
       final profile = await _currentProfile();
       try {
         await _client.from('audit_logs').insert({
@@ -198,11 +199,12 @@ class _AbsensiPageState extends State<AbsensiPage> {
           'data_sesudah': {
             'latitude': pos.latitude,
             'longitude': pos.longitude,
+            'accuracy': pos.accuracy,
             'is_mocked': pos.isMocked,
           },
         });
       } catch (_) {}
-      throw Exception('Aplikasi Fake Location / Mock GPS terdeteksi! Absensi ditolak.');
+      throw Exception('Aplikasi Fake Location / Mock GPS terdeteksi (Akurasi ${pos.accuracy}m)! Absensi ditolak demi keamanan.');
     }
     return pos;
   }
@@ -270,15 +272,48 @@ class _AbsensiPageState extends State<AbsensiPage> {
 
     try {
       final profile = await _currentProfile();
-      final position = await _position();
-      final location = _checkLocation(position);
+      final userId = profile?['user_id']?.toString();
       final nowUtc = DateTime.now().toUtc();
       final now = nowUtc.toIso8601String();
       final wibDateStr = DateFormat('yyyy-MM-dd').format(nowUtc.add(const Duration(hours: 7)));
+
+      // 1. Check approved leave conflict
+      if (userId != null && userId.isNotEmpty) {
+        final leaveCheck = await _client
+            .from('leave_requests')
+            .select('leave_type, reason')
+            .eq('user_id', userId)
+            .eq('status', 'approved')
+            .lte('start_date', wibDateStr)
+            .gte('end_date', wibDateStr)
+            .maybeSingle();
+
+        if (leaveCheck != null) {
+          final lType = (leaveCheck['leave_type'] ?? 'Izin / Sakit').toString().toUpperCase();
+          final lReason = leaveCheck['reason'] ?? '-';
+          throw Exception('Tidak dapat Check-In dikarenakan Anda memiliki pengajuan $lType yang telah disetujui untuk hari ini ($wibDateStr).\nAlasan: $lReason');
+        }
+
+        // 2. Check existing attendance record for today
+        final existingAtt = await _client
+            .from('attendance')
+            .select('attendance_id, status, check_in_time')
+            .eq('user_id', userId)
+            .eq('date', wibDateStr)
+            .maybeSingle();
+
+        if (existingAtt != null) {
+          final attStatus = (existingAtt['status'] ?? '').toString().toUpperCase();
+          throw Exception('Tidak dapat Check-In dikarenakan data absensi Anda sudah tersedia untuk tanggal ini ($wibDateStr).\nStatus: $attStatus');
+        }
+      }
+
+      final position = await _position();
+      final location = _checkLocation(position);
       final note = _noteController.text.trim();
-      final schedule = profile?['user_id'] == null
+      final schedule = userId == null
           ? null
-          : await _loadTodaySchedule(profile!['user_id'].toString());
+          : await _loadTodaySchedule(userId);
 
       if (location.status != 'valid') {
         final distance = location.distanceMeter == null
@@ -334,8 +369,17 @@ class _AbsensiPageState extends State<AbsensiPage> {
       _loadData();
     } catch (error) {
       if (!mounted) return;
-      rootScaffoldMessengerKey.currentState
-          ?.showSnackBar(SnackBar(content: Text('Check in gagal: $error')));
+      String userMsg = error.toString().replaceAll('Exception: ', '');
+      if (userMsg.contains('23505') || userMsg.contains('uq_attendance_tenant_user_date') || userMsg.contains('duplicate key')) {
+        userMsg = 'Tidak dapat Check-In dikarenakan data absensi/izin Anda sudah tersedia untuk tanggal hari ini.';
+      }
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        SnackBar(
+          content: Text(userMsg),
+          backgroundColor: Colors.red.shade700,
+          duration: const Duration(seconds: 5),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
