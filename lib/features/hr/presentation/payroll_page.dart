@@ -259,7 +259,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
       // 2. Attendance & Excused/Permit Days Calculation
       final attRes = await _supabase
           .from('attendance')
-          .select('date, check_in_time, status, notes')
+          .select('date, check_in_time, status, note')
           .eq('user_id', userId)
           .gte('date', firstDayStr)
           .lte('date', lastDayStr);
@@ -284,7 +284,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
       int excusedDays = 0;
       for (final a in attList) {
         final statusStr = (a['status'] ?? '').toString().toLowerCase();
-        final notesStr = (a['notes'] ?? '').toString().toLowerCase();
+        final notesStr = (a['note'] ?? a['notes'] ?? '').toString().toLowerCase();
 
         final isExcused = statusStr.contains('sakit') ||
             statusStr.contains('izin') ||
