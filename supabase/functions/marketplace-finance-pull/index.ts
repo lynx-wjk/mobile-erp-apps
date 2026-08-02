@@ -280,7 +280,7 @@ Deno.serve(async (req)=>{
       });
     }
     return json({
-      ok: failed === 0,
+      ok: success > 0 || failed === 0,
       version: FUNCTION_VERSION,
       tenants: tenants.length,
       success,

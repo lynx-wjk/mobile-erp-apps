@@ -45,8 +45,11 @@ class _MarketplaceDispatcherMonitorPageState
     }
 
     try {
-      final response =
-          await _client.rpc('marketplace_dispatcher_monitor_snapshot');
+      final tenantId = await _currentTenantId();
+      final response = await _client.rpc(
+        'marketplace_dispatcher_monitor_snapshot',
+        params: tenantId != null ? {'p_tenant_id': tenantId} : {},
+      );
       final accountAuthRows = await _loadAccountAuthRows();
       if (!mounted) return;
 
