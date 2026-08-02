@@ -77,6 +77,10 @@ window_dump.xml
 db_func.json
 supabase_func_body.json
 
+# Supabase CLI local cache
+supabase/.temp/
+/supabase/.temp/
+
 # SCRATCH & BACKUP DIRECTORIES
 /scratch/
 /audit_*/
