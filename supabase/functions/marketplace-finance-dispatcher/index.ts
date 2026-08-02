@@ -174,7 +174,7 @@ async function callFinancePull(baseUrl: string, secret: string, body: Record<str
         "content-type": "application/json",
         "x-marketplace-cron-secret": secret,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, cron_secret: secret }),
       signal: controller.signal,
     });
 
