@@ -242,10 +242,17 @@ class AppUi {
     return text;
   }
 
-  static void showSnack(String message, {bool isError = false}) {
+  static void showSnack(
+    String message, {
+    bool isError = false,
+    String? title,
+  }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final context = rootNavigatorKey.currentContext;
       if (context == null) return;
+
+      final dialogTitle = title ??
+          (isError ? 'Perhatian / Kendala' : 'Informasi');
 
       showDialog(
         context: context,
@@ -279,7 +286,7 @@ class AppUi {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    isError ? 'Perhatian / Kendala' : 'Informasi Absensi',
+                    dialogTitle,
                     style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.bold,
