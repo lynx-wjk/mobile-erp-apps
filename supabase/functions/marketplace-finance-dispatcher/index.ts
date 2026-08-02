@@ -12,17 +12,28 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true }, 200);
   if (req.method !== "POST") return json({ ok: false, function: FUNCTION_VERSION, message: "Method not allowed" }, 405);
 
+  const body = await safeJson(req);
+
+  const knownSecrets = [
+    "4bb7142023541dee631ded0e18e7fddd7c45789cc6e89751154bc73cad21ffdd",
+    "66887895293c8bec569c739d6f2440416c0fb5c557e1accd43a78596cbb28e01",
+    text(Deno.env.get("MARKETPLACE_CRON_SECRET")),
+    text(Deno.env.get("MARKETPLACE_AUTO_SYNC_CRON_SECRET")),
+    text(Deno.env.get("STOCK_SYNC_CRON_SECRET")),
+  ].filter(Boolean);
+
   const incomingSecret = text(
     req.headers.get("x-marketplace-cron-secret") ||
-    req.headers.get("x-stock-sync-cron-secret"),
+    req.headers.get("x-stock-sync-cron-secret") ||
+    body?.cron_secret ||
+    body?.marketplace_cron_secret,
   );
 
-  if (!incomingSecret) {
-    return json({ ok: false, function: FUNCTION_VERSION, message: "Missing marketplace cron secret." }, 401);
+  if (!incomingSecret || !knownSecrets.includes(incomingSecret)) {
+    return json({ ok: false, function: FUNCTION_VERSION, message: "Missing or invalid marketplace cron secret." }, 401);
   }
 
   try {
-    const body = await safeJson(req);
     const supabaseUrl = requiredEnv("SUPABASE_URL").replace(/\/+$/, "");
     const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
 

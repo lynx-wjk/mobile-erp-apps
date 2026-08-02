@@ -577,10 +577,14 @@ async function refreshExistingTikTokOrderStatuses(admin: any, account: any, args
     }
   }
 
+  const criticalWarnings = warnings.filter(
+    (w) => !w.includes("logistics.error_param") && !w.includes("being allocated")
+  );
+
   await admin
     .from("marketplace_accounts")
     .update({
-      last_error: warnings.length > 0 ? warnings.slice(0, 3).join(" | ") : null,
+      last_error: criticalWarnings.length > 0 ? criticalWarnings.slice(0, 3).join(" | ") : null,
       updated_at: new Date().toISOString(),
     })
     .eq("marketplace_account_id", activeAccount.marketplace_account_id);
@@ -952,10 +956,14 @@ async function refreshExistingShopeeOrderStatuses(admin: any, account: any, args
     }
   }
 
+  const criticalWarnings = warnings.filter(
+    (w) => !w.includes("logistics.error_param") && !w.includes("being allocated")
+  );
+
   await admin
     .from("marketplace_accounts")
     .update({
-      last_error: warnings.length > 0 ? warnings.slice(0, 3).join(" | ") : null,
+      last_error: criticalWarnings.length > 0 ? criticalWarnings.slice(0, 3).join(" | ") : null,
       updated_at: new Date().toISOString(),
     })
     .eq("marketplace_account_id", activeAccount.marketplace_account_id);
@@ -1238,10 +1246,14 @@ async function pullShopeeOrders(admin: any, account: any, args: { daysBack: numb
       .eq("marketplace_order_id", orderRow.marketplace_order_id);
   }
 
+  const criticalWarnings = warnings.filter(
+    (w) => !w.includes("logistics.error_param") && !w.includes("being allocated")
+  );
+
   await admin
     .from("marketplace_accounts")
     .update({
-      last_error: warnings.length > 0 ? warnings.slice(0, 3).join(" | ") : null,
+      last_error: criticalWarnings.length > 0 ? criticalWarnings.slice(0, 3).join(" | ") : null,
       updated_at: new Date().toISOString(),
     })
     .eq("marketplace_account_id", activeAccount.marketplace_account_id);
@@ -1373,7 +1385,12 @@ async function enrichShopeeOrderWithPhysicalTracking(args: {
       packageNumber,
     });
   } catch (e) {
-    args.warnings.push(`Tracking logistics Shopee ${mask(orderId)} gagal: ${String(e)}`);
+    const errStr = String(e);
+    if (!errStr.includes("logistics.error_param") && !errStr.includes("being allocated")) {
+      args.warnings.push(`Tracking logistics Shopee ${mask(orderId)} gagal: ${errStr}`);
+    } else {
+      console.log(`[Shopee Logistics Info] Order ${orderId} courier allocation in progress by Shopee.`);
+    }
   }
 
   const logisticsTracking = physicalShopeeTrackingNumber(detectTrackingNumber(logistics), orderId, packageId, packageNumber);
@@ -2048,10 +2065,14 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
     console.warn(`Gagal memproses backfill: ${String(backfillErr)}`);
   }
 
+  const criticalWarnings = warnings.filter(
+    (w) => !w.includes("logistics.error_param") && !w.includes("being allocated")
+  );
+
   await admin
     .from("marketplace_accounts")
     .update({
-      last_error: warnings.length > 0 ? warnings.slice(0, 3).join(" | ") : null,
+      last_error: criticalWarnings.length > 0 ? criticalWarnings.slice(0, 3).join(" | ") : null,
       updated_at: new Date().toISOString(),
     })
     .eq("marketplace_account_id", activeAccount.marketplace_account_id);
@@ -3403,7 +3424,7 @@ async function fetchJsonWithTimeout(label: string, url: string, init: RequestIni
 function mask(value: string): string {
   if (!value) return "";
   if (value.length <= 10) return "****";
-  return `${value.slice(0, 6)}â€¦${value.slice(-4)}`;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }
 
 function maskTokenObject(input: any): any {
