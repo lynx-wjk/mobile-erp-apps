@@ -1,0 +1,1116 @@
+﻿
+=== marketplace search/filter card lines 1738-1865 ===
+1738:                 label: Text('Refresh Finance'),
+1739:               ),
+1740:             ],
+1741:           ),
+1742:         ],
+1743:       ),
+1744:     );
+1745:   }
+1746: 
+1747:   Widget _variantFilterCard() {
+1748:     final options = _marketplaceProductOptions;
+1749:     final variants = _visibleBulkVariants;
+1750: 
+1751:     return NiceCard(
+1752:       child: Column(
+1753:         crossAxisAlignment: CrossAxisAlignment.start,
+1754:         children: [
+1755:           const SectionTitle(title: '2. Mapping Varian Sekaligus'),
+1756:           SizedBox(height: 8),
+1757:           Text(
+1758:             'Pilih produk marketplace, lalu pasangkan semua varian marketplace ke varian/SKU lokal dalam satu layar.',
+1759:             style: TextStyle(fontWeight: FontWeight.w700),
+1760:           ),
+1761:           SizedBox(height: 14),
+1762:           SearchBox(
+1763:             controller: _variantCariController,
+1764:             hint: 'Cari produk / warna / size / sku id marketplace',
+1765:             onChanged: (_) {},
+1766:           ),
+1767:           SizedBox(height: 10),
+1768:           Wrap(
+1769:             spacing: 10,
+1770:             runSpacing: 10,
+1771:             crossAxisAlignment: WrapCrossAlignment.center,
+1772:             children: [
+1773:               FilledButton.icon(
+1774:                 onPressed: _loadVariants,
+1775:                 icon: Icon(Icons.search),
+1776:                 label: Text('Cari Varian'),
+1777:               ),
+1778:               FilterChip(
+1779:                 selected: _unmappedOnly,
+1780:                 onSelected: (value) async {
+1781:                   setState(() {
+1782:                     _unmappedOnly = value;
+1783:                     _selectedMarketplaceProductId = null;
+1784:                     _bulkLocalProductByVariantId.clear();
+1785:                   });
+1786:                   await _loadVariants();
+1787:                 },
+1788:                 label: Text('Belum mapped saja'),
+1789:               ),
+1790:             ],
+1791:           ),
+1792:           SizedBox(height: 14),
+1793:           if (options.isEmpty)
+1794:             const EmptyState(
+1795:               title: 'Belum ada cache varian',
+1796:               subtitle:
+1797:                   'Klik Ambil Produk & Varian dulu. Produk yang tidak aktif tidak ditampilkan.',
+1798:               icon: Icons.cloud_off_outlined,
+1799:             )
+1800:           else ...[
+1801:             DropdownButtonFormField<String>(
+1802:               isExpanded: true,
+1803:               value: _selectedMarketplaceProductId,
+1804:               decoration: const InputDecoration(
+1805:                 labelText: 'Pilih produk marketplace',
+1806:                 border: OutlineInputBorder(),
+1807:               ),
+1808:               selectedItemBuilder: (context) {
+1809:                 return options.map((option) {
+1810:                   return Align(
+1811:                     alignment: Alignment.centerLeft,
+1812:                     child: Text(
+1813:                       option.dropdownLabel,
+1814:                       maxLines: 1,
+1815:                       overflow: TextOverflow.ellipsis,
+1816:                     ),
+1817:                   );
+1818:                 }).toList();
+1819:               },
+1820:               items: options
+1821:                   .map(
+1822:                     (option) => DropdownMenuItem(
+1823:                       value: option.productId,
+1824:                       child: Text(
+1825:                         option.dropdownLabel,
+1826:                         maxLines: 2,
+1827:                         overflow: TextOverflow.ellipsis,
+1828:                       ),
+1829:                     ),
+1830:                   )
+1831:                   .toList(),
+1832:               onChanged: _isSaving
+1833:                   ? null
+1834:                   : (value) {
+1835:                       setState(() {
+1836:                         _selectedMarketplaceProductId = value;
+1837:                         _bulkLocalProductByVariantId.clear();
+1838:                       });
+1839:                     },
+1840:             ),
+1841:             SizedBox(height: 14),
+1842:             Row(
+1843:               children: [
+1844:                 Expanded(
+1845:                   child: TextField(
+1846:                     controller: _productCariController,
+1847:                     decoration: const InputDecoration(
+1848:                       hintText: 'Cari SKU, barcode, atau nama barang',
+1849:                       border: OutlineInputBorder(),
+1850:                     ),
+1851:                     onSubmitted: (_) => _searchProducts(),
+1852:                   ),
+1853:                 ),
+1854:                 SizedBox(width: 10),
+1855:                 SizedBox(
+1856:                   width: 52,
+1857:                   height: 52,
+1858:                   child: IconButton.filledTonal(
+1859:                     onPressed: _isSearchingProduct ? null : _searchProducts,
+1860:                     icon: _isSearchingProduct
+1861:                         ? SizedBox(
+1862:                             width: 18,
+1863:                             height: 18,
+1864:                             child: CircularProgressIndicator(strokeWidth: 2))
+1865:                         : Icon(Icons.search),
+
+=== hpp/search marketplace list card lines 1900-2095 ===
+1900:                   _isSaving || _bulkReadyCount == 0 ? null : _saveBulkMappings,
+1901:               icon: _isSaving
+1902:                   ? SizedBox(
+1903:                       width: 18,
+1904:                       height: 18,
+1905:                       child: CircularProgressIndicator(strokeWidth: 2))
+1906:                   : Icon(Icons.save_outlined),
+1907:               label: Text(_isSaving
+1908:                   ? 'Menyimpan...'
+1909:                   : 'Simpan $_bulkReadyCount Mapping'),
+1910:             ),
+1911:           ],
+1912:         ],
+1913:       ),
+1914:     );
+1915:   }
+1916: 
+1917:   Widget _hppMappingCard() {
+1918:     if (!_canManageHppMapping) return const SizedBox.shrink();
+1919:      if (!_canManageHppMapping) return const SizedBox.shrink();
+1920:     final pageMax =
+1921:         _hppTotal <= 0 ? 1 : ((_hppTotal + _hppPageSize - 1) ~/ _hppPageSize);
+1922:     return NiceCard(
+1923:       child: Column(
+1924:         crossAxisAlignment: CrossAxisAlignment.start,
+1925:         children: [
+1926:           Row(
+1927:             children: [
+1928:               Expanded(
+1929:                   child: SectionTitle(
+1930:                       title: '3. HPP & Target Margin Marketplace')),
+1931:               if (_isHppLoading || _isHppSaving)
+1932:                 SizedBox(
+1933:                     width: 18,
+1934:                     height: 18,
+1935:                     child: CircularProgressIndicator(strokeWidth: 2)),
+1936:             ],
+1937:           ),
+1938:           SizedBox(height: 8),
+1939:           Text(
+1940:               'Atur HPP dan target margin per produk/varian marketplace. Data ini dipakai laporan SKU dan laba rugi.',
+1941:               style: TextStyle(fontWeight: FontWeight.w700)),
+1942:           SizedBox(height: 12),
+1943:           SearchBox(
+1944:             controller: _hppCariController,
+1945:             hint: 'Cari marketplace SKU / produk lokal / varian',
+1946:             onChanged: (_) {},
+1947:           ),
+1948:           SizedBox(height: 10),
+1949:           Wrap(
+1950:             spacing: 10,
+1951:             runSpacing: 10,
+1952:             crossAxisAlignment: WrapCrossAlignment.center,
+1953:             children: [
+1954:               FilledButton.tonalIcon(
+1955:                   onPressed:
+1956:                       _isHppLoading ? null : () => _loadHpp(resetPage: true),
+1957:                   icon: Icon(Icons.search),
+1958:                   label: Text('Cari HPP')),
+1959:               FilterChip(
+1960:                   selected: _hppMissingOnly,
+1961:                   onSelected: (value) {
+1962:                     setState(() => _hppMissingOnly = value);
+1963:                     _loadHpp(resetPage: true);
+1964:                   },
+1965:                   label: Text('Belum mapping/HPP saja')),
+1966:               OutlinedButton.icon(
+1967:                   onPressed: _isHppSaving ? null : _exportHppExcel,
+1968:                   icon: Icon(Icons.download_outlined),
+1969:                   label: Text('Export Excel')),
+1970:               OutlinedButton.icon(
+1971:                   onPressed: _isHppSaving ? null : _importHppExcel,
+1972:                   icon: Icon(Icons.upload_file_outlined),
+1973:                   label: Text('Import Excel')),
+1974:             ],
+1975:           ),
+1976:           SizedBox(height: 12),
+1977:           Text('Total $_hppTotal data Â· halaman $_hppPage/$pageMax',
+1978:               style: TextStyle(fontWeight: FontWeight.w800)),
+1979:           SizedBox(height: 10),
+1980:           if (_hppRows.isEmpty)
+1981:             const EmptyState(
+1982:                 title: 'Belum ada data HPP',
+1983:                 subtitle:
+1984:                     'Ambil produk marketplace dan buka filter HPP. Import Excel juga bisa dipakai untuk bulk update.',
+1985:                 icon: Icons.price_change_outlined)
+1986:           else
+1987:             ..._hppRows.map((row) {
+1988:               final hpp =
+1989:                   _rowDouble(row, const ['hpp_amount', 'hpp_per_item', 'hpp']);
+1990:               final margin = _rowDouble(
+1991:                   row, const ['target_margin_percent', 'target_margin']);
+1992:               final localName = _rowText(
+1993:                   row, const ['local_product_name', 'local_name'],
+1994:                   fallback: 'Belum mapping produk lokal');
+1995:               return Container(
+1996:                 margin: const EdgeInsets.only(bottom: 10),
+1997:                 padding: const EdgeInsets.all(12),
+1998:                 decoration: BoxDecoration(
+1999:                   borderRadius: BorderRadius.circular(18),
+2000:                   color: Theme.of(context)
+2001:                       .colorScheme
+2002:                       .surfaceVariant
+2003:                       .withOpacity(0.24),
+2004:                   border: Border.all(
+2005:                       color: Theme.of(context).dividerColor.withOpacity(0.30)),
+2006:                 ),
+2007:                 child: Column(
+2008:                   crossAxisAlignment: CrossAxisAlignment.start,
+2009:                   children: [
+2010:                     Row(
+2011:                       children: [
+2012:                         Expanded(
+2013:                             child: Text(
+2014:                                 _rowText(
+2015:                                     row,
+2016:                                     const [
+2017:                                       'marketplace_product_name',
+2018:                                       'product_name'
+2019:                                     ],
+2020:                                     fallback: '-'),
+2021:                                 maxLines: 2,
+2022:                                 overflow: TextOverflow.ellipsis,
+2023:                                 style: TextStyle(fontWeight: FontWeight.w800))),
+2024:                         TextButton.icon(
+2025:                             onPressed: () => _editHppRow(row),
+2026:                             icon: Icon(Icons.edit_outlined, size: 16),
+2027:                             label: Text('Edit')),
+2028:                       ],
+2029:                     ),
+2030:                     SizedBox(height: 4),
+2031:                     Text(
+2032:                         _rowText(
+2033:                             row,
+2034:                             const [
+2035:                               'marketplace_variant_name',
+2036:                               'variant_name',
+2037:                               'sku_name'
+2038:                             ],
+2039:                             fallback: '-'),
+2040:                         style: TextStyle(fontWeight: FontWeight.w700)),
+2041:                     SizedBox(height: 8),
+2042:                     Wrap(
+2043:                       spacing: 8,
+2044:                       runSpacing: 8,
+2045:                       children: [
+2046:                         _SmallStatusChip(
+2047:                             label: localName,
+2048:                             color: localName.startsWith('Belum')
+2049:                                 ? AppUi.orange
+2050:                                 : AppUi.green),
+2051:                         _SmallStatusChip(
+2052:                             label: 'HPP ${AppUi.rupiah(hpp)}',
+2053:                             color: hpp <= 0 ? AppUi.orange : AppUi.blue),
+2054:                         _SmallStatusChip(
+2055:                             label: 'Target ${margin.toStringAsFixed(1)}%',
+2056:                             color: margin <= 0 ? AppUi.orange : AppUi.green),
+2057:                         if (_rowText(row, const [
+2058:                           'marketplace_seller_sku',
+2059:                           'seller_sku'
+2060:                         ]).isNotEmpty)
+2061:                           _SmallStatusChip(
+2062:                               label: 'Seller SKU ${_rowText(row, const [
+2063:                                     'marketplace_seller_sku',
+2064:                                     'seller_sku'
+2065:                                   ])}',
+2066:                               color: AppUi.blue),
+2067:                       ],
+2068:                     ),
+2069:                   ],
+2070:                 ),
+2071:               );
+2072:             }),
+2073:           if (_hppTotal > _hppPageSize) ...[
+2074:             SizedBox(height: 8),
+2075:             Row(
+2076:               children: [
+2077:                 Expanded(
+2078:                     child: OutlinedButton.icon(
+2079:                         onPressed: _hppPage <= 1 || _isHppLoading
+2080:                             ? null
+2081:                             : () {
+2082:                                 setState(() => _hppPage -= 1);
+2083:                                 _loadHpp();
+2084:                               },
+2085:                         icon: Icon(Icons.chevron_left),
+2086:                         label: Text('Sebelumnya'))),
+2087:                 SizedBox(width: 12),
+2088:                 Expanded(
+2089:                     child: OutlinedButton.icon(
+2090:                         onPressed: _hppPage >= pageMax || _isHppLoading
+2091:                             ? null
+2092:                             : () {
+2093:                                 setState(() => _hppPage += 1);
+2094:                                 _loadHpp();
+2095:                               },
+
+=== mapping rows / marketplace data display lines 2160-2268 ===
+2160:         border: Border.all(color: accent.withOpacity(0.24)),
+2161:       ),
+2162:       child: NiceCard(
+2163:         padding: const EdgeInsets.all(14),
+2164:         child: Column(
+2165:           crossAxisAlignment: CrossAxisAlignment.start,
+2166:           children: [
+2167:             Row(
+2168:               crossAxisAlignment: CrossAxisAlignment.start,
+2169:               children: [
+2170:                 Container(
+2171:                   width: 48,
+2172:                   height: 48,
+2173:                   decoration: BoxDecoration(
+2174:                     color: accent.withOpacity(0.14),
+2175:                     borderRadius: BorderRadius.circular(18),
+2176:                   ),
+2177:                   child: Icon(
+2178:                     item.marketplace == 'shopee'
+2179:                         ? Icons.shopping_bag_outlined
+2180:                         : Icons.music_note_rounded,
+2181:                     color: accent,
+2182:                   ),
+2183:                 ),
+2184:                 SizedBox(width: 12),
+2185:                 Expanded(
+2186:                   child: Column(
+2187:                     crossAxisAlignment: CrossAxisAlignment.start,
+2188:                     children: [
+2189:                       Text(
+2190:                         item.marketplaceVariationName ??
+2191:                             item.marketplaceSellerSku,
+2192:                         maxLines: 2,
+2193:                         overflow: TextOverflow.ellipsis,
+2194:                         style: TextStyle(
+2195:                             fontWeight: FontWeight.w800, fontSize: 17),
+2196:                       ),
+2197:                       SizedBox(height: 4),
+2198:                       Text(
+2199:                         '${item.accountStoreAlias} Â· ${item.marketplaceLabel} Â· ${item.shopRegion}',
+2200:                         style: TextStyle(
+2201:                           color: Theme.of(context).textTheme.bodySmall?.color,
+2202:                           fontWeight: FontWeight.w700,
+2203:                         ),
+2204:                       ),
+2205:                     ],
+2206:                   ),
+2207:                 ),
+2208:                 PopupMenuButton<String>(
+2209:                   onSelected: (value) {
+2210:                     if (value == 'toggle_sync') _toggleSync(item);
+2211:                     if (value == 'delete') _deleteMapping(item);
+2212:                   },
+2213:                   itemBuilder: (context) => [
+2214:                     PopupMenuItem(
+2215:                       value: 'toggle_sync',
+2216:                       child: Text(item.syncEnabled
+2217:                           ? 'Matikan Sinkron'
+2218:                           : 'Aktifkan Sinkron'),
+2219:                     ),
+2220:                     const PopupMenuDivider(),
+2221:                     const PopupMenuItem(
+2222:                         value: 'delete', child: Text('Hapus Mapping')),
+2223:                   ],
+2224:                 ),
+2225:               ],
+2226:             ),
+2227:             SizedBox(height: 12),
+2228:             Container(
+2229:               width: double.infinity,
+2230:               padding: const EdgeInsets.all(12),
+2231:               decoration: BoxDecoration(
+2232:                 color: Theme.of(context)
+2233:                     .colorScheme
+2234:                     .surfaceVariant
+2235:                     .withOpacity(0.40),
+2236:                 borderRadius: BorderRadius.circular(18),
+2237:               ),
+2238:               child: Column(
+2239:                 children: [
+2240:                   _MappingLine(
+2241:                     label: 'Marketplace',
+2242:                     title: item.marketplaceProductName,
+2243:                     subtitle:
+2244:                         'ID Produk: ${item.marketplaceProductId ?? '-'} Â· ID Varian: ${item.marketplaceSkuId ?? '-'}',
+2245:                   ),
+2246:                   Divider(),
+2247:                   _MappingLine(
+2248:                     label: 'Lokal',
+2249:                     title: item.localProductName,
+2250:                     subtitle:
+2251:                         'SKU: ${item.localSku} Â· Stock: ${AppUi.money(item.localStock)} Â· ${item.localProductStatus}',
+2252:                   ),
+2253:                 ],
+2254:               ),
+2255:             ),
+2256:             SizedBox(height: 10),
+2257:             Wrap(
+2258:               spacing: 8,
+2259:               runSpacing: 8,
+2260:               children: [
+2261:                 _SmallStatusChip(
+2262:                     label: item.syncLabel,
+2263:                     color: item.syncEnabled ? AppUi.green : AppUi.orange),
+2264:                 _SmallStatusChip(
+2265:                     label: item.status, color: AppUi.statusColor(item.status)),
+2266:                 if (item.marketplaceSellerSku.trim().isNotEmpty)
+2267:                   _SmallStatusChip(
+2268:                       label: 'Seller SKU: ${item.marketplaceSellerSku}',
+
+=== marketplace product/variant grouping model lines 2320-2488 ===
+2320:       ),
+2321:     );
+2322:   }
+2323: 
+2324:   @override
+2325:   Widget build(BuildContext context) {
+2326:     return Scaffold(
+2327:       appBar: AppBar(
+2328:         title: Text('Mapping SKU'),
+2329:         actions: [
+2330:           IconButton(onPressed: _loadInitial, icon: Icon(Icons.refresh)),
+2331:         ],
+2332:       ),
+2333:       body: _body(),
+2334:     );
+2335:   }
+2336: }
+2337: 
+2338: class _MarketplaceProductOption {
+2339:   final String productId;
+2340:   final String productName;
+2341:   final int variantCount;
+2342: 
+2343:   const _MarketplaceProductOption({
+2344:     required this.productId,
+2345:     required this.productName,
+2346:     required this.variantCount,
+2347:   });
+2348: 
+2349:   _MarketplaceProductOption copyWith({int? variantCount}) {
+2350:     return _MarketplaceProductOption(
+2351:       productId: productId,
+2352:       productName: productName,
+2353:       variantCount: variantCount ?? this.variantCount,
+2354:     );
+2355:   }
+2356: 
+2357:   String get dropdownLabel => '$productName Â· $variantCount varian';
+2358: }
+2359: 
+2360: class _BulkMappingTable extends StatelessWidget {
+2361:   final List<MarketplaceVariantSnapshot> variants;
+2362:   final List<Product> products;
+2363:   final Map<String, String> selectedProductIds;
+2364:   final bool isSaving;
+2365:   final void Function(String variantId, String? productId) onChanged;
+2366: 
+2367:   const _BulkMappingTable({
+2368:     required this.variants,
+2369:     required this.products,
+2370:     required this.selectedProductIds,
+2371:     required this.isSaving,
+2372:     required this.onChanged,
+2373:   });
+2374: 
+2375:   @override
+2376:   Widget build(BuildContext context) {
+2377:     if (variants.isEmpty) {
+2378:       return const EmptyState(
+2379:         title: 'Produk marketplace belum dipilih',
+2380:         subtitle:
+2381:             'Pilih produk marketplace dulu, nanti daftar variannya muncul di sini.',
+2382:         icon: Icons.inventory_2_outlined,
+2383:       );
+2384:     }
+2385: 
+2386:     return Column(
+2387:       crossAxisAlignment: CrossAxisAlignment.start,
+2388:       children: [
+2389:         Padding(
+2390:           padding: const EdgeInsets.symmetric(horizontal: 4),
+2391:           child: Row(
+2392:             children: const [
+2393:               Expanded(
+2394:                 child: Text(
+2395:                   'Varian Marketplace',
+2396:                   style: TextStyle(fontWeight: FontWeight.w800),
+2397:                 ),
+2398:               ),
+2399:               SizedBox(width: 10),
+2400:               Expanded(
+2401:                 child: Text(
+2402:                   'Varian Lokal',
+2403:                   style: TextStyle(fontWeight: FontWeight.w800),
+2404:                 ),
+2405:               ),
+2406:             ],
+2407:           ),
+2408:         ),
+2409:         SizedBox(height: 8),
+2410:         ...variants.map(
+2411:           (variant) => Padding(
+2412:             padding: const EdgeInsets.only(bottom: 10),
+2413:             child: _BulkMappingRow(
+2414:               variant: variant,
+2415:               products: products,
+2416:               selectedProductId:
+2417:                   selectedProductIds[variant.marketplaceVariantSnapshotId],
+2418:               isSaving: isSaving,
+2419:               onChanged: (productId) =>
+2420:                   onChanged(variant.marketplaceVariantSnapshotId, productId),
+2421:             ),
+2422:           ),
+2423:         ),
+2424:       ],
+2425:     );
+2426:   }
+2427: }
+2428: 
+2429: class _BulkMappingRow extends StatelessWidget {
+2430:   final MarketplaceVariantSnapshot variant;
+2431:   final List<Product> products;
+2432:   final String? selectedProductId;
+2433:   final bool isSaving;
+2434:   final ValueChanged<String?> onChanged;
+2435: 
+2436:   const _BulkMappingRow({
+2437:     required this.variant,
+2438:     required this.products,
+2439:     required this.selectedProductId,
+2440:     required this.isSaving,
+2441:     required this.onChanged,
+2442:   });
+2443: 
+2444:   @override
+2445:   Widget build(BuildContext context) {
+2446:     final accent = variant.marketplace == 'shopee'
+2447:         ? Theme.of(context).colorScheme.primary
+2448:         : Theme.of(context).colorScheme.secondary;
+2449: 
+2450:     return Row(
+2451:       crossAxisAlignment: CrossAxisAlignment.start,
+2452:       children: [
+2453:         Expanded(
+2454:           child: Container(
+2455:             constraints: const BoxConstraints(minHeight: 64),
+2456:             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+2457:             decoration: BoxDecoration(
+2458:               color: accent.withOpacity(0.10),
+2459:               borderRadius: BorderRadius.circular(18),
+2460:               border: Border.all(color: accent.withOpacity(0.28)),
+2461:             ),
+2462:             child: Column(
+2463:               crossAxisAlignment: CrossAxisAlignment.start,
+2464:               children: [
+2465:                 Text(
+2466:                   variant.displayVariant,
+2467:                   maxLines: 2,
+2468:                   overflow: TextOverflow.ellipsis,
+2469:                   style: TextStyle(fontWeight: FontWeight.w800),
+2470:                 ),
+2471:                 SizedBox(height: 4),
+2472:                 Text(
+2473:                   'Stock ${variant.stockQuantity} Â· ${variant.isMapped ? 'mapped' : 'unmapped'}',
+2474:                   maxLines: 1,
+2475:                   overflow: TextOverflow.ellipsis,
+2476:                   style: TextStyle(
+2477:                     fontSize: 11,
+2478:                     fontWeight: FontWeight.w800,
+2479:                     color: Theme.of(context).textTheme.bodySmall?.color,
+2480:                   ),
+2481:                 ),
+2482:               ],
+2483:             ),
+2484:           ),
+2485:         ),
+2486:         SizedBox(width: 10),
+2487:         Expanded(
+2488:           child: _CariableLocalProductPicker(
+
+=== local SKU picker clean dropdown lines 2670-2835 ===
+2670:                 decoration: BoxDecoration(
+2671:                   color: Theme.of(context).dividerColor.withOpacity(0.5),
+2672:                   borderRadius: BorderRadius.circular(999),
+2673:                 ),
+2674:               ),
+2675:             ),
+2676:             Padding(
+2677:               padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+2678:               child: Row(
+2679:                 children: [
+2680:                   Expanded(
+2681:                     child: Text(
+2682:                       'Pilih Produk Lokal',
+2683:                       style:
+2684:                           TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+2685:                     ),
+2686:                   ),
+2687:                   IconButton(
+2688:                     tooltip: 'Tutup',
+2689:                     onPressed: () => Navigator.pop(context),
+2690:                     icon: Icon(Icons.close_rounded),
+2691:                   ),
+2692:                 ],
+2693:               ),
+2694:             ),
+2695:             Padding(
+2696:               padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+2697:               child: TextField(
+2698:                 controller: _controller,
+2699:                 autofocus: true,
+2700:                 textInputAction: TextInputAction.search,
+2701:                 decoration: InputDecoration(
+2702:                   prefixIcon: Icon(Icons.search_rounded),
+2703:                   suffixIcon: _controller.text.trim().isEmpty
+2704:                       ? null
+2705:                       : IconButton(
+2706:                           tooltip: 'Clear',
+2707:                           onPressed: () {
+2708:                             setState(() {
+2709:                               _controller.clear();
+2710:                             });
+2711:                           },
+2712:                           icon: Icon(Icons.close_rounded),
+2713:                         ),
+2714:                   labelText: 'Cari SKU / barcode / nama barang',
+2715:                   border: const OutlineInputBorder(),
+2716:                 ),
+2717:                 onChanged: (_) => setState(() {}),
+2718:               ),
+2719:             ),
+2720:             if (widget.selectedProductId != null &&
+2721:                 widget.selectedProductId!.trim().isNotEmpty)
+2722:               Padding(
+2723:                 padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+2724:                 child: OutlinedButton.icon(
+2725:                   onPressed: () => Navigator.pop(context, ''),
+2726:                   icon: Icon(Icons.clear_rounded),
+2727:                   label: Text('Kosongkan pilihan'),
+2728:                 ),
+2729:               ),
+2730:             Padding(
+2731:               padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+2732:               child: Text(
+2733:                 '${filtered.length} dari ${widget.products.length} SKU lokal',
+2734:                 style: TextStyle(
+2735:                   fontWeight: FontWeight.w800,
+2736:                   color: Theme.of(context).textTheme.bodySmall?.color,
+2737:                 ),
+2738:               ),
+2739:             ),
+2740:             Expanded(
+2741:               child: filtered.isEmpty
+2742:                   ? const EmptyState(
+2743:                       title: 'SKU lokal tidak ditemukan',
+2744:                       subtitle:
+2745:                           'Coba keyword lain, atau pakai kolom Cari varian lokal di halaman mapping untuk mengambil data dari database.',
+2746:                       icon: Icons.search_off_rounded,
+2747:                     )
+2748:                   : ListView.separated(
+2749:                       padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+2750:                       keyboardDismissBehavior:
+2751:                           ScrollViewKeyboardDismissBehavior.onDrag,
+2752:                       itemCount: filtered.length,
+2753:                       separatorBuilder: (_, __) => SizedBox(height: 8),
+2754:                       itemBuilder: (context, index) {
+2755:                         final product = filtered[index];
+2756:                         final selected =
+2757:                             product.productId == widget.selectedProductId;
+2758: 
+2759:                         return InkWell(
+2760:                           borderRadius: BorderRadius.circular(18),
+2761:                           onTap: () =>
+2762:                               Navigator.pop(context, product.productId),
+2763:                           child: Container(
+2764:                             padding: const EdgeInsets.all(12),
+2765:                             decoration: BoxDecoration(
+2766:                               color: selected
+2767:                                   ? AppUi.blue.withOpacity(0.14)
+2768:                                   : Theme.of(context)
+2769:                                       .colorScheme
+2770:                                       .surfaceVariant
+2771:                                       .withOpacity(0.28),
+2772:                               borderRadius: BorderRadius.circular(18),
+2773:                               border: Border.all(
+2774:                                 color: selected
+2775:                                     ? AppUi.blue.withOpacity(0.70)
+2776:                                     : Theme.of(context)
+2777:                                         .dividerColor
+2778:                                         .withOpacity(0.35),
+2779:                               ),
+2780:                             ),
+2781:                             child: Row(
+2782:                               children: [
+2783:                                 Icon(
+2784:                                   selected
+2785:                                       ? Icons.check_circle_rounded
+2786:                                       : Icons.inventory_2_outlined,
+2787:                                   color: selected
+2788:                                       ? AppUi.blue
+2789:                                       : Theme.of(context)
+2790:                                           .textTheme
+2791:                                           .bodySmall
+2792:                                           ?.color,
+2793:                                 ),
+2794:                                 SizedBox(width: 12),
+2795:                                 Expanded(
+2796:                                   child: Column(
+2797:                                     crossAxisAlignment:
+2798:                                         CrossAxisAlignment.start,
+2799:                                     children: [
+2800:                                       Text(
+2801:                                         product.kodeSku,
+2802:                                         maxLines: 1,
+2803:                                         overflow: TextOverflow.ellipsis,
+2804:                                         style: TextStyle(
+2805:                                             fontWeight: FontWeight.w800),
+2806:                                       ),
+2807:                                       SizedBox(height: 3),
+2808:                                       Text(
+2809:                                         product.namaBarang,
+2810:                                         maxLines: 2,
+2811:                                         overflow: TextOverflow.ellipsis,
+2812:                                         style: TextStyle(
+2813:                                             fontWeight: FontWeight.w700),
+2814:                                       ),
+2815:                                       SizedBox(height: 3),
+2816:                                       Text(
+2817:                                         'Barcode: ${product.barcodeValue} Â· Stock ${AppUi.money(product.stockSaatIni)} Â· ${product.status}',
+2818:                                         maxLines: 1,
+2819:                                         overflow: TextOverflow.ellipsis,
+2820:                                         style: TextStyle(
+2821:                                           fontSize: 12,
+2822:                                           fontWeight: FontWeight.w700,
+2823:                                           color: Theme.of(context)
+2824:                                               .textTheme
+2825:                                               .bodySmall
+2826:                                               ?.color,
+2827:                                         ),
+2828:                                       ),
+2829:                                     ],
+2830:                                   ),
+2831:                                 ),
+2832:                               ],
+2833:                             ),
+2834:                           ),
+2835:                         );
+
+=== marketplace variant detail display lines 2885-3010 ===
+2885:           children: [
+2886:             Row(
+2887:               children: [
+2888:                 Icon(
+2889:                   selected
+2890:                       ? Icons.radio_button_checked
+2891:                       : Icons.radio_button_unchecked,
+2892:                   color: selected
+2893:                       ? accent
+2894:                       : Theme.of(context).textTheme.bodySmall?.color,
+2895:                 ),
+2896:                 SizedBox(width: 10),
+2897:                 Expanded(
+2898:                   child: Text(
+2899:                     variant.marketplaceProductName,
+2900:                     maxLines: 2,
+2901:                     overflow: TextOverflow.ellipsis,
+2902:                     style: TextStyle(fontWeight: FontWeight.w800),
+2903:                   ),
+2904:                 ),
+2905:               ],
+2906:             ),
+2907:             SizedBox(height: 10),
+2908:             if (parts.isEmpty)
+2909:               _SmallStatusChip(
+2910:                 label: variant.displayVariant,
+2911:                 color: Colors.amber,
+2912:               )
+2913:             else
+2914:               Wrap(
+2915:                 spacing: 8,
+2916:                 runSpacing: 8,
+2917:                 children: parts
+2918:                     .map(
+2919:                       (part) => _SmallStatusChip(
+2920:                         label: part,
+2921:                         color: accent,
+2922:                       ),
+2923:                     )
+2924:                     .toList(),
+2925:               ),
+2926:             SizedBox(height: 10),
+2927:             Text(
+2928:               'ID Produk: ${variant.marketplaceProductId} Â· ID Varian: ${variant.marketplaceSkuId}',
+2929:               maxLines: 2,
+2930:               overflow: TextOverflow.ellipsis,
+2931:               style: TextStyle(
+2932:                 fontSize: 12,
+2933:                 fontWeight: FontWeight.w700,
+2934:                 color: Theme.of(context).textTheme.bodySmall?.color,
+2935:               ),
+2936:             ),
+2937:             SizedBox(height: 4),
+2938:             Text(
+2939:               'Stock marketplace: ${variant.stockQuantity} Â· ${variant.isMapped ? 'mapped' : 'unmapped'}',
+2940:               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+2941:             ),
+2942:           ],
+2943:         ),
+2944:       ),
+2945:     );
+2946:   }
+2947: }
+2948: 
+2949: class _VariantPreviewCard extends StatelessWidget {
+2950:   final MarketplaceVariantSnapshot variant;
+2951: 
+2952:   const _VariantPreviewCard({required this.variant});
+2953: 
+2954:   @override
+2955:   Widget build(BuildContext context) {
+2956:     final accent = variant.marketplace == 'shopee'
+2957:         ? Theme.of(context).colorScheme.primary
+2958:         : Theme.of(context).colorScheme.secondary;
+2959: 
+2960:     return Container(
+2961:       width: double.infinity,
+2962:       padding: const EdgeInsets.all(14),
+2963:       decoration: BoxDecoration(
+2964:         color: accent.withOpacity(0.10),
+2965:         borderRadius: BorderRadius.circular(20),
+2966:         border: Border.all(color: accent.withOpacity(0.28)),
+2967:       ),
+2968:       child: Column(
+2969:         crossAxisAlignment: CrossAxisAlignment.start,
+2970:         children: [
+2971:           Row(
+2972:             children: [
+2973:               Icon(
+2974:                   variant.marketplace == 'shopee'
+2975:                       ? Icons.shopping_bag_outlined
+2976:                       : Icons.music_note_rounded,
+2977:                   color: accent),
+2978:               SizedBox(width: 8),
+2979:               Expanded(
+2980:                 child: Text(
+2981:                   variant.marketplaceProductName,
+2982:                   maxLines: 2,
+2983:                   overflow: TextOverflow.ellipsis,
+2984:                   style: TextStyle(fontWeight: FontWeight.w800),
+2985:                 ),
+2986:               ),
+2987:             ],
+2988:           ),
+2989:           SizedBox(height: 10),
+2990:           _MappingLine(
+2991:               label: 'Varian',
+2992:               title: variant.displayVariant,
+2993:               subtitle: 'ID Varian: ${variant.marketplaceSkuId}'),
+2994:           Divider(),
+2995:           _MappingLine(
+2996:               label: 'Seller SKU',
+2997:               title: variant.marketplaceSellerSku ?? '-',
+2998:               subtitle: 'Fallback key: ${variant.displaySku}'),
+2999:           Divider(),
+3000:           _MappingLine(
+3001:             label: 'Stock',
+3002:             title: '${variant.stockQuantity}',
+3003:             subtitle:
+3004:                 'Price: ${variant.priceCurrency ?? '-'} ${AppUi.money(variant.priceAmount)} Â· ${variant.isMapped ? 'Sudah mapped' : 'Belum mapped'}',
+3005:           ),
+3006:         ],
+3007:       ),
+3008:     );
+3009:   }
+3010: }
+
+=== GREP dropdown/list/picker ===
+16: import '../models/marketplace_variant_snapshot.dart';
+40: final TextEditingController _variantCariController = TextEditingController();
+62: List<MarketplaceVariantSnapshot> _variants = const [];
+72: String? _selectedVariantId;
+74: String? _selectedMarketplaceProductId;
+75: final Map<String, String> _bulkLocalProductByVariantId = {};
+85: _variantCariController.dispose();
+143: _loadVariants(),
+155: Future<void> _loadVariants() async {
+158: setState(() => _variants = const []);
+163: final variants = await _service.listMarketplaceVariants(
+166: search: _variantCariController.text,
+172: _variants = variants;
+173: if (_selectedVariantId != null &&
+174: !_variants.any((item) =>
+175: item.marketplaceVariantSnapshotId == _selectedVariantId)) {
+176: _selectedVariantId = null;
+179: final productIds = _variants
+180: .map((item) => item.marketplaceProductId)
+184: if (_selectedMarketplaceProductId != null &&
+185: !productIds.contains(_selectedMarketplaceProductId)) {
+186: _selectedMarketplaceProductId = null;
+189: if (_selectedMarketplaceProductId == null && productIds.isNotEmpty) {
+190: _selectedMarketplaceProductId = productIds.first;
+193: _bulkLocalProductByVariantId.removeWhere(
+194: (variantId, _) => !_variants
+195: .any((item) => item.marketplaceVariantSnapshotId == variantId),
+233: _loadVariants(),
+335: if (skippedConflict > 0) parts.add('$skippedConflict konflik SKU lokal');
+399: final saved = await showModalBottomSheet<bool>(
+433: 'marketplace_variant_name',
+434: 'variant_name',
+439: DropdownButtonFormField<String>(
+446: .map((product) => DropdownMenuItem<String>(
+518: 'marketplace_variant_name': _rowText(
+520: 'marketplace_variant_name',
+521: 'variant_name',
+620: 'variant_name',
+640: const ['marketplace_variant_name', 'variant_name', 'sku_name']),
+724: final variantName =
+725: cellFrom(r, const ['variant_name', 'marketplace_variant_name']);
+729: variantName.isEmpty) continue;
+758: 'marketplace_variant_name': variantName,
+829: final variants = (payload['variants'] is List)
+830: ? List<Map<String, dynamic>>.from((payload['variants'] as List)
+852: 'marketplace_variant_snapshot_id',
+858: 'marketplace_variant_name',
+865: for (final row in variants) {
+870: row['marketplace_variant_snapshot_id'],
+876: row['marketplace_variant_name'],
+912: 'Export SKU mapping ${variants.length} varian dan ${localProducts.length} SKU lokal.')));
+974: cellFrom(r, const ['marketplace_variant_snapshot_id']);
+997: 'marketplace_variant_snapshot_id': snapshotId,
+1006: 'marketplace_variant_name':
+1007: cellFrom(r, const ['marketplace_variant_name', 'variant_name']),
+1096: Future<void> _pullMarketplaceProducts() async {
+1108: final result = await _service.pullMarketplaceProducts(
+1230: final count = await _service.clearMarketplaceProductCache(
+1286: List<MarketplaceAccountPublic> get _filteredAccounts {
+1295: MarketplaceVariantSnapshot? get _selectedVariant {
+1296: final id = _selectedVariantId;
+1298: for (final variant in _variants) {
+1299: if (variant.marketplaceVariantSnapshotId == id) return variant;
+1317: List<_MarketplaceProductOption> get _marketplaceProductOptions {
+1318: final grouped = <String, _MarketplaceProductOption>{};
+1320: for (final variant in _variants) {
+1321: final productId = variant.marketplaceProductId.trim();
+1326: grouped[productId] = _MarketplaceProductOption(
+1328: productName: variant.marketplaceProductName,
+1329: variantCount: 1,
+1333: existing.copyWith(variantCount: existing.variantCount + 1);
+1343: List<MarketplaceVariantSnapshot> get _visibleBulkVariants {
+1344: final productId = _selectedMarketplaceProductId;
+1347: final result = _variants
+1348: .where((variant) => variant.marketplaceProductId == productId)
+1352: final left = a.displayVariant.toLowerCase();
+1353: final right = b.displayVariant.toLowerCase();
+1360: int get _bulkReadyCount => _visibleBulkVariants.where(
+1361: (variant) {
+1362: final productId = _bulkLocalProductByVariantId[
+1363: variant.marketplaceVariantSnapshotId];
+1369: final variant = _selectedVariant;
+1372: if (variant == null) {
+1388: item.marketplaceSkuId != variant.marketplaceSkuId);
+1401: await _service.mapMarketplaceVariantToLocalProduct(
+1402: variant: variant,
+1409: _selectedVariantId = null;
+1418: 'Varian marketplace berhasil dimapping ke varian/SKU lokal.')),
+1431: final variants = _visibleBulkVariants;
+1432: if (variants.isEmpty) {
+1440: final pairs = <MapEntry<MarketplaceVariantSnapshot, Product>>[];
+1442: for (final variant in variants) {
+1444: _bulkLocalProductByVariantId[variant.marketplaceVariantSnapshotId];
+1449: pairs.add(MapEntry(variant, product));
+1483: await _service.mapMarketplaceVariantToLocalProduct(
+1484: variant: pair.key,
+1527: 'Mapping ${item.marketplaceSellerSku} ke ${item.localSku} akan dihapus. Varian/SKU lokal tetap aman.'),
+1562: int get _mappedVariantCount =>
+1563: _variants.where((item) => item.isMapped).length;
+1564: int get _unmappedVariantCount =>
+1565: _variants.where((item) => !item.isMapped).length;
+1577: final accounts = _filteredAccounts;
+1590: 'Ambil produk dan varian toko, lalu hubungkan ke SKU lokal.',
+1594: DropdownButtonFormField<String>(
+1602: const DropdownMenuItem<String>(
+1607: (provider) => DropdownMenuItem<String>(
+1630: _selectedVariantId = null;
+1631: _selectedMarketplaceProductId = null;
+1632: _bulkLocalProductByVariantId.clear();
+1638: DropdownButtonFormField<String>(
+1660: (account) => DropdownMenuItem(
+1675: _selectedVariantId = null;
+1676: _selectedMarketplaceProductId = null;
+1677: _bulkLocalProductByVariantId.clear();
+1688: onPressed: _isPulling ? null : _pullMarketplaceProducts,
+1747: Widget _variantFilterCard() {
+1748: final options = _marketplaceProductOptions;
+1749: final variants = _visibleBulkVariants;
+1758: 'Pilih produk marketplace, lalu pasangkan semua varian marketplace ke varian/SKU lokal dalam satu layar.',
+1763: controller: _variantCariController,
+1764: hint: 'Cari produk / warna / size / sku id marketplace',
+1774: onPressed: _loadVariants,
+1783: _selectedMarketplaceProductId = null;
+1784: _bulkLocalProductByVariantId.clear();
+1786: await _loadVariants();
+1801: DropdownButtonFormField<String>(
+1803: value: _selectedMarketplaceProductId,
+1813: option.dropdownLabel,
+1822: (option) => DropdownMenuItem(
+1825: option.dropdownLabel,
+1836: _selectedMarketplaceProductId = value;
+1837: _bulkLocalProductByVariantId.clear();
+1848: hintText: 'Cari SKU, barcode, atau nama barang',
+1871: SwitchListTile.adaptive(
+1883: variants: variants,
+1885: selectedProductIds: _bulkLocalProductByVariantId,
+1887: onChanged: (variantId, productId) {
+1890: _bulkLocalProductByVariantId.remove(variantId);
+1892: _bulkLocalProductByVariantId[variantId] = productId;
+2002: .surfaceVariant
+2035: 'marketplace_variant_name',
+2036: 'variant_name',
+2140: 'Ambil produk marketplace, pilih varian, lalu hubungkan ke SKU lokal.',
+2234: .surfaceVariant
+2242: title: item.marketplaceProductName,
+2244: 'ID Produk: ${item.marketplaceProductId ?? '-'} · ID Varian: ${item.marketplaceSkuId ?? '-'}',
+2296: 'Hubungkan varian TikTok/Shopee ke SKU lokal. Cocok untuk produk dengan warna atau size.',
+2298: StatPill(label: 'Variants', value: _variants.length.toString()),
+2299: StatPill(label: 'Mapped', value: _mappedVariantCount.toString()),
+2302: value: _unmappedVariantCount.toString()),
+2314: _variantFilterCard(),
+2338: class _MarketplaceProductOption {
+2341: final int variantCount;
+2343: const _MarketplaceProductOption({
+2346: required this.variantCount,
+2349: _MarketplaceProductOption copyWith({int? variantCount}) {
+2350: return _MarketplaceProductOption(
+2353: variantCount: variantCount ?? this.variantCount,
+2357: String get dropdownLabel => '$productName · $variantCount varian';
+2361: final List<MarketplaceVariantSnapshot> variants;
+2365: final void Function(String variantId, String? productId) onChanged;
+2368: required this.variants,
+2377: if (variants.isEmpty) {
+2410: ...variants.map(
+2411: (variant) => Padding(
+2414: variant: variant,
+2417: selectedProductIds[variant.marketplaceVariantSnapshotId],
+2420: onChanged(variant.marketplaceVariantSnapshotId, productId),
+2430: final MarketplaceVariantSnapshot variant;
+2437: required this.variant,
+2446: final accent = variant.marketplace == 'shopee'
+2466: variant.displayVariant,
+2473: 'Stock ${variant.stockQuantity} · ${variant.isMapped ? 'mapped' : 'unmapped'}',
+2488: child: _CariableLocalProductPicker(
+2500: class _CariableLocalProductPicker extends StatelessWidget {
+2506: const _CariableLocalProductPicker({
+2525: final selected = await showModalBottomSheet<String?>(
+2627: List<Product> get _filteredProducts {
+2655: final filtered = _filteredProducts;
+2714: labelText: 'Cari SKU / barcode / nama barang',
+2733: '${filtered.length} dari ${widget.products.length} SKU lokal',
+2741: child: filtered.isEmpty
+2743: title: 'SKU lokal tidak ditemukan',
+2752: itemCount: filtered.length,
+2755: final product = filtered[index];
+2770: .surfaceVariant
+2846: class _VariantSelectableCard extends StatelessWidget {
+2847: final MarketplaceVariantSnapshot variant;
+2851: const _VariantSelectableCard({
+2852: required this.variant,
+2859: final accent = variant.marketplace == 'shopee'
+2862: final parts = variant.displayVariantParts;
+2899: variant.marketplaceProductName,
+2910: label: variant.displayVariant,
+2928: 'ID Produk: ${variant.marketplaceProductId} · ID Varian: ${variant.marketplaceSkuId}',
+2939: 'Stock marketplace: ${variant.stockQuantity} · ${variant.isMapped ? 'mapped' : 'unmapped'}',
+2949: class _VariantPreviewCard extends StatelessWidget {
+2950: final MarketplaceVariantSnapshot variant;
+2952: const _VariantPreviewCard({required this.variant});
+2956: final accent = variant.marketplace == 'shopee'
+2974: variant.marketplace == 'shopee'
+2981: variant.marketplaceProductName,
+2992: title: variant.displayVariant,
+2993: subtitle: 'ID Varian: ${variant.marketplaceSkuId}'),
+2997: title: variant.marketplaceSellerSku ?? '-',
+2998: subtitle: 'Fallback key: ${variant.displaySku}'),
+3002: title: '${variant.stockQuantity}',
+3004: 'Price: ${variant.priceCurrency ?? '-'} ${AppUi.money(variant.priceAmount)} · ${variant.isMapped ? 'Sudah mapped' : 'Belum mapped'}',

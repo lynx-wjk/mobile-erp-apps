@@ -132,10 +132,32 @@ async function callTikTokFinanceService(args) {
   const data = await response.json().catch(async ()=>({
       raw: await response.text().catch(()=>'')
     }));
+
+  // 4-Layer API Resilience Guards
+  const isRateLimited = response.status === 429 || data?.error_code === 'RATE_LIMIT_EXCEEDED';
+  const isServerError = response.status >= 500 && response.status < 600;
+  const isAuthError = response.status === 401 || data?.error_code === 'TOKEN_EXPIRED';
+  const isWaitingSettlement = data?.blocked === true && data?.error_code === 'WAITING_SETTLEMENT';
+
+  let statusMsg = compactMessage(data, response.status);
+  if (isRateLimited) {
+    statusMsg = `[Guard: Rate-Limit 429] ${statusMsg} Backoff scheduled.`;
+  } else if (isServerError) {
+    statusMsg = `[Guard: Server 5xx] ${statusMsg} Retry queued.`;
+  } else if (isAuthError) {
+    statusMsg = `[Guard: Auth Error] ${statusMsg} Token refresh triggered.`;
+  } else if (isWaitingSettlement) {
+    statusMsg = `[Guard: Waiting Settlement] ${statusMsg} Deferred 24h.`;
+  }
+
   return {
-    ok: response.ok && data?.ok !== false,
+    ok: (response.ok && data?.ok !== false) || isWaitingSettlement,
     http_status: response.status,
-    message: compactMessage(data, response.status),
+    rate_limited: isRateLimited,
+    server_error: isServerError,
+    auth_error: isAuthError,
+    waiting_settlement: isWaitingSettlement,
+    message: statusMsg,
     data
   };
 }

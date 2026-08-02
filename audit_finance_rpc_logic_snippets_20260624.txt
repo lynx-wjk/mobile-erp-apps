@@ -1,0 +1,268 @@
+﻿
+  audit_finance_rpc_defs_20260624.txt:65:  v_start_ts := (v_start::timestamp at time zone 'Asia/Jakarta');
+  audit_finance_rpc_defs_20260624.txt:66:  v_end_ts := ((v_end + 1)::timestamp at time zone 'Asia/Jakarta');
+  audit_finance_rpc_defs_20260624.txt:67:  v_offset := (v_page - 1) * v_page_size;
+  audit_finance_rpc_defs_20260624.txt:68:  v_filter := case
+> audit_finance_rpc_defs_20260624.txt:69:    when v_filter in ('settled', 'released', 'release', 'payout', 'paid payout', 'sudah payout') then 'paid'
+  audit_finance_rpc_defs_20260624.txt:70:    when v_filter in ('pending', 'belum payout', 'no payout', 'missing payout') then 'unpaid'
+  audit_finance_rpc_defs_20260624.txt:71:    when v_filter = '' then 'all'
+  audit_finance_rpc_defs_20260624.txt:72:    else v_filter
+  audit_finance_rpc_defs_20260624.txt:73:  end;
+  audit_finance_rpc_defs_20260624.txt:100:          select
+  audit_finance_rpc_defs_20260624.txt:101:            o.marketplace_order_id,
+  audit_finance_rpc_defs_20260624.txt:102:            o.tenant_id,
+  audit_finance_rpc_defs_20260624.txt:103:            o.marketplace_account_id,
+> audit_finance_rpc_defs_20260624.txt:104:            o.order_created_at,
+> audit_finance_rpc_defs_20260624.txt:105:            timezone('Asia/Jakarta', o.order_created_at)::date as order_date,
+  audit_finance_rpc_defs_20260624.txt:106:            coalesce(nullif(o.order_id::text, ''), nullif(o.order_sn::text, ''), 
+nullif(o.external_order_id::text, ''), o.marketplace_order_id::text) as order_key,
+  audit_finance_rpc_defs_20260624.txt:107:            coalesce(nullif(o.order_sn::text, ''), nullif(o.external_order_id::text, ''), 
+nullif(o.order_id::text, '')) as order_sn,
+  audit_finance_rpc_defs_20260624.txt:108:            coalesce(nullif(o.tracking_number, ''), nullif(o.label_code, ''), nullif(o.package_id, '')) as 
+tracking_number,
+  audit_finance_rpc_defs_20260624.txt:109:            lower(concat_ws(' ', o.order_status, o.status, o.payment_status, o.fulfillment_status, 
+o.order_status_label)) as status_text,
+  audit_finance_rpc_defs_20260624.txt:112:              when lower(regexp_replace(coalesce(o.marketplace, ''), '[^a-z0-9]+', '', 'g')) like '%shopee%' 
+then 'shopee'
+  audit_finance_rpc_defs_20260624.txt:113:              when lower(regexp_replace(coalesce(o.marketplace, ''), '[^a-z0-9]+', '', 'g')) like '%tiktok%' 
+then 'tiktok'
+  audit_finance_rpc_defs_20260624.txt:114:              else lower(regexp_replace(coalesce(o.marketplace, 'unknown'), '[^a-z0-9]+', '', 'g'))
+  audit_finance_rpc_defs_20260624.txt:115:            end as marketplace_group
+> audit_finance_rpc_defs_20260624.txt:116:          from public.marketplace_orders o
+> audit_finance_rpc_defs_20260624.txt:117:          where o.order_created_at >= v_start_ts
+> audit_finance_rpc_defs_20260624.txt:118:            and o.order_created_at < v_end_ts
+  audit_finance_rpc_defs_20260624.txt:119:            and (v_role = 'service_role' or o.tenant_id = v_tenant_id)
+  audit_finance_rpc_defs_20260624.txt:120:            and (v_account_id is null or o.marketplace_account_id = v_account_id)
+  audit_finance_rpc_defs_20260624.txt:121:        ) o
+  audit_finance_rpc_defs_20260624.txt:122:        where (v_marketplace is null or o.marketplace_group = v_marketplace)
+  audit_finance_rpc_defs_20260624.txt:127:      ),
+  audit_finance_rpc_defs_20260624.txt:128:      finance_by_order as (
+  audit_finance_rpc_defs_20260624.txt:129:        select
+  audit_finance_rpc_defs_20260624.txt:130:          ob.marketplace_order_id,
+> audit_finance_rpc_defs_20260624.txt:131:          coalesce(sum(coalesce(fr.payout_amount, fr.received_amount, fr.net_settlement, 0)), 0)::numeric as 
+payout,
+> audit_finance_rpc_defs_20260624.txt:132:          coalesce(sum(coalesce(fr.gross_amount, fr.gross_sales, 0)), 0)::numeric as finance_gross
+  audit_finance_rpc_defs_20260624.txt:133:        from order_base ob
+> audit_finance_rpc_defs_20260624.txt:134:        join public.marketplace_finance_reports fr
+  audit_finance_rpc_defs_20260624.txt:135:          on fr.tenant_id = ob.tenant_id
+  audit_finance_rpc_defs_20260624.txt:136:         and fr.marketplace_account_id = ob.marketplace_account_id
+  audit_finance_rpc_defs_20260624.txt:137:         and fr.order_id = ob.order_key
+  audit_finance_rpc_defs_20260624.txt:138:        group by ob.marketplace_order_id
+  audit_finance_rpc_defs_20260624.txt:191:      ),
+  audit_finance_rpc_defs_20260624.txt:192:      paged as (
+  audit_finance_rpc_defs_20260624.txt:193:        select *
+  audit_finance_rpc_defs_20260624.txt:194:        from counted
+> audit_finance_rpc_defs_20260624.txt:195:        order by order_created_at desc, order_key
+  audit_finance_rpc_defs_20260624.txt:196:        offset v_offset
+  audit_finance_rpc_defs_20260624.txt:197:        limit v_page_size
+  audit_finance_rpc_defs_20260624.txt:198:      ),
+  audit_finance_rpc_defs_20260624.txt:199:      hpp_sku as (
+  audit_finance_rpc_defs_20260624.txt:242:          'marketplace_order_id', marketplace_order_id,
+  audit_finance_rpc_defs_20260624.txt:243:          'marketplace_order_item_id', marketplace_order_item_id,
+  audit_finance_rpc_defs_20260624.txt:244:          'resi', tracking_number,
+  audit_finance_rpc_defs_20260624.txt:245:          'tracking_number', tracking_number,
+> audit_finance_rpc_defs_20260624.txt:246:          'order_date', order_created_at,
+> audit_finance_rpc_defs_20260624.txt:247:          'order_created_at', order_created_at,
+  audit_finance_rpc_defs_20260624.txt:248:          'marketplace', marketplace_group,
+  audit_finance_rpc_defs_20260624.txt:249:          'marketplace_account_id', marketplace_account_id,
+  audit_finance_rpc_defs_20260624.txt:250:          'local_sku', coalesce(nullif(local_sku, ''), '-'),
+  audit_finance_rpc_defs_20260624.txt:251:          'sku', coalesce(nullif(local_sku, ''), nullif(marketplace_sku_id, ''), nullif(marketplace_seller_sku, 
+''), '-'),
+  audit_finance_rpc_defs_20260624.txt:261:          'gross_amount', line_gross,
+  audit_finance_rpc_defs_20260624.txt:262:          'gross_total', line_gross,
+  audit_finance_rpc_defs_20260624.txt:263:          'gross_per_item', case when qty > 0 then line_gross / qty else 0 end,
+  audit_finance_rpc_defs_20260624.txt:264:          'payout', case when has_payout and order_line_gross > 0 then order_payout * (line_gross / 
+order_line_gross) else 0 end,
+> audit_finance_rpc_defs_20260624.txt:265:          'payout_amount', case when has_payout and order_line_gross > 0 then order_payout * (line_gross / 
+order_line_gross) else 0 end,
+  audit_finance_rpc_defs_20260624.txt:266:          'payout_per_item', case when has_payout and order_line_gross > 0 and qty > 0 then (order_payout * 
+(line_gross / order_line_gross)) / qty else 0 end,
+  audit_finance_rpc_defs_20260624.txt:267:          'hpp', unit_hpp * qty,
+  audit_finance_rpc_defs_20260624.txt:268:          'hpp_total', unit_hpp * qty,
+  audit_finance_rpc_defs_20260624.txt:269:          'hpp_per_item', unit_hpp,
+  audit_finance_rpc_defs_20260624.txt:270:          'unit_hpp', unit_hpp,
+  audit_finance_rpc_defs_20260624.txt:271:          'hpp_status', case when unit_hpp > 0 then 'HPP mapping' else 'HPP belum mapping' end,
+  audit_finance_rpc_defs_20260624.txt:272:          'target_margin_percent', target_margin,
+> audit_finance_rpc_defs_20260624.txt:273:          'finance_status', case when has_payout then 'SETTLED' else 'PENDING_PAYOUT' end,
+> audit_finance_rpc_defs_20260624.txt:274:          'payout_status', case when has_payout then 'SETTLED' else 'PENDING_PAYOUT' end
+> audit_finance_rpc_defs_20260624.txt:275:        ) order by order_created_at desc, order_key), '[]'::jsonb),
+  audit_finance_rpc_defs_20260624.txt:276:        'page', v_page,
+  audit_finance_rpc_defs_20260624.txt:277:        'page_size', v_page_size,
+  audit_finance_rpc_defs_20260624.txt:278:        'total', coalesce(max(total_count), 0),
+  audit_finance_rpc_defs_20260624.txt:279:        'total_count', coalesce(max(total_count), 0),
+  audit_finance_rpc_defs_20260624.txt:291:        select
+  audit_finance_rpc_defs_20260624.txt:292:          o.marketplace_order_id,
+  audit_finance_rpc_defs_20260624.txt:293:          o.tenant_id,
+  audit_finance_rpc_defs_20260624.txt:294:          o.marketplace_account_id,
+> audit_finance_rpc_defs_20260624.txt:295:          o.order_created_at,
+> audit_finance_rpc_defs_20260624.txt:296:          timezone('Asia/Jakarta', o.order_created_at)::date as order_date,
+  audit_finance_rpc_defs_20260624.txt:297:          coalesce(nullif(o.order_id::text, ''), nullif(o.order_sn::text, ''), nullif(o.external_order_id::text, 
+''), o.marketplace_order_id::text) as order_key,
+  audit_finance_rpc_defs_20260624.txt:298:          lower(concat_ws(' ', o.order_status, o.status, o.payment_status, o.fulfillment_status, 
+o.order_status_label)) as status_text,
+  audit_finance_rpc_defs_20260624.txt:299:          case
+  audit_finance_rpc_defs_20260624.txt:300:            when lower(regexp_replace(coalesce(o.marketplace, ''), '[^a-z0-9]+', '', 'g')) like '%shopee%' then 
+'shopee'
+  audit_finance_rpc_defs_20260624.txt:301:            when lower(regexp_replace(coalesce(o.marketplace, ''), '[^a-z0-9]+', '', 'g')) like '%tiktok%' then 
+'tiktok'
+  audit_finance_rpc_defs_20260624.txt:302:            else lower(regexp_replace(coalesce(o.marketplace, 'unknown'), '[^a-z0-9]+', '', 'g'))
+  audit_finance_rpc_defs_20260624.txt:303:          end as marketplace_group
+> audit_finance_rpc_defs_20260624.txt:304:        from public.marketplace_orders o
+> audit_finance_rpc_defs_20260624.txt:305:        where o.order_created_at >= v_start_ts
+> audit_finance_rpc_defs_20260624.txt:306:          and o.order_created_at < v_end_ts
+  audit_finance_rpc_defs_20260624.txt:307:          and (v_role = 'service_role' or o.tenant_id = v_tenant_id)
+  audit_finance_rpc_defs_20260624.txt:308:          and (v_account_id is null or o.marketplace_account_id = v_account_id)
+  audit_finance_rpc_defs_20260624.txt:309:      ) o
+  audit_finance_rpc_defs_20260624.txt:310:      where (v_marketplace is null or o.marketplace_group = v_marketplace)
+  audit_finance_rpc_defs_20260624.txt:315:    ),
+  audit_finance_rpc_defs_20260624.txt:316:    finance_by_order as (
+  audit_finance_rpc_defs_20260624.txt:317:      select
+  audit_finance_rpc_defs_20260624.txt:318:        ob.marketplace_order_id,
+> audit_finance_rpc_defs_20260624.txt:319:        coalesce(sum(coalesce(fr.payout_amount, fr.received_amount, fr.net_settlement, 0)), 0)::numeric as payout
+  audit_finance_rpc_defs_20260624.txt:320:      from order_base ob
+> audit_finance_rpc_defs_20260624.txt:321:      join public.marketplace_finance_reports fr
+  audit_finance_rpc_defs_20260624.txt:322:        on fr.tenant_id = ob.tenant_id
+  audit_finance_rpc_defs_20260624.txt:323:       and fr.marketplace_account_id = ob.marketplace_account_id
+  audit_finance_rpc_defs_20260624.txt:324:       and fr.order_id = ob.order_key
+  audit_finance_rpc_defs_20260624.txt:325:      group by ob.marketplace_order_id
+  audit_finance_rpc_defs_20260624.txt:376:        min(nullif(product_name, '')) as product_name,
+  audit_finance_rpc_defs_20260624.txt:377:        min(nullif(variant_name, '')) as variant_name,
+  audit_finance_rpc_defs_20260624.txt:378:        sum(qty)::numeric as qty_total,
+  audit_finance_rpc_defs_20260624.txt:379:        sum(line_gross)::numeric as gross_total,
+> audit_finance_rpc_defs_20260624.txt:380:        sum(line_gross) filter (where has_payout)::numeric as settled_gross_total,
+  audit_finance_rpc_defs_20260624.txt:381:        sum(line_gross) filter (where not has_payout)::numeric as unpaid_gross_total,
+  audit_finance_rpc_defs_20260624.txt:382:        sum(case when has_payout and order_line_gross > 0 then order_payout * (line_gross / order_line_gross) 
+else 0 end)::numeric as payout_total,
+  audit_finance_rpc_defs_20260624.txt:383:        sum(case when has_payout and order_line_gross > 0 and order_payout > 0 then order_payout * (line_gross / 
+order_line_gross) else 0 end)::numeric as positive_payout_total,
+  audit_finance_rpc_defs_20260624.txt:384:        sum(case when has_payout and order_line_gross > 0 and order_payout < 0 then order_payout * (line_gross / 
+order_line_gross) else 0 end)::numeric as negative_payout_total,
+> audit_finance_rpc_defs_20260624.txt:385:        sum(qty) filter (where has_payout)::numeric as settled_qty,
+> audit_finance_rpc_defs_20260624.txt:386:        sum(qty) filter (where not has_payout)::numeric as unpaid_qty,
+  audit_finance_rpc_defs_20260624.txt:387:        count(distinct order_key)::integer as order_count,
+> audit_finance_rpc_defs_20260624.txt:388:        count(distinct order_key) filter (where has_payout)::integer as settled_order_count,
+  audit_finance_rpc_defs_20260624.txt:389:        count(distinct order_key) filter (where not has_payout)::integer as unpaid_order_count
+  audit_finance_rpc_defs_20260624.txt:390:      from filtered
+  audit_finance_rpc_defs_20260624.txt:391:      group by tenant_id, marketplace_account_id, marketplace_group,
+  audit_finance_rpc_defs_20260624.txt:392:        coalesce(nullif(marketplace_sku_id, ''), nullif(marketplace_seller_sku, ''), nullif(local_sku, ''), 
+'unmapped')
+  audit_finance_rpc_defs_20260624.txt:445:        coalesce(sum(gross_total), 0)::numeric as gross_total,
+  audit_finance_rpc_defs_20260624.txt:446:        coalesce(sum(payout_total), 0)::numeric as payout_total,
+  audit_finance_rpc_defs_20260624.txt:447:        coalesce(sum(hpp_total), 0)::numeric as hpp_total,
+  audit_finance_rpc_defs_20260624.txt:448:        coalesce(sum(qty_total), 0)::numeric as qty_total,
+> audit_finance_rpc_defs_20260624.txt:449:        coalesce(sum(settled_qty), 0)::numeric as settled_qty,
+> audit_finance_rpc_defs_20260624.txt:450:        coalesce(sum(unpaid_qty), 0)::numeric as unpaid_qty
+  audit_finance_rpc_defs_20260624.txt:451:      from grouped_enriched
+  audit_finance_rpc_defs_20260624.txt:452:    )
+  audit_finance_rpc_defs_20260624.txt:453:    select jsonb_build_object(
+  audit_finance_rpc_defs_20260624.txt:454:      'rows', coalesce(jsonb_agg(jsonb_build_object(
+  audit_finance_rpc_defs_20260624.txt:466:        'marketplace_variation_name', variant_name,
+  audit_finance_rpc_defs_20260624.txt:467:        'qty', coalesce(qty_total, 0),
+  audit_finance_rpc_defs_20260624.txt:468:        'qty_total', coalesce(qty_total, 0),
+  audit_finance_rpc_defs_20260624.txt:469:        'quantity', coalesce(qty_total, 0),
+> audit_finance_rpc_defs_20260624.txt:470:        'paid_qty', coalesce(settled_qty, 0),
+> audit_finance_rpc_defs_20260624.txt:471:        'settled_qty', coalesce(settled_qty, 0),
+> audit_finance_rpc_defs_20260624.txt:472:        'qty_settled', coalesce(settled_qty, 0),
+> audit_finance_rpc_defs_20260624.txt:473:        'unpaid_qty', coalesce(unpaid_qty, 0),
+> audit_finance_rpc_defs_20260624.txt:474:        'qty_unpaid', coalesce(unpaid_qty, 0),
+  audit_finance_rpc_defs_20260624.txt:475:        'gross_total', coalesce(gross_total, 0),
+> audit_finance_rpc_defs_20260624.txt:476:        'gross_sales', coalesce(gross_total, 0),
+  audit_finance_rpc_defs_20260624.txt:477:        'gross_amount', coalesce(gross_total, 0),
+> audit_finance_rpc_defs_20260624.txt:478:        'paid_gross_total', coalesce(settled_gross_total, 0),
+> audit_finance_rpc_defs_20260624.txt:479:        'settled_gross_total', coalesce(settled_gross_total, 0),
+  audit_finance_rpc_defs_20260624.txt:480:        'unpaid_gross_total', coalesce(unpaid_gross_total, 0),
+  audit_finance_rpc_defs_20260624.txt:481:        'payout_total', coalesce(payout_total, 0),
+> audit_finance_rpc_defs_20260624.txt:482:        'payout_amount', coalesce(payout_total, 0),
+> audit_finance_rpc_defs_20260624.txt:483:        'received_amount', coalesce(payout_total, 0),
+> audit_finance_rpc_defs_20260624.txt:484:        'net_settlement', coalesce(payout_total, 0),
+  audit_finance_rpc_defs_20260624.txt:485:        'positive_payout_total', coalesce(positive_payout_total, 0),
+  audit_finance_rpc_defs_20260624.txt:486:        'negative_payout_total', coalesce(negative_payout_total, 0),
+  audit_finance_rpc_defs_20260624.txt:487:        'hpp_total', coalesce(hpp_total, 0),
+  audit_finance_rpc_defs_20260624.txt:488:        'total_hpp', coalesce(hpp_total, 0),
+  audit_finance_rpc_defs_20260624.txt:489:        'paid_hpp_total', coalesce(hpp_total, 0),
+> audit_finance_rpc_defs_20260624.txt:490:        'settled_hpp_total', coalesce(hpp_total, 0),
+  audit_finance_rpc_defs_20260624.txt:491:        'hpp_per_item', coalesce(hpp_per_item, 0),
+  audit_finance_rpc_defs_20260624.txt:492:        'unit_hpp', coalesce(hpp_per_item, 0),
+  audit_finance_rpc_defs_20260624.txt:493:        'hpp', coalesce(hpp_per_item, 0),
+  audit_finance_rpc_defs_20260624.txt:494:        'hpp_status', case when coalesce(hpp_per_item, 0) > 0 then 'HPP mapping' else 'HPP belum mapping' end,
+  audit_finance_rpc_defs_20260624.txt:495:        'target_margin_percent', coalesce(target_margin_percent, 0),
+  audit_finance_rpc_defs_20260624.txt:496:        'order_count', coalesce(order_count, 0),
+> audit_finance_rpc_defs_20260624.txt:497:        'paid_order_count', coalesce(settled_order_count, 0),
+> audit_finance_rpc_defs_20260624.txt:498:        'settled_order_count', coalesce(settled_order_count, 0),
+  audit_finance_rpc_defs_20260624.txt:499:        'unpaid_order_count', coalesce(unpaid_order_count, 0),
+  audit_finance_rpc_defs_20260624.txt:500:        'gross_per_item', case when coalesce(qty_total, 0) > 0 then coalesce(gross_total, 0) / qty_total else 0 
+end,
+> audit_finance_rpc_defs_20260624.txt:501:        'payout_per_item', case when coalesce(settled_qty, 0) > 0 then coalesce(payout_total, 0) / settled_qty 
+else 0 end
+  audit_finance_rpc_defs_20260624.txt:502:      ) order by payout_total desc nulls last, gross_total desc nulls last, sku_key), '[]'::jsonb),
+  audit_finance_rpc_defs_20260624.txt:503:      'page', v_page,
+  audit_finance_rpc_defs_20260624.txt:504:      'page_size', v_page_size,
+  audit_finance_rpc_defs_20260624.txt:505:      'total', coalesce(max(total_count), 0),
+  audit_finance_rpc_defs_20260624.txt:647:        fi.marketplace_sku as fi_marketplace_sku,
+  audit_finance_rpc_defs_20260624.txt:648:        fi.marketplace_variation_name as fi_variant_name,
+  audit_finance_rpc_defs_20260624.txt:649:        fi.gross_amount as fi_gross_amount,
+  audit_finance_rpc_defs_20260624.txt:650:        fi.expected_amount as fi_expected_amount,
+> audit_finance_rpc_defs_20260624.txt:651:        fi.received_amount as fi_received_amount,
+> audit_finance_rpc_defs_20260624.txt:652:        fi.net_settlement as fi_net_settlement,
+> audit_finance_rpc_defs_20260624.txt:653:        fi.order_created_at as fi_order_created_at,
+  audit_finance_rpc_defs_20260624.txt:654:        fi.created_at as fi_created_at
+  audit_finance_rpc_defs_20260624.txt:655:      from raw r
+  audit_finance_rpc_defs_20260624.txt:656:      left join lateral (
+  audit_finance_rpc_defs_20260624.txt:657:        select fi.*
+> audit_finance_rpc_defs_20260624.txt:658:        from public.marketplace_finance_items fi
+  audit_finance_rpc_defs_20260624.txt:659:        where fi.tenant_id = v_tenant_id
+  audit_finance_rpc_defs_20260624.txt:660:          and (v_marketplace = '' or lower(coalesce(fi.marketplace, '')) = v_marketplace)
+  audit_finance_rpc_defs_20260624.txt:661:          and (p_account_id is null or fi.marketplace_account_id = p_account_id)
+  audit_finance_rpc_defs_20260624.txt:662:          and (
+  audit_finance_rpc_defs_20260624.txt:674:            or lower(coalesce(fi.marketplace_variation_name, '')) = lower(coalesce(r.variant_name, ''))
+  audit_finance_rpc_defs_20260624.txt:675:          )
+  audit_finance_rpc_defs_20260624.txt:676:        order by
+  audit_finance_rpc_defs_20260624.txt:677:          case when abs(coalesce(fi.gross_amount, 0)) > 0 then 0 else 1 end,
+> audit_finance_rpc_defs_20260624.txt:678:          coalesce(fi.order_created_at, fi.created_at) desc nulls last
+  audit_finance_rpc_defs_20260624.txt:679:        limit 1
+  audit_finance_rpc_defs_20260624.txt:680:      ) fi on true
+  audit_finance_rpc_defs_20260624.txt:681:    ),
+  audit_finance_rpc_defs_20260624.txt:682:    filtered as (
+  audit_finance_rpc_defs_20260624.txt:683:      select *
+  audit_finance_rpc_defs_20260624.txt:684:      from matched
+  audit_finance_rpc_defs_20260624.txt:685:      where
+  audit_finance_rpc_defs_20260624.txt:686:        case
+> audit_finance_rpc_defs_20260624.txt:687:          when v_filter in ('paid', 'settled', 'payout', 'released') then
+  audit_finance_rpc_defs_20260624.txt:688:            coalesce(fi_order_sn, '') <> ''
+  audit_finance_rpc_defs_20260624.txt:689:          when v_filter in ('unpaid', 'pending', 'missing') then
+  audit_finance_rpc_defs_20260624.txt:690:            coalesce(fi_order_sn, '') = ''
+  audit_finance_rpc_defs_20260624.txt:691:          else true
+  audit_finance_rpc_defs_20260624.txt:713:        'quantity', safe_qty,
+  audit_finance_rpc_defs_20260624.txt:714:        'gross', greatest(oi_gross, abs(coalesce(fi_gross_amount, 0)), abs(coalesce(fi_expected_amount, 0))),
+  audit_finance_rpc_defs_20260624.txt:715:        'gross_amount', greatest(oi_gross, abs(coalesce(fi_gross_amount, 0)), abs(coalesce(fi_expected_amount, 
+0))),
+  audit_finance_rpc_defs_20260624.txt:716:        'gross_total', greatest(oi_gross, abs(coalesce(fi_gross_amount, 0)), abs(coalesce(fi_expected_amount, 
+0))),
+> audit_finance_rpc_defs_20260624.txt:717:        'gross_sales', greatest(oi_gross, abs(coalesce(fi_gross_amount, 0)), abs(coalesce(fi_expected_amount, 
+0))),
+  audit_finance_rpc_defs_20260624.txt:718:        'order_line_gross_total', greatest(oi_gross, abs(coalesce(fi_gross_amount, 0)), 
+abs(coalesce(fi_expected_amount, 0))),
+  audit_finance_rpc_defs_20260624.txt:719:        'unit_gross_amount', case
+  audit_finance_rpc_defs_20260624.txt:720:          when safe_qty > 0 then greatest(oi_gross, abs(coalesce(fi_gross_amount, 0)), 
+abs(coalesce(fi_expected_amount, 0))) / safe_qty
+  audit_finance_rpc_defs_20260624.txt:721:          else greatest(oi_gross, abs(coalesce(fi_gross_amount, 0)), abs(coalesce(fi_expected_amount, 0)))
+  audit_finance_rpc_defs_20260624.txt:723:        'gross_per_item', case
+  audit_finance_rpc_defs_20260624.txt:724:          when safe_qty > 0 then greatest(oi_gross, abs(coalesce(fi_gross_amount, 0)), 
+abs(coalesce(fi_expected_amount, 0))) / safe_qty
+  audit_finance_rpc_defs_20260624.txt:725:          else greatest(oi_gross, abs(coalesce(fi_gross_amount, 0)), abs(coalesce(fi_expected_amount, 0)))
+  audit_finance_rpc_defs_20260624.txt:726:        end,
+> audit_finance_rpc_defs_20260624.txt:727:        'payout', coalesce(fi_received_amount, fi_net_settlement, 0),
+> audit_finance_rpc_defs_20260624.txt:728:        'payout_amount', coalesce(fi_received_amount, fi_net_settlement, 0),
+> audit_finance_rpc_defs_20260624.txt:729:        'received_amount', coalesce(fi_received_amount, 0),
+> audit_finance_rpc_defs_20260624.txt:730:        'net_settlement', coalesce(fi_net_settlement, 0),
+> audit_finance_rpc_defs_20260624.txt:731:        'status', case when fi_order_sn is null then 'unpaid' else 'settled' end,
+> audit_finance_rpc_defs_20260624.txt:732:        'payout_status', case when fi_order_sn is null then 'pending' else 'settled' end,
+  audit_finance_rpc_defs_20260624.txt:733:        'statement_id', null,
+> audit_finance_rpc_defs_20260624.txt:734:        'date', coalesce(fi_order_created_at, created_at),
+> audit_finance_rpc_defs_20260624.txt:735:        'order_created_at', coalesce(fi_order_created_at, created_at),
+  audit_finance_rpc_defs_20260624.txt:736:        'created_at', created_at,
+  audit_finance_rpc_defs_20260624.txt:737:        'source', 'finance_sku_order_line_details_raw_fallback_20260624',
+  audit_finance_rpc_defs_20260624.txt:738:        'gross_fix_source', 'finance_sku_order_line_details_raw_fallback_20260624'
+  audit_finance_rpc_defs_20260624.txt:739:      ) as row_json
+
+

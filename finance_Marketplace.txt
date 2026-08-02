@@ -1,0 +1,2 @@
+BackStok KeluarStok KeluarScan QR/barcode produk dan resi. Kode produk yang sama otomatis menambah qty.Manual00-ModeItemQty ScanResiTujuan Keluar
+penjualanScan QR/Barcode ProdukPilih ManualBelum ada item keluarScan QR/barcode produk atau pilih manual dulu.Simpan Stok Keluar

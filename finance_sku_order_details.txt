@@ -1,0 +1,584 @@
+CREATE OR REPLACE FUNCTION public.finance_sku_order_details(p_start date DEFAULT NULL::date, p_end date DEFAULT NULL::date, p_marketplace text DEFAULT NULL::text, p_account_id uuid DEFAULT NULL::uuid, p_marketplace_sku text DEFAULT NULL::text, p_local_sku text DEFAULT NULL::text, p_search text DEFAULT NULL::text, p_payout_filter text DEFAULT 'all'::text, p_page integer DEFAULT 1, p_page_size integer DEFAULT 20)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+ SET statement_timeout TO '120s'
+AS $function$\r
+\r
+declare\r
+\r
+  v_claims jsonb := coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb);\r
+\r
+  v_user_id uuid;\r
+\r
+  v_tenant_id uuid;\r
+\r
+  v_role text := coalesce(nullif(v_claims->>'role',''), '');\r
+\r
+  v_start date := coalesce(p_start, date_trunc('month', now() at time zone 'Asia/Jakarta')::date);\r
+\r
+  v_end date := coalesce(p_end, (now() at time zone 'Asia/Jakarta')::date);\r
+\r
+  v_start_ts timestamptz := (coalesce(p_start, date_trunc('month', now() at time zone 'Asia/Jakarta')::date)::timestamp at time zone 'Asia/Jakarta');\r
+\r
+  v_end_ts timestamptz := ((coalesce(p_end, (now() at time zone 'Asia/Jakarta')::date) + 1)::timestamp at time zone 'Asia/Jakarta');\r
+\r
+\r
+\r
+  v_marketplace text := public._finance_marketplace_norm_20260624(p_marketplace);\r
+\r
+  v_account_id uuid := p_account_id;\r
+\r
+  v_msku text := lower(nullif(trim(coalesce(p_marketplace_sku,'')), ''));\r
+\r
+  v_lsku text := lower(nullif(trim(coalesce(p_local_sku,'')), ''));\r
+\r
+  v_search text := lower(nullif(trim(coalesce(p_search,'')), ''));\r
+\r
+  v_filter text := lower(trim(coalesce(p_payout_filter,'all')));\r
+\r
+  v_page integer := greatest(coalesce(p_page,1),1);\r
+\r
+  v_page_size integer := least(greatest(coalesce(p_page_size,20),1),25);\r
+\r
+  v_offset integer := (greatest(coalesce(p_page,1),1)-1) * least(greatest(coalesce(p_page_size,20),1),25);\r
+\r
+  v_detail boolean;\r
+\r
+  v_core jsonb;\r
+\r
+  v_core_rows integer := 0;\r
+\r
+  v_core_has_weak_fields boolean := false;\r
+\r
+  v_result jsonb;\r
+\r
+begin\r
+\r
+  v_detail := v_msku is not null or v_lsku is not null or v_search is not null;\r
+\r
+\r
+\r
+  if not v_detail then\r
+\r
+    return public.finance_sku_order_details_group_20260625(\r
+\r
+      p_start,p_end,p_marketplace,p_account_id,p_marketplace_sku,p_local_sku,p_search,p_payout_filter,p_page,p_page_size\r
+\r
+    );\r
+\r
+  end if;\r
+\r
+\r
+\r
+  v_core := public.finance_sku_order_details_core_v3(\r
+\r
+    p_start,p_end,p_marketplace,p_account_id,p_marketplace_sku,p_local_sku,p_search,p_payout_filter,p_page,p_page_size\r
+\r
+  );\r
+\r
+\r
+\r
+  v_core_rows := coalesce(jsonb_array_length(coalesce(v_core->'rows','[]'::jsonb)),0);\r
+\r
+\r
+\r
+  select exists (\r
+\r
+    select 1\r
+\r
+    from jsonb_array_elements(coalesce(v_core->'rows','[]'::jsonb)) r\r
+\r
+    where coalesce(r->>'gross_sales', r->>'gross_total', r->>'gross_amount', '') = ''\r
+\r
+       or coalesce(r->>'product_name', r->>'product', r->>'title', '') = ''\r
+\r
+  )\r
+\r
+  into v_core_has_weak_fields;\r
+\r
+\r
+\r
+  -- Kalau core detail sehat, pakai core. Kalau core ada rows tapi field penting kosong, paksa enriched fallback.\r
+\r
+  if v_core_rows > 0 and not v_core_has_weak_fields then\r
+\r
+    return jsonb_set(\r
+\r
+      v_core,\r
+\r
+      '{source}',\r
+\r
+      to_jsonb((coalesce(v_core->>'source','finance_sku_order_details_core_v3') || '+core_hit_strong')::text),\r
+\r
+      true\r
+\r
+    );\r
+\r
+  end if;\r
+\r
+\r
+\r
+  begin\r
+\r
+    v_user_id := nullif(coalesce(auth.uid()::text, v_claims->>'sub'), '')::uuid;\r
+\r
+  exception when others then\r
+\r
+    v_user_id := null;\r
+\r
+  end;\r
+\r
+\r
+\r
+  select u.tenant_id\r
+\r
+    into v_tenant_id\r
+\r
+  from public.users u\r
+\r
+  where u.user_id = v_user_id\r
+\r
+  limit 1;\r
+\r
+\r
+\r
+  if v_role <> 'service_role' and v_tenant_id is null then\r
+\r
+    return jsonb_build_object(\r
+\r
+      'rows','[]'::jsonb,\r
+\r
+      'page',v_page,\r
+\r
+      'page_size',v_page_size,\r
+\r
+      'total',0,\r
+\r
+      'total_count',0,\r
+\r
+      'total_pages',1,\r
+\r
+      'source','finance_sku_order_details_detail_enriched_no_tenant_20260625'\r
+\r
+    );\r
+\r
+  end if;\r
+\r
+\r
+\r
+  with order_base as (\r
+\r
+    select\r
+\r
+      o.marketplace_order_id,\r
+\r
+      o.tenant_id,\r
+\r
+      o.marketplace_account_id,\r
+\r
+      public._finance_marketplace_norm_20260624(o.marketplace) as marketplace,\r
+\r
+      o.order_created_at,\r
+\r
+      coalesce(nullif(o.order_id::text,''), nullif(o.order_sn::text,''), nullif(o.external_order_id::text,''), o.marketplace_order_id::text) as order_key,\r
+\r
+      coalesce(nullif(o.order_sn::text,''), nullif(o.external_order_id::text,''), nullif(o.order_id::text,'')) as order_sn,\r
+\r
+      coalesce(nullif(o.tracking_number,''), nullif(o.label_code,''), nullif(o.package_id,'')) as tracking_number,\r
+\r
+      lower(concat_ws(' ', o.order_status, o.status, o.payment_status, o.fulfillment_status, o.order_status_label)) as status_text,\r
+\r
+      coalesce(nullif(o.order_status,''), nullif(o.status,''), nullif(o.order_status_label,''), nullif(o.fulfillment_status,''), 'UNKNOWN') as order_status_raw,\r
+\r
+      coalesce(nullif(o.payment_status,''), '') as payment_status_raw,\r
+\r
+      coalesce(nullif(o.fulfillment_status,''), '') as fulfillment_status_raw,\r
+\r
+      coalesce(nullif(o.gross_amount,0), nullif(o.total_amount,0), nullif(o.paid_amount,0), 0)::numeric as order_gross\r
+\r
+    from public.marketplace_orders o\r
+\r
+    where o.order_created_at >= v_start_ts\r
+\r
+      and o.order_created_at < v_end_ts\r
+\r
+      and (v_role = 'service_role' or o.tenant_id = v_tenant_id)\r
+\r
+      and (v_account_id is null or o.marketplace_account_id = v_account_id)\r
+\r
+      and (v_marketplace is null or public._finance_marketplace_norm_20260624(o.marketplace) = v_marketplace)\r
+\r
+      and lower(concat_ws(' ', o.order_status, o.status, o.payment_status, o.fulfillment_status, o.order_status_label)) not like '%cancel%'\r
+\r
+      and lower(concat_ws(' ', o.order_status, o.status, o.payment_status, o.fulfillment_status, o.order_status_label)) not like '%batal%'\r
+\r
+      and lower(concat_ws(' ', o.order_status, o.status, o.payment_status, o.fulfillment_status, o.order_status_label)) not like '%unpaid%'\r
+\r
+  ),\r
+\r
+  finance_by_order as (\r
+\r
+    select\r
+\r
+      fi.tenant_id,\r
+\r
+      fi.marketplace_account_id,\r
+\r
+      coalesce(nullif(fi.order_id,''), nullif(fi.order_sn,''), nullif(fi.external_order_id,''), nullif(fi.remote_order_id,'')) as order_key,\r
+\r
+      coalesce(sum(coalesce(fi.received_amount, fi.net_settlement, 0)),0)::numeric as payout,\r
+\r
+      coalesce(sum(coalesce(fi.gross_amount,0)),0)::numeric as finance_gross\r
+\r
+    from public.marketplace_finance_items fi\r
+\r
+    where (v_role = 'service_role' or fi.tenant_id = v_tenant_id)\r
+\r
+      and (v_account_id is null or fi.marketplace_account_id = v_account_id)\r
+\r
+      and (v_marketplace is null or public._finance_marketplace_norm_20260624(fi.marketplace) = v_marketplace)\r
+\r
+    group by fi.tenant_id, fi.marketplace_account_id,\r
+\r
+      coalesce(nullif(fi.order_id,''), nullif(fi.order_sn,''), nullif(fi.external_order_id,''), nullif(fi.remote_order_id,''))\r
+\r
+  ),\r
+\r
+  line_base_raw as (\r
+\r
+    select\r
+\r
+      ob.*,\r
+\r
+      oi.marketplace_order_item_id,\r
+\r
+      coalesce(nullif(oi.marketplace_sku_id,''), nullif(oi.remote_sku_id,''), nullif(oi.marketplace_sku,''), nullif(oi.marketplace_seller_sku,''), nullif(oi.seller_sku,''), nullif(oi.local_sku,''), nullif(oi.mapped_local_sku,'')) as marketplace_sku,\r
+\r
+      coalesce(nullif(oi.marketplace_seller_sku,''), nullif(oi.seller_sku,''), nullif(oi.marketplace_sku,''), nullif(oi.local_sku,'')) as marketplace_seller_sku,\r
+\r
+      coalesce(nullif(oi.local_sku,''), nullif(oi.mapped_local_sku,''), nullif(oi.seller_sku,''), nullif(oi.marketplace_seller_sku,''), nullif(oi.marketplace_sku,'')) as local_sku,\r
+\r
+      coalesce(nullif(oi.marketplace_product_name,''), nullif(oi.product_name,''), nullif(oi.local_product_name,''), nullif(to_jsonb(oi)->>'item_name',''), nullif(to_jsonb(oi)->>'title',''), nullif(oi.marketplace_sku,''), nullif(oi.local_sku,''), '-') as product_name,\r
+\r
+      coalesce(nullif(oi.marketplace_variant_name,''), nullif(oi.variant_name,''), nullif(oi.variation_name,''), nullif(to_jsonb(oi)->>'model_name',''), '-') as variant_name,\r
+\r
+      greatest(coalesce(nullif(oi.qty,0), nullif(oi.quantity,0), 1),1)::numeric as qty,\r
+\r
+      coalesce(\r
+\r
+        nullif(oi.gross_amount,0),\r
+\r
+        nullif(oi.paid_amount,0),\r
+\r
+        nullif(oi.unit_gross_amount,0) * greatest(coalesce(nullif(oi.qty,0), nullif(oi.quantity,0), 1),1),\r
+\r
+        nullif(ob.order_gross,0),\r
+\r
+        0\r
+\r
+      )::numeric as line_gross,\r
+\r
+      lower(concat_ws(' ',\r
+\r
+        ob.order_key, ob.order_sn, ob.tracking_number,\r
+\r
+        oi.marketplace_sku_id, oi.remote_sku_id, oi.marketplace_sku,\r
+\r
+        oi.marketplace_seller_sku, oi.seller_sku,\r
+\r
+        oi.local_sku, oi.mapped_local_sku,\r
+\r
+        oi.marketplace_product_name, oi.product_name, oi.local_product_name,\r
+\r
+        to_jsonb(oi)->>'item_name', to_jsonb(oi)->>'title',\r
+\r
+        oi.marketplace_variant_name, oi.variant_name, oi.variation_name, to_jsonb(oi)->>'model_name'\r
+\r
+      )) as search_blob\r
+\r
+    from order_base ob\r
+\r
+    join public.marketplace_order_items oi\r
+\r
+      on oi.tenant_id = ob.tenant_id\r
+\r
+     and oi.marketplace_order_id = ob.marketplace_order_id\r
+\r
+  ),\r
+\r
+  line_base as (\r
+\r
+    select *\r
+\r
+    from line_base_raw\r
+\r
+    where\r
+\r
+      (v_msku is null or search_blob like '%' || v_msku || '%')\r
+\r
+      or (v_lsku is not null and search_blob like '%' || v_lsku || '%')\r
+\r
+      or (v_search is not null and search_blob like '%' || v_search || '%')\r
+\r
+  ),\r
+\r
+  line_calc as (\r
+\r
+    select\r
+\r
+      lb.*,\r
+\r
+      sum(lb.line_gross) over (partition by lb.marketplace_order_id) as order_line_gross\r
+\r
+    from line_base lb\r
+\r
+  ),\r
+\r
+  enriched as (\r
+\r
+    select\r
+\r
+      lc.*,\r
+\r
+      coalesce(f.payout,0)::numeric as order_payout,\r
+\r
+      case\r
+\r
+        when coalesce(lc.order_line_gross,0) > 0\r
+\r
+        then coalesce(f.payout,0)::numeric * (coalesce(lc.line_gross,0)::numeric / lc.order_line_gross)\r
+\r
+        else coalesce(f.payout,0)::numeric\r
+\r
+      end as line_payout\r
+\r
+    from line_calc lc\r
+\r
+    left join finance_by_order f\r
+\r
+      on f.tenant_id = lc.tenant_id\r
+\r
+     and f.marketplace_account_id = lc.marketplace_account_id\r
+\r
+     and f.order_key in (lc.order_key, lc.order_sn)\r
+\r
+  ),\r
+\r
+  filtered as (\r
+\r
+    select *\r
+\r
+    from enriched\r
+\r
+    where v_filter in ('all','')\r
+\r
+       or (v_filter in ('paid','settled','payout','sudah payout') and coalesce(order_payout,0) > 0)\r
+\r
+       or (v_filter in ('unpaid','pending','belum payout','no payout') and coalesce(order_payout,0) <= 0)\r
+\r
+  ),\r
+\r
+  dedup as (\r
+\r
+    select distinct on (order_key, marketplace_sku, local_sku, marketplace_order_item_id)\r
+\r
+      *\r
+\r
+    from filtered\r
+\r
+    order by order_key, marketplace_sku, local_sku, marketplace_order_item_id, order_created_at desc\r
+\r
+  ),\r
+\r
+  counted as (\r
+\r
+    select *, count(*) over ()::integer as total_count\r
+\r
+    from dedup\r
+\r
+  ),\r
+\r
+  paged as (\r
+\r
+    select *\r
+\r
+    from counted\r
+\r
+    order by order_created_at desc, order_key, marketplace_order_item_id\r
+\r
+    offset v_offset\r
+\r
+    limit v_page_size\r
+\r
+  )\r
+\r
+  select jsonb_build_object(\r
+\r
+    'rows',\r
+\r
+      coalesce(jsonb_agg(jsonb_build_object(\r
+\r
+        'source','finance_sku_order_details_detail_enriched_when_core_weak_20260625',\r
+\r
+        'order', order_key,\r
+\r
+        'order_id', order_key,\r
+\r
+        'order_sn', order_sn,\r
+\r
+        'marketplace_order_id', marketplace_order_id,\r
+\r
+        'marketplace_order_item_id', marketplace_order_item_id,\r
+\r
+        'resi', tracking_number,\r
+\r
+        'tracking_number', tracking_number,\r
+\r
+        'order_date', order_created_at,\r
+\r
+        'order_created_at', order_created_at,\r
+\r
+        'marketplace', marketplace,\r
+\r
+        'marketplace_account_id', marketplace_account_id,\r
+\r
+        'marketplace_sku', coalesce(nullif(marketplace_sku,''), '-'),\r
+\r
+        'marketplace_seller_sku', coalesce(nullif(marketplace_seller_sku,''), '-'),\r
+\r
+        'local_sku', coalesce(nullif(public.finance_resolve_variant_mapping_20260625(tenant_id, marketplace_account_id, marketplace_sku, marketplace_seller_sku, local_sku)->>'local_sku',''), '-'),\r
+\r
+        'raw_local_sku', coalesce(nullif(local_sku,''), '-'),\r
+\r
+        'mapping_id', public.finance_resolve_variant_mapping_20260625(tenant_id, marketplace_account_id, marketplace_sku, marketplace_seller_sku, local_sku)->>'mapping_id',\r
+\r
+        'product_name', coalesce(nullif(product_name,''), coalesce(nullif(marketplace_sku,''), '-')),\r
+\r
+        'variant_name', coalesce(nullif(variant_name,''), '-'),\r
+\r
+        'qty', qty,\r
+\r
+        'quantity', qty,\r
+\r
+        'gross_amount', line_gross,\r
+\r
+        'gross_sales', line_gross,\r
+\r
+        'gross_total', line_gross,\r
+\r
+        'payout_amount', line_payout,\r
+\r
+        'payout_total', line_payout,\r
+\r
+        'received_amount', line_payout,\r
+\r
+        'net_settlement', line_payout,\r
+\r
+        'status', coalesce(nullif(order_status_raw,''), 'UNKNOWN'),\r
+\r
+        'order_status', coalesce(nullif(order_status_raw,''), 'UNKNOWN'),\r
+\r
+        'payment_status', coalesce(nullif(payment_status_raw,''), ''),\r
+\r
+        'fulfillment_status', coalesce(nullif(fulfillment_status_raw,''), ''),\r
+\r
+        'payout_status', case when coalesce(order_payout,0) > 0 then 'SETTLED' else 'PENDING_PAYOUT' end,\r
+\r
+        'hpp', public._finance_num_20260625(public.finance_resolve_variant_mapping_20260625(tenant_id, marketplace_account_id, marketplace_sku, marketplace_seller_sku, local_sku)->>'hpp'),\r
+\r
+        'hpp_total', public._finance_num_20260625(public.finance_resolve_variant_mapping_20260625(tenant_id, marketplace_account_id, marketplace_sku, marketplace_seller_sku, local_sku)->>'hpp') * qty,\r
+\r
+        'total_hpp', public._finance_num_20260625(public.finance_resolve_variant_mapping_20260625(tenant_id, marketplace_account_id, marketplace_sku, marketplace_seller_sku, local_sku)->>'hpp') * qty,\r
+\r
+        'target_margin', public._finance_num_20260625(public.finance_resolve_variant_mapping_20260625(tenant_id, marketplace_account_id, marketplace_sku, marketplace_seller_sku, local_sku)->>'target_margin'),\r
+\r
+        'profit', line_payout - (public._finance_num_20260625(public.finance_resolve_variant_mapping_20260625(tenant_id, marketplace_account_id, marketplace_sku, marketplace_seller_sku, local_sku)->>'hpp') * qty),\r
+\r
+        'margin_percent', case when line_gross > 0 then round(((line_payout - (public._finance_num_20260625(public.finance_resolve_variant_mapping_20260625(tenant_id, marketplace_account_id, marketplace_sku, marketplace_seller_sku, local_sku)->>'hpp') * qty)) / line_gross) * 100, 2) else 0 end\r
+\r
+      ) order by order_created_at desc, order_key), '[]'::jsonb),\r
+\r
+    'page', v_page,\r
+\r
+    'page_size', v_page_size,\r
+\r
+    'total', coalesce(max(total_count),0),\r
+\r
+    'total_count', coalesce(max(total_count),0),\r
+\r
+    'total_pages', greatest(ceil(coalesce(max(total_count),0)::numeric / v_page_size)::integer, 1),\r
+\r
+    'source','finance_sku_order_details_detail_enriched_when_core_weak_20260625',\r
+\r
+    'core_source', coalesce(v_core->>'source',''),\r
+\r
+    'core_rows', v_core_rows,\r
+\r
+    'core_has_weak_fields', v_core_has_weak_fields,\r
+\r
+    'debug_params', jsonb_build_object(\r
+\r
+      'marketplace', p_marketplace,\r
+\r
+      'marketplace_sku', p_marketplace_sku,\r
+\r
+      'local_sku', p_local_sku,\r
+\r
+      'search', p_search,\r
+\r
+      'payout_filter', p_payout_filter\r
+\r
+    )\r
+\r
+  )\r
+\r
+  into v_result\r
+\r
+  from paged;\r
+\r
+\r
+\r
+  return coalesce(v_result, jsonb_build_object(\r
+\r
+    'rows','[]'::jsonb,\r
+\r
+    'page',v_page,\r
+\r
+    'page_size',v_page_size,\r
+\r
+    'total',0,\r
+\r
+    'total_count',0,\r
+\r
+    'total_pages',1,\r
+\r
+    'source','finance_sku_order_details_detail_enriched_when_core_weak_20260625_empty',\r
+\r
+    'core_source',coalesce(v_core->>'source',''),\r
+\r
+    'core_rows',v_core_rows,\r
+\r
+    'core_has_weak_fields',v_core_has_weak_fields,\r
+\r
+    'debug_params', jsonb_build_object(\r
+\r
+      'marketplace', p_marketplace,\r
+\r
+      'marketplace_sku', p_marketplace_sku,\r
+\r
+      'local_sku', p_local_sku,\r
+\r
+      'search', p_search,\r
+\r
+      'payout_filter', p_payout_filter\r
+\r
+    )\r
+\r
+  ));\r
+\r
+end;\r
+\r
+$function$
+

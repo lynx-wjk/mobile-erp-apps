@@ -1,0 +1,659 @@
+﻿=== context around SKU detail RPC ===
+
+=== RPC detail call lines 13560-13640 ===
+13560:     if (RegExp(r'^\\d{16,}$').hasMatch(raw)) return '-';
+13561:     return raw;
+13562:   }
+13563: 
+13564:   Future<Map<String, dynamic>> _fetchSkuOrderDetailsV82oPageForRow(
+13565:     Map<String, dynamic> row,
+13566:     String payoutFilter, {
+13567:     int page = 1,
+13568:     int pageSize = _skuDetailPageSize,
+13569:     String keyword = '',
+13570:   }) async {
+13571:     final lookup = _skuOrderLookupParamsV82o(row);
+13572:     final marketplaceSku = lookup['marketplace_sku'] ?? '';
+13573:     final localSku = lookup['local_sku'] ?? '';
+13574:     final fallbackSearch = lookup['fallback_search'] ?? '';
+13575:     final searchText = keyword.trim().isNotEmpty
+13576:         ? keyword.trim()
+13577:         : (marketplaceSku.isEmpty && localSku.isEmpty ? fallbackSearch : '');
+13578: 
+13579:     if (marketplaceSku.isEmpty && localSku.isEmpty && searchText.isEmpty) {
+13580:       return {
+13581:         'rows': <Map<String, dynamic>>[],
+13582:         'page': 1,
+13583:         'page_size': pageSize,
+13584:         'total': 0,
+13585:         'total_pages': 1,
+13586:       };
+13587:     }
+13588: 
+13589:     final rpcPayoutFilter = _canonicalSkuPayoutFilterV82o(payoutFilter);
+13590:     final rowMarketplace = _text(row['marketplace'], '').trim();
+13591:     final rowAccountId = _text(
+13592:       row['marketplace_account_id'] ?? row['account_id'],
+13593:       '',
+13594:     ).trim();
+13595:     final detailMarketplace = _marketplaceRpcParam() ??
+13596:         (rowMarketplace.isEmpty ? null : rowMarketplace);
+13597:     final detailAccountId =
+13598:         _accountUuidParam() ?? (_isUuid(rowAccountId) ? rowAccountId : null);
+13599: 
+13600:     Future<Map<String, dynamic>> requestDetails({
+13601:       required String? marketplaceSkuParam,
+13602:       required String? localSkuParam,
+13603:       required String? searchParam,
+13604:     }) async {
+13605:       final response = await _client.rpc(
+13606:         'finance_sku_order_line_details',
+13607:         params: {
+13608:           'p_start': _toDateParam(_start),
+13609:           'p_end': _toDateParam(_end),
+13610:           'p_marketplace': detailMarketplace,
+13611:           'p_account_id': detailAccountId,
+13612:           'p_marketplace_sku': marketplaceSkuParam,
+13613:           'p_local_sku': localSkuParam,
+13614:           'p_search': searchParam,
+13615:           'p_payout_filter': rpcPayoutFilter,
+13616:           'p_page': page,
+13617:           'p_page_size': pageSize,
+13618:         },
+13619:       );
+13620: 
+13621:       final rawRows = _extractSkuOrderDetailRowsV82o(response);
+13622:       final filteredRows = _filteredSkuOrderRowsV82o(
+13623:         rawRows
+13624:             .whereType<Map>()
+13625:             .map((item) => Map<String, dynamic>.from(item))
+13626:             .toList(),
+13627:         payoutFilter,
+13628:       );
+13629:       final rows = _dedupeSkuDetailRows(filteredRows);
+13630:       final resolvedPage = _skuDetailPageV82o(response, page);
+13631:       final resolvedPageSize = _skuDetailPageSizeV82o(response, pageSize);
+13632:       final rawTotal = _skuDetailTotalV82o(response, rows.length);
+13633:       final total =
+13634:           rows.length < filteredRows.length && rawTotal <= filteredRows.length
+13635:               ? rows.length
+13636:               : rawTotal;
+13637:       final totalPages = _skuDetailTotalPagesV82o(
+13638:         response,
+13639:         total,
+13640:         resolvedPageSize <= 0 ? pageSize : resolvedPageSize,
+
+=== Detail drawer first renderer lines 13960-14110 ===
+13960:                                               borderRadius:
+13961:                                                   BorderRadius.circular(8),
+13962:                                               border: Border.all(
+13963:                                                   color: Theme.of(context).colorScheme.onSurface
+13964:                                                       .withValues(alpha: 0.22)),
+13965:                                             ),
+13966:                                             child: Row(
+13967:                                               crossAxisAlignment:
+13968:                                                   CrossAxisAlignment.start,
+13969:                                               children: [
+13970:                                                 Container(
+13971:                                                   width: 38,
+13972:                                                   height: 38,
+13973:                                                   decoration: BoxDecoration(
+13974:                                                     color: Theme.of(context)
+13975:                                                         .colorScheme
+13976:                                                         .primary
+13977:                                                         .withValues(alpha: 0.22),
+13978:                                                     borderRadius:
+13979:                                                         BorderRadius.circular(
+13980:                                                             12),
+13981:                                                   ),
+13982:                                                   child: Icon(
+13983:                                                       Icons
+13984:                                                           .receipt_long_rounded,
+13985:                                                       color: Theme.of(context)
+13986:                                                           .colorScheme
+13987:                                                           .primary,
+13988:                                                       size: 20),
+13989:                                                 ),
+13990:                                                 SizedBox(width: 10),
+13991:                                                 Expanded(
+13992:                                                   child: Column(
+13993:                                                     crossAxisAlignment:
+13994:                                                         CrossAxisAlignment
+13995:                                                             .start,
+13996:                                                     children: [
+13997:                                                       SelectableText(
+13998:                                                         'Order: ${_cleanText(item['order'], 'Belum ada order')}',
+13999:                                                         style: TextStyle(
+14000:                                                             fontSize: 13.5,
+14001:                                                             fontWeight:
+14002:                                                                 FontWeight.w800,
+14003:                                                             color: Theme.of(
+14004:                                                                     context)
+14005:                                                                 .colorScheme.onSurface.withValues(alpha: 0.90)),
+14006:                                                       ),
+14007:                                                       SizedBox(height: 4),
+14008:                                                       SelectableText(
+14009:                                                         'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
+14010:                                                         style: TextStyle(
+14011:                                                             fontSize: 12,
+14012:                                                             color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+14013:                                                             height: 1.35),
+14014:                                                       ),
+14015:                                                       SizedBox(height: 4),
+14016:                                                       Text(
+14017:                                                         'Tanggal pesanan: ${_dateTime(item['order_date'])}',
+14018:                                                         style: TextStyle(
+14019:                                                             fontSize: 12,
+14020:                                                             color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+14021:                                                             height: 1.35),
+14022:                                                       ),
+14023:                                                       SizedBox(height: 4),
+14024:                                                       Text(
+14025:                                                         'Status: ${_skuDetailOrderStatusV82o(item)}  Â·  Payout: ${_payoutStatusText(item)}',
+14026:                                                         style: TextStyle(
+14027:                                                             fontSize: 12,
+14028:                                                             color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+14029:                                                             height: 1.35),
+14030:                                                       ),
+14031:                                                       if (_skuDetailNeedsMarketplaceRefreshV82o(
+14032:                                                           item)) ...[
+14033:                                                         SizedBox(height: 6),
+14034:                                                         _skuRefreshWarningBannerV82o(
+14035:                                                             item),
+14036:                                                       ],
+14037:                                                       if (_payoutExplainText(
+14038:                                                                   item)
+14039:                                                               .trim()
+14040:                                                               .isNotEmpty ||
+14041:                                                           _text(item['resi_reason'],
+14042:                                                                   '')
+14043:                                                               .trim()
+14044:                                                               .isNotEmpty) ...[
+14045:                                                         SizedBox(height: 4),
+14046:                                                         Text(
+14047:                                                           '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' Â· ' : ''}${_text(item['resi_reason'], '')}',
+14048:                                                           style: TextStyle(
+14049:                                                               fontSize: 11.5,
+14050:                                                               color: _linePayoutAmount(
+14051:                                                                           item) <
+14052:                                                                       0
+14053:                                                                   ? Colors
+14054:                                                                       .redAccent
+14055:                                                                   : Theme.of(
+14056:                                                                           context)
+14057:                                                                       .colorScheme
+14058:                                                                       .secondary,
+14059:                                                               height: 1.35),
+14060:                                                         ),
+14061:                                                       ],
+14062:                                                       SizedBox(height: 4),
+14063:                                                       Text(
+14064:                                                         'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  Â·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  Â·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  Â·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  Â·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
+14065:                                                         style: TextStyle(
+14066:                                                             fontSize: 12,
+14067:                                                             color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+14068:                                                             height: 1.35),
+14069:                                                       ),
+14070:                                                       SizedBox(height: 8),
+14071:                                                       Wrap(
+14072:                                                         spacing: 6,
+14073:                                                         runSpacing: 6,
+14074:                                                         children: [
+14075:                                                           _miniMetric(
+14076:                                                               'Qty',
+14077:                                                               _num(item['qty'])
+14078:                                                                   .toStringAsFixed(
+14079:                                                                       0)),
+14080:                                                           _miniMetric(
+14081:                                                               'Harga jual/item',
+14082:                                                               _money(_num(item[
+14083:                                                                   'gross_per_item']))),
+14084:                                                           _miniMetric(
+14085:                                                               'Payout order marketplace',
+14086:                                                               _skuDetailOrderPayoutText(
+14087:                                                                   item)),
+14088:                                                           _miniMetric(
+14089:                                                               _skuDetailPayoutItemLabel(
+14090:                                                                   item),
+14091:                                                               _skuDetailPayoutItemText(
+14092:                                                                   item)),
+14093:                                                           _miniMetric(
+14094:                                                               'HPP/item',
+14095:                                                               _skuDetailHppItemText(
+14096:                                                                   item)),
+14097:                                                         ],
+14098:                                                       ),
+14099:                                                       SizedBox(height: 6),
+14100:                                                       Text(
+14101:                                                         'Settlement: ${_skuDetailSettlementText(item)}  Â·   ${_skuDetailSourceText(item)}',
+14102:                                                         style: TextStyle(
+14103:                                                             fontSize: 10.5,
+14104:                                                             color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.86),
+14105:                                                             height: 1.3),
+14106:                                                       ),
+14107:                                                       if (_skuDetailAllocationText(
+14108:                                                               item)
+14109:                                                           .isNotEmpty) ...[
+14110:                                                         SizedBox(height: 4),
+
+=== Detail drawer second renderer lines 14340-14480 ===
+14340:                                             .colorScheme
+14341:                                             .outlineVariant
+14342:                                             .withOpacity(
+14343:                                                 Theme.of(context).brightness ==
+14344:                                                         Brightness.dark
+14345:                                                     ? 0.25
+14346:                                                     : 0.45),
+14347:                                         width: 0.8),
+14348:                                   ),
+14349:                                   child: Row(
+14350:                                     crossAxisAlignment:
+14351:                                         CrossAxisAlignment.start,
+14352:                                     children: [
+14353:                                       Container(
+14354:                                         width: 38,
+14355:                                         height: 38,
+14356:                                         decoration: BoxDecoration(
+14357:                                           color: Theme.of(context)
+14358:                                               .colorScheme
+14359:                                               .primary
+14360:                                               .withOpacity(0.08),
+14361:                                           borderRadius:
+14362:                                               BorderRadius.circular(8),
+14363:                                         ),
+14364:                                         child: Icon(Icons.receipt_long_rounded,
+14365:                                             color: Theme.of(context)
+14366:                                                 .colorScheme
+14367:                                                 .primary,
+14368:                                             size: 20),
+14369:                                       ),
+14370:                                       SizedBox(width: 10),
+14371:                                       Expanded(
+14372:                                         child: Column(
+14373:                                           crossAxisAlignment:
+14374:                                               CrossAxisAlignment.start,
+14375:                                           children: [
+14376:                                             SelectableText(
+14377:                                               'Order: ${_cleanText(item['order'], 'Belum ada order')}',
+14378:                                               style: TextStyle(
+14379:                                                   fontSize: 13.5,
+14380:                                                   fontWeight: FontWeight.w800,
+14381:                                                   color: Theme.of(context)
+14382:                                                       .colorScheme.onSurface.withValues(alpha: 0.90)),
+14383:                                             ),
+14384:                                             SizedBox(height: 4),
+14385:                                             SelectableText(
+14386:                                               'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
+14387:                                               style: TextStyle(
+14388:                                                   fontSize: 12,
+14389:                                                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+14390:                                                   height: 1.35),
+14391:                                             ),
+14392:                                             SizedBox(height: 4),
+14393:                                             Text(
+14394:                                               'Tanggal pesanan: ${_dateTime(item['order_date'])}',
+14395:                                               style: TextStyle(
+14396:                                                   fontSize: 12,
+14397:                                                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+14398:                                                   height: 1.35),
+14399:                                             ),
+14400:                                             SizedBox(height: 4),
+14401:                                             Text(
+14402:                                               'Status: ${_skuDetailOrderStatusV82o(item)}  Â·  Payout: ${_payoutStatusText(item)}',
+14403:                                               style: TextStyle(
+14404:                                                   fontSize: 12,
+14405:                                                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+14406:                                                   height: 1.35),
+14407:                                             ),
+14408:                                             if (_payoutExplainText(item)
+14409:                                                     .trim()
+14410:                                                     .isNotEmpty ||
+14411:                                                 _text(item['resi_reason'], '')
+14412:                                                     .trim()
+14413:                                                     .isNotEmpty) ...[
+14414:                                               SizedBox(height: 4),
+14415:                                               Text(
+14416:                                                 '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' Â· ' : ''}${_text(item['resi_reason'], '')}',
+14417:                                                 style: TextStyle(
+14418:                                                     fontSize: 11.5,
+14419:                                                     color: _linePayoutAmount(
+14420:                                                                 item) <
+14421:                                                             0
+14422:                                                         ? Colors.redAccent
+14423:                                                         : Theme.of(context)
+14424:                                                             .colorScheme
+14425:                                                             .secondary,
+14426:                                                     height: 1.35),
+14427:                                               ),
+14428:                                             ],
+14429:                                             SizedBox(height: 4),
+14430:                                             Text(
+14431:                                               'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  Â·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  Â·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  Â·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  Â·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
+14432:                                               style: TextStyle(
+14433:                                                   fontSize: 12,
+14434:                                                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+14435:                                                   height: 1.35),
+14436:                                             ),
+14437:                                             SizedBox(height: 8),
+14438:                                             Wrap(
+14439:                                               spacing: 6,
+14440:                                               runSpacing: 6,
+14441:                                               children: [
+14442:                                                 _miniMetric(
+14443:                                                     'Qty',
+14444:                                                     _num(item['qty'])
+14445:                                                         .toStringAsFixed(0)),
+14446:                                                 _miniMetric(
+14447:                                                     'Harga jual/item',
+14448:                                                     _money(_num(item[
+14449:                                                         'gross_per_item']))),
+14450:                                                 _miniMetric(
+14451:                                                     'Payout order marketplace',
+14452:                                                     _skuDetailOrderPayoutText(
+14453:                                                         item)),
+14454:                                                 _miniMetric(
+14455:                                                     'HPP/item',
+14456:                                                     _skuDetailHppItemText(
+14457:                                                         item)),
+14458:                                               ],
+14459:                                             ),
+14460:                                             SizedBox(height: 6),
+14461:                                             Text(
+14462:                                               'Settlement: ${_skuDetailSettlementText(item)}  Â·   ${_skuDetailSourceText(item)}',
+14463:                                               style: TextStyle(
+14464:                                                   fontSize: 10.5,
+14465:                                                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+14466:                                                   height: 1.3),
+14467:                                             ),
+14468:                                             if (_skuDetailAllocationText(item)
+14469:                                                 .isNotEmpty) ...[
+14470:                                               SizedBox(height: 4),
+14471:                                               Text(
+14472:                                                 _skuDetailAllocationText(item),
+14473:                                                 style: TextStyle(
+14474:                                                     fontSize: 10.5,
+14475:                                                     color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.90),
+14476:                                                     height: 1.3),
+14477:                                               ),
+14478:                                             ],
+14479:                                             _buildFeeBreakdownV82o(item),
+14480:                                             SizedBox(height: 8),
+
+=== Detail row model/fromMap lines 15340-15460 ===
+15340:             : (qtyNum > 0 ? _num(payout) / qtyNum : _num(payout)),
+15341:         'source': _text(source, '-'),
+15342:         'local_sku': _text(localSku, ''),
+15343:         'marketplace_sku': _text(marketplaceSku, ''),
+15344:         'marketplace_seller_sku': _text(marketplaceSellerSku, ''),
+15345:         'statement_id': _text(statementId, ''),
+15346:         'order_status': _text(orderStatus, ''),
+15347:         'payout_status': _text(payoutStatus, ''),
+15348:         'payout_reason': _text(payoutReason, ''),
+15349:         'raw_payout_components': _text(rawPayoutComponents, ''),
+15350:         'negative_payout_reason': _text(negativePayoutReason, ''),
+15351:         'resi_reason': _text(resiReason, ''),
+15352:         'variant_name': _text(variantName, ''),
+15353:         'ref': ref,
+15354:       });
+15355:       seen.add(key);
+15356:     }
+15357: 
+15358:     if (direct is List) {
+15359:       for (final item in direct) {
+15360:         if (item is Map) {
+15361:           final map = Map<String, dynamic>.from(item);
+15362:           final order = _text(
+15363:               map['order'] ??
+15364:                   map['order_sn'] ??
+15365:                   map['external_order_id'] ??
+15366:                   map['remote_order_id'] ??
+15367:                   map['order_id'],
+15368:               '');
+15369:           final resi = _text(
+15370:               map['tracking_number'] ??
+15371:                   map['tracking_no'] ??
+15372:                   map['logistics_tracking_number'] ??
+15373:                   map['tracking_number_from_settlement'] ??
+15374:                   map['awb_number'] ??
+15375:                   map['awb'] ??
+15376:                   map['waybill_no'] ??
+15377:                   map['resi'] ??
+15378:                   map['shipping_tracking_number'],
+15379:               '');
+15380:           final payout = _num(
+15381:             map['payout'] ??
+15382:                 map['payout_amount'] ??
+15383:                 map['payout_total'] ??
+15384:                 map['received_amount'] ??
+15385:                 map['net_received'] ??
+15386:                 map['net_settlement'] ??
+15387:                 map['settlement_amount'] ??
+15388:                 map['paid_amount'],
+15389:           );
+15390:           add(
+15391:             order: order,
+15392:             resi: resi == order ? '-' : resi,
+15393:             orderDate: map['order_date'] ??
+15394:                 map['order_created_at'] ??
+15395:                 map['transaction_time'] ??
+15396:                 map['created_at'],
+15397:             qty: map['qty'] ?? map['quantity'] ?? 1,
+15398:             gross: map['gross'] ??
+15399:                 map['gross_amount'] ??
+15400:                 map['gross_sales'] ??
+15401:                 map['gross_total'] ??
+15402:                 map['expected_amount'] ??
+15403:                 map['item_gross_amount'],
+15404:             payout: payout,
+15405:             hpp: map['hpp_total'] ??
+15406:                 map['hpp_amount'] ??
+15407:                 map['total_hpp'] ??
+15408:                 map['hpp'],
+15409:             hppPerItem:
+15410:                 map['hpp_per_item'] ?? map['unit_hpp'] ?? map['hpp_unit'],
+15411:             grossPerItem: map['gross_per_item'] ?? map['unit_gross_amount'],
+15412:             payoutPerItem: map['payout_per_item'] ??
+15413:                 map['unit_paid_amount'] ??
+15414:                 map['unit_payout_amount'],
+15415:             source: map['source'] ?? map['price_source'] ?? map['bucket'],
+15416:             localSku: map['local_sku'] ?? row['local_sku'] ?? row['sku'],
+15417:             marketplaceSku: map['marketplace_sku'] ??
+15418:                 map['marketplace_sku_id'] ??
+15419:                 map['sku_id'] ??
+15420:                 map['remote_sku_id'] ??
+15421:                 row['marketplace_sku'] ??
+15422:                 row['marketplace_sku_id'],
+15423:             marketplaceSellerSku: map['marketplace_seller_sku'] ??
+15424:                 map['seller_sku'] ??
+15425:                 row['marketplace_seller_sku'],
+15426:             statementId: map['statement_id'] ??
+15427:                 map['statement'] ??
+15428:                 map['finance_statement_id'] ??
+15429:                 map['statement_transaction_id'] ??
+15430:                 map['settlement_id'] ??
+15431:                 row['statement_id'],
+15432:             orderStatus: map['order_status'] ?? map['status'],
+15433:             payoutStatus: map['payout_status'] ??
+15434:                 map['settlement_status'] ??
+15435:                 map['finance_status'] ??
+15436:                 map['abnormal_status'],
+15437:             payoutReason: map['payout_reason'],
+15438:             rawPayoutComponents: map['raw_payout_components'] ??
+15439:                 map['payout_components'] ??
+15440:                 map['finance_components'] ??
+15441:                 map['deduction_components'],
+15442:             negativePayoutReason: map['negative_payout_reason'] ??
+15443:                 map['payout_minus_reason'] ??
+15444:                 map['settlement_reason'],
+15445:             resiReason: map['resi_reason'],
+15446:             variantName: map['variant_name'] ??
+15447:                 map['marketplace_variation_name'] ??
+15448:                 map['marketplace_variant_name'] ??
+15449:                 row['variant_name'] ??
+15450:                 row['marketplace_variation_name'],
+15451:           );
+15452:         } else {
+15453:           _addOrderRefFromText(item.toString(), add);
+15454:         }
+15455:       }
+15456:     } else {
+15457:       final raw = _text(direct, '');
+15458:       for (final part in raw.split(RegExp(r'[,;|]'))) {
+15459:         _addOrderRefFromText(part, add);
+15460:       }
+
+=== Settlement display lines 14940-15020 ===
+14940:       if (text == '-' || text.toLowerCase() == 'null') return '';
+14941:       return text.toLowerCase();
+14942:     }
+14943: 
+14944:     String firstPart(List<String> keys) {
+14945:       for (final key in keys) {
+14946:         final value = cleanPart(row[key]);
+14947:         if (value.isNotEmpty) return value;
+14948:       }
+14949:       return '';
+14950:     }
+14951: 
+14952:     final orderId = firstPart(const [
+14953:       'order',
+14954:       'order_sn',
+14955:       'external_order_id',
+14956:       'remote_order_id',
+14957:       'order_id',
+14958:     ]);
+14959:     final externalLineId = firstPart(const [
+14960:       'external_order_item_id',
+14961:       'platform_order_item_id',
+14962:       'remote_order_item_id',
+14963:       'line_item_id',
+14964:       'line_id',
+14965:     ]);
+14966: 
+14967:     final resi = firstPart(const [
+14968:       'resi',
+14969:       'tracking_number',
+14970:       'tracking_no',
+14971:       'logistics_tracking_number',
+14972:       'awb',
+14973:       'waybill_no',
+14974:     ]);
+14975:     final settlement = firstPart(const [
+14976:       'statement_id',
+14977:       'settlement_ref',
+14978:       'settlement_id',
+14979:       'statement_ref',
+14980:     ]);
+14981:     final sku = firstPart(const [
+14982:       'local_sku',
+14983:       'sku',
+14984:       'marketplace_sku_id',
+14985:       'marketplace_sku',
+14986:       'marketplace_seller_sku',
+14987:     ]);
+14988:     final variant = firstPart(const [
+14989:       'variant_name',
+14990:       'marketplace_variation_name',
+14991:       'product_name',
+14992:       'title',
+14993:     ]);
+14994:     final qty = _num(row['qty'] ?? row['quantity']).toStringAsFixed(4);
+14995:     final gross = _num(row['gross'] ?? row['gross_amount']).toStringAsFixed(2);
+14996:     final payout =
+14997:         _num(row['payout'] ?? row['payout_amount']).toStringAsFixed(2);
+14998:     final hpp = _num(row['hpp_item'] ?? row['hpp']).toStringAsFixed(2);
+14999:     final facts = [
+15000:       'facts',
+15001:       orderId,
+15002:       resi,
+15003:       settlement,
+15004:       sku,
+15005:       variant,
+15006:       qty,
+15007:       gross,
+15008:       payout,
+15009:       hpp,
+15010:     ].join('|');
+15011:     if ('$orderId$resi$settlement$sku$variant'.isNotEmpty) return facts;
+15012:     if (orderId.isNotEmpty && externalLineId.isNotEmpty) {
+15013:       return 'line|$orderId|$externalLineId';
+15014:     }
+15015:     return 'row|${identityHashCode(row)}';
+15016:   }
+15017: 
+15018:   Map<String, dynamic> _preferSkuDetailRow(
+15019:     Map<String, dynamic> existing,
+15020:     Map<String, dynamic> incoming,
+
+=== Detail settlement/id mapper lines 15950-16020 ===
+15950:     ]);
+15951:     final orderGross = _numFirstNonZero([
+15952:       detail['order_line_gross'],
+15953:       detail['order_gross_total'],
+15954:       detail['order_line_gross_total'],
+15955:     ]);
+15956:     final lineGross = _numFirstNonZero([
+15957:       detail['gross'],
+15958:       detail['gross_amount'],
+15959:       detail['gross_total'],
+15960:     ]);
+15961:     final linePayout = _numFirstNonZero([
+15962:       detail['payout'],
+15963:       detail['payout_amount'],
+15964:     ]);
+15965: 
+15966:     if (_skuDetailHasExactItemPayout(detail)) {
+15967:       return 'Payout exact dari settlement marketplace per item: ${_money(linePayout)}.';
+15968:     }
+15969: 
+15970:     if (orderGross > 0 && lineGross > 0) {
+15971:       if (_skuDetailSingleItemOrderIsExact(detail)) {
+15972:         return 'Payout exact dari settlement order single-item: ${_money(orderPayout)}.';
+15973:       } else {
+15974:         return 'Payout/item ditampilkan sebagai Rata-rata/Estimasi karena settlement exact per item belum tersedia.';
+15975:       }
+15976:     }
+15977:     return 'Payout/item ditampilkan sebagai Rata-rata/Estimasi.';
+15978:   }
+15979: 
+15980:   String _skuDetailHppItemText(Map<String, dynamic> detail) {
+15981:     final hpp = _num(detail['hpp_per_item'] ?? detail['hpp']);
+15982:     if (hpp <= 0) return 'HPP belum mapping';
+15983:     return _money(hpp);
+15984:   }
+15985: 
+15986:   String _skuDetailSettlementText(Map<String, dynamic> detail) {
+15987:     if (!_hasReleasedPayout(detail)) return 'Belum ada settlement';
+15988:     final statement = _cleanText(
+15989:       detail['statement_id'] ??
+15990:           detail['settlement_id'] ??
+15991:           detail['statement_ref'] ??
+15992:           detail['settlement_ref'],
+15993:       '',
+15994:     );
+15995:     return statement.isEmpty ? 'Ref settlement belum tersimpan' : statement;
+15996:   }
+15997: 
+15998:   String _payoutExplainText(Map<String, dynamic> detail) {
+15999:     final payout = _linePayoutAmount(detail);
+16000:     final reason =
+16001:         _text(detail['negative_payout_reason'] ?? detail['payout_reason'], '')
+16002:             .trim();
+16003:     final components = _text(
+16004:       detail['raw_payout_components'] ??
+16005:           detail['payout_components'] ??
+16006:           detail['finance_components'] ??
+16007:           detail['deduction_components'],
+16008:       '',
+16009:     ).trim();
+16010:     if (payout < 0) {
+16011:       final parts = <String>[
+16012:         'Payout minus ${_money(payout)} dari marketplace.'
+16013:       ];
+16014:       if (reason.isNotEmpty && reason != '-') parts.add(reason);
+16015:       if (components.isNotEmpty && components != '-')
+16016:         parts.add('Rincian potongan: $components');
+16017:       if (parts.length == 1)
+16018:         parts.add(
+16019:             'Biasanya karena refund/return, voucher, biaya platform, atau koreksi marketplace.');
+16020:       return parts.join(' ');

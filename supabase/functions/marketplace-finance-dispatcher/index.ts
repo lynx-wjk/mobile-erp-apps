@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     const dryRun = body.dry_run === true;
     const maxAccounts = clampInt(body.max_accounts, 1, 10, 1);
     const lockSeconds = clampInt(body.lock_seconds, 60, 1800, 240);
-    const windowDays = clampInt(body.window_days, 1, 15, 15);
+    const windowDays = clampInt(body.window_days, 1, 90, 90);
     const bootstrapDays = clampInt(body.bootstrap_days, 1, 90, 90);
     const maxOrders = clampInt(body.max_orders, 1, 300, 150);
     const childTimeoutMs = clampInt(body.child_timeout_ms, 10000, 120000, 45000);

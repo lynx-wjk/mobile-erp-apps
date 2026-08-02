@@ -1,0 +1,36 @@
+﻿C:\Users\budic\Downloads\android\inventory_control_apps\lib\main.dart:97: static const Duration _idleTimeout = Duration(hours: 24);
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\main.dart:128: _timer = Timer.periodic(_checkInterval, (_) => _checkIdleTimeout());
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\main.dart:143: Future<void> _checkIdleTimeout() async {
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\main.dart:156: if (idleDuration < _idleTimeout) return;
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\core\evidence\services\photo_evidence_service.dart:294: .timeout(const Duration(seconds: 120))
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\core\evidence\services\photo_evidence_service.dart:300: .timeout(const Duration(seconds: 120));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:268: .timeout(const Duration(seconds: 5));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:453: .timeout(const Duration(seconds: 15));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:504: ).timeout(const Duration(seconds: 5));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:600: // Jangan hapus semua local cache. Kalau server timeout, cache lama tetap
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:2527: ).timeout(const Duration(seconds: 20));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:2622: ).timeout(const Duration(seconds: 20));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:2717: .timeout(const Duration(seconds: 12));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:2719: .timeout(const Duration(seconds: 12));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:2834: .timeout(const Duration(seconds: 12));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:2836: .timeout(const Duration(seconds: 12));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\finance\presentation\finance_report_page.dart:3063: // belum ada, beda signature, timeout, atau schema cache Supabase belum refresh.
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_dispatcher_monitor_page.dart:28: _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_dispatcher_monitor_page.dart:91: .timeout(const Duration(seconds: 4));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_historical_import_page.dart:342: await Future<void>.delayed(const Duration(seconds: 2));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:38: Timer.periodic(const Duration(seconds: 20), (_) => _load(silent: true));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:55: final safeSnapshot = await _buildTimeoutSafeSnapshot().timeout(
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:56: const Duration(seconds: 4),
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:57: onTimeout: () => _timeoutFallbackSnapshot(),
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:80: Map<String, dynamic> _timeoutFallbackSnapshot() {
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:100: .timeout(const Duration(seconds: 5));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:108: .timeout(const Duration(seconds: 4));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:126: Future<Map<String, dynamic>> _buildTimeoutSafeSnapshot() async {
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:211: .timeout(const Duration(seconds: 4));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:624: lower.contains('statement timeout') ||
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_job_monitor_page.dart:625: lower.contains('canceling statement due to statement timeout') ||
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_orders_page.dart:133: Duration(seconds: 6),
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_orders_page.dart:134: Duration(seconds: 12),
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\presentation\marketplace_orders_page.dart:135: Duration(seconds: 24)
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\services\marketplace_historical_import_service.dart:309: .timeout(const Duration(seconds: 90));
+C:\Users\budic\Downloads\android\inventory_control_apps\lib\features\marketplace\services\marketplace_service.dart:641: .timeout(const Duration(seconds: 5));

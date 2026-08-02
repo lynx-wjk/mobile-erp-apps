@@ -1,0 +1,155 @@
+import asyncio
+import json
+import os
+from supabase import create_client, Client
+
+SUPABASE_URL = "http://127.0.0.1:54321"
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "") # You can set this if needed, or read from env.
+with open("supabase/.env", "r") as f:
+    for line in f:
+        if line.startswith("SERVICE_ROLE_KEY="):
+            SUPABASE_KEY = line.strip().split("=")[1]
+            break
+        if line.startswith("SUPABASE_SERVICE_ROLE_KEY="):
+            SUPABASE_KEY = line.strip().split("=")[1]
+            break
+
+# Initialize the Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+sql = """
+CREATE OR REPLACE FUNCTION public.finance_order_candidates_for_period_v3(
+    p_start date DEFAULT NULL::date,
+    p_end date DEFAULT NULL::date,
+    p_marketplace text DEFAULT 'tiktok_shop'::text,
+    p_account_id uuid DEFAULT NULL::uuid,
+    p_limit integer DEFAULT 20,
+    p_missing_only boolean DEFAULT true,
+    p_tenant_id uuid DEFAULT NULL::uuid
+)
+RETURNS TABLE(order_id text, marketplace_account_id uuid)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+with vars as (
+  select
+    coalesce(p_tenant_id, public.app_current_tenant_id_or_default()) as tenant_id,
+    greatest(coalesce(p_start, current_date - 2), current_date - 89) as start_date,
+    least(coalesce(p_end, current_date), current_date) as end_date,
+    nullif(lower(trim(coalesce(p_marketplace, ''))), '') as marketplace_filter,
+    greatest(1, least(coalesce(p_limit, 20), 80)) as row_limit
+),
+order_pool as (
+  select
+    o.tenant_id,
+    o.marketplace_account_id,
+    o.marketplace,
+    o.marketplace_order_id,
+    nullif(o.order_id, '') as order_id_raw,
+    nullif(o.external_order_id, '') as external_order_id_raw,
+    nullif(o.order_sn, '') as order_sn_raw,
+    coalesce(
+      nullif(o.order_id, ''),
+      nullif(o.external_order_id, ''),
+      nullif(o.order_sn, ''),
+      o.marketplace_order_id::text
+    ) as finance_order_key,
+    (coalesce(o.paid_at, o.order_created_at, o.created_time, o.created_at) at time zone 'Asia/Jakarta')::date as order_date_wib,
+    upper(coalesce(o.order_status, o.status, '')) as order_status,
+    upper(coalesce(o.payment_status, '')) as payment_status,
+    coalesce(o.total_amount, o.gross_amount, o.paid_amount, 0) as order_amount,
+    coalesce(o.updated_at, o.pulled_at, o.created_at) as sort_at
+  from public.marketplace_orders o
+  cross join vars v
+  where o.tenant_id = v.tenant_id
+    and (
+      v.marketplace_filter is null
+      or v.marketplace_filter in ('all', 'semua', 'semua platform', '-')
+      or lower(coalesce(o.marketplace, '')) = v.marketplace_filter
+    )
+    and (p_account_id is null or o.marketplace_account_id = p_account_id)
+    and (coalesce(o.paid_at, o.order_created_at, o.created_time, o.created_at) at time zone 'Asia/Jakarta')::date
+      between v.start_date and v.end_date
+    and coalesce(o.total_amount, o.gross_amount, o.paid_amount, 0) > 0
+    and upper(coalesce(o.order_status, o.status, '')) not like all (
+      array['%CANCEL%', '%CANCELED%', '%UNPAID%', '%REFUND%', '%RETURN%', '%FAILED%', '%CLOSE%']
+    )
+    and (
+      o.paid_at is not null
+      or coalesce(o.paid_amount, 0) > 0
+      or upper(coalesce(o.payment_status, '')) in ('PAID', 'PAID_COMPLETED', 'SETTLED', 'COMPLETED')
+      or upper(coalesce(o.order_status, o.status, '')) in (
+        'AWAITING_SHIPMENT', 'AWAITING_COLLECTION', 'IN_TRANSIT', 'DELIVERED', 'COMPLETED'
+      )
+    )
+    and coalesce(
+      nullif(o.order_id, ''),
+      nullif(o.external_order_id, ''),
+      nullif(o.order_sn, ''),
+      o.marketplace_order_id::text
+    ) is not null
+    and (
+      not p_missing_only
+      or not exists (
+        select 1
+        from public.marketplace_finance_reports fr
+        where fr.tenant_id = o.tenant_id
+          and fr.marketplace_account_id = o.marketplace_account_id
+          and lower(coalesce(fr.marketplace, '')) = lower(coalesce(o.marketplace, ''))
+          and (
+            fr.marketplace_order_id = o.marketplace_order_id
+            or fr.order_id = nullif(o.order_id, '')
+            or fr.order_id = nullif(o.external_order_id, '')
+            or fr.order_id = nullif(o.order_sn, '')
+            or fr.order_id = o.marketplace_order_id::text
+          )
+          and (
+            coalesce(fr.payout_amount, fr.received_amount, fr.net_settlement, 0) <> 0
+            or coalesce(fr.pulled_at, fr.updated_at, fr.created_at) > now() - interval '6 hours'
+          )
+      )
+    )
+  order by
+    case
+      when upper(coalesce(o.order_status, o.status, '')) in ('COMPLETED', 'DELIVERED') then 0
+      when upper(coalesce(o.order_status, o.status, '')) in ('IN_TRANSIT', 'AWAITING_COLLECTION') then 1
+      else 2
+    end,
+    coalesce(o.updated_at, o.pulled_at, o.created_at) nulls first,
+    (coalesce(o.paid_at, o.order_created_at, o.created_time, o.created_at) at time zone 'Asia/Jakarta')::date desc,
+    coalesce(nullif(o.order_id, ''), nullif(o.external_order_id, ''), nullif(o.order_sn, ''), o.marketplace_order_id::text) desc
+  limit (
+    select least(row_limit * 80, 4000)
+    from vars
+  )
+),
+checked as (
+  select
+    o.*,
+    false as recently_checked_or_has_payout
+  from order_pool o
+)
+select
+  finance_order_key as order_id,
+  marketplace_account_id
+from checked
+where
+  (not p_missing_only)
+  or (not recently_checked_or_has_payout)
+limit (
+  select row_limit
+  from vars
+);
+$function$;
+"""
+
+# Need to run it directly in postgres because supabase REST API doesn't support raw SQL easily unless using pgrest
+import subprocess
+print("Writing SQL to update_rpc.sql")
+with open("update_rpc.sql", "w") as f:
+    f.write(sql)
+    
+print("Applying SQL...")
+subprocess.run(["docker", "compose", "exec", "-T", "db", "psql", "-U", "postgres", "-d", "postgres", "-f", "/dev/stdin"], input=sql.encode('utf-8'))
+"""

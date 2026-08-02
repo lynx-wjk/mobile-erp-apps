@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkedIn Portfolio Deck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --accent: #4F46E5; /* Indigo */
+            --accent-light: #818cf8;
+            --bg: #0F172A; /* Slate 900 */
+            --bg-card: #1E293B; /* Slate 800 */
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #000;
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .slide {
+            width: 1080px;
+            height: 1080px;
+            background-color: var(--bg);
+            position: relative;
+            overflow: hidden;
+            padding: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            page-break-after: always;
+            break-after: page;
+        }
+
+        .slide-content {
+            z-index: 2;
+            width: 100%;
+        }
+
+        h1 {
+            font-size: 96px;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 40px;
+            letter-spacing: -0.03em;
+        }
+
+        h2 {
+            font-size: 64px;
+            font-weight: 600;
+            color: var(--accent-light);
+            margin-bottom: 40px;
+        }
+
+        p {
+            font-size: 48px;
+            line-height: 1.4;
+            color: var(--text-muted);
+            margin-bottom: 30px;
+        }
+
+        ul {
+            list-style: none;
+        }
+
+        li {
+            font-size: 48px;
+            line-height: 1.5;
+            color: var(--text-main);
+            margin-bottom: 30px;
+            padding-left: 60px;
+            position: relative;
+        }
+
+        li::before {
+            content: "→";
+            color: var(--accent);
+            position: absolute;
+            left: 0;
+            font-weight: bold;
+        }
+
+        .highlight {
+            color: var(--accent-light);
+            font-weight: 600;
+        }
+
+        /* Decorative Elements */
+        .glow {
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            background: var(--accent);
+            filter: blur(200px);
+            opacity: 0.15;
+            border-radius: 50%;
+            top: -200px;
+            right: -200px;
+            z-index: 1;
+        }
+
+        .glow-bottom {
+            top: auto;
+            right: auto;
+            bottom: -300px;
+            left: -300px;
+        }
+
+        /* Specific Slide Layouts */
+        .title-slide {
+            justify-content: flex-end;
+            padding-bottom: 120px;
+        }
+        
+        .title-slide h1 {
+            font-size: 110px;
+            margin-bottom: 60px;
+        }
+
+        .title-slide p {
+            font-size: 56px;
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        .diagram {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 60px;
+            background: var(--bg-card);
+            padding: 60px;
+            border-radius: 30px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .box {
+            background: rgba(79, 70, 229, 0.2);
+            border: 3px solid var(--accent);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            font-size: 40px;
+            font-weight: 600;
+            flex: 1;
+        }
+
+        .arrow {
+            font-size: 60px;
+            color: var(--text-muted);
+            margin: 0 40px;
+        }
+
+        .feature-box {
+            background: var(--bg-card);
+            border-radius: 40px;
+            padding: 80px;
+            margin-top: 40px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 24px;
+            margin-top: 60px;
+        }
+
+        .tag {
+            background: rgba(79, 70, 229, 0.15);
+            color: var(--accent-light);
+            padding: 20px 40px;
+            border-radius: 100px;
+            font-size: 40px;
+            font-weight: 600;
+            border: 2px solid rgba(79, 70, 229, 0.3);
+        }
+
+        .footer {
+            position: absolute;
+            bottom: 60px;
+            left: 80px;
+            font-size: 32px;
+            color: var(--text-muted);
+            opacity: 0.5;
+            font-weight: 600;
+            z-index: 3;
+        }
+
+        .slide-number {
+            position: absolute;
+            bottom: 60px;
+            right: 80px;
+            font-size: 32px;
+            color: var(--text-muted);
+            opacity: 0.5;
+            font-weight: 600;
+            z-index: 3;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Slide 1: Hook -->
+    <div class="slide title-slide">
+        <div class="glow"></div>
+        <div class="slide-content">
+            <h1>Mobile ERP System</h1>
+            <p>Stop losing margin to disconnected marketplaces.</p>
+            <p style="color: var(--text-muted); font-size: 40px; margin-top: 40px; font-weight: 400;">A full-stack operational tool built for modern commerce.</p>
+        </div>
+        <div class="footer">Portfolio Project</div>
+    </div>
+
+    <!-- Slide 2: The Problem -->
+    <div class="slide">
+        <div class="glow glow-bottom"></div>
+        <div class="slide-content">
+            <h2>The Problem</h2>
+            <div class="feature-box">
+                <ul>
+                    <li><span class="highlight">Inventory Syncing</span> across multiple marketplaces (Shopee, TikTok) is manual and error-prone.</li>
+                    <li><span class="highlight">Finance teams</span> struggle to match marketplace payouts with actual COGS.</li>
+                    <li><span class="highlight">Warehouse staff</span> lack a unified mobile interface for daily operations.</li>
+                </ul>
+            </div>
+        </div>
+        <div class="slide-number">02</div>
+    </div>
+
+    <!-- Slide 3: What I Built -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>What I Built</h2>
+            <p>A unified ERP bridging the gap between physical stock and digital sales channels.</p>
+            
+            <div class="diagram" style="margin-top: 100px;">
+                <div class="box">Flutter App<br><span style="font-size: 24px; color: var(--text-muted); font-weight: 400;">Mobile Client</span></div>
+                <div class="arrow">→</div>
+                <div class="box">Supabase<br><span style="font-size: 24px; color: var(--text-muted); font-weight: 400;">Backend Services</span></div>
+                <div class="arrow">→</div>
+                <div class="box">VPS<br><span style="font-size: 24px; color: var(--text-muted); font-weight: 400;">Self-Hosted Server</span></div>
+            </div>
+        </div>
+        <div class="slide-number">03</div>
+    </div>
+
+    <!-- Slide 4: Architecture -->
+    <div class="slide">
+        <div class="glow"></div>
+        <div class="slide-content">
+            <h2>Architecture, Simplified</h2>
+            <div style="background: var(--bg-card); padding: 80px; border-radius: 30px; margin-top: 60px;">
+                <ul style="margin-bottom: 0;">
+                    <li><strong>Client:</strong> Cross-platform Flutter App</li>
+                    <li><strong>Core Services:</strong> Supabase (Auth, Postgres, Storage, Realtime)</li>
+                    <li><strong>External APIs:</strong> Shopee & TikTok Shop Integrations</li>
+                    <li><strong>Infrastructure:</strong> Dockerized environment on a dedicated VPS</li>
+                </ul>
+            </div>
+        </div>
+        <div class="slide-number">04</div>
+    </div>
+
+    <!-- Slide 5: Why Self-Hosted -->
+    <div class="slide">
+        <div class="glow glow-bottom"></div>
+        <div class="slide-content">
+            <h2>Why Self-Hosted?</h2>
+            <p>Choosing to self-host Supabase on a VPS wasn't just about reducing costs—it was about <span class="highlight">control</span>.</p>
+            <div class="feature-box">
+                <ul>
+                    <li>Total data ownership and privacy.</li>
+                    <li>Bypassed expensive managed-BaaS scaling limits.</li>
+                    <li>Provided hands-on experience with Docker, server hardening, and DevOps workflows.</li>
+                </ul>
+            </div>
+        </div>
+        <div class="slide-number">05</div>
+    </div>
+
+    <!-- Slide 6: Key Feature 1 -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>Omnichannel Sync</h2>
+            <p>Live integration with major e-commerce platforms.</p>
+            <div class="feature-box" style="text-align: center; padding: 120px 80px;">
+                <h3 style="font-size: 64px; color: var(--text-main); margin-bottom: 20px;">Shopee & TikTok APIs</h3>
+                <p style="margin-bottom: 0;">Automated webhooks keep local inventory and online stock in perfect sync, preventing stockouts and overselling.</p>
+            </div>
+        </div>
+        <div class="slide-number">06</div>
+    </div>
+
+    <!-- Slide 7: Key Feature 2 -->
+    <div class="slide">
+        <div class="glow"></div>
+        <div class="slide-content">
+            <h2>Finance Reconciliation</h2>
+            <p>Ending the spreadsheet nightmare for accounting teams.</p>
+            <div class="feature-box">
+                <ul style="margin-bottom: 0;">
+                    <li>Cross-checks incoming marketplace payouts against expected revenue.</li>
+                    <li>Calculates true profit by incorporating precise COGS (Cost of Goods Sold).</li>
+                    <li>Highlights discrepancies and missing funds instantly.</li>
+                </ul>
+            </div>
+        </div>
+        <div class="slide-number">07</div>
+    </div>
+
+    <!-- Slide 8: Key Feature 3 -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>Role-Based Workflows</h2>
+            <p>Built for the whole team, with security baked in.</p>
+            <div style="display: flex; flex-direction: column; gap: 30px; margin-top: 60px;">
+                <div style="background: var(--bg-card); padding: 40px 60px; border-radius: 20px; border-left: 8px solid var(--accent);">
+                    <h4 style="font-size: 40px; color: var(--text-main);">Warehouse Staff</h4>
+                    <p style="font-size: 32px; margin: 10px 0 0 0;">Focused on picking, packing, and stock adjustments.</p>
+                </div>
+                <div style="background: var(--bg-card); padding: 40px 60px; border-radius: 20px; border-left: 8px solid var(--accent-light);">
+                    <h4 style="font-size: 40px; color: var(--text-main);">Finance Team</h4>
+                    <p style="font-size: 32px; margin: 10px 0 0 0;">Access to sensitive COGS and revenue reconciliation data.</p>
+                </div>
+            </div>
+        </div>
+        <div class="slide-number">08</div>
+    </div>
+
+    <!-- Slide 9: Under the Hood -->
+    <div class="slide">
+        <div class="glow glow-bottom"></div>
+        <div class="slide-content">
+            <h2>Under the Hood: Hardening</h2>
+            <p>Production readiness goes beyond functional code.</p>
+            <div class="feature-box">
+                <ul>
+                    <li><span class="highlight">Security:</span> Strict Row Level Security (RLS) policies in Postgres ensuring tenant isolation.</li>
+                    <li><span class="highlight">Infrastructure:</span> Hardened VPS with firewall rules and secure SSH practices.</li>
+                    <li><span class="highlight">Reliability:</span> Automated database backups and edge function monitoring.</li>
+                </ul>
+            </div>
+        </div>
+        <div class="slide-number">09</div>
+    </div>
+
+    <!-- Slide 10: What's Next / Learned -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>Key Takeaways</h2>
+            <p>Lessons learned shipping a complex full-stack app.</p>
+            <div class="feature-box">
+                <ul>
+                    <li>Balancing mobile UX constraints with data-heavy ERP requirements.</li>
+                    <li>Managing complex database migrations safely in production.</li>
+                    <li>Handling eventual consistency across third-party marketplace APIs.</li>
+                </ul>
+            </div>
+        </div>
+        <div class="slide-number">10</div>
+    </div>
+
+    <!-- Slide 11: Skills Demonstrated -->
+    <div class="slide">
+        <div class="glow"></div>
+        <div class="slide-content">
+            <h2>Skills Demonstrated</h2>
+            <p>A proven track record across the stack.</p>
+            
+            <div class="tags">
+                <div class="tag">Flutter & Dart</div>
+                <div class="tag">PostgreSQL Design</div>
+                <div class="tag">Infrastructure & VPS</div>
+                <div class="tag">Docker</div>
+                <div class="tag">API Integration</div>
+                <div class="tag">Role-Based Security</div>
+                <div class="tag">Data Reconciliation</div>
+            </div>
+        </div>
+        <div class="slide-number">11</div>
+    </div>
+
+    <!-- Slide 12: CTA -->
+    <div class="slide title-slide" style="justify-content: center; align-items: center; text-align: center;">
+        <div class="glow glow-bottom"></div>
+        <div class="slide-content">
+            <h2 style="font-size: 80px; margin-bottom: 60px; color: var(--text-main);">Let's Connect</h2>
+            <p style="font-size: 56px; color: var(--accent-light); margin-bottom: 40px; font-weight: 600;">Open to IT Support & IT Specialist roles.</p>
+            <p style="font-size: 40px;">Ready to bring full-stack problem solving<br>to your operational challenges.</p>
+            
+            <div style="margin-top: 80px; padding: 40px; border: 2px solid rgba(255,255,255,0.1); border-radius: 100px; display: inline-block;">
+                <p style="margin: 0; font-size: 40px; color: var(--text-main);">Connect with me on LinkedIn</p>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
