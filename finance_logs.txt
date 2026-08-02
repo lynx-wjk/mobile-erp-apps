@@ -1,4 +1,0 @@
- created_at | message | raw_response 
-------------+---------+--------------
-(0 rows)
-
