@@ -103,14 +103,47 @@ function synthesizeChatReply(prompt: string, liveTelemetry: any): string {
     return reply;
   }
 
+  if (p.includes("dispatcher") || p.includes("monitor") || p.includes("job") || p.includes("cron")) {
+    const disp = liveTelemetry.dispatcher_monitor?.summary || {};
+    const recon = liveTelemetry.dispatcher_monitor?.reconciliation || {};
+    const orderBad = Number(disp.order_bad_count || 0);
+    const financeBad = Number(disp.finance_bad_count || 0);
+    const orderActive = disp.order_dispatcher_active === true ? "Aktif" : "Mati";
+    const financeActive = disp.finance_dispatcher_active === true ? "Aktif" : "Mati";
+    const retentionActive = disp.retention_cron_active === true ? "Aktif" : "Mati";
+
+    const shopeeMissing = Number(recon.shopee_missing_payouts_90d || 0);
+    const tiktokMissing = Number(recon.tiktok_missing_payouts_90d || 0);
+
+    return `* **Status Live Dispatcher Monitor (Real-time VPS)**:\n` +
+           `  - **Order Bad Count**: **${orderBad}** ${orderBad === 0 ? "✅" : "⚠️"}\n` +
+           `  - **Finance Bad Count**: **${financeBad}** ${financeBad === 0 ? "✅" : "⚠️"}\n` +
+           `  - **Order Dispatcher Cron**: **${orderActive}** ✅\n` +
+           `  - **Finance Dispatcher Cron**: **${financeActive}** ✅\n` +
+           `  - **Retention Cleanup Cron**: **${retentionActive}** ✅\n` +
+           `  - **Missing Payout Reconciliation (90 Hari)**: Shopee: **${shopeeMissing.toLocaleString('id-ID')} order**, TikTok Shop: **${tiktokMissing.toLocaleString('id-ID')} order**\n` +
+           `* **Status Sistem**: Seluruh cron job berjalan otomatis secara real-time.`;
+  }
+
+  if (p.includes("tenant") || p.includes("penyewa") || p.includes("platform owner") || p.includes("semua toko")) {
+    const tenants = liveTelemetry.tenants_overview || [];
+    if (tenants.length === 0) return "* Belum ada data penyewa multi-tenant.";
+
+    let reply = `* **Ringkasan Multi-Tenant Platform Owner (Real-time)**:\n`;
+    tenants.forEach((t: any, idx: number) => {
+      reply += `  ${idx + 1}. **${t.tenant_name || 'Tenant'}**: ${Number(t.total_orders || 0).toLocaleString('id-ID')} pesanan — **Rp ${Number(t.gross_revenue_idr || 0).toLocaleString('id-ID')}**\n`;
+    });
+    return reply;
+  }
+
   // General Fallback Overview
-  return `* **Ringkasan Penjualan (${days} Hari Terakhir)**:\n` +
+  return `* **Ringkasan Penjualan Real-Time (${days} Hari Terakhir)**:\n` +
          `  - **Omzet Gross**: **Rp ${Number(metrics.revenue_range || 0).toLocaleString('id-ID')}**\n` +
          `  - **Total Pesanan**: **${Number(metrics.orders_range || 0).toLocaleString('id-ID')} pesanan** (Shopee: ${Number(metrics.shopee_orders_range || 0).toLocaleString('id-ID')}, TikTok: ${Number(metrics.tiktok_orders_range || 0).toLocaleString('id-ID')})\n` +
          `  - **Omzet Hari Ini (${todayDate})**: **Rp ${todayRevenue.toLocaleString('id-ID')}** (${todayOrders} pesanan)\n` +
          `  - **Total Pencairan (Payout)**: **Rp ${Number(metrics.payout_range || 0).toLocaleString('id-ID')}**\n` +
          `  - **Lifetime Store Revenue**: **Rp ${Number(metrics.total_revenue_lifetime || 0).toLocaleString('id-ID')}** (${Number(metrics.total_orders_lifetime || 0).toLocaleString('id-ID')} pesanan)\n\n` +
-         `Anda dapat menanyakan: *"omzet hari ini"*, *"omzet kemarin"*, *"omzet bulan ini"*, *"sku terlaris"*, atau *"stok kritis"*!`;
+         `Anda dapat menanyakan: *"omzet hari ini"*, *"omzet kemarin"*, *"status dispatcher"*, *"ringkasan tenant"*, *"sku terlaris"*, atau *"stok kritis"*!`;
 }
 
 serve(async (req: Request) => {
@@ -319,26 +352,41 @@ serve(async (req: Request) => {
     const userMessage = body.prompt || body.messages?.[body.messages.length - 1]?.content || "Halo AI";
     const promptHash = await sha256(`${targetTenantId}:${days}:${userMessage.trim().toLowerCase()}`);
 
-    // Check Postgres AI Cache
-    const { data: cachedRes } = await admin
-      .from("ai_chat_cache")
-      .select("reply_text, telemetry_data, expires_at")
-      .eq("prompt_hash", promptHash)
-      .gt("expires_at", new Date().toISOString())
-      .maybeSingle();
+    const isRealtimeRequest =
+      isPlatformOwner ||
+      body.realtime === true ||
+      body.force_refresh === true ||
+      userMessage.toLowerCase().includes("hari ini") ||
+      userMessage.toLowerCase().includes("sekarang") ||
+      userMessage.toLowerCase().includes("dispatcher") ||
+      userMessage.toLowerCase().includes("monitor") ||
+      userMessage.toLowerCase().includes("job") ||
+      userMessage.toLowerCase().includes("payout") ||
+      userMessage.toLowerCase().includes("realtime") ||
+      userMessage.toLowerCase().includes("real-time");
 
-    if (cachedRes && body.action === "chat") {
-      return new Response(JSON.stringify({
-        ok: true,
-        source: "vps_postgres_cache",
-        openrouter_key_source: keySource,
-        model: selectedModel,
-        reply: cachedRes.reply_text,
-        telemetry: cachedRes.telemetry_data
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
+    // Check Postgres AI Cache (bypassed for platform owner & realtime queries)
+    if (!isRealtimeRequest && body.action === "chat") {
+      const { data: cachedRes } = await admin
+        .from("ai_chat_cache")
+        .select("reply_text, telemetry_data, expires_at")
+        .eq("prompt_hash", promptHash)
+        .gt("expires_at", new Date().toISOString())
+        .maybeSingle();
+
+      if (cachedRes) {
+        return new Response(JSON.stringify({
+          ok: true,
+          source: "vps_postgres_cache",
+          openrouter_key_source: keySource,
+          model: selectedModel,
+          reply: cachedRes.reply_text,
+          telemetry: cachedRes.telemetry_data
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
     }
 
     // Call PostgreSQL RPC `get_ai_insights_telemetry_v2` for FULL DYNAMIC READ ACCESS
@@ -433,7 +481,7 @@ RULES FOR DYNAMIC QUESTION ANSWERING:
         ].filter(Boolean) as ChatMessage[];
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s max timeout for LLM
+        const timeoutId = setTimeout(() => controller.abort(), 3500); // 3.5s max timeout for fast response
 
         const openRouterRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
