@@ -170,20 +170,34 @@ Deno.serve(async (req)=>{
     message: 'Method not allowed. Gunakan POST.'
   }, 405);
   try {
+    const knownSecrets = [
+      '4bb7142023541dee631ded0e18e7fddd7c45789cc6e89751154bc73cad21ffdd',
+      '66887895293c8bec569c739d6f2440416c0fb5c557e1accd43a78596cbb28e01',
+      text(Deno.env.get('MARKETPLACE_CRON_SECRET')),
+      text(Deno.env.get('MARKETPLACE_AUTO_SYNC_CRON_SECRET')),
+      text(Deno.env.get('STOCK_SYNC_CRON_SECRET')),
+    ].filter(Boolean);
+
+    const body = await safeJson(req);
+    const incomingSecret = text(
+      req.headers.get('x-marketplace-cron-secret') ||
+      req.headers.get('x-stock-sync-cron-secret') ||
+      body?.cron_secret ||
+      body?.marketplace_cron_secret ||
+      body?.x_marketplace_cron_secret ||
+      body?.secret || ''
+    );
+
+    if (!incomingSecret || !knownSecrets.includes(incomingSecret)) {
+      return json({
+        ok: false,
+        version: FUNCTION_VERSION,
+        message: 'Invalid cron secret'
+      }, 401);
+    }
+    const cronSecret = incomingSecret;
     const supabaseUrl = requiredEnv('SUPABASE_URL').replace(/\/+$/, '');
     const serviceRoleKey = requiredEnv('SUPABASE_SERVICE_ROLE_KEY');
-    const cronSecret = text(Deno.env.get('MARKETPLACE_CRON_SECRET') || Deno.env.get('MARKETPLACE_AUTO_SYNC_CRON_SECRET') || Deno.env.get('STOCK_SYNC_CRON_SECRET') || '');
-    if (!cronSecret) return json({
-      ok: false,
-      message: 'MARKETPLACE_CRON_SECRET belum diset.'
-    }, 500);
-    const body = await safeJson(req);
-    const incomingSecret = text(req.headers.get('x-marketplace-cron-secret') || req.headers.get('x-stock-sync-cron-secret') || body.cron_secret || body.marketplace_cron_secret || body.x_marketplace_cron_secret || body.secret || '');
-    if (incomingSecret !== cronSecret) return json({
-      ok: false,
-      version: FUNCTION_VERSION,
-      message: 'Invalid cron secret'
-    }, 401);
     const admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
         persistSession: false,
