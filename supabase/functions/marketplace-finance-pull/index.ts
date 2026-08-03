@@ -267,7 +267,7 @@ Deno.serve(async (req)=>{
           ...backlogResult
         });
         if (backlogResult.ok) success += 1;
-        else failed += 1;
+        else if (!regularResult.ok) failed += 1;
       }
 
       const message = tenantResults

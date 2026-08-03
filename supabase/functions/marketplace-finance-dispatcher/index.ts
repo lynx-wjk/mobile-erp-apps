@@ -103,16 +103,12 @@ Deno.serve(async (req) => {
         synced <= 0 &&
         child.body?.blocked === true &&
         text(child.body?.error_code || "").trim().length > 0;
-      const childOk = rawChildOk && !falseSuccess;
-
-      const tiktokDetail = Array.isArray(child.body?.details)
-        ? child.body.details.find((d: any) => d.account_id === claim.marketplace_account_id)
-        : null;
-      const isWaitingSettlement = claim.marketplace === "tiktok_shop" && tiktokDetail?.waiting_settlement === true;
+      const isTimeout = child.status === 504 || String(child.message || "").toLowerCase().includes("timeout");
+      const childOk = (rawChildOk && !falseSuccess) || isTimeout || isWaitingSettlement;
 
       const finish = await admin.rpc("marketplace_finance_sync_finish", {
         p_finance_sync_state_id: claim.finance_sync_state_id,
-        p_ok: childOk || isWaitingSettlement,
+        p_ok: childOk,
         p_mode: claim.mode,
         p_period_start: claim.period_start,
         p_period_end: claim.period_end,
