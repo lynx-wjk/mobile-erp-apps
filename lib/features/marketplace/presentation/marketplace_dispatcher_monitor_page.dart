@@ -567,7 +567,7 @@ class _StateTile extends StatelessWidget {
             runSpacing: 8,
             children: rows,
           ),
-          if (lastError.isNotEmpty) ...[
+          if (lastError.isNotEmpty && !_isNonFatalMessage(lastError)) ...[
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerLeft,
@@ -583,6 +583,14 @@ class _StateTile extends StatelessWidget {
   }
 }
 
+bool _isNonFatalMessage(String msg) {
+  final lower = msg.toLowerCase();
+  return lower.contains('auto payout') ||
+      lower.contains('auto-healed') ||
+      lower.contains('waiting_settlement') ||
+      lower.contains('sukses');
+}
+
 bool _stateOk(
   _DispatcherType type,
   Map<String, dynamic> state,
@@ -593,8 +601,9 @@ bool _stateOk(
   switch (type) {
     case _DispatcherType.order:
     case _DispatcherType.finance:
-      return failureCount == 0 &&
-          lastError.isEmpty &&
+      final isCleanError = lastError.isEmpty || _isNonFatalMessage(lastError);
+      return failureCount <= 3 &&
+          isCleanError &&
           (lockStatus == 'free' || lockStatus == 'locked');
     case _DispatcherType.product:
       return _intValue(state['product_rows']) > 0;
