@@ -103,6 +103,10 @@ Deno.serve(async (req) => {
         synced <= 0 &&
         child.body?.blocked === true &&
         text(child.body?.error_code || "").trim().length > 0;
+      const tiktokDetail = Array.isArray(child.body?.details)
+        ? child.body.details.find((d: any) => d.account_id === claim.marketplace_account_id)
+        : null;
+      const isWaitingSettlement = claim.marketplace === "tiktok_shop" && tiktokDetail?.waiting_settlement === true;
       const isTimeout = child.status === 504 || String(child.message || "").toLowerCase().includes("timeout");
       const childOk = (rawChildOk && !falseSuccess) || isTimeout || isWaitingSettlement;
 

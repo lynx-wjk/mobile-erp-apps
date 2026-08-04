@@ -11176,38 +11176,87 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       });
     }
 
-    // 4. Biaya + pembelian cukup satu card ringkas.
-    final expenseTotal = _numFirstNonZero([
-      _summary['operational_cost_total'],
-      _summary['expense_total'],
-    ]);
-    final manualExpense = _numFirstNonZero([
-      _summary['manual_expense_total'],
-      _summary['manual_operational_expense'],
-      _summary['operational_expense'],
-    ]);
-    final purchaseCashout = _numFirstNonZero([
-      _summary['purchase_cashout'],
-      _summary['approved_purchase_cashout'],
-      _summary['approved_purchase_total'],
-    ]);
+    // 4. Biaya Operasional & Pembelian Disetujui (Rincian per item jika ada).
+    if (_expenses.isNotEmpty || _approvedPurchases.isNotEmpty) {
+      for (final exp in _expenses) {
+        final amount = _num(exp['amount']).abs();
+        if (amount <= 0) continue;
+        final title = _text(exp['title'] ?? exp['name'] ?? exp['category'], 'Biaya Operasional');
+        addRow({
+          'marketplace_cashflow_key':
+              'expense_${exp['id'] ?? exp['expense_id'] ?? title}_${exp['expense_date']}_$amount',
+          'date': exp['expense_date'] ?? exp['date'] ?? exp['created_at'] ?? _end,
+          'source': 'Biaya Operasional',
+          'category': 'Biaya Operasional',
+          'title': title,
+          'description':
+              _text(exp['description'] ?? exp['notes'], 'Biaya operasional'),
+          'type': 'out',
+          'cash_type': 'out',
+          'direction': 'out',
+          'amount': -amount,
+        });
+      }
+      for (final pur in _approvedPurchases) {
+        final amount = _num(pur['amount'] ?? pur['total_harga'] ?? pur['total_pembelian']).abs();
+        if (amount <= 0) continue;
+        final title = _text(
+          pur['title'] ??
+              pur['item_name'] ??
+              pur['nama_barang'] ??
+              pur['supplier_name'] ??
+              pur['nomor_pembelian'],
+          'Pembelian Disetujui',
+        );
+        addRow({
+          'marketplace_cashflow_key':
+              'purchase_${pur['id'] ?? pur['purchase_id'] ?? title}_${pur['expense_date'] ?? pur['tanggal']}_$amount',
+          'date': pur['expense_date'] ?? pur['tanggal'] ?? pur['date'] ?? _end,
+          'source': 'Pembelian Disetujui',
+          'category': 'Pembelian Disetujui',
+          'title': title,
+          'description': _text(
+              pur['supplier_name'] ?? pur['description'] ?? pur['catatan'],
+              'Pembelian disetujui'),
+          'type': 'out',
+          'cash_type': 'out',
+          'direction': 'out',
+          'amount': -amount,
+        });
+      }
+    } else {
+      final expenseTotal = _numFirstNonZero([
+        _summary['operational_cost_total'],
+        _summary['expense_total'],
+      ]);
+      final manualExpense = _numFirstNonZero([
+        _summary['manual_expense_total'],
+        _summary['manual_operational_expense'],
+        _summary['operational_expense'],
+      ]);
+      final purchaseCashout = _numFirstNonZero([
+        _summary['purchase_cashout'],
+        _summary['approved_purchase_cashout'],
+        _summary['approved_purchase_total'],
+      ]);
 
-    final mergedOut =
-        expenseTotal > 0 ? expenseTotal : (manualExpense + purchaseCashout);
+      final mergedOut =
+          expenseTotal > 0 ? expenseTotal : (manualExpense + purchaseCashout);
 
-    if (mergedOut > 0) {
-      addRow({
-        'marketplace_cashflow_key': 'expense_purchase_merged',
-        'date': _end,
-        'source': 'Biaya & Pembelian',
-        'category': 'Biaya & Pembelian',
-        'title': 'Biaya & Pembelian',
-        'description': 'Detail lihat tab Biaya',
-        'type': 'out',
-        'cash_type': 'out',
-        'direction': 'out',
-        'amount': -mergedOut.abs(),
-      });
+      if (mergedOut > 0) {
+        addRow({
+          'marketplace_cashflow_key': 'expense_purchase_merged',
+          'date': _end,
+          'source': 'Biaya & Pembelian',
+          'category': 'Biaya & Pembelian',
+          'title': 'Biaya & Pembelian',
+          'description': 'Detail lihat tab Biaya',
+          'type': 'out',
+          'cash_type': 'out',
+          'direction': 'out',
+          'amount': -mergedOut.abs(),
+        });
+      }
     }
 
     out.sort((a, b) {
@@ -11575,7 +11624,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           ...cashRows.where((row) => !isNetRow(row)),
                           ...walletRows,
                         ]) {
-                          if (row['_cash_wallet_kind'] == 'withdrawal') {
+                          if (row['_cash_wallet_kind'] == 'withdrawal' ||
+                              row['_cash_wallet_kind'] == 'adjustment') {
                             continue;
                           }
                           final amount = _num(row['amount']);
