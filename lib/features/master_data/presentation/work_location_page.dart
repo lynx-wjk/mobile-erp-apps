@@ -862,6 +862,13 @@ class _UserScheduleBottomSheetState extends State<_UserScheduleBottomSheet> {
     _initSchedule();
   }
 
+  static bool _parseBool(dynamic val) {
+    if (val == null) return false;
+    if (val is bool) return val;
+    final str = val.toString().toLowerCase().trim();
+    return str == 'true' || str == '1' || str == 't' || str == 'yes' || str == 'on';
+  }
+
   void _initSchedule() {
     for (int d = 0; d < 7; d++) {
       _schedule[d] = _DaySchedule(
@@ -874,14 +881,18 @@ class _UserScheduleBottomSheetState extends State<_UserScheduleBottomSheet> {
     }
 
     for (final row in widget.existingRows) {
-      final day = row['day_of_week'] as int? ?? -1;
+      final rawDay = row['day_of_week'];
+      int day = rawDay is int ? rawDay : int.tryParse(rawDay?.toString() ?? '') ?? -1;
+      if (day == 7) day = 0;
       if (day < 0 || day > 6) continue;
       _schedule[day] = _DaySchedule(
         dayOfWeek: day,
-        isActive: row['is_active'] == true,
+        isActive: _parseBool(row['is_active']),
         startTime: _parseTime(row['start_time']?.toString() ?? '08:00'),
         endTime: _parseTime(row['end_time']?.toString() ?? '17:00'),
-        lateTolerance: row['late_tolerance_minutes'] as int? ?? 15,
+        lateTolerance: row['late_tolerance_minutes'] is int
+            ? (row['late_tolerance_minutes'] as int)
+            : int.tryParse(row['late_tolerance_minutes']?.toString() ?? '15') ?? 15,
       );
     }
   }
@@ -1003,6 +1014,36 @@ class _UserScheduleBottomSheetState extends State<_UserScheduleBottomSheet> {
 
     if (confirm == true) {
       await _save(targetUserIds: roleUsers);
+    }
+  }
+
+  Future<void> _copyToAllUsers() async {
+    final allIds = widget.allUsers
+        .map((u) => u['user_id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+
+    if (allIds.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Terapkan ke Semuanya (Batch All)?'),
+        content: Text(
+            'Jadwal ini akan diterapkan ke SELURUH (${allIds.length}) karyawan/user aktif di sistem.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Batal')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Ya, Terapkan Semua')),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await _save(targetUserIds: allIds);
     }
   }
 
@@ -1253,8 +1294,16 @@ class _UserScheduleBottomSheetState extends State<_UserScheduleBottomSheet> {
                         Expanded(
                           child: OutlinedButton.icon(
                             onPressed: _saving ? null : _copyToRoleUsers,
-                            icon: const Icon(Icons.copy_rounded, size: 18),
-                            label: Text('Salin ke Role $role'),
+                            icon: const Icon(Icons.copy_rounded, size: 16),
+                            label: Text('Role $role'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton.tonalIcon(
+                            onPressed: _saving ? null : _copyToAllUsers,
+                            icon: const Icon(Icons.groups_outlined, size: 18),
+                            label: const Text('Semua User'),
                           ),
                         ),
                       ],

@@ -1011,7 +1011,11 @@ class _AbsensiPageState extends State<AbsensiPage> {
   Future<void> _showBugReportsAndOverrideModal() async {
     List<Map<String, dynamic>> bugReports = [];
     List<Map<String, dynamic>> allUsers = [];
+    List<Map<String, dynamic>> allSchedules = [];
     bool isLoadingModal = true;
+
+    final user = _client.auth.currentUser;
+    final profile = await _currentProfile();
 
     try {
       final repRes = await _client.from('attendance_bug_reports').select().order('created_at', ascending: false).limit(50);
@@ -1019,13 +1023,13 @@ class _AbsensiPageState extends State<AbsensiPage> {
 
       final usrRes = await _client.from('users').select('user_id, nama, email, role_id').eq('status', 'active');
       allUsers = (usrRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
+
+      final schedRes = await _client.from('user_work_schedules').select('*');
+      allSchedules = (schedRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
     } catch (e) {
-      debugPrint('Error loading bug reports: $e');
+      debugPrint('Error loading bug reports or schedules: $e');
     }
     isLoadingModal = false;
-
-    final user = _client.auth.currentUser;
-    final profile = await _currentProfile();
 
     Map<String, dynamic>? selectedUserForOverride = allUsers.isNotEmpty ? allUsers.first : null;
     final overrideDateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
@@ -1033,160 +1037,262 @@ class _AbsensiPageState extends State<AbsensiPage> {
     final overrideOutTimeCtrl = TextEditingController(text: '17:00');
     final overrideNoteCtrl = TextEditingController(text: 'Manual Override oleh HR / Finance / Super Admin');
 
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) {
-          final isDark = Theme.of(context).brightness == Brightness.dark;
-          return DefaultTabController(
-            length: 2,
-            child: Container(
-              height: MediaQuery.of(context).size.height * 0.85,
-              padding: EdgeInsets.only(
-                left: 16, right: 16, top: 16,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-              ),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF0F172A) : Colors.white,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    width: 40, height: 4,
-                    decoration: BoxDecoration(color: Colors.grey.withOpacity(0.4), borderRadius: BorderRadius.circular(2)),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('Laporan Kendala & Manual Override Absensi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  const SizedBox(height: 8),
-                  const TabBar(
-                    tabs: [
-                      Tab(text: 'Laporan Kendala'),
-                      Tab(text: 'Manual Override Absensi'),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        isLoadingModal
-                            ? const Center(child: CircularProgressIndicator())
-                            : bugReports.isEmpty
-                                ? const Center(child: Text('Belum ada laporan kendala.'))
-                                : ListView.builder(
-                                    itemCount: bugReports.length,
-                                    itemBuilder: (context, i) {
-                                      final r = bugReports[i];
-                                      final isResolved = r['status'] == 'resolved';
-                                      return Card(
-                                        margin: const EdgeInsets.only(bottom: 10),
-                                        child: ListTile(
-                                          title: Text('${AppUi.text(r['user_name'])} • ${r['report_date']}'),
-                                          subtitle: Text('Tipe: ${r['issue_type']}\nKet: ${r['description']}\nStatus: ${r['status']}'),
-                                          trailing: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              if (isResolved)
-                                                const Chip(label: Text('RESOLVED'), backgroundColor: Colors.greenAccent)
-                                              else
-                                                ElevatedButton(
-                                                  onPressed: () async {
-                                                    await _client.from('attendance_bug_reports').update({
-                                                      'status': 'resolved',
-                                                      'resolved_by': user!.id,
-                                                      'resolved_by_name': profile?['nama'] ?? 'Approver',
-                                                      'resolved_at': DateTime.now().toUtc().toIso8601String(),
-                                                    }).eq('report_id', r['report_id']);
-                                                    setModalState(() {
-                                                      r['status'] = 'resolved';
-                                                    });
-                                                    AppUi.showSnack('Laporan ditandai selesai!');
-                                                  },
-                                                  child: const Text('Resolve'),
-                                                ),
-                                              if (_isSuperAdmin) ...[
-                                                const SizedBox(width: 4),
-                                                IconButton(
-                                                  icon: Icon(Icons.delete_outline, color: AppUi.red),
-                                                  tooltip: 'Hapus Laporan Kendala',
-                                                  onPressed: () async {
-                                                    final confirm = await showDialog<bool>(
-                                                      context: context,
-                                                      builder: (ctx) => AlertDialog(
-                                                        title: const Text('Hapus Laporan Kendala?'),
-                                                        content: const Text('Laporan kendala ini akan dihapus permanen.'),
-                                                        actions: [
-                                                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
-                                                          FilledButton(
-                                                            onPressed: () => Navigator.pop(ctx, true),
-                                                            style: FilledButton.styleFrom(backgroundColor: AppUi.red),
-                                                            child: const Text('Hapus'),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    );
-                                                    if (confirm != true) return;
-                                                    try {
-                                                      await _client.rpc('delete_record_for_super_admin', params: {
-                                                        'p_table_name': 'attendance_bug_reports',
-                                                        'p_record_id': r['report_id'],
-                                                      });
+      void applyScheduleTimes(Map<String, dynamic>? userMap, String dateInput) {
+        if (userMap == null) return;
+        try {
+          final uid = userMap['user_id']?.toString();
+          final dt = DateTime.tryParse(dateInput.trim()) ?? DateTime.now();
+          int dow = dt.weekday;
+          if (dow == 7) dow = 0; // 0 = Sunday, 1 = Monday, etc.
+
+          final match = allSchedules.firstWhere(
+            (s) {
+              final sUid = s['user_id']?.toString();
+              final sDow = s['day_of_week'] is int
+                  ? (s['day_of_week'] as int)
+                  : int.tryParse(s['day_of_week']?.toString() ?? '') ?? -1;
+              final isActive = s['is_active'] == true || s['is_active']?.toString().toLowerCase() == 'true';
+              return sUid == uid && sDow == dow && isActive;
+            },
+            orElse: () => {},
+          );
+
+          if (match.isNotEmpty && match['start_time'] != null) {
+            final sTime = match['start_time'].toString();
+            final eTime = match['end_time']?.toString() ?? '17:00';
+            overrideInTimeCtrl.text = sTime.length >= 5 ? sTime.substring(0, 5) : sTime;
+            overrideOutTimeCtrl.text = eTime.length >= 5 ? eTime.substring(0, 5) : eTime;
+          } else {
+            overrideInTimeCtrl.text = '08:00';
+            overrideOutTimeCtrl.text = '17:00';
+          }
+        } catch (_) {}
+      }
+
+      applyScheduleTimes(selectedUserForOverride, overrideDateCtrl.text);
+
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => StatefulBuilder(
+          builder: (context, setModalState) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            return DefaultTabController(
+              length: 2,
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.85,
+                padding: EdgeInsets.only(
+                  left: 16, right: 16, top: 16,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF0F172A) : Colors.white,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 40, height: 4,
+                      decoration: BoxDecoration(color: Colors.grey.withOpacity(0.4), borderRadius: BorderRadius.circular(2)),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('Laporan Kendala & Manual Override Absensi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    const TabBar(
+                      tabs: [
+                        Tab(text: 'Laporan Kendala'),
+                        Tab(text: 'Manual Override Absensi'),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          isLoadingModal
+                              ? const Center(child: CircularProgressIndicator())
+                              : bugReports.isEmpty
+                                  ? const Center(child: Text('Belum ada laporan kendala.'))
+                                  : ListView.builder(
+                                      itemCount: bugReports.length,
+                                      itemBuilder: (context, i) {
+                                        final r = bugReports[i];
+                                        final isResolved = r['status'] == 'resolved';
+                                        return Card(
+                                          margin: const EdgeInsets.only(bottom: 10),
+                                          child: ListTile(
+                                            title: Text('${AppUi.text(r['user_name'])} • ${r['report_date']}'),
+                                            subtitle: Text('Tipe: ${r['issue_type']}\nKet: ${r['description']}\nStatus: ${r['status']}'),
+                                            trailing: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (isResolved)
+                                                  const Chip(label: Text('RESOLVED'), backgroundColor: Colors.greenAccent)
+                                                else
+                                                  ElevatedButton(
+                                                    onPressed: () async {
+                                                      await _client.from('attendance_bug_reports').update({
+                                                        'status': 'resolved',
+                                                        'resolved_by': user!.id,
+                                                        'resolved_by_name': profile?['nama'] ?? 'Approver',
+                                                        'resolved_at': DateTime.now().toUtc().toIso8601String(),
+                                                      }).eq('report_id', r['report_id']);
                                                       setModalState(() {
-                                                        bugReports.removeAt(i);
+                                                        r['status'] = 'resolved';
                                                       });
-                                                      AppUi.showSnack('Laporan kendala berhasil dihapus!');
-                                                    } catch (e) {
-                                                      AppUi.showSnack('Gagal menghapus laporan: $e', isError: true);
-                                                    }
-                                                  },
-                                                ),
+                                                      AppUi.showSnack('Laporan ditandai selesai!');
+                                                    },
+                                                    child: const Text('Resolve'),
+                                                  ),
+                                                if (_isSuperAdmin) ...[
+                                                  const SizedBox(width: 4),
+                                                  IconButton(
+                                                    icon: Icon(Icons.delete_outline, color: AppUi.red),
+                                                    tooltip: 'Hapus Laporan Kendala',
+                                                    onPressed: () async {
+                                                      final confirm = await showDialog<bool>(
+                                                        context: context,
+                                                        builder: (ctx) => AlertDialog(
+                                                          title: const Text('Hapus Laporan Kendala?'),
+                                                          content: const Text('Laporan kendala ini akan dihapus permanen.'),
+                                                          actions: [
+                                                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+                                                            FilledButton(
+                                                              onPressed: () => Navigator.pop(ctx, true),
+                                                              style: FilledButton.styleFrom(backgroundColor: AppUi.red),
+                                                              child: const Text('Hapus'),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      );
+                                                      if (confirm != true) return;
+                                                      try {
+                                                        await _client.rpc('delete_record_for_super_admin', params: {
+                                                          'p_table_name': 'attendance_bug_reports',
+                                                          'p_record_id': r['report_id'],
+                                                        });
+                                                        setModalState(() {
+                                                          bugReports.removeAt(i);
+                                                        });
+                                                        AppUi.showSnack('Laporan kendala berhasil dihapus!');
+                                                      } catch (e) {
+                                                        AppUi.showSnack('Gagal menghapus laporan: $e', isError: true);
+                                                      }
+                                                    },
+                                                  ),
+                                                ],
                                               ],
-                                            ],
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                          SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                DropdownButtonFormField<Map<String, dynamic>>(
+                                  value: selectedUserForOverride,
+                                  decoration: const InputDecoration(labelText: 'Pilih Karyawan', border: OutlineInputBorder()),
+                                  items: allUsers.map((u) {
+                                    return DropdownMenuItem(
+                                      value: u,
+                                      child: Text('${u['nama']} (${AppUi.text(u['role_id'])})'),
+                                    );
+                                  }).toList(),
+                                  onChanged: (val) {
+                                    setModalState(() {
+                                      selectedUserForOverride = val;
+                                      applyScheduleTimes(val, overrideDateCtrl.text);
+                                    });
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: overrideDateCtrl,
+                                  decoration: InputDecoration(
+                                    labelText: 'Tanggal (yyyy-MM-dd)',
+                                    border: const OutlineInputBorder(),
+                                    suffixIcon: IconButton(
+                                      icon: const Icon(Icons.calendar_today_rounded),
+                                      onPressed: () async {
+                                        final currentDt = DateTime.tryParse(overrideDateCtrl.text.trim()) ?? DateTime.now();
+                                        final picked = await showDatePicker(
+                                          context: context,
+                                          initialDate: currentDt,
+                                          firstDate: DateTime(2020),
+                                          lastDate: DateTime(2030),
+                                        );
+                                        if (picked != null) {
+                                          final formatted = DateFormat('yyyy-MM-dd').format(picked);
+                                          setModalState(() {
+                                            overrideDateCtrl.text = formatted;
+                                            applyScheduleTimes(selectedUserForOverride, formatted);
+                                          });
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  onChanged: (val) {
+                                    setModalState(() {
+                                      applyScheduleTimes(selectedUserForOverride, val);
+                                    });
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: overrideInTimeCtrl,
+                                        decoration: InputDecoration(
+                                          labelText: 'Jam Check-In (HH:mm)',
+                                          border: const OutlineInputBorder(),
+                                          suffixIcon: IconButton(
+                                            icon: const Icon(Icons.access_time_rounded),
+                                            onPressed: () async {
+                                              final parts = overrideInTimeCtrl.text.split(':');
+                                              final initialTime = parts.length >= 2
+                                                  ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 8, minute: int.tryParse(parts[1]) ?? 0)
+                                                  : const TimeOfDay(hour: 8, minute: 0);
+                                              final picked = await showTimePicker(context: context, initialTime: initialTime);
+                                              if (picked != null) {
+                                                setModalState(() {
+                                                  overrideInTimeCtrl.text = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                                                });
+                                              }
+                                            },
                                           ),
                                         ),
-                                      );
-                                    },
-                                  ),
-                        SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              DropdownButtonFormField<Map<String, dynamic>>(
-                                value: selectedUserForOverride,
-                                decoration: const InputDecoration(labelText: 'Pilih Karyawan', border: OutlineInputBorder()),
-                                items: allUsers.map((u) {
-                                  return DropdownMenuItem(
-                                    value: u,
-                                    child: Text('${u['nama']} (${AppUi.text(u['role_id'])})'),
-                                  );
-                                }).toList(),
-                                onChanged: (val) => setModalState(() => selectedUserForOverride = val),
-                              ),
-                              const SizedBox(height: 12),
-                              TextField(
-                                controller: overrideDateCtrl,
-                                decoration: const InputDecoration(labelText: 'Tanggal (yyyy-MM-dd)', border: OutlineInputBorder()),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: TextField(
-                                      controller: overrideInTimeCtrl,
-                                      decoration: const InputDecoration(labelText: 'Jam Check-In (HH:mm)', border: OutlineInputBorder()),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: overrideOutTimeCtrl,
-                                      decoration: const InputDecoration(labelText: 'Jam Check-Out (HH:mm)', border: OutlineInputBorder()),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: overrideOutTimeCtrl,
+                                        decoration: InputDecoration(
+                                          labelText: 'Jam Check-Out (HH:mm)',
+                                          border: const OutlineInputBorder(),
+                                          suffixIcon: IconButton(
+                                            icon: const Icon(Icons.access_time_rounded),
+                                            onPressed: () async {
+                                              final parts = overrideOutTimeCtrl.text.split(':');
+                                              final initialTime = parts.length >= 2
+                                                  ? TimeOfDay(hour: int.tryParse(parts[0]) ?? 17, minute: int.tryParse(parts[1]) ?? 0)
+                                                  : const TimeOfDay(hour: 17, minute: 0);
+                                              final picked = await showTimePicker(context: context, initialTime: initialTime);
+                                              if (picked != null) {
+                                                setModalState(() {
+                                                  overrideOutTimeCtrl.text = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                                                });
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
                               const SizedBox(height: 12),
                               TextField(
                                 controller: overrideNoteCtrl,
