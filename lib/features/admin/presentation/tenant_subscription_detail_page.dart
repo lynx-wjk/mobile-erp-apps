@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class TenantSubscriptionDetailPage extends StatefulWidget {
   final String tenantId;
@@ -398,7 +399,7 @@ class _TenantSubscriptionDetailPageState
     final theme = Theme.of(context);
     final accent = theme.colorScheme.secondary;
 
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: Text('KELOLA SUBSCRIPTION: ${widget.tenantName.toUpperCase()}',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),

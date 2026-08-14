@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/utils/file_download.dart';
 
 class DataExportImportPage extends StatefulWidget {
@@ -837,15 +838,13 @@ class _DataExportImportPageState extends State<DataExportImportPage> {
     final isSuper = _isSuperRole(_roleId);
     final isFinance = _isFinanceRole(_roleId);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Backup Data'),
-        actions: [
-          IconButton(
-              onPressed: _busy ? null : _loadRole,
-              icon: const Icon(Icons.refresh)),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Backup Data',
+      actions: [
+        IconButton(
+            onPressed: _busy ? null : _loadRole,
+            icon: const Icon(Icons.refresh)),
+      ],
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

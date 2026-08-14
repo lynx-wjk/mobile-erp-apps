@@ -13,6 +13,7 @@ import '../../../core/evidence/models/photo_evidence.dart';
 import '../../../core/evidence/services/photo_evidence_service.dart';
 import '../../../core/evidence/widgets/evidence_camera_field.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../marketplace/models/marketplace_sku_map.dart';
 import '../../marketplace/services/marketplace_service.dart';
 import '../../stock/models/product.dart';
@@ -3799,7 +3800,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
           icon: Icon(Icons.add),
           label: Text('Progress'),
         ),
-        body: TabBarView(
+        body: WebResponsiveWrapper(
+          activeTitle: 'Produksi Berjalan',
+          child: TabBarView(
           children: [
             // Tab 1: Surat Jalan
             RefreshIndicator(
@@ -3870,6 +3873,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

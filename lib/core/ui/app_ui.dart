@@ -661,33 +661,83 @@ class _GlobalBackdropPainter extends CustomPainter {
     if (size.isEmpty) return;
 
     final rect = Offset.zero & size;
+    // Base Soft Abstract Gradient Background
     final wash = Paint()
       ..shader = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: isDark
-            ? const [Color(0xFF0B1329), Color(0xFF161F30)]
-            : const [Color(0xFFF8FAFC), Color(0xFFF1F5F9)],
+            ? const [
+                Color(0xFF090D16),
+                Color(0xFF0F172A),
+                Color(0xFF161F30),
+              ]
+            : const [
+                Color(0xFFF8FAFC),
+                Color(0xFFF1F5F9),
+                Color(0xFFE2E8F0),
+              ],
       ).createShader(rect);
     canvas.drawRect(rect, wash);
 
-    final halo = Paint()
+    // Top-Left Soft Ambient Gradient Halo (Sky Azure)
+    final haloTopLeft = Paint()
       ..shader = RadialGradient(
         colors: [
-          (isDark ? const Color(0xFF3B82F6) : const Color(0xFFBFDBFE))
-              .withOpacity(isDark ? 0.08 : 0.22),
+          (isDark ? const Color(0xFF2563EB) : const Color(0xFF38BDF8))
+              .withOpacity(isDark ? 0.12 : 0.18),
           Colors.transparent,
         ],
       ).createShader(
         Rect.fromCircle(
-          center: Offset(size.width * 0.18, size.height * 0.04),
-          radius: size.shortestSide * 0.62,
+          center: Offset(size.width * 0.15, size.height * 0.10),
+          radius: size.shortestSide * 0.70,
         ),
       );
     canvas.drawCircle(
-      Offset(size.width * 0.18, size.height * 0.04),
-      size.shortestSide * 0.62,
-      halo,
+      Offset(size.width * 0.15, size.height * 0.10),
+      size.shortestSide * 0.70,
+      haloTopLeft,
+    );
+
+    // Bottom-Right Soft Ambient Gradient Halo (Teal/Violet Mesh)
+    final haloBottomRight = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          (isDark ? const Color(0xFF0D9488) : const Color(0xFF818CF8))
+              .withOpacity(isDark ? 0.10 : 0.14),
+          Colors.transparent,
+        ],
+      ).createShader(
+        Rect.fromCircle(
+          center: Offset(size.width * 0.85, size.height * 0.85),
+          radius: size.shortestSide * 0.75,
+        ),
+      );
+    canvas.drawCircle(
+      Offset(size.width * 0.85, size.height * 0.85),
+      size.shortestSide * 0.75,
+      haloBottomRight,
+    );
+
+    // Center Ambient Soft Glow
+    final haloCenter = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          (isDark ? const Color(0xFF4F46E5) : const Color(0xFF93C5FD))
+              .withOpacity(isDark ? 0.06 : 0.12),
+          Colors.transparent,
+        ],
+      ).createShader(
+        Rect.fromCircle(
+          center: Offset(size.width * 0.50, size.height * 0.40),
+          radius: size.shortestSide * 0.50,
+        ),
+      );
+    canvas.drawCircle(
+      Offset(size.width * 0.50, size.height * 0.40),
+      size.shortestSide * 0.50,
+      haloCenter,
     );
   }
 
@@ -697,7 +747,7 @@ class _GlobalBackdropPainter extends CustomPainter {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NiceCard -- The core pixel art container
+// NiceCard -- The core frosted glassmorphism card container
 // ─────────────────────────────────────────────────────────────────────────────
 class NiceCard extends StatelessWidget {
   final Widget child;
@@ -716,21 +766,24 @@ class NiceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final requested = borderColor;
     final isLegacyContrast =
         requested == Colors.black || requested == Colors.white;
+
     final cardBorder = requested == null || isLegacyContrast
-        ? theme.colorScheme.outlineVariant
-            .withOpacity(theme.brightness == Brightness.dark ? 0.3 : 0.5)
-        : requested.withOpacity(
-            theme.brightness == Brightness.dark ? 0.35 : 0.22,
-          );
+        ? (isDark ? const Color(0xFF334155).withOpacity(0.6) : const Color(0xFFE2E8F0))
+        : requested.withOpacity(isDark ? 0.5 : 0.3);
+
+    final glassFill = isDark
+        ? const Color(0xFF1E293B).withOpacity(0.60)
+        : Colors.white.withOpacity(0.82);
 
     final container = DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.cardColor,
+        color: glassFill,
         borderRadius: AppTheme.radiusMd,
-        border: Border.all(color: cardBorder, width: 0.8),
+        border: Border.all(color: cardBorder, width: 1.0),
         boxShadow: AppTheme.softShadow(theme.brightness),
       ),
       child: Padding(padding: padding, child: child),

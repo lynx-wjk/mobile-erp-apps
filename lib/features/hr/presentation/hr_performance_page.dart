@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
 
+import '../../../core/ui/web_responsive_layout.dart';
+
 class HrPerformancePage extends StatefulWidget {
   const HrPerformancePage({super.key});
 
@@ -657,17 +659,15 @@ class _HrPerformancePageState extends State<HrPerformancePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Kinerja Staff & Absensi'),
-        actions: [
-          IconButton(
-            onPressed: _loadData,
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh data',
-          ),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Kinerja Staff & Absensi',
+      actions: [
+        IconButton(
+          onPressed: _loadData,
+          icon: const Icon(Icons.refresh),
+          tooltip: 'Refresh data',
+        ),
+      ],
       body: _body(),
     );
   }

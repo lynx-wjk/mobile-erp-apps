@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/marketplace_providers.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
 import '../models/marketplace_account_public.dart';
 import '../models/marketplace_stock_sync_item.dart';
@@ -883,7 +884,7 @@ class _MarketplaceStockSyncPageState extends State<MarketplaceStockSyncPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: Text('Sinkron Stok'),
         actions: [

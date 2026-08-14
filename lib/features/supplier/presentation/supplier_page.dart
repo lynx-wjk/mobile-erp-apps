@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../models/supplier.dart';
 
 class SupplierPage extends StatefulWidget {
@@ -377,13 +378,11 @@ class _SupplierPageState extends State<SupplierPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Supplier'),
-        actions: [
-          IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh)),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Supplier',
+      actions: [
+        IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh)),
+      ],
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openForm(),
         icon: const Icon(Icons.add),

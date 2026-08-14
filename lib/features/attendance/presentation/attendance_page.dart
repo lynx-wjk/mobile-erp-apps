@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
 
 class AbsensiPage extends StatefulWidget {
@@ -1521,11 +1522,9 @@ class _AbsensiPageState extends State<AbsensiPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Absensi'),
-        actions: [IconButton(onPressed: _loadData, icon: Icon(Icons.refresh))],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Absensi',
+      actions: [IconButton(onPressed: _loadData, icon: Icon(Icons.refresh))],
       body: _body(),
     );
   }

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/evidence/models/photo_evidence.dart';
 import '../../../core/evidence/widgets/evidence_camera_field.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class HostLivePage extends StatefulWidget {
   const HostLivePage({super.key});
@@ -494,7 +495,7 @@ class _HostLivePageState extends State<HostLivePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: const Text('Live Host'),
         actions: [

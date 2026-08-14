@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class PurchaseVerificationPage extends StatefulWidget {
@@ -301,16 +302,14 @@ class _PurchaseVerificationPageState extends State<PurchaseVerificationPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Verifikasi Pembelian'),
-        actions: [
-          IconButton(
-            onPressed: _loadData,
-            icon: Icon(Icons.refresh),
-          ),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Verifikasi Pembelian',
+      actions: [
+        IconButton(
+          onPressed: _loadData,
+          icon: Icon(Icons.refresh),
+        ),
+      ],
       body: _body(),
     );
   }
@@ -839,16 +838,14 @@ class _PurchaseVerificationDetailPageState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Detail Verifikasi'),
-        actions: [
-          IconButton(
-            onPressed: _loadItems,
-            icon: Icon(Icons.refresh),
-          ),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Detail Verifikasi',
+      actions: [
+        IconButton(
+          onPressed: _loadItems,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
       body: _body(),
     );
   }

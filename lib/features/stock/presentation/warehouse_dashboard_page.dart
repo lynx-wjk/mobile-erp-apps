@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
 import '../models/product.dart';
 import '../models/stock_transaction_item.dart';
@@ -377,13 +378,9 @@ class _WarehouseDashboardPageState extends State<WarehouseDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Dashboard Warehouse'),
-      ),
-      body: SafeArea(
-        child: _buildBody(),
-      ),
+    return WebResponsiveScaffold(
+      title: 'Dashboard Warehouse',
+      body: _buildBody(),
     );
   }
 }

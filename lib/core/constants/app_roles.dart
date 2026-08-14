@@ -155,6 +155,14 @@ class AppRolePermissions {
     return isSuperRoleId(role) || isDemoSuperAdminId(role) || role == 'finance';
   }
 
+  static bool canAccessPayroll(String? roleId) {
+    final role = normalizeRoleId(roleId);
+    return isSuperRoleId(role) ||
+        isDemoSuperAdminId(role) ||
+        role == 'finance' ||
+        role == 'hr';
+  }
+
   static bool canManageMarketplaceAuth(String? roleId) {
     return isSuperRoleId(roleId) || isAdminRoleId(roleId);
   }

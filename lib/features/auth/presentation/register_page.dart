@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/constants/app_roles.dart';
 import 'auth_gate.dart';
 
@@ -258,7 +259,9 @@ class _RegisterPageState extends State<RegisterPage> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 440),
+                constraints: BoxConstraints(
+                  maxWidth: isDesktopWeb(context) ? 680 : 440,
+                ),
                 child: Column(
                   children: [
                     // Header

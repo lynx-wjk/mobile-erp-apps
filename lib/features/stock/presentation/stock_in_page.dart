@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../marketplace/models/marketplace_return_review_item.dart';
 import '../../marketplace/services/marketplace_order_pick_service.dart';
 import 'qr_scan_page.dart';
@@ -787,13 +788,11 @@ class _StockInPageState extends State<StockInPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Stok Masuk'),
-        actions: [
-          IconButton(onPressed: _loadProducts, icon: const Icon(Icons.refresh)),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Stok Masuk',
+      actions: [
+        IconButton(onPressed: _loadProducts, icon: const Icon(Icons.refresh)),
+      ],
       body: _body(),
     );
   }

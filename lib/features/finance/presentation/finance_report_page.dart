@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/utils/file_download.dart';
 import '../services/finance_local_cache.dart';
 
@@ -2162,6 +2163,128 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }).toList(growable: false);
   }
 
+  List<Map<String, dynamic>> _enrichMarketplaceRowsHppFromSku(
+    List<Map<String, dynamic>> mktRows,
+    List<Map<String, dynamic>> skuRows, {
+    Map<String, dynamic>? summary,
+  }) {
+    if (mktRows.isEmpty) return mktRows;
+
+    final targetSummary = summary ?? _summary;
+
+    final skuHppByMkt = <String, double>{};
+    final skuHppByAccount = <String, double>{};
+    var totalSkuHpp = 0.0;
+
+    for (final sku in skuRows) {
+      final mkt = _text(sku['marketplace'] ?? sku['platform'])
+          .trim()
+          .toLowerCase()
+          .replaceAll('_shop', '')
+          .replaceAll(' ', '');
+      final accId = _text(sku['marketplace_account_id'] ?? sku['account_id']).trim();
+      final hpp = _numFirstNonZero([
+        sku['paid_hpp_total'],
+        sku['settled_hpp_total'],
+        sku['hpp_total'],
+        sku['total_hpp'],
+        sku['hpp_cair'],
+        sku['hpp_settled'],
+        sku['hpp_amount'],
+        sku['hpp'],
+      ]);
+
+      if (hpp > 0) {
+        totalSkuHpp += hpp;
+        if (mkt.isNotEmpty) {
+          skuHppByMkt[mkt] = (skuHppByMkt[mkt] ?? 0.0) + hpp;
+        }
+        if (accId.isNotEmpty) {
+          skuHppByAccount[accId] = (skuHppByAccount[accId] ?? 0.0) + hpp;
+        }
+      }
+    }
+
+    final summaryHpp = _numFirstNonZero([
+      targetSummary['hpp_total'],
+      targetSummary['total_hpp'],
+      targetSummary['paid_hpp_total'],
+      targetSummary['settled_hpp_total'],
+      targetSummary['hpp_cair'],
+      targetSummary['hpp'],
+    ]);
+
+    final totalMktGross = mktRows.fold<double>(
+      0.0,
+      (sum, r) => sum + _num(r['gross_sales'] ?? r['gross'] ?? r['omzet_total']),
+    );
+
+    return mktRows.map((source) {
+      final row = Map<String, dynamic>.from(source);
+      var currentHpp = _numFirstNonZero([
+        row['paid_hpp_total'],
+        row['settled_hpp_total'],
+        row['hpp_total'],
+        row['total_hpp'],
+        row['hpp_cair'],
+        row['hpp_settled'],
+        row['hpp_amount'],
+        row['hpp'],
+      ]);
+
+      if (currentHpp == 0) {
+        final mktKey = _text(row['marketplace'] ?? row['platform'] ?? row['marketplace_label'])
+            .trim()
+            .toLowerCase()
+            .replaceAll('_shop', '')
+            .replaceAll(' ', '');
+        final accId = _text(row['marketplace_account_id'] ?? row['account_id']).trim();
+        double? skuHpp;
+
+        if (accId.isNotEmpty && skuHppByAccount.containsKey(accId)) {
+          skuHpp = skuHppByAccount[accId];
+        } else if (mktKey.isNotEmpty) {
+          for (final entry in skuHppByMkt.entries) {
+            if (mktKey.contains(entry.key) || entry.key.contains(mktKey)) {
+              skuHpp = (skuHpp ?? 0.0) + entry.value;
+            }
+          }
+        }
+
+        if ((skuHpp == null || skuHpp == 0) && (summaryHpp > 0 || totalSkuHpp > 0)) {
+          final targetTotalHpp = summaryHpp > 0 ? summaryHpp : totalSkuHpp;
+          final gross = _num(row['gross_sales'] ?? row['gross'] ?? row['omzet_total']);
+          if (totalMktGross > 0 && gross > 0) {
+            skuHpp = (gross / totalMktGross) * targetTotalHpp;
+          }
+        }
+
+        if (skuHpp != null && skuHpp > 0) {
+          currentHpp = skuHpp;
+          row['hpp_total'] = currentHpp;
+          row['total_hpp'] = currentHpp;
+          row['hpp'] = currentHpp;
+          row['paid_hpp_total'] = currentHpp;
+          row['settled_hpp_total'] = currentHpp;
+
+          final payout = _numFirstNonZero([
+            row['payout_total'],
+            row['payout_amount'],
+            row['received_amount'],
+            row['net_settlement'],
+            row['payout'],
+          ]);
+          final profit = payout - currentHpp;
+          row['net_profit'] = profit;
+          row['profit'] = profit;
+          row['margin_percent'] = payout > 0 ? (profit / payout) * 100 : 0.0;
+          row['net_margin_percent'] = row['margin_percent'];
+        }
+      }
+      return row;
+    }).toList();
+  }
+
   Future<List<Map<String, dynamic>>> _fetchCashAdjustmentsPeriod() async {
     final start = _toDateParam(_start);
     final end = _toDateParam(_end);
@@ -2368,8 +2491,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .where((row) => !_isBackendGeneratedProfitLossBreakdownRow(row)),
       ..._profitLossExpenseDetailRows(normalizedExpenses),
     ];
-    final normalizedMarketplaceForDisplay =
-        _marketplaceRowsWithFinanceAliases(normalizedMarketplace);
+    final normalizedMarketplaceForDisplay = _enrichMarketplaceRowsHppFromSku(
+        _marketplaceRowsWithFinanceAliases(normalizedMarketplace),
+        normalizedSku,
+        summary: displaySummary);
     setState(() {
       _accounts = mergedAccounts;
       _summary = displaySummary;
@@ -2411,11 +2536,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             data['by_marketplace'] ??
             data['marketplaces'],
       );
-      _profitLossByMarketplace = _marketplaceRowsWithFinanceAliases(
-        rawProfitLossMarketplace
-            .whereType<Map>()
-            .map((row) => Map<String, dynamic>.from(row))
-            .toList(),
+      _profitLossByMarketplace = _enrichMarketplaceRowsHppFromSku(
+        _marketplaceRowsWithFinanceAliases(
+          rawProfitLossMarketplace
+              .whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row))
+              .toList(),
+        ),
+        normalizedSku,
+        summary: displaySummary,
       );
       _abnormals = _normalizeAbnormalRows(_asList(data['abnormals']));
       _sampleFreeOrders = _normalizeAbnormalRows(
@@ -2481,8 +2610,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .from('marketplace_orders')
           .select('marketplace_order_id')
           .gte('order_created_at', startWib)
-          .lt('order_created_at', nextWib)
-          .or('marketplace.eq.tiktok_shop,marketplace.eq.tiktok');
+          .lt('order_created_at', nextWib);
+      if (mktKey != null && mktKey != 'all') {
+        orderQuery = orderQuery.eq('marketplace', mktKey);
+      }
       if (accountId != null) {
         orderQuery = orderQuery.eq('marketplace_account_id', accountId);
       }
@@ -2493,8 +2624,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .from('marketplace_finance_reports')
           .select('finance_report_id')
           .gte('period_start', startKey)
-          .lte('period_start', endKey)
-          .or('marketplace.eq.tiktok_shop,marketplace.eq.tiktok');
+          .lte('period_start', endKey);
+      if (mktKey != null && mktKey != 'all') {
+        financeQuery = financeQuery.eq('marketplace', mktKey);
+      }
       if (accountId != null) {
         financeQuery = financeQuery.eq('marketplace_account_id', accountId);
       }
@@ -2502,7 +2635,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final financeRows = _asList(await financeQuery);
 
       final message = orderRows.isNotEmpty && financeRows.isEmpty
-          ? 'TikTok: order ada, settlement finance belum masuk'
+          ? '${mktKey != null ? mktKey.toUpperCase() : "Marketplace"}: order ada, settlement finance belum masuk'
           : '';
       _financeLoadCache[cacheKey] = message;
       if (mounted && _isCurrentFilter(startKey, endKey, mktKey, accKey)) {
@@ -3103,10 +3236,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         expenseRows,
         purchaseRows,
       );
-      final byMarketplace = _marketplaceRowsWithFinanceAliases(
-        _profitLossByMarketplace.isNotEmpty
-            ? _profitLossByMarketplace
-            : _byMarketplace,
+      final byMarketplace = _enrichMarketplaceRowsHppFromSku(
+        _marketplaceRowsWithFinanceAliases(
+          _profitLossByMarketplace.isNotEmpty
+              ? _profitLossByMarketplace
+              : _byMarketplace,
+        ),
+        _bySku,
+        summary: displaySummary,
       );
       final profitLossData = <Map<String, dynamic>>[
         ..._profitLossRowsFromSummary(displaySummary)
@@ -3224,7 +3361,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           existing['payout_total'] = _num(existing['payout_total']) + _num(row['payout_total']);
           existing['payout_amount'] = _num(existing['payout_amount']) + _num(row['payout_amount']);
           existing['gross_sales'] = _num(existing['gross_sales']) + _num(row['gross_sales']);
-          existing['hpp_total'] = _num(existing['hpp_total']) + _num(row['hpp_total']);
+          existing['hpp_total'] = _num(existing['hpp_total']) +
+              _numFirstNonZero([
+                row['paid_hpp_total'],
+                row['settled_hpp_total'],
+                row['hpp_total'],
+                row['total_hpp'],
+                row['hpp_cair'],
+                row['hpp_settled'],
+                row['hpp_amount'],
+                row['hpp'],
+              ]);
         }
       }
 
@@ -3560,10 +3707,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final category = _text(row['category'], '').trim().toLowerCase();
       final note =
           _text(row['note'] ?? row['description'], '').trim().toLowerCase();
-      final sourceField = _text(row['source']).trim().toLowerCase();
-
       final signature =
-          '$stableDate|$category|$note|${amount.toStringAsFixed(2)}|$sourceField';
+          '$stableDate|$category|$note|${amount.toStringAsFixed(2)}';
       if (seenSignatures.contains(signature)) {
         continue;
       }
@@ -3855,6 +4000,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       map['settled_hpp_total'],
       map['hpp_total'],
       map['total_hpp'],
+      map['hpp_cair'],
+      map['hpp_settled'],
       map['hpp_amount'],
       map['hpp']
     ]).abs();
@@ -3939,6 +4086,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         row['settled_hpp_total'],
         row['hpp_total'],
         row['total_hpp'],
+        row['hpp_cair'],
+        row['hpp_settled'],
         row['hpp_amount'],
         row['hpp']
       ]);
@@ -8959,31 +9108,82 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return DefaultTabController(
       length: tabs.length,
       initialIndex: safeInitialTab,
-      child: AppGlobalBackdrop(
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            leading: IconButton(
-              icon: Icon(Icons.arrow_back_ios_rounded, size: 20),
-              onPressed: () => Navigator.of(context).maybePop(),
-            ),
-            title: Text(
-              'Laporan Keuangan',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.1,
-                color: Theme.of(context).colorScheme.onSurface,
+      child: WebResponsiveScaffold(
+        title: 'Laporan Keuangan',
+        activeWebTitle: 'Laporan Keuangan & Margin',
+        onBack: () => Navigator.of(context).maybePop(),
+        actions: [
+          if (_loading)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
               ),
+            )
+          else if (_canAccessFinance) ...[
+            IconButton(
+              tooltip: 'Hapus data finance marketplace',
+              onPressed: _processing ? null : _clearMarketplaceFinanceData,
+              icon: const Icon(Icons.delete_sweep_rounded, size: 22),
             ),
-            actions: [
-              if (_loading)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+            IconButton(
+              tooltip: 'Export semua marketplace',
+              onPressed:
+                  _processing ? null : _exportAllMarketplaceFinanceReport,
+              icon: const Icon(Icons.file_download_rounded, size: 22),
+            ),
+            IconButton(
+              tooltip: 'Muat ulang tampilan',
+              onPressed: _processing ? null : _hardReloadFinanceView,
+              icon: const Icon(Icons.refresh_rounded, size: 22),
+            ),
+          ],
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(40),
+          child: TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            indicatorSize: TabBarIndicatorSize.tab,
+            indicatorColor: Theme.of(context).colorScheme.primary,
+            indicatorWeight: 2.5,
+            labelColor: Theme.of(context).colorScheme.primary,
+            unselectedLabelColor: AppUi.mutedText(context, 0.88),
+            labelStyle: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0),
+            unselectedLabelStyle:
+                const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+            tabs: tabs,
+          ),
+        ),
+        floatingActionButton: Builder(
+          builder: (fabContext) {
+            final tabController = DefaultTabController.maybeOf(fabContext);
+            if (tabController == null) return const SizedBox.shrink();
+
+            return AnimatedBuilder(
+              animation: tabController,
+              builder: (context, _) {
+                final isExpenseTab = tabController.index == 4;
+                if (!_canAccessFinance ||
+                    _isDemoSuperAdmin ||
+                    !isExpenseTab) {
+                  return const SizedBox.shrink();
+                }
+
+                if (_processing) {
+                  return FloatingActionButton.small(
+                    onPressed: null,
+                    backgroundColor: Theme.of(context).cardColor,
                     child: SizedBox(
                       width: 18,
                       height: 18,
@@ -8992,123 +9192,42 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         color: Theme.of(context).colorScheme.primary,
                       ),
                     ),
-                  ),
-                )
-              else if (_canAccessFinance) ...[
-                IconButton(
-                  tooltip: 'Hapus data finance marketplace',
-                  onPressed: _processing ? null : _clearMarketplaceFinanceData,
-                  icon: Icon(Icons.delete_sweep_rounded, size: 22),
-                ),
-                IconButton(
-                  tooltip: 'Export semua marketplace',
-                  onPressed:
-                      _processing ? null : _exportAllMarketplaceFinanceReport,
-                  icon: Icon(Icons.file_download_rounded, size: 22),
-                ),
-                IconButton(
-                  tooltip: 'Muat ulang tampilan',
-                  onPressed: _processing ? null : _hardReloadFinanceView,
-                  icon: Icon(Icons.refresh_rounded, size: 22),
-                ),
-              ],
-            ],
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(48),
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .outlineVariant
-                          .withOpacity(0.4),
-                    ),
-                  ),
-                ),
-                child: TabBar(
-                  isScrollable: true,
-                  tabAlignment: TabAlignment.start,
-                  indicatorSize: TabBarIndicatorSize.tab,
-                  indicatorColor: Theme.of(context).colorScheme.primary,
-                  indicatorWeight: 2.5,
-                  labelColor: Theme.of(context).colorScheme.primary,
-                  unselectedLabelColor: AppUi.mutedText(context, 0.88),
-                  labelStyle: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0),
-                  unselectedLabelStyle:
-                      TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                  tabs: tabs,
-                ),
-              ),
-            ),
-          ),
-          floatingActionButton: Builder(
-            builder: (fabContext) {
-              final tabController = DefaultTabController.maybeOf(fabContext);
-              if (tabController == null) return const SizedBox.shrink();
-
-              return AnimatedBuilder(
-                animation: tabController,
-                builder: (context, _) {
-                  final isExpenseTab = tabController.index == 4;
-                  if (!_canAccessFinance ||
-                      _isDemoSuperAdmin ||
-                      !isExpenseTab) {
-                    return const SizedBox.shrink();
-                  }
-
-                  if (_processing) {
-                    return FloatingActionButton.small(
-                      onPressed: null,
-                      backgroundColor: Theme.of(context).cardColor,
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    );
-                  }
-
-                  return FloatingActionButton.extended(
-                    onPressed: _addManualExpense,
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                    icon: Icon(Icons.add, size: 20),
-                    label: Text('Biaya',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
                   );
-                },
-              );
-            },
-          ),
-          body: SafeArea(
-            child: Column(
-              children: [
-                _marketplaceBootstrapFinanceBanner(),
-                _filterBar(),
-                Expanded(
-                  child: _error != null
-                      ? _errorState()
-                      : TabBarView(
-                          children: [
-                            _summaryTab(),
-                            _marketplaceTab(),
-                            _skuTab(),
-                            _cashFlowTab(),
-                            _expensesTab(),
-                            _profitLossTab(),
-                            _abnormalTab(),
-                          ],
-                        ),
-                ),
-              ],
-            ),
+                }
+
+                return FloatingActionButton.extended(
+                  onPressed: _addManualExpense,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                  icon: const Icon(Icons.add, size: 20),
+                  label: const Text('Biaya',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                );
+              },
+            );
+          },
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _marketplaceBootstrapFinanceBanner(),
+              _filterBar(),
+              Expanded(
+                child: _error != null
+                    ? _errorState()
+                    : TabBarView(
+                        children: [
+                          _summaryTab(),
+                          _marketplaceTab(),
+                          _skuTab(),
+                          _cashFlowTab(),
+                          _expensesTab(),
+                          _profitLossTab(),
+                          _abnormalTab(),
+                        ],
+                      ),
+              ),
+            ],
           ),
         ),
       ),
@@ -10120,30 +10239,66 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             _emptyCard(
                 'Data marketplace belum tersedia.\nTarik data finance untuk periode ini.')
           else
-            ..._byMarketplace.map((row) {
-              final marketplace = _marketplaceName(_text(row['marketplace']));
-              final shop = _text(
-                  row['shop_name'] ?? row['seller_name'] ?? row['account_name'],
-                  _accountNameById(_text(row['marketplace_account_id'])));
-              final profit = _num(row['net_profit'] ?? row['profit']);
-              final margin =
-                  _num(row['net_margin_percent'] ?? row['margin_percent']);
-              return _detailCard(
-                title: '$marketplace · $shop',
-                subtitle:
-                    '${_num(row['order_count']).toStringAsFixed(0)} pesanan  ·  ${_dateTime(row['last_updated_at'] ?? row['updated_at'])}',
-                children: [
-                  _miniMetric('Omzet',
-                      _money(_num(row['gross_sales'] ?? row['gross']))),
-                  _miniMetric('Payout',
-                      _money(_num(row['payout_total'] ?? row['net_received']))),
-                  _miniMetric(
-                      'HPP', _money(_num(row['hpp_total'] ?? row['hpp']))),
-                  _miniMetric('Laba', _money(profit)),
-                  _miniMetric('Margin', '${margin.toStringAsFixed(2)}%'),
-                ],
+            ...() {
+              final mktList = _byMarketplace;
+              final summaryHpp = _numFirstNonZero([
+                _summary['hpp_total'],
+                _summary['total_hpp'],
+                _summary['paid_hpp_total'],
+                _summary['settled_hpp_total'],
+                _summary['hpp_cair'],
+                _summary['hpp'],
+              ]);
+              final totalMktGross = mktList.fold<double>(
+                0.0,
+                (sum, r) =>
+                    sum +
+                    _num(r['gross_sales'] ?? r['gross'] ?? r['omzet_total']),
               );
-            }),
+
+              return mktList.map((row) {
+                final marketplace =
+                    _marketplaceName(_text(row['marketplace']));
+                final shop = _text(
+                    row['shop_name'] ??
+                        row['seller_name'] ??
+                        row['account_name'],
+                    _accountNameById(_text(row['marketplace_account_id'])));
+                final gross =
+                    _num(row['gross_sales'] ?? row['gross'] ?? row['omzet']);
+                final payout = _num(row['payout_total'] ?? row['net_received']);
+                var hpp = _numFirstNonZero([
+                  row['hpp_total'],
+                  row['total_hpp'],
+                  row['paid_hpp_total'],
+                  row['settled_hpp_total'],
+                  row['hpp_cair'],
+                  row['hpp_settled'],
+                  row['hpp_amount'],
+                  row['hpp'],
+                ]);
+                if (hpp == 0 &&
+                    summaryHpp > 0 &&
+                    totalMktGross > 0 &&
+                    gross > 0) {
+                  hpp = (gross / totalMktGross) * summaryHpp;
+                }
+                final profit = payout > 0 ? (payout - hpp) : 0.0;
+                final margin = payout > 0 ? (profit / payout * 100) : 0.0;
+                return _detailCard(
+                  title: '$marketplace · $shop',
+                  subtitle:
+                      '${_num(row['order_count']).toStringAsFixed(0)} pesanan  ·  ${_dateTime(row['last_updated_at'] ?? row['updated_at'])}',
+                  children: [
+                    _miniMetric('Omzet', _money(gross)),
+                    _miniMetric('Payout', _money(payout)),
+                    _miniMetric('HPP', _money(hpp)),
+                    _miniMetric('Laba', _money(profit)),
+                    _miniMetric('Margin', '${margin.toStringAsFixed(2)}%'),
+                  ],
+                );
+              });
+            }(),
         ],
       ),
     );
@@ -11756,12 +11911,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final shop = _text(row['shop_name'] ?? row['account_name'], marketplace);
       final orderCount =
           _num(row['order_count'] ?? row['finance_order_count']).toInt();
-      final gross =
-          _num(row['gross_sales'] ?? row['omzet_total'] ?? row['gross_total']);
+      final grossOriginal = _num(row['gross_original'] ?? row['gross_sales'] ?? row['gross_total']);
+      final sellerDiscount = _num(row['seller_discount'] ?? 0);
+      final omzetPaid = _num(row['omzet_normal_paid'] ?? row['omzet_paid'] ?? (grossOriginal - sellerDiscount.abs()));
+      final gross = grossOriginal;
+
       final payout = _num(row['payout_total'] ??
           row['received_amount'] ??
           row['net_settlement']);
-      final hpp = _num(row['hpp_total'] ?? row['total_hpp']);
+      final hpp = _numFirstNonZero([
+        row['paid_hpp_total'],
+        row['settled_hpp_total'],
+        row['hpp_total'],
+        row['total_hpp'],
+        row['hpp_cair'],
+        row['hpp_settled'],
+        row['hpp_amount'],
+        row['hpp']
+      ]);
       final profit = _num(row['net_profit'] ?? row['profit'] ?? (payout - hpp));
       final margin = payout > 0
           ? _num(row['margin_percent'] ??
@@ -11811,23 +11978,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         row['affiliate_fee'],
         row['affiliate_commission'],
         row['biaya_afiliasi'],
-        row['affiliate_cost'],
-        row['affiliate_commission_amount'],
+        row['affiliate_fee_amount'],
       ]);
       final shippingFee = _numFirstNonZero([
         row['shipping_fee'],
-        row['shipping_cost'],
-        row['biaya_pengiriman'],
-        row['ongkir_seller'],
+        row['ongkir'],
+        row['biaya_ongkir'],
+        row['shipping_fee_amount'],
       ]);
-      final feeAmount = _num(row['fee_amount'] ??
-          row['total_fees'] ??
-          row['total_deductions'] ??
-          row['biaya'] ??
-          row['deductions'] ??
-          (gross - payout > 0 ? gross - payout : 0));
-      final knownFeesTotal = platformFee.abs() + commissionFee.abs() + affiliateFee.abs() + shippingFee.abs();
-      final otherFees = feeAmount.abs() > knownFeesTotal + 0.49 ? feeAmount.abs() - knownFeesTotal : 0.0;
+      final totalFees = _numFirstNonZero([
+        row['total_fees'],
+        row['fee_total'],
+        row['marketplace_fee'],
+        row['total_fee'],
+      ]);
+      final subFees = platformFee + commissionFee + affiliateFee + shippingFee;
+      final otherFees =
+          (totalFees.abs() - subFees.abs()) > 1.0 ? (totalFees.abs() - subFees.abs()) : 0.0;
+      final calculatedPayout = omzetPaid - totalFees.abs() - refund.abs() + adjustment;
+      final diff = (calculatedPayout - payout).abs();
+      
       final subsidy = _num(row['subsidy_amount'] ??
           row['marketplace_subsidy'] ??
           row['seller_subsidy']);
@@ -11954,12 +12124,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             () {
               Widget reconcileItemRow(String label, double val,
                   {bool bold = false, bool positiveColor = false, bool isDeduction = false}) {
-                if (val == 0 &&
-                    !bold &&
-                    !isDeduction &&
-                    label != 'Gross before marketplace discount') {
-                  return const SizedBox.shrink();
-                }
                 final clr = positiveColor
                     ? Colors.green
                     : ((val < 0 || isDeduction)
@@ -12012,128 +12176,56 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   adjustment;
               final diff = (calculatedPayout - payout).abs();
 
-              if (!_profitLossLoaded) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withOpacity(0.04),
-                        border: Border.all(
-                            color: Theme.of(context)
-                                .dividerColor
-                                .withOpacity(0.15)),
-                      ),
-                      child: Text(
-                        _profitLossLoading
-                            ? 'Memuat rincian rekonsiliasi...'
-                            : (_profitLossError != null
-                                ? 'Gagal memuat rincian: $_profitLossError'
-                                : 'Rekonsiliasi belum selesai dimuat'),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withOpacity(0.82),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              }
-
-              final key = '$marketplace|$shop';
-              final isExpanded = _expandedReconciliations.contains(key);
+              final isExpanded = true;
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        if (isExpanded) {
-                          _expandedReconciliations.remove(key);
-                        } else {
-                          _expandedReconciliations.add(key);
-                        }
-                      });
-                    },
-                    icon: Icon(
-                      isExpanded ? Icons.expand_less : Icons.expand_more,
-                      size: 16,
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.04),
+                      border: Border.all(
+                          color: Theme.of(context)
+                              .dividerColor
+                              .withOpacity(0.15)),
                     ),
-                    label: Text(
-                      isExpanded
-                          ? 'Sembunyikan Rincian Rekonsiliasi'
-                          : 'Lihat Rincian Rekonsiliasi',
-                      style:
-                          TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Rincian Rekonsiliasi (Diaudit)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color:
+                                Theme.of(context).textTheme.bodyLarge?.color,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        reconcileItemRow('Gross Sales before discount', grossOriginal),
+                        reconcileItemRow('Marketplace Voucher / Discount', discount.abs(), isDeduction: true),
+                        reconcileItemRow('Customer Paid Omzet Normal', omzetPaid, bold: true),
+                        reconcileItemRow('Biaya Komisi / Commission Fee', commissionFee.abs(), isDeduction: true),
+                        reconcileItemRow('Biaya Layanan / Platform Fee', platformFee.abs(), isDeduction: true),
+                        reconcileItemRow('Biaya Afiliasi / Affiliate Fee', affiliateFee.abs(), isDeduction: true),
+                        reconcileItemRow('Biaya Pengiriman / Shipping Fee', shippingFee.abs(), isDeduction: true),
+                        reconcileItemRow('Refund / Return Pembeli', refund.abs(), isDeduction: true),
+                        reconcileItemRow('Settlement Correction / Gap', adjustment),
+                        reconcileItemRow('Net Payout Received', payout, bold: true, positiveColor: true),
+                        const SizedBox(height: 6),
+                        Divider(height: 1, color: Theme.of(context).dividerColor.withOpacity(0.2)),
+                        const SizedBox(height: 6),
+                        reconcileItemRow('HPP Settled (COGS Lunas)', _num(row['hpp_settled']), isDeduction: true),
+                        reconcileItemRow('Est HPP Belum Payout', _num(row['unpaid_hpp']), isDeduction: true),
+                        reconcileItemRow('Marketplace Net Profit & Margin %', profit, bold: true, positiveColor: profit >= 0),
+                      ],
                     ),
                   ),
-                  if (isExpanded) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withOpacity(0.04),
-                        border: Border.all(
-                            color: Theme.of(context)
-                                .dividerColor
-                                .withOpacity(0.15)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Rincian Rekonsiliasi (Diaudit)',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color:
-                                  Theme.of(context).textTheme.bodyLarge?.color,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          reconcileItemRow(
-                              'Gross before marketplace discount', gross),
-                          if (discount.abs() > 0.01)
-                            reconcileItemRow('Marketplace voucher/discount', discount.abs(), isDeduction: true),
-                          reconcileItemRow('Omzet normal / customer paid sales',
-                              gross - discount.abs(),
-                              bold: true),
-                          if (commissionFee.abs() > 0.01)
-                            reconcileItemRow('Biaya Komisi / Commission Fee', commissionFee.abs(), isDeduction: true),
-                          if (affiliateFee.abs() > 0.01)
-                            reconcileItemRow('Biaya Afiliasi / Affiliate Fee', affiliateFee.abs(), isDeduction: true),
-                          if (platformFee.abs() > 0.01)
-                            reconcileItemRow('Biaya Layanan / Platform Fee', platformFee.abs(), isDeduction: true),
-                          if (shippingFee.abs() > 0.01)
-                            reconcileItemRow('Biaya Pengiriman / Shipping Fee', shippingFee.abs(), isDeduction: true),
-                          if (subFees == 0 && totalFees > 0)
-                            reconcileItemRow('Biaya & Potongan Marketplace', totalFees.abs(), isDeduction: true),
-                          if (otherFees > 0.01 || _num(row['other_fee']).abs() > 0.01)
-                            reconcileItemRow('Biaya Lain-lain / Other Fee', (otherFees > 0 ? otherFees : _num(row['other_fee'])).abs(), isDeduction: true),
-                          if (refund.abs() > 0.01)
-                            reconcileItemRow('Refund / Return Pembeli', refund.abs(), isDeduction: true),
-                          if (adjustment != 0)
-                            reconcileItemRow('Settlement correction/gap', adjustment),
-                          reconcileItemRow('Net payout (Diterima)', payout,
-                              bold: true, positiveColor: true),
-                        ],
-                      ),
-                    ),
                     const SizedBox(height: 8),
                     // Reconciliation Formula Note
                     Container(
@@ -12164,9 +12256,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       ),
                     ),
                   ],
-                ],
-              );
-            }(),
+                );
+              }(),
           ],
         ),
       );
@@ -12179,7 +12270,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         (sum, row) =>
             sum + _num(row['payout_total'] ?? row['received_amount']));
     final totalHpp = _profitLossByMarketplace.fold<num>(
-        0, (sum, row) => sum + _num(row['hpp_total'] ?? row['total_hpp']));
+        0,
+        (sum, row) =>
+            sum +
+            _numFirstNonZero([
+              row['paid_hpp_total'],
+              row['settled_hpp_total'],
+              row['hpp_total'],
+              row['total_hpp'],
+              row['hpp_cair'],
+              row['hpp_settled'],
+              row['hpp_amount'],
+              row['hpp']
+            ]));
     final totalProfit = _profitLossByMarketplace.fold<num>(
         0,
         (sum, row) =>
@@ -12189,7 +12292,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 (_num(row['payout_total'] ??
                         row['received_amount'] ??
                         row['net_settlement']) -
-                    _num(row['hpp_total'] ?? row['total_hpp']))));
+                    _numFirstNonZero([
+                      row['paid_hpp_total'],
+                      row['settled_hpp_total'],
+                      row['hpp_total'],
+                      row['total_hpp'],
+                      row['hpp_cair'],
+                      row['hpp_settled'],
+                      row['hpp_amount'],
+                      row['hpp']
+                    ]))));
     final totalMargin = totalPayout > 0 ? (totalProfit / totalPayout) * 100 : 0;
 
     return Container(
@@ -12266,8 +12378,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _summary['payout'] ??
         _summary['received_amount'] ??
         _summary['net_received']);
-    final summaryHpp =
-        _num(_summary['hpp_total'] ?? _summary['hpp'] ?? _summary['total_hpp']);
+    final summaryHpp = _numFirstNonZero([
+      _summary['hpp_total'],
+      _summary['total_hpp'],
+      _summary['paid_hpp_total'],
+      _summary['settled_hpp_total'],
+      _summary['hpp_cair'],
+      _summary['hpp_settled'],
+      _summary['hpp_amount'],
+      _summary['hpp'],
+    ]);
     final operational = _num(_summary['operational_cost_total'] ??
         _summary['operational_expense'] ??
         _summary['expense_total']);
@@ -12277,7 +12397,19 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final mktPayout = _profitLossByMarketplace.fold<double>(
         0.0, (sum, r) => sum + _num(r['payout_total'] ?? r['payout_amount'] ?? r['received_amount'] ?? r['payout']));
     final mktHpp = _profitLossByMarketplace.fold<double>(
-        0.0, (sum, r) => sum + _num(r['hpp_total'] ?? r['total_hpp'] ?? r['hpp']));
+        0.0,
+        (sum, r) =>
+            sum +
+            _numFirstNonZero([
+              r['hpp_total'],
+              r['total_hpp'],
+              r['paid_hpp_total'],
+              r['settled_hpp_total'],
+              r['hpp_cair'],
+              r['hpp_settled'],
+              r['hpp_amount'],
+              r['hpp'],
+            ]));
 
     final gross = summaryGross > 0 ? summaryGross : (mktGross > 0 ? mktGross : paidSkuTotals['gross']!);
     final payout = summaryPayout > 0 ? summaryPayout : (mktPayout > 0 ? mktPayout : paidSkuTotals['payout']!);
@@ -16764,6 +16896,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _hasReleasedPayout(Map<String, dynamic> detail) {
+    final payout = _linePayoutAmount(detail);
+    if (payout != 0) {
+      return true;
+    }
+
     if (detail.containsKey('has_payout') && detail['has_payout'] != null) {
       if (detail['has_payout'] == true) return true;
     }
@@ -16790,14 +16927,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return false;
     }
 
+    if (financeStatus.contains('SETTLED') && !financeStatus.contains('UNSETTLED')) {
+      return true;
+    }
+
     final marketplace = _text(detail['marketplace'] ?? detail['marketplace_name'], '').toLowerCase();
     if (marketplace.contains('shopee')) {
+      if (financeStatus.contains('SETTLED') || financeStatus.contains('PAID') || financeStatus.contains('RELEASE')) {
+        return true;
+      }
       final bool isUnpaidStatus = financeStatus.contains('SHIPPED') ||
           financeStatus.contains('DIKIRIM') ||
           financeStatus.contains('RECEIVE') ||
           financeStatus.contains('BELUM') ||
           financeStatus.contains('PENDING') ||
           financeStatus.contains('UNPAID') ||
+          financeStatus.contains('UNSETTLED') ||
           financeStatus.contains('PERLU') ||
           financeStatus.contains('READY') ||
           financeStatus.contains('DITERIMA') ||
@@ -16808,9 +16953,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               financeStatus.contains('IMPORT') ||
               financeStatus.contains('PROCESSED'));
     }
-
-    final payout = _linePayoutAmount(detail);
-    if (payout != 0) return true;
 
     return financeStatus.contains('SETTLED') ||
         financeStatus.contains('PAID') ||

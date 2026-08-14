@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class SubscriptionPlansPage extends StatefulWidget {
   const SubscriptionPlansPage({super.key});
@@ -868,7 +869,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
         _plansList.where((p) => p['is_active'] as bool? ?? true).length;
     final inactiveCount = _plansList.length - activeCount;
 
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: Text(
           'EDITOR PAKET SUBSCRIPTION',

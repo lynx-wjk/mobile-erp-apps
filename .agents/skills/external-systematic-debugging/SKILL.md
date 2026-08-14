@@ -118,8 +118,11 @@ You MUST complete each phase before proceeding to the next.
    **Quick version:**
    - Where does bad value originate?
    - What called this with bad value?
-   - Keep tracing up until you find the source
-   - Fix at source, not at symptom
+12. **Audit State Synchronization & Parameter Lifecycles**
+    - Check if enrichment helpers read stale/uninitialized instance variables (`this._summary`).
+    - Pass fresh local calculation objects (`displaySummary`) explicitly into enrichment functions.
+    - Audit all entry points (`initial load`, `cached load`, `supplemental refresh`, `tab render`) that mutate or display target state variables to guarantee consistent enrichment.
+    - Enforce double-defense fallback calculations in UI widget rendering for critical metrics (HPP, Laba, Margin).
 
 ### Phase 2: Pattern Analysis
 

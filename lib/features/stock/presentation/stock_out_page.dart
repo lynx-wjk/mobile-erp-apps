@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../marketplace/services/marketplace_order_pick_service.dart';
 import 'qr_scan_page.dart';
 
@@ -1866,41 +1867,43 @@ class _StockOutPageState extends State<StockOutPage> {
   Widget build(BuildContext context) {
     return Theme(
       data: _safeFiniteButtonTheme(context),
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text('Stok Keluar'),
-          actions: [
-            IconButton(
-              onPressed: _loadInitial,
-              icon: Icon(Icons.refresh),
-            ),
-          ],
-        ),
-        bottomNavigationBar: SafeArea(
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-            decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              border: Border(
-                top: BorderSide(
-                  color: Theme.of(context).dividerColor.withOpacity(0.18),
+      child: WebResponsiveScaffold(
+        title: 'Stok Keluar',
+        actions: [
+          IconButton(
+            onPressed: _loadInitial,
+            icon: Icon(Icons.refresh),
+          ),
+        ],
+        body: Column(
+          children: [
+            Expanded(child: _body()),
+            SafeArea(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  border: Border(
+                    top: BorderSide(
+                      color: Theme.of(context).dividerColor.withOpacity(0.18),
+                    ),
+                  ),
+                ),
+                child: FilledButton.icon(
+                  onPressed: _isSaving ? null : _save,
+                  icon: _isSaving
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(Icons.save_outlined),
+                  label: Text(_saveLabel),
                 ),
               ),
             ),
-            child: FilledButton.icon(
-              onPressed: _isSaving ? null : _save,
-              icon: _isSaving
-                  ? SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(Icons.save_outlined),
-              label: Text(_saveLabel),
-            ),
-          ),
+          ],
         ),
-        body: _body(),
       ),
     );
   }

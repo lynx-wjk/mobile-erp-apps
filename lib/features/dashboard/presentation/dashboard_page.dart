@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
@@ -977,13 +979,14 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 840;
+    final showSidebar = wide && !kIsWeb;
 
     return Scaffold(
       extendBody: true,
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          if (wide)
+          if (showSidebar)
             Positioned(
               left: 0,
               top: 0,
@@ -991,7 +994,7 @@ class _DashboardPageState extends State<DashboardPage> {
               child: _sidebarNavigation(),
             ),
           Positioned(
-            left: wide ? 316 : 0,
+            left: showSidebar ? 316 : 0,
             right: 0,
             top: 0,
             bottom: 0,
@@ -1005,34 +1008,36 @@ class _DashboardPageState extends State<DashboardPage> {
                       onRefresh: _loadDashboard,
                       child: ListView(
                         padding: EdgeInsets.fromLTRB(
-                          wide ? 24 : 16,
-                          wide ? 24 : 16,
-                          wide ? 24 : 16,
+                          kIsWeb ? 32 : (wide ? 24 : 16),
+                          kIsWeb ? 16 : (wide ? 24 : 16),
+                          kIsWeb ? 32 : (wide ? 24 : 16),
                           wide ? 32 : 132,
                         ),
-                        children: [
-                          _topBar(),
-                          const SizedBox(height: 16),
-                          _profileCard(_user),
-                          if (_isAdmin) ...[
-                            const SizedBox(height: 12),
-                            _subscriptionOverviewCard(),
-                          ],
-                          if (_isDemoSuperAdmin) ...[
-                            const SizedBox(height: 12),
-                            _demoReadOnlyBanner(),
-                          ],
-                          const SizedBox(height: 14),
-                          _summaryGrid(),
-                          const SizedBox(height: 20),
-                          if (_isFinance ||
-                              _isAdmin ||
-                              _canAccessFinance) ...[
-                            _adminAnalyticsCard(),
-                            const SizedBox(height: 20),
-                          ],
-                          ..._roleAnalyticsContent(),
-                        ],
+                        children: (kIsWeb && wide)
+                            ? _webDashboardContent()
+                            : [
+                                _topBar(),
+                                const SizedBox(height: 16),
+                                _profileCard(_user),
+                                if (_isAdmin) ...[
+                                  const SizedBox(height: 12),
+                                  _subscriptionOverviewCard(),
+                                ],
+                                if (_isDemoSuperAdmin) ...[
+                                  const SizedBox(height: 12),
+                                  _demoReadOnlyBanner(),
+                                ],
+                                const SizedBox(height: 14),
+                                _summaryGrid(),
+                                const SizedBox(height: 20),
+                                if (_isFinance ||
+                                    _isAdmin ||
+                                    _canAccessFinance) ...[
+                                  _adminAnalyticsCard(),
+                                  const SizedBox(height: 20),
+                                ],
+                                ..._roleAnalyticsContent(),
+                              ],
                       ),
                     ),
             ),
@@ -1236,6 +1241,10 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _topBar() {
+    final wide = MediaQuery.of(context).size.width >= 768;
+    if (kIsWeb && wide) {
+      return _webTopHeaderPill();
+    }
     return Row(
       children: [
         Expanded(
@@ -1294,6 +1303,730 @@ class _DashboardPageState extends State<DashboardPage> {
         const SizedBox(width: 8),
         _iconBtn(Icons.logout_rounded, _logout),
       ],
+    );
+  }
+
+  Widget _webTopHeaderPill() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final glassBg = isDark
+        ? const Color(0xFF151C2C).withValues(alpha: 0.85)
+        : Colors.white.withValues(alpha: 0.90);
+    final borderColor = isDark
+        ? const Color(0xFF28354A)
+        : const Color(0xFFE2E8F0);
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: glassBg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: borderColor, width: 1.0),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Logo Icon + Brand Name
+          Container(
+            width: 30,
+            height: 30,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [Color(0xFF38BDF8), Color(0xFF2563EB)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: const Center(
+              child: Text(
+                'A',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'Mobile ERP',
+            style: GoogleFonts.outfit(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: textColor,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Container(height: 20, width: 1, color: borderColor),
+          const SizedBox(width: 16),
+
+          // Horizontal Nav Pills
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _navPill('Dashboard', Icons.home_rounded, true, () {}),
+                  const SizedBox(width: 6),
+                  _navPill('Finance', Icons.account_balance_wallet_rounded, false, () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const FinanceReportPage()));
+                  }),
+                  const SizedBox(width: 6),
+                  _navPill('Master SKU', Icons.inventory_2_rounded, false, () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductListPage()));
+                  }),
+                  const SizedBox(width: 6),
+                  _navPill('Stok Masuk', Icons.move_to_inbox_rounded, false, () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const StockInPage()));
+                  }),
+                  const SizedBox(width: 6),
+                  _navPill('Stok Keluar', Icons.outbox_rounded, false, () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const StockOutPage()));
+                  }),
+                  const SizedBox(width: 6),
+                  _navPill('Absensi', Icons.badge_rounded, false, () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => AbsensiPage(currentUser: _appUser)));
+                  }),
+                  const SizedBox(width: 6),
+                  _navPill('Semua Menu', Icons.grid_view_rounded, false, _openAllMenusSheet),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // User Profile Pill
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: borderColor, width: 0.8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircleAvatar(
+                  radius: 11,
+                  backgroundColor: Color(0xFF38BDF8),
+                  child: Icon(Icons.person, size: 13, color: Colors.white),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  (_appUser?.nama ?? _user?.name ?? 'User').trim(),
+                  style: GoogleFonts.outfit(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+
+          // Sun / Moon Switch Pill
+          _webThemeToggleSwitch(borderColor),
+          const SizedBox(width: 8),
+
+          // Logout Button
+          Tooltip(
+            message: 'Logout / Keluar',
+            child: IconButton(
+              icon: const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 18),
+              onPressed: _logout,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _webDashboardContent() {
+    return [
+      _topBar(),
+      const SizedBox(height: 18),
+      _webHeroWelcomeCard(),
+      const SizedBox(height: 18),
+      _webSummaryRow(),
+      const SizedBox(height: 22),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Left Side (8 cols): Financial Analytics & Role Content
+          Expanded(
+            flex: 8,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_isFinance || _isAdmin || _canAccessFinance) ...[
+                  _adminAnalyticsCard(),
+                  const SizedBox(height: 20),
+                ],
+                ..._roleAnalyticsContent(),
+              ],
+            ),
+          ),
+          const SizedBox(width: 20),
+
+          // Right Side (4 cols): User Profile & Subscription Card + Bento Quick Menu
+          Expanded(
+            flex: 4,
+            child: Column(
+              children: [
+                _profileCard(_user),
+                if (_isAdmin) ...[
+                  const SizedBox(height: 16),
+                  _subscriptionOverviewCard(),
+                ],
+                if (_isDemoSuperAdmin) ...[
+                  const SizedBox(height: 16),
+                  _demoReadOnlyBanner(),
+                ],
+                const SizedBox(height: 16),
+                _webQuickMenuBentoCard(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ];
+  }
+
+  Widget _webHeroWelcomeCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final userName = (_appUser?.nama ?? _user?.name ?? 'User').trim();
+    final roleName = _appUser != null ? _appUser!.role.name.toUpperCase() : 'STAFF';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isDark
+              ? [const Color(0xFF1E293B), const Color(0xFF0F172A)]
+              : [const Color(0xFFEFF6FF), const Color(0xFFDBEAFE)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFBFDBFE),
+          width: 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF38BDF8), Color(0xFF2563EB)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.35),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const Icon(Icons.space_dashboard_rounded, color: Colors.white, size: 28),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'Selamat Datang, $userName',
+                      style: GoogleFonts.outfit(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.4), width: 0.8),
+                      ),
+                      child: Text(
+                        roleName,
+                        style: GoogleFonts.outfit(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF0284C7),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton.icon(
+            onPressed: _loadDashboard,
+            icon: const Icon(Icons.refresh_rounded, size: 16),
+            label: const Text('Refresh Data'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isDark ? const Color(0xFF334155) : Colors.white,
+              foregroundColor: isDark ? Colors.white : const Color(0xFF1E293B),
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _webSummaryRow() {
+    final items = _summaryItemsForRole();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Row(
+      children: items.map((item) {
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 12.0),
+            child: InkWell(
+              onTap: item.onTap,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E293B).withValues(alpha: 0.7)
+                      : Colors.white.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: item.color.withValues(alpha: isDark ? 0.35 : 0.25),
+                    width: 1.0,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: item.color.withValues(alpha: isDark ? 0.15 : 0.08),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: item.color.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(item.icon, color: item.color, size: 24),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            item.value,
+                            style: GoogleFonts.outfit(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                              height: 1.1,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            item.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.outfit(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 14,
+                      color: isDark ? Colors.white30 : Colors.black26,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _webQuickMenuBentoCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final menus = _filterMenusByPlan(_roleMenus());
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.7) : Colors.white.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+          width: 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.widgets_rounded, color: Color(0xFF38BDF8), size: 18),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'Akses Cepat & Fitur',
+                style: GoogleFonts.outfit(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: _openAllMenusSheet,
+                child: const Text('Lihat Semua', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ...menus.take(7).map((menu) => Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: InkWell(
+                  onTap: menu.onTap,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF0F172A).withValues(alpha: 0.5) : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isDark ? const Color(0xFF334155).withValues(alpha: 0.5) : const Color(0xFFE2E8F0),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(menu.icon, size: 18, color: const Color(0xFF3B82F6)),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            menu.title,
+                            style: GoogleFonts.outfit(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? Colors.white : const Color(0xFF1E293B),
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 18,
+                          color: isDark ? Colors.white38 : Colors.black38,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )),
+        ],
+      ),
+    );
+  }
+
+  void _openAllMenusSheet() {
+    final menus = _filterMenusByPlan(_roleMenus());
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.85,
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(
+              color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+            ),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.grid_view_rounded, color: Color(0xFF38BDF8), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Semua Menu Operasional',
+                    style: GoogleFonts.outfit(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Expanded(
+                child: GridView.builder(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: MediaQuery.of(context).size.width >= 1024 ? 3 : 2,
+                    childAspectRatio: 2.8,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                  ),
+                  itemCount: menus.length,
+                  itemBuilder: (context, index) {
+                    final menu = menus[index];
+                    return InkWell(
+                      onTap: () {
+                        Navigator.pop(context);
+                        menu.onTap();
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF3B82F6).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(menu.icon, color: const Color(0xFF3B82F6), size: 20),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    menu.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                  if (menu.subtitle.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      menu.subtitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark ? Colors.white60 : Colors.black54,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _navPill(String label, IconData icon, bool active, VoidCallback onTap) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: active
+              ? (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0))
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: active
+                  ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                  : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: GoogleFonts.outfit(
+                fontSize: 12,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                color: active
+                    ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                    : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _webThemeToggleSwitch(Color borderColor) {
+    return ValueListenableBuilder<AppVisualMode>(
+      valueListenable: AppThemeModeController.mode,
+      builder: (context, mode, _) {
+        final isCurrentDark = mode == AppVisualMode.man;
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+
+        return Tooltip(
+          message: isCurrentDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+          child: InkWell(
+            onTap: () async {
+              await AppThemeModeController.toggle();
+            },
+            borderRadius: BorderRadius.circular(999),
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0F172A) : const Color(0xFFE2E8F0),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: !isCurrentDark ? const Color(0xFF38BDF8) : Colors.transparent,
+                    ),
+                    child: Icon(
+                      Icons.light_mode_rounded,
+                      size: 14,
+                      color: !isCurrentDark ? Colors.white : const Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isCurrentDark ? const Color(0xFF3B82F6) : Colors.transparent,
+                    ),
+                    child: Icon(
+                      Icons.dark_mode_rounded,
+                      size: 14,
+                      color: isCurrentDark ? Colors.white : const Color(0xFF94A3B8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -2062,7 +2795,7 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  void _setDashboardFinanceMarketplaceFilter(String value) {
+  Future<void> _setDashboardFinanceMarketplaceFilter(String value) async {
     final clean = value.trim().toLowerCase();
     final next = clean == 'shopee' || clean == 'tiktok' ? clean : 'all';
     if (_dashboardFinanceMarketplaceFilter == next) return;
@@ -2072,7 +2805,17 @@ class _DashboardPageState extends State<DashboardPage> {
       _selectedTrendIndex = null;
     });
 
-    unawaited(_loadDashboard());
+    final now = DateTime.now();
+    final finSummary = await _safeFinanceSummary(now, tenantId: _appUser?.tenantId ?? '');
+    if (!mounted) return;
+    setState(() {
+      _financeTrend = (finSummary['trend'] is List)
+          ? List<_TrendPoint>.from(finSummary['trend'] as List)
+          : <_TrendPoint>[];
+      _financeOmzet = AppUi.toNum(finSummary['omzet_total']);
+      _financeOrderCount = AppUi.toNum(finSummary['orders_count']).toInt();
+      _selectedTrendIndex = null;
+    });
   }
 
   Widget _dashboardFinanceMarketplaceFilterCards() {
@@ -4726,6 +5469,11 @@ class _DashboardPageState extends State<DashboardPage> {
             'Pantau telat, absen, dan aktivitas karyawan.',
             () => _open(const HrPerformancePage())),
         _DashboardMenu(
+            Icons.badge_rounded,
+            'Payroll & Slip Gaji',
+            'Generate slip gaji PDF, simpan 90 hari, dan kirim via WA / Email.',
+            () => _open(const PayrollPage())),
+        _DashboardMenu(
             Icons.video_collection_rounded,
             'Verifikasi Konten',
             'Review konten creator: approve, revisi, atau reject.',
@@ -5228,13 +5976,28 @@ class _FinanceTrendPainter extends CustomPainter {
 
     Path pathFor(num Function(_TrendPoint point) valueOf, num maxValue) {
       final path = Path();
+      if (points.isEmpty) return path;
+
+      final list = <Offset>[];
       for (var i = 0; i < points.length; i++) {
-        final p = pos(i, valueOf(points[i]), maxValue);
-        if (i == 0) {
-          path.moveTo(p.dx, p.dy);
-        } else {
-          path.lineTo(p.dx, p.dy);
-        }
+        list.add(pos(i, valueOf(points[i]), maxValue));
+      }
+
+      path.moveTo(list[0].dx, list[0].dy);
+      if (list.length == 1) return path;
+      if (list.length == 2) {
+        path.lineTo(list[1].dx, list[1].dy);
+        return path;
+      }
+
+      for (var i = 0; i < list.length - 1; i++) {
+        final p0 = list[i];
+        final p1 = list[i + 1];
+        final controlX1 = p0.dx + (p1.dx - p0.dx) / 2;
+        final controlY1 = p0.dy;
+        final controlX2 = p0.dx + (p1.dx - p0.dx) / 2;
+        final controlY2 = p1.dy;
+        path.cubicTo(controlX1, controlY1, controlX2, controlY2, p1.dx, p1.dy);
       }
       return path;
     }

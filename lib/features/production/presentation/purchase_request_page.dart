@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/evidence/models/photo_evidence.dart';
 import '../../../core/evidence/widgets/evidence_camera_field.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class PurchaseRequestPage extends StatefulWidget {
   const PurchaseRequestPage({super.key});
@@ -435,14 +436,13 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pembelian'),
-        actions: [
-          IconButton(
-              onPressed: _loadMasterData, icon: const Icon(Icons.refresh)),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Pembelian',
+      activeWebTitle: 'Pengajuan Pembelian',
+      actions: [
+        IconButton(
+            onPressed: _loadMasterData, icon: const Icon(Icons.refresh)),
+      ],
       body: _body(),
     );
   }

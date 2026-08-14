@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../core/constants/marketplace_providers.dart';
 import '../../../models/app_user.dart';
@@ -1489,19 +1490,17 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Akun Marketplace'),
-        actions: [
-          if (kIsWeb)
-            IconButton(
-              onPressed: _openHistoricalImport,
-              icon: Icon(Icons.upload_file_outlined),
-              tooltip: 'Import Historical Data',
-            ),
-          IconButton(onPressed: _loadAccounts, icon: Icon(Icons.refresh)),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Akun Marketplace',
+      actions: [
+        if (kIsWeb)
+          IconButton(
+            onPressed: _openHistoricalImport,
+            icon: Icon(Icons.upload_file_outlined),
+            tooltip: 'Import Historical Data',
+          ),
+        IconButton(onPressed: _loadAccounts, icon: Icon(Icons.refresh)),
+      ],
       body: _body(),
     );
   }

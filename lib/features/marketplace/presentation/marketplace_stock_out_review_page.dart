@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../models/app_user.dart';
 
@@ -195,7 +196,7 @@ class _MarketplaceStockOutReviewPageState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: const Text('Stok Keluar Monitor'),
         actions: [

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../../core/ui/web_responsive_layout.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/ui/app_ui.dart';
@@ -46,12 +48,15 @@ class _WorkLocationPageState extends State<WorkLocationPage>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabCtrl,
-        children: const [
-          _LocationTab(),
-          _WorkScheduleTab(),
-        ],
+      body: WebResponsiveWrapper(
+        activeTitle: 'Lokasi & Jam Kerja',
+        child: TabBarView(
+          controller: _tabCtrl,
+          children: const [
+            _LocationTab(),
+            _WorkScheduleTab(),
+          ],
+        ),
       ),
     );
   }
@@ -1599,7 +1604,7 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: Text(_isEdit ? 'Edit Lokasi Kerja' : 'Tambah Lokasi Kerja'),
       ),

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -11,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class PayrollPage extends StatefulWidget {
   const PayrollPage({super.key});
@@ -247,6 +247,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
       final overtimeRes = await _supabase
           .from('overtime_requests')
           .select('total_amount')
+          .eq('tenant_id', _tenantId)
           .eq('user_id', userId)
           .eq('status', 'approved')
           .gte('overtime_date', firstDayStr)
@@ -260,6 +261,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
       final attRes = await _supabase
           .from('attendance')
           .select('date, check_in_time, status, note')
+          .eq('tenant_id', _tenantId)
           .eq('user_id', userId)
           .gte('date', firstDayStr)
           .lte('date', lastDayStr);
@@ -269,6 +271,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
       final leaveRes = await _supabase
           .from('leave_requests')
           .select('start_date, end_date, total_days, leave_type')
+          .eq('tenant_id', _tenantId)
           .eq('user_id', userId)
           .eq('status', 'approved')
           .gte('start_date', firstDayStr)
@@ -308,6 +311,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
       final shiftChangeRes = await _supabase
           .from('shift_change_requests')
           .select('shift_date, new_start_time, new_end_time')
+          .eq('tenant_id', _tenantId)
           .eq('user_id', userId)
           .eq('status', 'approved')
           .gte('shift_date', firstDayStr)
@@ -323,6 +327,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
       final schedRes = await _supabase
           .from('user_work_schedules')
           .select('day_of_week, start_time, late_tolerance_minutes, is_active')
+          .eq('tenant_id', _tenantId)
           .eq('user_id', userId);
       final schedList = (schedRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
       final activeDays = schedList.where((s) => s['is_active'] == true).map((s) => s['day_of_week']).toSet();
@@ -1101,34 +1106,62 @@ Team Finance & HR ${_companySettings['company_name']}
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final scaffoldBg = Theme.of(context).scaffoldBackgroundColor;
 
-
-    return Scaffold(
-      backgroundColor: scaffoldBg,
-      appBar: AppBar(
-        backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
-        elevation: 0.5,
-        iconTheme: IconThemeData(color: isDark ? Colors.white : const Color(0xFF0F172A)),
-        title: Text('Payroll & Slip Gaji',
-            style: GoogleFonts.outfit(color: isDark ? Colors.white : const Color(0xFF0F172A), fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.settings_rounded, color: isDark ? Colors.white70 : Colors.black87),
-            onPressed: _openCompanySettingsModal,
-            tooltip: 'Pengaturan Branding Perusahaan',
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: const Color(0xFF38BDF8),
-          labelColor: const Color(0xFF38BDF8),
-          unselectedLabelColor: isDark ? Colors.white60 : Colors.black54,
-          labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
-          tabs: const [
-            Tab(text: 'Buat Slip Gaji'),
-            Tab(text: 'Tarif & Tipe Gaji'),
-            Tab(text: 'Riwayat Slip Gaji'),
-          ],
+    if (!_isLoading && !AppRolePermissions.canAccessPayroll(_userRole)) {
+      return Scaffold(
+        backgroundColor: scaffoldBg,
+        appBar: AppBar(
+          backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
+          elevation: 0.5,
+          iconTheme: IconThemeData(color: isDark ? Colors.white : const Color(0xFF0F172A)),
+          title: Text('Payroll & Slip Gaji',
+              style: GoogleFonts.outfit(color: isDark ? Colors.white : const Color(0xFF0F172A), fontWeight: FontWeight.bold)),
         ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock_outline_rounded, size: 72, color: Colors.redAccent),
+                const SizedBox(height: 16),
+                Text(
+                  'Akses Dibatasi',
+                  style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF0F172A)),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Halaman Payroll & Slip Gaji hanya dapat diakses oleh role Super Admin, Finance, dan HR.',
+                  style: GoogleFonts.outfit(fontSize: 14, color: isDark ? Colors.white60 : Colors.black54),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return WebResponsiveScaffold(
+      backgroundColor: scaffoldBg,
+      title: 'Payroll & Slip Gaji',
+      actions: [
+        IconButton(
+          icon: Icon(Icons.settings_rounded, color: isDark ? Colors.white70 : Colors.black87),
+          onPressed: _openCompanySettingsModal,
+          tooltip: 'Pengaturan Branding Perusahaan',
+        ),
+      ],
+      bottom: TabBar(
+        controller: _tabController,
+        indicatorColor: const Color(0xFF38BDF8),
+        labelColor: const Color(0xFF38BDF8),
+        unselectedLabelColor: isDark ? Colors.white60 : Colors.black54,
+        labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+        tabs: const [
+          Tab(text: 'Buat Slip Gaji'),
+          Tab(text: 'Tarif & Tipe Gaji'),
+          Tab(text: 'Riwayat Slip Gaji'),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8)))

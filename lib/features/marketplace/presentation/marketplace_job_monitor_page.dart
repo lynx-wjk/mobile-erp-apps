@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../models/marketplace_account_public.dart';
 import '../services/marketplace_service.dart';
 import 'marketplace_dispatcher_monitor_page.dart';
@@ -695,7 +696,7 @@ class _MarketplaceJobMonitorPageState extends State<MarketplaceJobMonitorPage> {
     final theme = Theme.of(context);
     final orderCounts = _map('order_counts');
     final financeCounts = _map('finance_counts');
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         backgroundColor: theme.cardColor,
         foregroundColor: theme.textTheme.titleLarge?.color,

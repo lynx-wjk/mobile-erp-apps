@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
 
 class OvertimePage extends StatefulWidget {
@@ -1520,44 +1521,48 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pengajuan Lembur, Izin & Tukar Shift'),
-        bottom: TabBar(
+    return WebResponsiveScaffold(
+      title: 'Lembur & Izin',
+      activeWebTitle: 'Pengajuan Lembur, Izin & Tukar Shift',
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(40),
+        child: TabBar(
           controller: _tabController,
           tabs: const [
             Tab(icon: Icon(Icons.more_time_rounded), text: 'Lembur'),
             Tab(icon: Icon(Icons.event_note_rounded), text: 'Izin & Sakit'),
-            Tab(icon: Icon(Icons.published_with_changes_rounded), text: 'Tukar Shift'),
           ],
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    ..._buildMyTabChildren(),
-                    if (_isApprover) ...[
-                      const SizedBox(height: 24),
-                      const Divider(height: 32, thickness: 2),
-                      ..._buildApproverTabChildren(),
+      body: WebResponsiveWrapper(
+        activeTitle: 'Pengajuan Lembur & Izin',
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : TabBarView(
+                controller: _tabController,
+                children: [
+                  ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      ..._buildMyTabChildren(),
+                      if (_isApprover) ...[
+                        const SizedBox(height: 24),
+                        const Divider(height: 32, thickness: 2),
+                        ..._buildApproverTabChildren(),
+                      ],
                     ],
-                  ],
-                ),
-                ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: _buildLeaveTabChildren(),
-                ),
-                ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: _buildShiftChangeTabChildren(),
-                ),
-              ],
-            ),
+                  ),
+                  ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: _buildLeaveTabChildren(),
+                  ),
+                  ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: _buildShiftChangeTabChildren(),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }

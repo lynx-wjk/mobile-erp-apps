@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
 import '../models/marketplace_account_public.dart';
 import '../models/marketplace_sync_log_item.dart';
@@ -409,7 +410,7 @@ class _MarketplaceSyncMonitorPageState
         .where((item) => item.syncStatus == 'perlu hubungkan ulang')
         .length;
 
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: const Text('Monitor Sinkron Marketplace'),
         actions: [

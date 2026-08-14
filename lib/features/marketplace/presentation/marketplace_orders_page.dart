@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../core/constants/marketplace_providers.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
 import '../../stock/presentation/stock_out_page.dart';
 import '../../subscription/presentation/feature_gate_page.dart';
@@ -1271,28 +1272,26 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
         _pullProgressFromServerActive || (_orderJobDigest?.hasActive ?? false);
     final pullDisabled = disabled || orderJobActive;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Order Marketplace'),
-        actions: [
-          if (_canDeleteBusinessData)
-            IconButton(
-              onPressed: disabled ? null : _clearOrderFinanceData,
-              icon: Icon(Icons.delete_sweep_outlined),
-              tooltip: 'Hapus order + finance untuk uji ulang',
-            ),
+    return WebResponsiveScaffold(
+      title: 'Order Marketplace',
+      actions: [
+        if (_canDeleteBusinessData)
           IconButton(
-            onPressed: disabled ? null : _openRefundMonitor,
-            icon: Icon(Icons.assignment_return_outlined),
-            tooltip: 'Refund/Cancel Monitor',
+            onPressed: disabled ? null : _clearOrderFinanceData,
+            icon: Icon(Icons.delete_sweep_outlined),
+            tooltip: 'Hapus order + finance untuk uji ulang',
           ),
-          IconButton(
-            onPressed: disabled ? null : _loadInitial,
-            icon: Icon(Icons.refresh_rounded),
-            tooltip: 'Refresh',
-          ),
-        ],
-      ),
+        IconButton(
+          onPressed: disabled ? null : _openRefundMonitor,
+          icon: Icon(Icons.assignment_return_outlined),
+          tooltip: 'Refund/Cancel Monitor',
+        ),
+        IconButton(
+          onPressed: disabled ? null : _loadInitial,
+          icon: Icon(Icons.refresh_rounded),
+          tooltip: 'Refresh',
+        ),
+      ],
       body: RefreshIndicator(
         onRefresh: _loadInitial,
         child: ListView(

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class MarketplaceDispatcherMonitorPage extends StatefulWidget {
   const MarketplaceDispatcherMonitorPage({super.key});
@@ -115,7 +116,7 @@ class _MarketplaceDispatcherMonitorPageState
     final bootstrapStates = _asMapList(payload?['bootstrap_states']);
     final cronJobs = _asMapList(payload?['cron_jobs']);
 
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: const Text('Dispatcher Monitor'),
         actions: [

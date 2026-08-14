@@ -3,8 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:excel/excel.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/utils/file_download.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -534,23 +534,21 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Master Barang'),
-        actions: [
-          IconButton(
-            icon: _isExporting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.file_download_outlined),
-            tooltip: 'Download Semua Stock Data',
-            onPressed: _isExporting ? null : _downloadSemuaStockData,
-          ),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Master Barang',
+      actions: [
+        IconButton(
+          icon: _isExporting
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.file_download_outlined),
+          tooltip: 'Download Semua Stock Data',
+          onPressed: _isExporting ? null : _downloadSemuaStockData,
+        ),
+      ],
       body: _body(),
     );
   }

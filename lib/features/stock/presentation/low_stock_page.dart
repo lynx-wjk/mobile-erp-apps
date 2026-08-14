@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../models/product.dart';
 import '../repositories/product_repository.dart';
 
@@ -193,18 +194,16 @@ class _LowStockPageState extends State<LowStockPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: Text('Stock Low'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _isLoading ? null : _loadLowStock,
-            icon: Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Stok Menipis',
+      activeWebTitle: 'Stok Menipis (Low Stock)',
+      actions: [
+        IconButton(
+          tooltip: 'Refresh',
+          onPressed: _isLoading ? null : _loadLowStock,
+          icon: Icon(Icons.refresh_rounded),
+        ),
+      ],
       body: _buildBody(),
     );
   }

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/marketplace_providers.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
 import '../../stock/presentation/qr_scan_page.dart';
 import '../models/marketplace_account_public.dart';
@@ -1176,7 +1177,7 @@ class _MarketplaceRefundMonitorPageState
   @override
   Widget build(BuildContext context) {
     final accounts = _availableAccounts;
-    return Scaffold(
+    return WebResponsiveScaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text('Refund / Cancel Monitor'),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/product.dart';
@@ -212,7 +213,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
   Widget build(BuildContext context) {
     final title = _isEdit ? 'Edit Barang' : 'Tambah Barang';
 
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: Text(title),
       ),

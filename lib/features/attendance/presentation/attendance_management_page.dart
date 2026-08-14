@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../models/attendance_log.dart';
 import '../repositories/attendance_repository.dart';
 
@@ -163,10 +164,8 @@ class _AbsensiManagementPageState extends State<AbsensiManagementPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Absensi Karyawan'),
-      ),
+    return WebResponsiveScaffold(
+      title: 'Absensi Karyawan',
       body: Column(
         children: [
           Padding(

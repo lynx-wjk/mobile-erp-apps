@@ -20,6 +20,12 @@ enum AppFeatureEntitlement {
   exportImport,
   auditCenter,
   superSettings,
+  manualOperationalExpense,
+  purchaseVerification,
+  aiChatAssistant,
+  automatedPayoutSync,
+  tenantIsolation,
+  sampleFreeAudit,
 }
 
 class SubscriptionPlanDefinition {

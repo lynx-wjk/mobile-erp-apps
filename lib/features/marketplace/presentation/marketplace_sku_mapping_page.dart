@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../core/constants/marketplace_providers.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../stock/models/product.dart';
@@ -2438,13 +2439,11 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Mapping SKU'),
-        actions: [
-          IconButton(onPressed: _loadInitial, icon: Icon(Icons.refresh)),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Mapping SKU',
+      actions: [
+        IconButton(onPressed: _loadInitial, icon: Icon(Icons.refresh)),
+      ],
       body: _body(),
     );
   }

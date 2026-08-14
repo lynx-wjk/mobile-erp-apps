@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../services/tenant_entitlement_service.dart';
 
 class FeatureGatePage extends StatefulWidget {
@@ -55,7 +56,7 @@ class _FeatureGatePageState extends State<FeatureGatePage> {
             ? snapshot!.planName
             : 'paket aktif';
 
-        return Scaffold(
+        return WebResponsiveScaffold(
           appBar: AppBar(title: const Text('Akses dibatasi')),
           body: Center(
             child: SingleChildScrollView(

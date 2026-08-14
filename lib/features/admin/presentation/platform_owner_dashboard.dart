@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/ui/ai_chat_assistant_sheet.dart';
 import '../../../core/theme/app_theme_mode.dart';
 import '../../../core/constants/app_roles.dart';
@@ -633,7 +634,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
       _groupedTenants.entries.where((entry) => _tenantMatchesFilter(entry.key)),
     );
 
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: const Text('PLATFORM OWNER DASHBOARD',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),

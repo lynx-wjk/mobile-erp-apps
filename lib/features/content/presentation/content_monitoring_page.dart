@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/evidence/models/photo_evidence.dart';
 import '../../../core/evidence/widgets/evidence_camera_field.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class ContentMonitoringPage extends StatefulWidget {
   const ContentMonitoringPage({super.key});
@@ -514,71 +515,73 @@ class _ContentMonitoringPageState extends State<ContentMonitoringPage> {
     );
   }
 
+  Widget _body() {
+    return _isLoading
+        ? const LoadingState()
+        : _errorMessage != null
+            ? ErrorState(message: _errorMessage!, onRetry: _loadData)
+            : RefreshIndicator(
+                onRefresh: _loadData,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
+                  children: [
+                    FuturisticHeader(
+                      icon: Icons.video_library_outlined,
+                      title: 'Konten',
+                      subtitle: _canManage
+                          ? 'Pantau brief, link konten, proof foto, dan approval.'
+                          : 'Update progress konten, isi link konten, dan upload bukti kerja.',
+                      stats: [
+                        StatPill(
+                            label: 'Total', value: _items.length.toString()),
+                        StatPill(
+                            label: 'Uploaded',
+                            value: _items
+                                .where((item) =>
+                                    item['status'] == 'uploaded' ||
+                                    item['status'] == 'approved')
+                                .length
+                                .toString()),
+                        StatPill(
+                            label: 'Proof',
+                            value: _items
+                                .where((item) =>
+                                    ((item['bukti_upload_foto'] ??
+                                                item['proof_url'] ??
+                                                '')
+                                            .toString())
+                                        .isNotEmpty)
+                                .length
+                                .toString()),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (_items.isEmpty)
+                      const EmptyState(
+                          title: 'Belum ada konten',
+                          subtitle:
+                              'Data monitoring konten akan tampil di sini.')
+                    else
+                      ..._items.map(_contentCard),
+                  ],
+                ),
+              );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Konten'),
-        actions: [
-          IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh))
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Konten',
+      actions: [
+        IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh))
+      ],
       floatingActionButton: _canCreate
           ? FloatingActionButton.extended(
               onPressed: _showAddForm,
               icon: const Icon(Icons.add),
               label: const Text('Konten'))
           : null,
-      body: _isLoading
-          ? const LoadingState()
-          : _errorMessage != null
-              ? ErrorState(message: _errorMessage!, onRetry: _loadData)
-              : RefreshIndicator(
-                  onRefresh: _loadData,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
-                    children: [
-                      FuturisticHeader(
-                        icon: Icons.video_library_outlined,
-                        title: 'Konten',
-                        subtitle: _canManage
-                            ? 'Pantau brief, link konten, proof foto, dan approval.'
-                            : 'Update progress konten, isi link konten, dan upload bukti kerja.',
-                        stats: [
-                          StatPill(
-                              label: 'Total', value: _items.length.toString()),
-                          StatPill(
-                              label: 'Uploaded',
-                              value: _items
-                                  .where((item) =>
-                                      item['status'] == 'uploaded' ||
-                                      item['status'] == 'approved')
-                                  .length
-                                  .toString()),
-                          StatPill(
-                              label: 'Proof',
-                              value: _items
-                                  .where((item) =>
-                                      ((item['bukti_upload_foto'] ??
-                                                  item['proof_url'] ??
-                                                  '')
-                                              .toString())
-                                          .isNotEmpty)
-                                  .length
-                                  .toString()),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      if (_items.isEmpty)
-                        const EmptyState(
-                            title: 'Belum ada konten',
-                            subtitle:
-                                'Data monitoring konten akan tampil di sini.')
-                      else
-                        ..._items.map(_contentCard),
-                    ],
-                  ),
-                ),
+      body: _body(),
     );
   }
 }

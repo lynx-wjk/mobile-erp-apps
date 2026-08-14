@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
 import '../models/marketplace_account_public.dart';
 import '../services/marketplace_historical_import_service.dart';
@@ -726,7 +727,7 @@ class _MarketplaceHistoricalImportPageState
       );
     }
 
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: const Text('Import Historical Marketplace'),
         actions: [

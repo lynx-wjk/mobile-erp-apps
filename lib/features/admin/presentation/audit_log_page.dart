@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class AuditLogPage extends StatefulWidget {
   const AuditLogPage({super.key});
@@ -472,13 +473,11 @@ class _AuditLogPageState extends State<AuditLogPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Riwayat Aktivitas'),
-        actions: [
-          IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh))
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Riwayat Aktivitas',
+      actions: [
+        IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh))
+      ],
       body: _body(),
     );
   }

@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/utils/file_download.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../models/app_user.dart';
@@ -643,23 +644,21 @@ class _ProductListPageState extends State<ProductListPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Master SKU'),
-        actions: [
-          IconButton(
-            onPressed: _isExporting ? null : _downloadSemuaStockData,
-            icon: _isExporting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.file_download_outlined),
-            tooltip: 'Download Semua Stock Data',
-          ),
-          IconButton(onPressed: _loadData, icon: Icon(Icons.refresh)),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Master SKU',
+      actions: [
+        IconButton(
+          onPressed: _isExporting ? null : _downloadSemuaStockData,
+          icon: _isExporting
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.file_download_outlined),
+          tooltip: 'Download Semua Stock Data',
+        ),
+        IconButton(onPressed: _loadData, icon: Icon(Icons.refresh)),
+      ],
       floatingActionButton: _isDemoSuperAdmin
           ? null
           : FloatingActionButton.extended(
@@ -667,7 +666,10 @@ class _ProductListPageState extends State<ProductListPage> {
               icon: Icon(Icons.add),
               label: Text('Produk'),
             ),
-      body: _body(),
+      body: WebResponsiveWrapper(
+        activeTitle: 'Master Barang SKU',
+        child: _body(),
+      ),
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class UserManagementPage extends StatefulWidget {
   final String? tenantId;
@@ -871,13 +872,11 @@ class _UserManagementPageState extends State<UserManagementPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Master User'),
-        actions: [
-          IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh)),
-        ],
-      ),
+    return WebResponsiveScaffold(
+      title: 'Master User',
+      actions: [
+        IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh)),
+      ],
       floatingActionButton: _canManageUsers
           ? FloatingActionButton.extended(
               onPressed: () => _openForm(),

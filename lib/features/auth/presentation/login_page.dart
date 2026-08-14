@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../repositories/user_repository.dart';
 import '../../admin/presentation/platform_owner_dashboard.dart';
@@ -236,72 +237,120 @@ class _LoginPageState extends State<LoginPage>
 
   // ── Form card ────────────────────────────────────────────────────────────────
   Widget _form() {
-    return NiceCard(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Masuk ke workspace',
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Masuk ke workspace',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22),
+        ),
+        const SizedBox(height: 22),
+        TextField(
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(
+            labelText: 'Email atau username',
+            prefixIcon: Icon(Icons.email),
           ),
-          const SizedBox(height: 22),
-          TextField(
-            controller: _emailController,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(
-                labelText: 'Email atau username',
-                prefixIcon: Icon(Icons.email)),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _passwordController,
-            obscureText: _obscure,
-            decoration: InputDecoration(
-              labelText: 'Password',
-              prefixIcon: Icon(Icons.lock),
-              suffixIcon: IconButton(
-                icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
-                onPressed: () => setState(() => _obscure = !_obscure),
-              ),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _passwordController,
+          obscureText: _obscure,
+          decoration: InputDecoration(
+            labelText: 'Password',
+            prefixIcon: const Icon(Icons.lock),
+            suffixIcon: IconButton(
+              icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+              onPressed: () => setState(() => _obscure = !_obscure),
             ),
           ),
-          const SizedBox(height: 24),
-          FilledButton(
-            onPressed: _isLoading ? null : _login,
-            child: _isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : Text('Masuk'),
-          ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const RequestAccessPage()),
-              );
-            },
-            child: Text('Lihat paket dan request access'),
-          ),
-          const SizedBox(height: 4),
-          TextButton.icon(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const RegisterPage()),
-              );
-            },
-            icon: Icon(Icons.mail_outline_rounded, size: 16),
-            label: Text('Daftar lewat undangan'),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 24),
+        FilledButton(
+          onPressed: _isLoading ? null : _login,
+          child: _isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Masuk'),
+        ),
+        const SizedBox(height: 12),
+        TextButton(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const RequestAccessPage()),
+            );
+          },
+          child: const Text('Lihat paket dan request access'),
+        ),
+        const SizedBox(height: 4),
+        TextButton.icon(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const RegisterPage()),
+            );
+          },
+          icon: const Icon(Icons.mail_outline_rounded, size: 16),
+          label: const Text('Daftar lewat undangan'),
+        ),
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (isDesktopWeb(context)) {
+      return Scaffold(
+        body: AppGlobalBackdrop(
+          child: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(32),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 920),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        flex: 5,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            _hero(),
+                            const SizedBox(height: 24),
+                            Text(
+                              'Kelola stok, laporan keuangan, arus kas, dan sinkronisasi toko online dalam satu platform terpadu.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: AppUi.mutedText(context, 0.9),
+                                height: 1.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 40),
+                      Expanded(
+                        flex: 5,
+                        child: WebSubtleGlassCard(
+                          padding: const EdgeInsets.all(28),
+                          child: _form(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: AppGlobalBackdrop(
         child: SafeArea(

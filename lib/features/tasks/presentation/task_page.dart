@@ -6,6 +6,7 @@ import '../../../core/evidence/models/photo_evidence.dart';
 import '../../../core/evidence/widgets/evidence_camera_field.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class TaskPage extends StatefulWidget {
   const TaskPage({super.key});
@@ -447,7 +448,7 @@ class _TaskPageState extends State<TaskPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return WebResponsiveScaffold(
       appBar: AppBar(
         title: const Text('Tugas'),
         actions: [
@@ -461,53 +462,56 @@ class _TaskPageState extends State<TaskPage> {
               label: const Text('Task'),
             )
           : null,
-      body: _isLoading
-          ? const LoadingState()
-          : _errorMessage != null
-              ? ErrorState(message: _errorMessage!, onRetry: _loadData)
-              : RefreshIndicator(
-                  onRefresh: _loadData,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
-                    children: [
-                      FuturisticHeader(
-                        icon: Icons.task_alt_outlined,
-                        title: 'Tugas',
-                        subtitle: _canManage
-                            ? 'HR dan Super Admin bisa membuat, memantau, dan approval task.'
-                            : 'Task yang ditugaskan ke akun login. Upload bukti kerja dari detail task.',
-                        stats: [
-                          StatPill(
-                              label: 'Total', value: _tasks.length.toString()),
-                          StatPill(
-                              label: 'Selesai',
-                              value: _tasks
-                                  .where((item) =>
-                                      item['status'] == 'done' ||
-                                      item['status'] == 'verified')
-                                  .length
-                                  .toString()),
-                          StatPill(
-                              label: 'Bukti',
-                              value: _tasks
-                                  .where((item) =>
-                                      (item['proof_photo_url']?.toString() ??
-                                              '')
-                                          .isNotEmpty)
-                                  .length
-                                  .toString()),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      if (_tasks.isEmpty)
-                        const EmptyState(
-                            title: 'Belum ada task',
-                            subtitle: 'Data task akan tampil di sini.')
-                      else
-                        ..._tasks.map(_taskCard),
-                    ],
+      body: WebResponsiveWrapper(
+        activeTitle: 'Penugasan (Tasks)',
+        child: _isLoading
+            ? const LoadingState()
+            : _errorMessage != null
+                ? ErrorState(message: _errorMessage!, onRetry: _loadData)
+                : RefreshIndicator(
+                    onRefresh: _loadData,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
+                      children: [
+                        FuturisticHeader(
+                          icon: Icons.task_alt_outlined,
+                          title: 'Tugas',
+                          subtitle: _canManage
+                              ? 'HR dan Super Admin bisa membuat, memantau, dan approval task.'
+                              : 'Task yang ditugaskan ke akun login. Upload bukti kerja dari detail task.',
+                          stats: [
+                            StatPill(
+                                label: 'Total', value: _tasks.length.toString()),
+                            StatPill(
+                                label: 'Selesai',
+                                value: _tasks
+                                    .where((item) =>
+                                        item['status'] == 'done' ||
+                                        item['status'] == 'verified')
+                                    .length
+                                    .toString()),
+                            StatPill(
+                                label: 'Bukti',
+                                value: _tasks
+                                    .where((item) =>
+                                        (item['proof_photo_url']?.toString() ??
+                                                '')
+                                            .isNotEmpty)
+                                    .length
+                                    .toString()),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        if (_tasks.isEmpty)
+                          const EmptyState(
+                              title: 'Belum ada task',
+                              subtitle: 'Belum ada penugasan kerja yang tersimpan.')
+                        else
+                          ..._tasks.map(_taskCard),
+                      ],
+                    ),
                   ),
-                ),
+      ),
     );
   }
 }
