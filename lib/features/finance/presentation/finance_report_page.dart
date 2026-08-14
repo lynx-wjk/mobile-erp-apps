@@ -14107,6 +14107,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return deduped.where(_skuDetailIsPendingPayoutV82o).toList();
     }
 
+    if (payoutFilter == 'returned' || payoutFilter == 'batal' || payoutFilter == 'retur') {
+      return deduped.where((r) {
+        if (r['is_returned'] == true) return true;
+        final st = _text(r['settlement_status'], '').toLowerCase();
+        if (st.contains('retur') || st.contains('batal')) return true;
+        final os = _text(r['status'] ?? r['order_status'], '').toLowerCase();
+        return RegExp(r'(cancel|batal|return|refund|rts|gagal|closed)').hasMatch(os);
+      }).toList();
+    }
+
     return deduped;
   }
 
@@ -14503,14 +14513,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         clean == 'release' ||
         clean == 'payout' ||
         clean == 'paid payout' ||
-        clean == 'sudah payout') {
+        clean == 'sudah payout' ||
+        clean == 'paid') {
       return 'paid';
     }
     if (clean == 'pending' ||
         clean == 'belum payout' ||
         clean == 'no payout' ||
-        clean == 'missing payout') {
+        clean == 'missing payout' ||
+        clean == 'unpaid') {
       return 'unpaid';
+    }
+    if (clean == 'returned' ||
+        clean == 'retur' ||
+        clean == 'batal' ||
+        clean == 'cancelled' ||
+        clean == 'refund') {
+      return 'returned';
     }
     return clean.isEmpty ? 'all' : value.trim().toLowerCase();
   }
