@@ -10548,8 +10548,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _skuUnpaidCountMap[unpaidKey],
       _qtyFromOrderRows(unpaidDetailRows),
     ]).round();
-    if (paidQtyDisplay == 0 && unpaidQtyDisplay == 0 && rowTotalQty > 0) {
-      final payoutVal = _num(row['payout_total'] ?? row['payout_amount'] ?? row['total_payout']);
+    int returnedQtyDisplay = _numFirstNonZero([
+      row['qty_returned'],
+      row['returned_qty'],
+      row['qty_batal'],
+      row['batal_qty'],
+    ]).round();
+    double hppReturnDisplay = _numFirstNonZero([
+      row['hpp_return'],
+      row['hpp_retur'],
+      row['return_hpp'],
+      row['batal_hpp'],
+    ]);
+    if (paidQtyDisplay == 0 && unpaidQtyDisplay == 0 && returnedQtyDisplay == 0 && rowTotalQty > 0) {
+      final payoutVal = _num(row['total_payout'] ?? row['payout_total'] ?? row['payout_amount']);
       if (payoutVal > 0) {
         paidQtyDisplay = rowTotalQty;
       } else {
@@ -10558,7 +10570,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
     final qtyTotalDisplay = _numFirstNonZero([
       rowTotalQty,
-      paidQtyDisplay + unpaidQtyDisplay,
+      paidQtyDisplay + unpaidQtyDisplay + returnedQtyDisplay,
     ]).round();
     final displayPayoutPerItem = _numFirstNonZero([
       row['payout_per_item_paid'],
@@ -10701,6 +10713,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           ),
+          if (returnedQtyDisplay > 0)
+            TextButton.icon(
+              onPressed: detailBusy
+                  ? null
+                  : () => _showSkuOrderRefsV82o(
+                        row,
+                        payoutFilter: 'returned',
+                      ),
+              icon: Icon(Icons.assignment_return_rounded, size: 16, color: Colors.red.shade600),
+              label: Text('Retur/Batal $returnedQtyDisplay',
+                  style: TextStyle(fontSize: 12, color: Colors.red.shade600, fontWeight: FontWeight.w700)),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
         ],
       ),
       children: [
@@ -10712,6 +10742,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _miniMetric('Qty settled', '$paidQtyDisplay'),
         _miniMetric('Qty belum payout', '$unpaidQtyDisplay',
             warning: unpaidQtyDisplay > 0),
+        if (returnedQtyDisplay > 0)
+          _miniMetric('Qty retur/batal', '$returnedQtyDisplay', warning: true),
+        if (hppReturnDisplay > 0)
+          _miniMetric('HPP retur/batal', _money(hppReturnDisplay), warning: true),
         if (_num(row['positive_payout_qty']) > 0)
           _miniMetric('Qty payout +',
               _num(row['positive_payout_qty']).toStringAsFixed(0)),
