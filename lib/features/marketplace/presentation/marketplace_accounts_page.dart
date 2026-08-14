@@ -1491,6 +1491,97 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
     return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')} WIB';
   }
 
+  Widget _developerWebhookCard() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppUi.blue.withOpacity(0.09),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppUi.blue.withOpacity(0.30), width: 1.2),
+        boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.webhook_rounded, color: AppUi.blue, size: 22),
+              SizedBox(width: 8),
+              Text(
+                'Push Webhook / Callback Developer URLs',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Shopee Push Method URL (Isi di Shopee Open Platform Console):',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+          ),
+          const SizedBox(height: 3),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppUi.blue.withOpacity(0.25)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: SelectableText(
+                    'https://mdhproduction.com/functions/v1/marketplace-shopee-push',
+                    style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: AppUi.blue, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy_rounded, size: 16, color: AppUi.blue),
+                  onPressed: () {
+                    Clipboard.setData(const ClipboardData(text: 'https://mdhproduction.com/functions/v1/marketplace-shopee-push'));
+                    _showSnack('Shopee Push URL disalin!');
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'TikTok Shop Webhook Callback URL (Isi di TikTok Developer Center):',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+          ),
+          const SizedBox(height: 3),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppUi.blue.withOpacity(0.25)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: SelectableText(
+                    'https://mdhproduction.com/functions/v1/marketplace-tiktok-push',
+                    style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, color: AppUi.blue, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy_rounded, size: 16, color: AppUi.blue),
+                  onPressed: () {
+                    Clipboard.setData(const ClipboardData(text: 'https://mdhproduction.com/functions/v1/marketplace-tiktok-push'));
+                    _showSnack('TikTok Webhook URL disalin!');
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _body() {
     if (_isLoading) return const LoadingState();
 
@@ -1514,6 +1605,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
             ErrorState(message: _errorMessage!, onRetry: _loadAccounts),
             const SizedBox(height: 14),
           ],
+          _developerWebhookCard(),
           _tokenAttentionCard(),
           _bootstrapStatusCard(),
           _connectCard(),

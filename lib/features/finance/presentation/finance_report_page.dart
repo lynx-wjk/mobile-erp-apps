@@ -10565,7 +10565,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['payout_per_item'],
       row['positive_payout_per_item'],
       paidQtyDisplay > 0
-          ? (_num(row['payout_total'] ??
+          ? (_num(row['total_payout'] ??
+                  row['payout_total'] ??
                   row['payout_amount'] ??
                   row['received_amount']) /
               paidQtyDisplay)
@@ -10575,7 +10576,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['gross_per_item'],
       row['unit_gross'],
       qtyTotalDisplay > 0
-          ? (_num(row['gross_sales'] ?? row['gross_total']) / qtyTotalDisplay)
+          ? (_num(row['total_omzet'] ?? row['gross_sales'] ?? row['gross_total']) / qtyTotalDisplay)
           : 0,
       displayPayoutPerItem,
     ]);
@@ -10732,7 +10733,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ),
         _miniMetric(
             'Total payout',
-            _money(_num(row['payout_total'] ??
+            _money(_num(row['total_payout'] ??
+                row['payout_total'] ??
                 row['payout_amount'] ??
                 row['received_amount']))),
         if (_num(row['negative_payout_total']) < 0)
