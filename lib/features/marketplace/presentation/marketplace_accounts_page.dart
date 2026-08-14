@@ -563,6 +563,51 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                 : Icon(Icons.add_link),
             label: Text(_isCreatingLink ? 'Membuat link...' : 'Tambah Toko'),
           ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppUi.blue.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppUi.blue.withOpacity(0.20)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.webhook_rounded, color: AppUi.blue, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'Push Webhook / Callback Developer URLs',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Shopee Push Method URL (Isi di Shopee Open Platform Console):',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11),
+                ),
+                const SizedBox(height: 2),
+                SelectableText(
+                  'https://mdhproduction.com/functions/v1/marketplace-shopee-push',
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: AppUi.blue, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'TikTok Shop Webhook Callback URL (Isi di TikTok Developer Center):',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11),
+                ),
+                const SizedBox(height: 2),
+                SelectableText(
+                  'https://mdhproduction.com/functions/v1/marketplace-tiktok-push',
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: AppUi.blue, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
           if (_generatedLink != null) _authorizationLinkBox(),
         ],
       ),
