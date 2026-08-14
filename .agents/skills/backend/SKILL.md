@@ -62,6 +62,7 @@ For finance:
 - STRICT REAL API PAYOUT RULE: Never generate, force, or insert artificial/synthetic payout rows. Order payout status `has_payout` MUST strictly evaluate to `true` (`SETTLED`) ONLY IF an authentic API payout record exists in `marketplace_finance_reports` (`fmp.payout_total IS NOT NULL AND fmp.payout_total <> 0`). If an order lacks payout data, it MUST remain `has_payout = false` (`UNSETTLED / BELUM PAYOUT`) regardless of whether it is in a past month or current month.
 - NEGATIVE PAYOUT RULE: Orders with negative payouts (`payout_amount < 0` due to return shipping fees or penalties) have finalized API escrow payloads, so `has_payout = true` (`SETTLED`). Their negative payout is added directly into `payout_total`, reducing total payout, and their COGS is included under `hpp_settled` so the net loss is accurately reflected.
 - COGS SETTLEMENT RULE: `hpp_settled` (COGS Settled) ONLY includes COGS for orders with real API payouts (`fr.payout <> 0`). Orders without payout rows have their COGS classified under `unpaid_hpp` (`Est HPP Belum Payout`).
+- AUTOMATED PAYOUT SYNC RULE: The background finance dispatcher and pull worker (`marketplace-finance-dispatcher` & `marketplace-finance-pull`) must invoke `public.sync_missing_completed_order_payouts()` to automatically detect completed orders missing payout records and upsert real escrow payout entries into `marketplace_finance_reports` mapped strictly by their original order creation date.
 
 For marketplace:
 - Order sync and finance sync must remain separate.

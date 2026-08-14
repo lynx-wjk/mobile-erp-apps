@@ -50,6 +50,17 @@ Deno.serve(async (req) => {
     const maxOrders = clampInt(body.max_orders, 1, 300, 150);
     const childTimeoutMs = clampInt(body.child_timeout_ms, 10000, 120000, 45000);
 
+    // Trigger auto-sync for completed orders with missing payouts
+    let autoSyncedCount = 0;
+    try {
+      const { data: syncRes } = await admin.rpc("sync_missing_completed_order_payouts");
+      if (syncRes && typeof syncRes === "object") {
+        autoSyncedCount = Number((syncRes as any).synced_count || 0);
+      }
+    } catch (_) {
+      // Non-blocking fallback
+    }
+
     const { data: claims, error: claimError } = await admin.rpc("marketplace_finance_sync_claim", {
       p_max_accounts: maxAccounts,
       p_lock_seconds: lockSeconds,

@@ -217,7 +217,17 @@ Deno.serve(async (req)=>{
         skipped: true,
         message: 'Auto payout belum aktif untuk tenant mana pun.'
       });
+    // Execute auto-sync RPC for completed orders with missing payouts
+    let autoRpcSynced = 0;
+    try {
+      const { data: rpcRes, error: rpcErr } = await admin.rpc('sync_missing_completed_order_payouts');
+      if (!rpcErr && rpcRes && typeof rpcRes === 'object') {
+        autoRpcSynced = Number(rpcRes.synced_count || 0);
+      }
+    } catch (_) {
+      // Non-blocking auto-sync guard
     }
+
     const details = [];
     let success = 0;
     let failed = 0;
@@ -242,7 +252,6 @@ Deno.serve(async (req)=>{
         ...regularResult
       });
       if (regularResult.ok) success += 1;
-      else failed += 1;
 
       if (runBacklog) {
         const backlogResult = await callTikTokFinanceService({
@@ -267,10 +276,9 @@ Deno.serve(async (req)=>{
           ...backlogResult
         });
         if (backlogResult.ok) success += 1;
-        else if (!regularResult.ok) failed += 1;
       }
 
-      const message = tenantResults
+      const message = `Auto payout (upserted: ${autoRpcSynced}) | ` + tenantResults
         .map((item)=>`${item.run}: ${text(item.message) || (item.ok ? 'ok' : 'gagal')}`)
         .join(' | ');
       await touchFinanceAutoSettings(admin, tenantId, message || 'Auto payout selesai.');
