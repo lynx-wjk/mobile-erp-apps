@@ -10684,111 +10684,61 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         if (marketplaceSku.isNotEmpty)
           'SKU marketplace: $marketplaceSku',
       ].join(' · '),
-      trailing: Wrap(
-        spacing: 6,
-        children: [
-          OutlinedButton.icon(
-            onPressed: detailBusy
-                ? null
-                : () => _showSkuOrderRefsV82o(
-                      row,
-                      payoutFilter: 'all',
-                    ),
-            icon: const Icon(Icons.info_outline_rounded, size: 15),
-            label: const Text('Detail SKU',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 8, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-          TextButton.icon(
-            onPressed: detailBusy
-                ? null
-                : () => _showSkuOrderRefsV82o(
-                      row,
-                      payoutFilter: 'paid',
-                    ),
-            icon: settledBusy
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(Icons.receipt_long_rounded, size: 16),
-            label: Text('Settled $paidQtyDisplay',
-                style: TextStyle(fontSize: 12)),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 8, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-          TextButton.icon(
-            onPressed: detailBusy
-                ? null
-                : () => _showSkuOrderRefsV82o(
-                      row,
-                      payoutFilter: 'unpaid',
-                    ),
-            icon: unpaidBusy
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(Icons.pending_actions_rounded, size: 16),
-            label: Text('Belum payout $unpaidQtyDisplay',
-                style: TextStyle(fontSize: 12)),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 8, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-          if (returnedQtyDisplay > 0)
-            TextButton.icon(
-              onPressed: detailBusy
-                  ? null
-                  : () => _showSkuOrderRefsV82o(
-                        row,
-                        payoutFilter: 'returned',
-                      ),
-              icon: returnedBusy
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(Icons.assignment_return_rounded, size: 16, color: Colors.red.shade600),
-              label: Text('Retur/Batal $returnedQtyDisplay',
-                  style: TextStyle(fontSize: 12, color: Colors.red.shade600, fontWeight: FontWeight.w700)),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 4),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-        ],
+      trailing: OutlinedButton.icon(
+        onPressed: detailBusy
+            ? null
+            : () => _showSkuOrderRefsV82o(
+                  row,
+                  payoutFilter: 'all',
+                ),
+        icon: const Icon(Icons.receipt_long_rounded, size: 14),
+        label: const Text('Detail SKU',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
       ),
       children: [
         if (marketplaceSku.isNotEmpty)
           _miniMetric('SKU marketplace', marketplaceSku),
         if (variantName.isNotEmpty)
           _miniMetric('Varian', variantName),
-        _miniMetric('Qty total', '$qtyTotalDisplay'),
-        _miniMetric('Qty settled', '$paidQtyDisplay'),
-        _miniMetric('Qty belum payout', '$unpaidQtyDisplay',
-            warning: unpaidQtyDisplay > 0),
+        _miniMetric(
+          'Qty total',
+          '$qtyTotalDisplay',
+          onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'all'),
+        ),
+        _miniMetric(
+          'Qty settled',
+          '$paidQtyDisplay',
+          positive: paidQtyDisplay > 0,
+          onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'paid'),
+          isBusy: settledBusy,
+        ),
+        _miniMetric(
+          'Qty belum payout',
+          '$unpaidQtyDisplay',
+          warning: unpaidQtyDisplay > 0,
+          onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'unpaid'),
+          isBusy: unpaidBusy,
+        ),
         if (returnedQtyDisplay > 0)
-          _miniMetric('Qty retur/batal', '$returnedQtyDisplay', warning: true),
+          _miniMetric(
+            'Qty retur/batal',
+            '$returnedQtyDisplay',
+            warning: true,
+            onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'returned'),
+            isBusy: returnedBusy,
+          ),
         if (hppReturnDisplay > 0)
-          _miniMetric('HPP retur/batal', _money(hppReturnDisplay), warning: true),
+          _miniMetric(
+            'HPP retur/batal',
+            _money(hppReturnDisplay),
+            warning: true,
+            onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'returned'),
+          ),
         if (_num(row['positive_payout_qty']) > 0)
           _miniMetric('Qty payout +',
               _num(row['positive_payout_qty']).toStringAsFixed(0)),
@@ -13669,7 +13619,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required List<Widget> children,
     Widget? trailing,
   }) {
-    final isMobile = MediaQuery.of(context).size.width < 720;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -13686,62 +13635,39 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (isMobile) ...[
-            Text(
-              title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: Theme.of(context).colorScheme.onSurface),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 12, color: AppUi.mutedText(context, 0.88)),
-            ),
-            if (trailing != null) ...[
-              const SizedBox(height: 8),
-              trailing,
-            ],
-          ] else ...[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Theme.of(context).colorScheme.onSurface),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: AppUi.mutedText(context, 0.88)),
-                      ),
-                    ],
-                  ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Theme.of(context).colorScheme.onSurface),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 12, color: AppUi.mutedText(context, 0.88)),
+                    ),
+                  ],
                 ),
+              ),
+              if (trailing != null) ...[
                 const SizedBox(width: 8),
-                if (trailing != null) Flexible(child: trailing),
+                trailing,
               ],
-            ),
-          ],
+            ],
+          ),
           const SizedBox(height: 12),
           Wrap(spacing: 6, runSpacing: 6, children: children),
         ],
@@ -15783,43 +15709,85 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
-  Widget _miniMetric(String label, String value, {bool warning = false}) {
+  Widget _miniMetric(
+    String label,
+    String value, {
+    bool warning = false,
+    bool positive = false,
+    VoidCallback? onTap,
+    bool isBusy = false,
+  }) {
     final color = warning
         ? Theme.of(context).colorScheme.error
-        : Theme.of(context).colorScheme.primary;
-    return Container(
+        : (positive ? Colors.green.shade700 : Theme.of(context).colorScheme.primary);
+    final content = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: color.withOpacity(0.07),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.15), width: 0.8),
+        border: Border.all(
+          color: onTap != null ? color.withOpacity(0.35) : color.withOpacity(0.15),
+          width: onTap != null ? 1.0 : 0.8,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-                fontSize: 10,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.90),
-                fontWeight: FontWeight.w500),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.90),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              if (onTap != null) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.touch_app_outlined, size: 10, color: color.withOpacity(0.75)),
+              ],
+            ],
           ),
-          SizedBox(height: 2),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: warning ? color : Theme.of(context).colorScheme.onSurface,
+          const SizedBox(height: 2),
+          if (isBusy)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: SizedBox(
+                height: 14,
+                width: 14,
+                child: CircularProgressIndicator(strokeWidth: 1.8, color: color),
+              ),
+            )
+          else
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: warning ? color : (positive ? Colors.green.shade700 : Theme.of(context).colorScheme.onSurface),
+              ),
             ),
-          ),
         ],
       ),
     );
+
+    if (onTap != null) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isBusy ? null : onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: content,
+        ),
+      );
+    }
+    return content;
   }
 
   Widget _copyFieldButton(
