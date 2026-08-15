@@ -141,6 +141,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String? _skuDetailBusyKey;
   final Map<String, int> _skuUnpaidCountMap = {};
   final Map<String, int> _skuPaidCountMap = {};
+  final Map<String, int> _skuReturnedCountMap = {};
   List<Map<String, dynamic>> _cashFlow = [];
   List<Map<String, dynamic>> _cashOpeningBalances = [];
   List<Map<String, dynamic>> _cashAdjustments = [];
@@ -2710,6 +2711,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _skuLoadingFirstPage = false;
       _skuHasMoreServerRows = true;
       _skuLoadingMore = false;
+      _skuUnpaidCountMap.clear();
+      _skuPaidCountMap.clear();
+      _skuReturnedCountMap.clear();
       _cashFlow = [];
       _cashOpeningBalances = [];
       _cashAdjustments = [];
@@ -3355,6 +3359,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           existing['qty_unpaid'] = _num(existing['qty_unpaid']) + _num(row['qty_unpaid']);
           existing['unpaid_rows'] = _num(existing['unpaid_rows']) + _num(row['unpaid_rows']);
           existing['unpaid_count'] = _num(existing['unpaid_count']) + _num(row['unpaid_count']);
+          existing['qty_returned'] = _num(existing['qty_returned']) + _num(row['qty_returned'] ?? row['returned_qty']);
+          existing['returned_qty'] = _num(existing['returned_qty']) + _num(row['returned_qty'] ?? row['qty_returned']);
+          existing['hpp_return'] = _num(existing['hpp_return']) + _num(row['hpp_return'] ?? row['hpp_retur'] ?? row['return_hpp']);
           existing['all_qty'] = _num(existing['all_qty']) + _num(row['all_qty']);
           existing['qty_total'] = _num(existing['qty_total']) + _num(row['qty_total']);
           existing['order_count'] = _num(existing['order_count']) + _num(row['order_count']);
@@ -3455,7 +3462,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       summary['unpaid_total'],
     ]).round();
 
-    final visibleQty = paidQty + unpaidQty;
+    final returnedQty = _numFirstNonZero([
+      summary['qty_returned'],
+      summary['returned_qty'],
+      summary['qty_batal'],
+      summary['batal_qty'],
+      summary['returned_rows'],
+      summary['returned_total'],
+    ]).round();
+
+    final visibleQty = paidQty + unpaidQty + returnedQty;
     final merged = Map<String, dynamic>.from(row);
 
     merged['paid_qty'] = paidQty;
@@ -3467,6 +3483,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     merged['qty_unpaid'] = unpaidQty;
     merged['pending_payout_qty'] = unpaidQty;
     merged['pending_payout_qty_total'] = unpaidQty;
+
+    if (returnedQty > 0) {
+      merged['qty_returned'] = returnedQty;
+      merged['returned_qty'] = returnedQty;
+    }
 
     if (visibleQty > 0) {
       merged['qty'] = visibleQty;
@@ -10515,6 +10536,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _filteredSkuOrderRows(skuDetailRows, 'paid');
     final unpaidDetailRows =
         _filteredSkuOrderRows(skuDetailRows, 'unpaid');
+    final returnedDetailRows =
+        _filteredSkuOrderRows(skuDetailRows, 'returned');
     final rowTotalQty = _numFirstNonZero([
       row['qty'],
       row['qty_total'],
@@ -10522,6 +10545,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     ]).round();
     final paidKey = _skuDetailBusyKeyV82o(row, 'paid');
     final unpaidKey = _skuDetailBusyKeyV82o(row, 'unpaid');
+    final returnedKey = _skuDetailBusyKeyV82o(row, 'returned');
     int paidQtyDisplay = _numFirstNonZero([
       row['paid_qty_total'],
       row['settled_qty_total'],
@@ -10553,6 +10577,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['returned_qty'],
       row['qty_batal'],
       row['batal_qty'],
+      _skuReturnedCountMap[returnedKey],
+      _qtyFromOrderRows(returnedDetailRows),
     ]).round();
     double hppReturnDisplay = _numFirstNonZero([
       row['hpp_return'],
@@ -10638,6 +10664,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'paid');
     final unpaidBusy =
         _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'unpaid');
+    final returnedBusy =
+        _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'returned');
     final detailBusy = _skuDetailBusyKey != null;
     return _detailCard(
       title: sku,
@@ -10721,7 +10749,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         row,
                         payoutFilter: 'returned',
                       ),
-              icon: Icon(Icons.assignment_return_rounded, size: 16, color: Colors.red.shade600),
+              icon: returnedBusy
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(Icons.assignment_return_rounded, size: 16, color: Colors.red.shade600),
               label: Text('Retur/Batal $returnedQtyDisplay',
                   style: TextStyle(fontSize: 12, color: Colors.red.shade600, fontWeight: FontWeight.w700)),
               style: TextButton.styleFrom(
@@ -14034,9 +14068,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     final joinedStatus = '$rawStatus $financeStatus';
 
-    if (joinedStatus.contains('CANCEL') ||
+    if (row['is_returned'] == true ||
+        joinedStatus.contains('CANCEL') ||
         joinedStatus.contains('REFUND') ||
-        joinedStatus.contains('RETURN')) {
+        joinedStatus.contains('RETURN') ||
+        joinedStatus.contains('BATAL') ||
+        joinedStatus.contains('RETUR')) {
       return false;
     }
 
@@ -14070,9 +14107,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     final joinedStatus = '$rawStatus $financeStatus';
 
-    if (joinedStatus.contains('CANCEL') ||
+    if (row['is_returned'] == true ||
+        joinedStatus.contains('CANCEL') ||
         joinedStatus.contains('REFUND') ||
-        joinedStatus.contains('RETURN')) {
+        joinedStatus.contains('RETURN') ||
+        joinedStatus.contains('BATAL') ||
+        joinedStatus.contains('RETUR')) {
       return false;
     }
 
@@ -14789,7 +14829,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         ? 'sudah ada payout'
         : payoutFilter == 'unpaid'
             ? 'belum ada payout'
-            : 'semua status payout';
+            : (payoutFilter == 'returned' || payoutFilter == 'batal' || payoutFilter == 'retur')
+                ? 'retur / batal'
+                : 'semua status payout';
 
     Map<String, dynamic> pageResult;
     try {
@@ -14823,6 +14865,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _skuUnpaidCountMap[busyKey] = total;
     } else if (payoutFilter == 'paid') {
       _skuPaidCountMap[busyKey] = total;
+    } else if (payoutFilter == 'returned' || payoutFilter == 'batal' || payoutFilter == 'retur') {
+      _skuReturnedCountMap[busyKey] = total;
     }
 
     // Ensure detail modal always opens even if rows are empty
@@ -15364,7 +15408,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         ? 'sudah ada payout'
         : payoutFilter == 'unpaid'
             ? 'belum ada payout'
-            : 'semua status payout';
+            : (payoutFilter == 'returned' || payoutFilter == 'batal' || payoutFilter == 'retur')
+                ? 'retur / batal'
+                : 'semua status payout';
     var keyword = '';
     await showModalBottomSheet<void>(
       context: context,
@@ -16328,6 +16374,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   List<Map<String, dynamic>> _filteredSkuOrderRows(
       List<Map<String, dynamic>> rows, String payoutFilter) {
     bool isCancelRefundReturn(Map<String, dynamic> item) {
+      if (item['is_returned'] == true) return true;
       final status = _text(
         item['status'] ??
             item['order_status'] ??
@@ -16340,7 +16387,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
       return status.contains('CANCEL') ||
           status.contains('REFUND') ||
-          status.contains('RETURN');
+          status.contains('RETURN') ||
+          status.contains('BATAL') ||
+          status.contains('RETUR');
     }
 
     final deduped = _dedupeSkuDetailRows(rows);
@@ -16357,6 +16406,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           .where((item) =>
               !isCancelRefundReturn(item) && !_hasReleasedPayout(item))
           .toList();
+    }
+
+    if (payoutFilter == 'returned' || payoutFilter == 'batal' || payoutFilter == 'retur') {
+      return deduped.where(isCancelRefundReturn).toList();
     }
 
     return deduped;
