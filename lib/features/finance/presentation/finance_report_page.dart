@@ -2822,6 +2822,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (!isCurrentFinanceLoad() || !mounted) return;
       await _loadPersistedFinanceProgressFromDb();
       await _loadOperationalCostsSupplemental();
+      unawaited(_lazyLoadSkuFirstPage());
       unawaited(_loadAbnormalesPage(silent: true, resetPage: true));
       unawaited(_loadSampleFreeOrdersSupplemental());
       unawaited(_loadSampleFreeOrdersDetails(force: true));
@@ -4720,56 +4721,64 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     Map<String, dynamic> summary,
     List<Map<String, dynamic>> accounts,
   ) {
-    final label = rawRows.isNotEmpty ? rawRows.first : <String, dynamic>{};
-    final gross = _num(
-        summary['gross_sales'] ?? summary['omzet'] ?? summary['gross_total']);
-    final payout = _num(summary['payout_total'] ??
-        summary['payout_amount'] ??
-        summary['received_amount']);
-    final hpp = _num(summary['hpp_total'] ?? summary['total_hpp']);
-    final profit =
-        _num(summary['net_profit'] ?? summary['profit'] ?? (payout - hpp));
-    final margin = payout > 0 ? profit / payout * 100 : 0.0;
-    final orders = _num(summary['finance_order_count'] ??
-            summary['finance_orders_count'] ??
-            summary['order_count'] ??
-            summary['orders_count'])
-        .toInt();
+    if (rawRows.isEmpty) {
+      final gross = _num(summary['gross_sales'] ?? summary['omzet'] ?? summary['gross_total']);
+      final payout = _num(summary['payout_total'] ?? summary['payout_amount'] ?? summary['received_amount']);
+      final hpp = _num(summary['hpp_total'] ?? summary['total_hpp']);
+      final profit = _num(summary['net_profit'] ?? summary['profit'] ?? (payout - hpp));
+      final margin = payout > 0 ? profit / payout * 100 : 0.0;
+      final orders = _num(summary['finance_order_count'] ?? summary['order_count']).toInt();
 
-    final commission = _num(summary['commission_fee'] ?? summary['commission'] ?? label['commission_fee'] ?? label['commission']);
-    final platform = _num(summary['platform_fee'] ?? summary['platform'] ?? label['platform_fee'] ?? label['platform']);
-    final affiliate = _num(summary['affiliate_fee'] ?? summary['affiliate'] ?? label['affiliate_fee'] ?? label['affiliate']);
-    final shipping = _num(summary['shipping_fee'] ?? summary['shipping'] ?? summary['ongkir'] ?? label['shipping_fee'] ?? label['shipping']);
-    final discount = _num(summary['discount_amount'] ?? summary['voucher_amount'] ?? summary['discount'] ?? summary['voucher'] ?? label['discount_amount'] ?? label['voucher_amount']);
-    final refund = _num(summary['refund_amount'] ?? summary['return_refund_amount'] ?? summary['refund'] ?? label['refund_amount'] ?? label['return_refund_amount']);
-    final adjustment = _num(summary['adjustment_amount'] ?? summary['adjustment'] ?? label['adjustment_amount'] ?? label['adjustment']);
-    final totalDeductions = _num(summary['total_fees'] ?? summary['fee_amount'] ?? summary['biaya'] ?? summary['deductions'] ?? label['total_fees'] ?? label['fee_amount'] ?? label['biaya']);
+      return [
+        {
+          'marketplace': 'all',
+          'marketplace_label': 'Semua Marketplace',
+          'shop_name': 'Semua Toko',
+          'store_name': 'Semua Toko',
+          'order_count': orders,
+          'finance_order_count': orders,
+          'gross_sales': gross,
+          'gross_total': gross,
+          'omzet': gross,
+          'payout_total': payout,
+          'payout_amount': payout,
+          'received_amount': payout,
+          'hpp_total': hpp,
+          'total_hpp': hpp,
+          'profit': profit,
+          'net_profit': profit,
+          'net_margin_percent': margin,
+          'margin_percent': margin,
+          'commission_fee': _num(summary['commission_fee']),
+          'platform_fee': _num(summary['platform_fee']),
+          'affiliate_fee': _num(summary['affiliate_fee']),
+          'shipping_fee': _num(summary['shipping_fee']),
+          'discount_amount': _num(summary['discount_amount']),
+          'voucher_amount': _num(summary['discount_amount']),
+          'refund_amount': _num(summary['refund_amount']),
+          'return_refund_amount': _num(summary['refund_amount']),
+          'adjustment_amount': _num(summary['adjustment_amount']),
+          'fee_amount': _num(summary['total_fees']),
+          'total_fees': _num(summary['total_fees']),
+          'biaya': _num(summary['total_fees']),
+          'deductions': _num(summary['total_fees']),
+        }
+      ];
+    }
 
-    // v24.6.60: tab Marketplace wajib mengikuti Ringkasan/SKU.
-    // Aggregate mentah dari RPC lama bisa terduplikasi dari join item/HPP, jadi angka nominal utama tidak diambil dari rawRows.
-    return [
-      {
-        'marketplace': _text(
-            label['marketplace'] ?? label['platform'] ?? 'tiktok_shop',
-            'Marketplace'),
-        'marketplace_label': _text(
-            label['marketplace_label'] ??
-                label['platform_label'] ??
-                label['marketplace'] ??
-                'TikTok Shop',
-            'Marketplace'),
-        'shop_name': _text(
-            label['shop_name'] ??
-                label['store_name'] ??
-                label['seller_name'] ??
-                _accountNameFromRows('', accounts),
-            '-'),
-        'store_name': _text(
-            label['store_name'] ??
-                label['shop_name'] ??
-                label['seller_name'] ??
-                _accountNameFromRows('', accounts),
-            '-'),
+    return rawRows.map((label) {
+      final gross = _num(label['gross_sales'] ?? label['gross_total'] ?? label['omzet'] ?? label['omzet_paid']);
+      final payout = _num(label['payout_total'] ?? label['payout_amount'] ?? label['received_amount']);
+      final hpp = _num(label['hpp_total'] ?? label['total_hpp'] ?? label['hpp_settled']);
+      final profit = _num(label['net_profit'] ?? label['profit'] ?? (payout - hpp));
+      final margin = payout > 0 ? profit / payout * 100 : 0.0;
+      final orders = _num(label['order_count'] ?? label['finance_order_count']).toInt();
+
+      return {
+        'marketplace': _text(label['marketplace'] ?? label['platform'], 'marketplace'),
+        'marketplace_label': _text(label['marketplace_label'] ?? label['shop_name'] ?? label['marketplace'], 'Marketplace'),
+        'shop_name': _text(label['shop_name'] ?? label['store_name'] ?? _accountNameFromRows(_text(label['marketplace_account_id']), accounts), '-'),
+        'store_name': _text(label['store_name'] ?? label['shop_name'] ?? _accountNameFromRows(_text(label['marketplace_account_id']), accounts), '-'),
         'order_count': orders,
         'finance_order_count': orders,
         'gross_sales': gross,
@@ -4784,21 +4793,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'net_profit': profit,
         'net_margin_percent': margin,
         'margin_percent': margin,
-        'commission_fee': commission,
-        'platform_fee': platform,
-        'affiliate_fee': affiliate,
-        'shipping_fee': shipping,
-        'discount_amount': discount,
-        'voucher_amount': discount,
-        'refund_amount': refund,
-        'return_refund_amount': refund,
-        'adjustment_amount': adjustment,
-        'fee_amount': totalDeductions,
-        'total_fees': totalDeductions,
-        'biaya': totalDeductions,
-        'deductions': totalDeductions,
-      },
-    ];
+        'commission_fee': _num(label['commission_fee']),
+        'platform_fee': _num(label['platform_fee']),
+        'affiliate_fee': _num(label['affiliate_fee']),
+        'shipping_fee': _num(label['shipping_fee']),
+        'discount_amount': _num(label['discount_amount'] ?? label['seller_discount'] ?? label['voucher_amount']),
+        'voucher_amount': _num(label['voucher_amount'] ?? label['discount_amount'] ?? label['seller_discount']),
+        'refund_amount': _num(label['refund_amount'] ?? label['refund_total']),
+        'return_refund_amount': _num(label['refund_amount'] ?? label['refund_total']),
+        'adjustment_amount': _num(label['adjustment_amount']),
+        'fee_amount': _num(label['total_fees'] ?? label['fee_amount']),
+        'total_fees': _num(label['total_fees'] ?? label['fee_amount']),
+        'biaya': _num(label['total_fees'] ?? label['fee_amount']),
+        'deductions': _num(label['total_fees'] ?? label['fee_amount']),
+      };
+    }).toList();
   }
 
   List<Map<String, dynamic>> _dedupeCashFlowRows(
@@ -13660,6 +13669,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required List<Widget> children,
     Widget? trailing,
   }) {
+    final isMobile = MediaQuery.of(context).size.width < 720;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -13676,31 +13686,63 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.onSurface),
-                ),
-              ),
-              if (trailing != null) trailing,
+          if (isMobile) ...[
+            Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Theme.of(context).colorScheme.onSurface),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 12, color: AppUi.mutedText(context, 0.88)),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(height: 8),
+              trailing,
             ],
-          ),
-          SizedBox(height: 4),
-          Text(
-            subtitle,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style:
-                TextStyle(fontSize: 12, color: AppUi.mutedText(context, 0.88)),
-          ),
-          SizedBox(height: 12),
+          ] else ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Theme.of(context).colorScheme.onSurface),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: AppUi.mutedText(context, 0.88)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (trailing != null) Flexible(child: trailing),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
           Wrap(spacing: 6, runSpacing: 6, children: children),
         ],
       ),
