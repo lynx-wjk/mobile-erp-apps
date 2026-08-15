@@ -2504,11 +2504,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           : data['sources']);
       _approvedPurchases = approvedPurchases;
       _byMarketplace = normalizedMarketplaceForDisplay;
-      _bySku = _sortSkuRowsForDisplay(normalizedSku);
-      _skuPage = 1;
-      _skuServerPageLoaded = 1;
-      _skuHasMoreServerRows = hasMoreLiveSkuRows;
-      _skuLoadingMore = false;
+      if (normalizedSku.isNotEmpty) {
+        _bySku = _sortSkuRowsForDisplay(normalizedSku);
+        _skuPage = 1;
+        _skuServerPageLoaded = 1;
+        _skuHasMoreServerRows = hasMoreLiveSkuRows;
+        _skuLoadingMore = false;
+        _skuLoaded = true;
+      }
       _cashFlow = <Map<String, dynamic>>[
         ...normalizedCashFlow,
         ...normalizedCashAdjustments,
@@ -2822,9 +2825,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (!isCurrentFinanceLoad() || !mounted) return;
       await _loadPersistedFinanceProgressFromDb();
       await _loadOperationalCostsSupplemental();
-      unawaited(_lazyLoadSkuFirstPage());
+      await Future.wait([
+        _loadSampleFreeOrdersSupplemental(),
+        _lazyLoadSkuFirstPage(),
+      ]);
       unawaited(_loadAbnormalesPage(silent: true, resetPage: true));
-      unawaited(_loadSampleFreeOrdersSupplemental());
       unawaited(_loadSampleFreeOrdersDetails(force: true));
     } catch (e) {
       if (!isCurrentFinanceLoad()) return;
