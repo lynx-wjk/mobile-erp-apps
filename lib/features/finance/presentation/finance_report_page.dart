@@ -5256,7 +5256,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var positiveQty = exact(const ['positive_payout_qty', 'paid_positive_qty']);
     var negativeQty = exact(const ['negative_payout_qty', 'minus_payout_qty']);
 
-    if (totalQty <= 0) totalQty = settledQty + unpaidQty;
+    var sampleQty = exact(const ['qty_sample', 'sample_qty', 'total_qty_sample']);
+    var sampleHpp = exact(const ['hpp_sample', 'sample_hpp', 'total_hpp_sample']);
+    var returnedQty = exact(const ['qty_returned', 'returned_qty', 'batal_qty', 'qty_batal']);
+    var returnedHpp = exact(const ['hpp_return', 'hpp_retur', 'return_hpp', 'batal_hpp']);
+
+    if (totalQty <= 0) totalQty = settledQty + unpaidQty + sampleQty;
     if (settledQty <= 0 && positivePayout > 0) {
       settledQty = positiveQty > 0 ? positiveQty : totalQty;
     }
@@ -5264,9 +5269,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       settledQty = totalQty;
     }
     if (totalQty > 0 && settledQty > totalQty) settledQty = totalQty;
-    if (unpaidQty <= 0 && totalQty > 0) unpaidQty = totalQty - settledQty;
+    if (unpaidQty <= 0 && totalQty > 0 && !source.containsKey('qty_unsettled') && !source.containsKey('unpaid_hpp')) {
+      unpaidQty = totalQty - settledQty - sampleQty;
+    }
     if (unpaidQty < 0) unpaidQty = 0;
-    if (totalQty <= 0) totalQty = settledQty + unpaidQty;
+    if (totalQty <= 0) totalQty = settledQty + unpaidQty + sampleQty;
     if (positiveQty <= 0 && positivePayout > 0) positiveQty = settledQty;
     if (negativeQty <= 0 && negativePayout < 0) negativeQty = settledQty;
     if (settledQty > 0 && positiveQty > settledQty) positiveQty = settledQty;
@@ -5337,7 +5344,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     final settledHppTotal = hppPerItem * settledQty;
-    final unpaidHppTotal = hppPerItem * unpaidQty;
+    final unpaidHppTotal = source.containsKey('unpaid_hpp')
+        ? _num(source['unpaid_hpp'])
+        : (hppPerItem * unpaidQty);
     final allHppTotal = settledHppTotal + unpaidHppTotal;
     final payoutForMargin = positivePayout > 0 ? positivePayout : 0.0;
     final payoutPerSettledItem =
@@ -5362,6 +5371,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     row['unpaid_qty'] = unpaidQty;
     row['qty_unpaid'] = unpaidQty;
     row['pending_payout_qty'] = unpaidQty;
+    row['qty_sample'] = sampleQty;
+    row['sample_qty'] = sampleQty;
+    row['hpp_sample'] = sampleHpp > 0 ? sampleHpp : (hppPerItem * sampleQty);
+    row['sample_hpp'] = row['hpp_sample'];
+    row['qty_returned'] = returnedQty;
+    row['hpp_return'] = returnedHpp > 0 ? returnedHpp : (hppPerItem * returnedQty);
     row['gross_total'] = grossTotal;
     row['gross_sales'] = grossTotal;
     row['gross_amount'] = grossTotal;
@@ -10721,6 +10736,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final returnedBusy =
         _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'returned');
     final detailBusy = _skuDetailBusyKey != null;
+    final sampleKey = _skuDetailBusyKeyV82o(row, 'sample');
+    int sampleQtyDisplay = _numFirstNonZero([
+      row['qty_sample'],
+      row['sample_qty'],
+      row['total_qty_sample'],
+    ]).round();
+    double sampleHppDisplay = _numFirstNonZero([
+      row['hpp_sample'],
+      row['sample_hpp'],
+      row['total_hpp_sample'],
+    ]);
+    double unpaidHppDisplay = _numFirstNonZero([
+      row['unpaid_hpp'],
+      row['unpaid_hpp_total'],
+    ]);
+    final sampleBusy = _skuDetailBusyKey == sampleKey;
+
     return _detailCard(
       title: sku,
       subtitle: [
@@ -10762,13 +10794,34 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'paid'),
           isBusy: settledBusy,
         ),
-        _miniMetric(
-          'Qty belum payout',
-          '$unpaidQtyDisplay',
-          warning: unpaidQtyDisplay > 0,
-          onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'unpaid'),
-          isBusy: unpaidBusy,
-        ),
+        if (unpaidQtyDisplay > 0)
+          _miniMetric(
+            'Qty belum payout',
+            '$unpaidQtyDisplay',
+            warning: true,
+            onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'unpaid'),
+            isBusy: unpaidBusy,
+          ),
+        if (unpaidHppDisplay > 0)
+          _miniMetric(
+            'HPP belum payout',
+            _money(unpaidHppDisplay),
+            warning: true,
+            onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'unpaid'),
+          ),
+        if (sampleQtyDisplay > 0)
+          _miniMetric(
+            'Qty sample/gratis',
+            '$sampleQtyDisplay',
+            onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'sample'),
+            isBusy: sampleBusy,
+          ),
+        if (sampleHppDisplay > 0)
+          _miniMetric(
+            'HPP sample/gratis',
+            _money(sampleHppDisplay),
+            onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'sample'),
+          ),
         if (returnedQtyDisplay > 0)
           _miniMetric(
             'Qty retur/batal',
@@ -14871,9 +14924,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         ? 'sudah ada payout'
         : payoutFilter == 'unpaid'
             ? 'belum ada payout'
-            : (payoutFilter == 'returned' || payoutFilter == 'batal' || payoutFilter == 'retur')
-                ? 'retur / batal'
-                : 'semua status payout';
+            : (payoutFilter == 'sample' || payoutFilter == 'gratis')
+                ? 'sample / gratis'
+                : (payoutFilter == 'returned' || payoutFilter == 'batal' || payoutFilter == 'retur')
+                    ? 'retur / batal'
+                    : 'semua status payout';
 
     Map<String, dynamic> pageResult;
     try {
