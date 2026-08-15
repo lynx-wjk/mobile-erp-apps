@@ -2496,9 +2496,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _marketplaceRowsWithFinanceAliases(normalizedMarketplace),
         normalizedSku,
         summary: displaySummary);
+    final mergedSummary = Map<String, dynamic>.from(displaySummary);
+    _summary.forEach((key, val) {
+      if (!mergedSummary.containsKey(key) ||
+          mergedSummary[key] == null ||
+          (mergedSummary[key] is num &&
+              mergedSummary[key] == 0 &&
+              val != null &&
+              (val is! num || val != 0))) {
+        mergedSummary[key] = val;
+      }
+    });
     setState(() {
       _accounts = mergedAccounts;
-      _summary = displaySummary;
+      _summary = mergedSummary;
       _sources = _asList(data['sources'].toString() == 'null'
           ? data['notes']
           : data['sources']);
@@ -2860,15 +2871,25 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           final nextSummary = Map<String, dynamic>.from(_summary);
           final summary = _asMap(cachedData['summary']);
           final sourceBreakdown = _asMap(summary['source_breakdown']);
-          summary.forEach((key, value) {
-            if (value != null) nextSummary[key] = value;
-          });
-          sourceBreakdown.forEach((key, value) {
-            if (value != null) nextSummary[key] = value;
-          });
-          if (summary['sample_order_count'] != null) {
-            nextSummary['abnormal_sample_count'] =
-                summary['sample_order_count'];
+          final sampleHppVal = _numFirstNonZero([
+            summary['sample_hpp_total'],
+            summary['sample_hpp'],
+            summary['hpp_sample_total'],
+            summary['total_sample_hpp'],
+            summary['abnormal_sample_hpp'],
+          ]);
+          final sampleCountVal = _numFirstNonZero([
+            summary['sample_order_count'],
+            summary['sample_count'],
+            summary['confirmed_sample_count'],
+          ]);
+          if (sampleHppVal > 0) {
+            nextSummary['sample_hpp_total'] = sampleHppVal;
+            nextSummary['sample_hpp'] = sampleHppVal;
+          }
+          if (sampleCountVal > 0) {
+            nextSummary['sample_order_count'] = sampleCountVal;
+            nextSummary['abnormal_sample_count'] = sampleCountVal;
           }
           _summary = nextSummary;
           _sampleFreeOrders = [];
@@ -2923,15 +2944,25 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         final sourceBreakdown = _asMap(summary['source_breakdown']);
         setState(() {
           final nextSummary = Map<String, dynamic>.from(_summary);
-          summary.forEach((key, value) {
-            if (value != null) nextSummary[key] = value;
-          });
-          sourceBreakdown.forEach((key, value) {
-            if (value != null) nextSummary[key] = value;
-          });
-          if (summary['sample_order_count'] != null) {
-            nextSummary['abnormal_sample_count'] =
-                summary['sample_order_count'];
+          final sampleHppVal = _numFirstNonZero([
+            summary['sample_hpp_total'],
+            summary['sample_hpp'],
+            summary['hpp_sample_total'],
+            summary['total_sample_hpp'],
+            summary['abnormal_sample_hpp'],
+          ]);
+          final sampleCountVal = _numFirstNonZero([
+            summary['sample_order_count'],
+            summary['sample_count'],
+            summary['confirmed_sample_count'],
+          ]);
+          if (sampleHppVal > 0) {
+            nextSummary['sample_hpp_total'] = sampleHppVal;
+            nextSummary['sample_hpp'] = sampleHppVal;
+          }
+          if (sampleCountVal > 0) {
+            nextSummary['sample_order_count'] = sampleCountVal;
+            nextSummary['abnormal_sample_count'] = sampleCountVal;
           }
           _summary = nextSummary;
           _sampleFreeOrders = [];
@@ -9828,12 +9859,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     final sampleOrderCount = _numFirstNonZero([
       _summary['sample_order_count'],
+      _summary['sample_count'],
       _summary['sample_free_count'],
       _summary['confirmed_sample_count'],
+      _summary['abnormal_sample_count'],
       localSampleCount,
     ]);
 
-    final sampleHppTotal = _num(_summary['sample_hpp_total']);
+    final sampleHppTotal = _numFirstNonZero([
+      _summary['sample_hpp_total'],
+      _summary['sample_hpp'],
+      _summary['hpp_sample_total'],
+      _summary['total_sample_hpp'],
+      _summary['abnormal_sample_hpp'],
+      _summary['sample_free_hpp'],
+    ]);
     final samplePayoutMinusSigned = _num(_summary['sample_payout_minus_total']);
     final sampleNegativePayout = _numFirstNonZero([
       _summary['sample_payout_minus_total_abs'],
