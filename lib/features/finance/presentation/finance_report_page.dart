@@ -12293,7 +12293,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     final totalGross = _profitLossByMarketplace.fold<num>(
-        0, (sum, row) => sum + _num(row['gross_sales'] ?? row['omzet_total']));
+        0, (sum, row) => sum + _num(row['gross_original'] ?? row['gross_before_discount'] ?? row['gross_sales'] ?? row['omzet_total']));
+    final totalDiscount = _profitLossByMarketplace.fold<num>(
+        0, (sum, row) => sum + _num(row['discount_amount'] ?? row['voucher_amount'] ?? row['seller_discount']));
+    final totalOmzetPaid = _profitLossByMarketplace.fold<num>(
+        0, (sum, row) => sum + _num(row['omzet_normal_paid'] ?? row['omzet_paid'] ?? row['gross_sales']));
     final totalPayout = _profitLossByMarketplace.fold<num>(
         0,
         (sum, row) =>
@@ -12358,7 +12362,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Tampilan kartu. Bukan tabel rekonsiliasi panjang.',
+            'Tampilan kartu rincian keuangan diaudit per marketplace.',
             style: TextStyle(
               fontSize: 10.5,
               fontWeight: FontWeight.w600,
@@ -12370,16 +12374,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _profitLossMiniMetric('Total omzet', _money(totalGross),
+              _profitLossMiniMetric('Gross Sblm Diskon', _money(totalGross),
                   positive: true),
-              _profitLossMiniMetric('Total payout', _money(totalPayout),
+              if (totalDiscount > 0)
+                _profitLossMiniMetric('Voucher / Diskon', _money(totalDiscount),
+                    warning: true),
+              _profitLossMiniMetric('Omzet Normal', _money(totalOmzetPaid),
+                  positive: true),
+              _profitLossMiniMetric('Total Payout', _money(totalPayout),
                   positive: true),
               _profitLossMiniMetric('Total HPP', _money(totalHpp),
                   warning: true),
-              _profitLossMiniMetric('Total laba', _money(totalProfit),
+              _profitLossMiniMetric('Total Laba', _money(totalProfit),
                   positive: totalProfit >= 0, warning: totalProfit < 0),
               _profitLossMiniMetric(
-                  'Margin total', '${totalMargin.toStringAsFixed(2)}%'),
+                  'Margin Total', '${totalMargin.toStringAsFixed(2)}%'),
             ],
           ),
           const SizedBox(height: 12),
@@ -12397,9 +12406,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     final paidSkuTotals = _totalsFromSkuRows(paidOnly: true);
-    final summaryGross = _num(_summary['gross_sales'] ??
+    final summaryGross = _num(_summary['gross_original'] ??
+        _summary['gross_before_discount'] ??
+        _summary['gross_sales'] ??
         _summary['gross_total'] ??
         _summary['gross'] ??
+        _summary['omzet_total'] ??
+        _summary['omzet']);
+    final summaryDiscount = _num(_summary['discount_amount'] ??
+        _summary['voucher_amount'] ??
+        _summary['seller_discount']);
+    final summaryOmzetPaid = _num(_summary['omzet_normal_paid'] ??
+        _summary['omzet_paid'] ??
         _summary['omzet_total'] ??
         _summary['omzet']);
     final summaryPayout = _num(_summary['payout_total'] ??
@@ -12422,7 +12440,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _summary['expense_total']);
 
     final mktGross = _profitLossByMarketplace.fold<double>(
-        0.0, (sum, r) => sum + _num(r['gross_sales'] ?? r['omzet_total'] ?? r['gross_total'] ?? r['gross']));
+        0.0, (sum, r) => sum + _num(r['gross_original'] ?? r['gross_before_discount'] ?? r['gross_sales'] ?? r['omzet_total'] ?? r['gross_total'] ?? r['gross']));
+    final mktDiscount = _profitLossByMarketplace.fold<double>(
+        0.0, (sum, r) => sum + _num(r['discount_amount'] ?? r['voucher_amount'] ?? r['seller_discount']));
+    final mktOmzetPaid = _profitLossByMarketplace.fold<double>(
+        0.0, (sum, r) => sum + _num(r['omzet_normal_paid'] ?? r['omzet_paid'] ?? r['omzet']));
     final mktPayout = _profitLossByMarketplace.fold<double>(
         0.0, (sum, r) => sum + _num(r['payout_total'] ?? r['payout_amount'] ?? r['received_amount'] ?? r['payout']));
     final mktHpp = _profitLossByMarketplace.fold<double>(
@@ -12441,6 +12463,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ]));
 
     final gross = summaryGross > 0 ? summaryGross : (mktGross > 0 ? mktGross : paidSkuTotals['gross']!);
+    final discount = summaryDiscount > 0 ? summaryDiscount : (mktDiscount > 0 ? mktDiscount : 0.0);
+    final omzetPaid = summaryOmzetPaid > 0 ? summaryOmzetPaid : (mktOmzetPaid > 0 ? mktOmzetPaid : gross);
     final payout = summaryPayout > 0 ? summaryPayout : (mktPayout > 0 ? mktPayout : paidSkuTotals['payout']!);
     final hpp = summaryHpp > 0 ? summaryHpp : (mktHpp > 0 ? mktHpp : paidSkuTotals['hpp']!);
     final profit = payout - hpp - operational;
@@ -12494,7 +12518,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _profitLossMiniMetric('Total Omzet', _money(gross),
+                    _profitLossMiniMetric('Gross Sblm Diskon', _money(gross),
+                        positive: true),
+                    if (discount > 0)
+                      _profitLossMiniMetric('Voucher / Diskon', _money(discount),
+                          warning: true),
+                    _profitLossMiniMetric('Omzet Normal', _money(omzetPaid),
                         positive: true),
                     _profitLossMiniMetric('Total Payout', _money(payout),
                         positive: true),
