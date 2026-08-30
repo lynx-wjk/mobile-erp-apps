@@ -1367,12 +1367,14 @@ async function enrichShopeeOrderWithPhysicalTracking(args: {
   const packageNumber = detectShopeePackageNumber(args.rawOrder) || packageId;
   const currentTracking = physicalShopeeTrackingNumber(args.order.tracking_number, orderId, packageId, packageNumber);
   const currentLabel = physicalShopeeTrackingNumber(args.order.label_code, orderId, packageId, packageNumber);
+  const statusUpper = text(args.order.order_status || args.order.status).toUpperCase();
+  const isFinalOrCancelled = FINAL_MARKETPLACE_ORDER_STATUSES.has(statusUpper) || CANCEL_STATUSES.has(statusUpper);
 
-  if (currentTracking) {
+  if (currentTracking || isFinalOrCancelled) {
     return {
       ...args.order,
-      tracking_number: currentTracking,
-      label_code: currentLabel || currentTracking,
+      tracking_number: currentTracking || null,
+      label_code: currentLabel || currentTracking || null,
     };
   }
 
@@ -1841,23 +1843,67 @@ async function pullTikTokOrders(admin: any, account: any, args: { daysBack: numb
   let skippedCompletedOrders = 0;
   const warnings: string[] = [];
 
+  // Pre-fetch missing details in batches of 50 to prevent timeouts
+  const missingDetailIds: string[] = [];
   for (const searchOrder of searchOrders) {
-    const orderId = orderIdValue(searchOrder);
-    if (!orderId) continue;
+    const oid = orderIdValue(searchOrder);
+    const hasLineItems = (Array.isArray(searchOrder.line_items) && searchOrder.line_items.length > 0) ||
+      (Array.isArray(searchOrder.item_list) && searchOrder.item_list.length > 0);
+    if (oid && !hasLineItems) {
+      missingDetailIds.push(oid);
+    }
+  }
 
-    let detailOrder = searchOrder;
+  const batchDetailMap = new Map<string, any>();
+  for (let i = 0; i < missingDetailIds.length; i += 50) {
+    const chunk = missingDetailIds.slice(i, i + 50);
     try {
-      const detailJson = await fetchTikTokOrderDetail({
-        orderId,
+      const batchRes = await fetchTikTokOrderDetailsBatch({
+        orderIds: chunk,
         appKey,
         appSecret,
         accessToken,
         shopCipher,
         shopId,
       });
-      detailOrder = normalizeDetailOrder(detailJson, searchOrder, orderId);
-    } catch (e) {
-      warnings.push(`Detail order ${mask(orderId)} gagal, memakai data search: ${String(e)}`);
+      const data = batchRes?.data ?? batchRes?.response?.data ?? batchRes;
+      const orderList = Array.isArray(data?.orders) ? data.orders : (Array.isArray(data?.order_list) ? data.order_list : []);
+      for (const ord of orderList) {
+        const oid = orderIdValue(ord);
+        if (oid) batchDetailMap.set(oid, ord);
+      }
+    } catch (batchErr) {
+      warnings.push(`Batch detail fetch chunk ${i}-${i + chunk.length} gagal: ${String(batchErr)}`);
+    }
+  }
+
+  for (const searchOrder of searchOrders) {
+    const orderId = orderIdValue(searchOrder);
+    if (!orderId) continue;
+
+    let detailOrder = searchOrder;
+    const hasLineItems = (Array.isArray(searchOrder.line_items) && searchOrder.line_items.length > 0) ||
+      (Array.isArray(searchOrder.item_list) && searchOrder.item_list.length > 0);
+
+    if (!hasLineItems) {
+      const fromBatch = batchDetailMap.get(orderId);
+      if (fromBatch) {
+        detailOrder = deepMerge(searchOrder || {}, fromBatch);
+      } else {
+        try {
+          const detailJson = await fetchTikTokOrderDetail({
+            orderId,
+            appKey,
+            appSecret,
+            accessToken,
+            shopCipher,
+            shopId,
+          });
+          detailOrder = normalizeDetailOrder(detailJson, searchOrder, orderId);
+        } catch (e) {
+          warnings.push(`Detail order ${mask(orderId)} gagal, memakai data search: ${String(e)}`);
+        }
+      }
     }
 
     const normalizedOrder = normalizeOrder(detailOrder, activeAccount, orderId);
@@ -2304,6 +2350,32 @@ function extractNextPageToken(jsonRes: any): string {
     || text(data?.pagination?.next_page_token)
     || text(data?.pagination?.nextPageToken)
     || "";
+}
+
+async function fetchTikTokOrderDetailsBatch(args: {
+  orderIds: string[];
+  appKey: string;
+  appSecret: string;
+  accessToken: string;
+  shopCipher: string;
+  shopId: string | null;
+}) {
+  if (args.orderIds.length === 0) return { data: { orders: [] } };
+  const idsParam = args.orderIds.join(",");
+  const query = args.shopId
+    ? { shop_id: args.shopId, ids: idsParam, version: "202309" }
+    : { ids: idsParam, version: "202309" };
+
+  return await tiktokRequest({
+    method: "GET",
+    path: "/order/202309/orders",
+    appKey: args.appKey,
+    appSecret: args.appSecret,
+    accessToken: args.accessToken,
+    shopCipher: args.shopCipher,
+    query,
+    body: {},
+  });
 }
 
 async function fetchTikTokOrderDetail(args: {

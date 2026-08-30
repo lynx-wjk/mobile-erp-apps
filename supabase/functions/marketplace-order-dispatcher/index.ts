@@ -152,12 +152,11 @@ Deno.serve(async (req: Request) => {
 function decideNextWindow(state: ClaimedState) {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const toleranceSeconds = 5 * 60;
-  // Keep one dispatcher. Window size is runtime budget, not a separate queue strategy.
-  // Shopee 1h has been stable. TikTok 1h hit supervisor cancellation, so use 15m until stable.
-  const bootstrapWindowSeconds = state.marketplace === "tiktok_shop" ? 15 * 60 : 60 * 60;
-  const catchupWindowSeconds = state.marketplace === "tiktok_shop" ? 15 * 60 : 60 * 60;
-  const recentLookbackSeconds = 2 * 60;
-  const recentWindowSeconds = 15 * 60;
+  // Adaptive window sizes: 24h for both Shopee & TikTok Shop (rate-limit safe and fast)
+  const bootstrapWindowSeconds = 24 * 3600;
+  const catchupWindowSeconds = 12 * 3600;
+  const recentLookbackSeconds = 5 * 60;
+  const recentWindowSeconds = 30 * 60;
 
   const bootstrapFrom = numberOr(state.bootstrap_from_seconds, nowSeconds - 90 * 24 * 60 * 60);
   const bootstrapTo = numberOr(state.bootstrap_to_seconds, nowSeconds);
@@ -174,7 +173,7 @@ function decideNextWindow(state: ClaimedState) {
     }
 
     return {
-      mode: "bootstrap_90d",
+      mode: "bootstrap_dynamic",
       startSeconds: bootstrapCursor,
       endSeconds: Math.min(bootstrapCursor + bootstrapWindowSeconds, bootstrapTo),
       nextCursorSeconds: Math.min(bootstrapCursor + bootstrapWindowSeconds, bootstrapTo),
@@ -226,20 +225,18 @@ async function callOrderPull(args: {
         marketplace: args.marketplace,
         start_seconds: args.startSeconds,
         end_seconds: args.endSeconds,
-        page_size: 100,
-        limit: 100,
-        // Canonical dispatcher uses no explicit status list so order-pull searches all statuses once.
-        // Detail must follow every pulled order; do not cap detail below pulled order count.
+        page_size: 50,
+        limit: 50,
         statuses: [],
-        max_pages: args.mode === "recent_pull" ? 1 : 1,
-        max_orders: 100,
-        max_orders_per_account: 100,
-        max_details: 100,
-        max_details_per_account: 100,
+        max_pages: args.mode === "recent_pull" ? 2 : 10,
+        max_orders: 150,
+        max_orders_per_account: 150,
+        max_details: 150,
+        max_details_per_account: 150,
         include_previous_unpacked: false,
-        include_statusless_search: false,
-        include_update_time_search: false,
-        statusless_only: false,
+        include_statusless_search: true,
+        include_update_time_search: args.mode === "recent_pull",
+        statusless_only: args.mode.startsWith("bootstrap"),
         skip_completed_order_pull: false,
         source: "marketplace_order_dispatcher",
         dispatcher_mode: args.mode,
@@ -350,7 +347,7 @@ async function finishSuccess(admin: any, state: ClaimedState, decision: any, chi
     updated_at: nowIso,
   };
 
-  if (decision.mode === "bootstrap_90d") {
+  if (decision.mode === "bootstrap_90d" || decision.mode === "bootstrap_dynamic" || decision.mode.startsWith("bootstrap")) {
     updatePayload.bootstrap_cursor_seconds = decision.nextCursorSeconds;
     updatePayload.bootstrap_status =
       decision.nextCursorSeconds >= numberOr(state.bootstrap_to_seconds, decision.nextCursorSeconds)
@@ -361,7 +358,7 @@ async function finishSuccess(admin: any, state: ClaimedState, decision: any, chi
       updatePayload.recent_cursor_seconds = decision.nextCursorSeconds;
       updatePayload.next_run_at = new Date(Date.now() + 15 * 1000).toISOString();
     } else {
-      updatePayload.next_run_at = new Date(Date.now() + 30 * 1000).toISOString();
+      updatePayload.next_run_at = new Date(Date.now() + 5 * 1000).toISOString();
     }
   } else {
     updatePayload.recent_cursor_seconds = decision.nextCursorSeconds;

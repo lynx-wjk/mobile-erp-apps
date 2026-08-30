@@ -1,13 +1,14 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'app_ui.dart';
 
 class AiChatAssistantSheet extends StatefulWidget {
   final String? initialPrompt;
   final String title;
   final String subtitle;
   final String? tenantId;
+  final bool? isPlatformOwner;
 
   const AiChatAssistantSheet({
     super.key,
@@ -15,6 +16,7 @@ class AiChatAssistantSheet extends StatefulWidget {
     this.title = '🤖 Antigravity AI Chat Assistant',
     this.subtitle = 'Tanyakan data store, omzet real, stok SKU, atau strategi marketing',
     this.tenantId,
+    this.isPlatformOwner,
   });
 
   static Future<void> show(
@@ -23,6 +25,7 @@ class AiChatAssistantSheet extends StatefulWidget {
     String title = '🤖 Antigravity AI Chat Assistant',
     String subtitle = 'Tanyakan data store, omzet real, stok SKU, atau strategi marketing',
     String? tenantId,
+    bool? isPlatformOwner,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -33,6 +36,7 @@ class AiChatAssistantSheet extends StatefulWidget {
         title: title,
         subtitle: subtitle,
         tenantId: tenantId,
+        isPlatformOwner: isPlatformOwner,
       ),
     );
   }
@@ -47,14 +51,35 @@ class _AiChatAssistantSheetState extends State<AiChatAssistantSheet> {
   final ScrollController _scrollCtrl = ScrollController();
   final List<Map<String, String>> _messages = [];
   bool _isSending = false;
-  String _activeModelInfo = 'OpenRouter AI (Meta Llama 3.3 70B)';
+  String _activeModelInfo = 'OpenRouter AI (Meta Llama 3.3 70B Free Tier)';
 
-  final List<String> _suggestedPrompts = [
-    '💡 Berapa total omzet Shopee vs TikTok?',
-    '📦 Berapa SKU yang unmapped dan perlu pemetaan?',
-    '📈 Buatkan strategi promosi bundling untuk naikkan AOV',
-    '🛡️ Bagaimana status kesehatan server VPS, CPU, dan RAM?',
-  ];
+  bool get _isEffectivePlatformOwner {
+    if (widget.isPlatformOwner != null) return widget.isPlatformOwner!;
+    final user = _client.auth.currentUser;
+    final appMeta = user?.appMetadata;
+    final userMeta = user?.userMetadata;
+    final role = (appMeta?['role'] ?? userMeta?['role'] ?? '').toString().toLowerCase();
+    return role == 'platform_owner' || role == 'super_admin';
+  }
+
+  List<String> get _suggestedPrompts {
+    if (_isEffectivePlatformOwner) {
+      return [
+        '🛡️ Status kesehatan VPS, RAM, CPU & Database',
+        '🏢 Ringkasan tenant SaaS & proyeksi MRR',
+        '⚡ Audit performa database & throughput RPC',
+        '📊 Analisis pertumbuhan tenant & total revenue platform',
+      ];
+    }
+    return [
+      '📊 Berapa omzet & order hari ini vs kemarin?',
+      '💡 Ide promo bundling untuk top selling SKU',
+      '⚠️ Apa saja produk dengan stok kritis?',
+      '🛒 Perbandingan omzet Shopee vs TikTok',
+      '🏷️ Rekomendasi margin & profit per varian',
+      '📦 Analisis varian dengan penjualan tertinggi',
+    ];
+  }
 
   @override
   void initState() {
@@ -250,20 +275,31 @@ class _AiChatAssistantSheetState extends State<AiChatAssistantSheet> {
 
           // Suggested Quick Prompts (if chat is fresh)
           if (_messages.length <= 2 && !_isSending)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Row(
-                children: _suggestedPrompts.map((p) {
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ActionChip(
-                      label: Text(p, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                      backgroundColor: theme.colorScheme.surfaceVariant.withOpacity(0.5),
-                      onPressed: () => _sendMessage(p.replaceAll(RegExp(r'^[^\w]+'), '').trim()),
-                    ),
-                  );
-                }).toList(),
+            ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(
+                dragDevices: {
+                  PointerDeviceKind.touch,
+                  PointerDeviceKind.mouse,
+                  PointerDeviceKind.trackpad,
+                  PointerDeviceKind.stylus,
+                },
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Row(
+                  children: _suggestedPrompts.map((p) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ActionChip(
+                        label: Text(p, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                        backgroundColor: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+                        onPressed: () => _sendMessage(p.replaceAll(RegExp(r'^[^\w]+'), '').trim()),
+                      ),
+                    );
+                  }).toList(),
+                ),
               ),
             ),
 

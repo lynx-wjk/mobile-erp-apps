@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
     const encryptedRefreshToken = await encryptText(refreshToken, encryptionKey);
     const accessExpiredAt = expireValueToIso(tokenJson.expire_in);
 
-    await upsertMarketplaceAccount(admin, {
+    const accountId = await upsertMarketplaceAccount(admin, {
       tenant_id: oauthState.row.tenant_id,
       marketplace: "shopee",
       app_key: credential.partnerId,
@@ -170,6 +170,16 @@ Deno.serve(async (req) => {
       .from("marketplace_oauth_states")
       .update({ status: "used", used_at: new Date().toISOString(), raw_callback_params: params, last_error: null })
       .eq("state", state);
+
+    if (accountId) {
+      await triggerImmediateBootstrap({
+        supabaseUrl,
+        serviceRoleKey,
+        tenantId: oauthState.row.tenant_id,
+        marketplaceAccountId: accountId,
+        marketplace: "shopee",
+      });
+    }
 
     return redirectToResult({
       status: "success",
@@ -251,7 +261,7 @@ async function upsertMarketplaceAccount(admin: any, payload: Record<string, any>
       .update(updateData)
       .eq("marketplace_account_id", targetAccountId);
     if (error) throw new Error(`Reconnect update marketplace account failed: ${error.message}`);
-    return;
+    return targetAccountId;
   }
 
   // Connect New Account must never update another shop only because app_key is the same.
@@ -280,7 +290,7 @@ async function upsertMarketplaceAccount(admin: any, payload: Record<string, any>
       .update(updateData)
       .eq("marketplace_account_id", existing.marketplace_account_id);
     if (error) throw new Error(`Update existing marketplace account failed: ${error.message}`);
-    return;
+    return existing.marketplace_account_id;
   }
 
   const insertData = {
@@ -291,12 +301,68 @@ async function upsertMarketplaceAccount(admin: any, payload: Record<string, any>
     created_at: now,
   };
 
-  const { error: insertError } = await admin
+  const { data: inserted, error: insertError } = await admin
     .from("marketplace_accounts")
-    .insert(insertData);
+    .insert(insertData)
+    .select("marketplace_account_id")
+    .single();
 
-  if (!insertError) return;
-  throw new Error(`Insert marketplace account failed: ${insertError.message}`);
+  if (insertError || !inserted) throw new Error(`Insert marketplace account failed: ${insertError?.message}`);
+  return inserted.marketplace_account_id;
+}
+
+async function triggerImmediateBootstrap(args: {
+  supabaseUrl: string;
+  serviceRoleKey: string;
+  tenantId: string;
+  marketplaceAccountId: string;
+  marketplace: string;
+}) {
+  try {
+    const cronSecret = Deno.env.get("MARKETPLACE_CRON_SECRET") || "4bb7142023541dee631ded0e18e7fddd7c45789cc6e89751154bc73cad21ffdd";
+    const now = Math.floor(Date.now() / 1000);
+    const startSeconds = now - (30 * 86400); // 30 days initial lookback
+
+    const admin = createClient(args.supabaseUrl, args.serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    await admin.from("marketplace_order_sync_state").upsert(
+      {
+        tenant_id: args.tenantId,
+        marketplace_account_id: args.marketplaceAccountId,
+        marketplace: args.marketplace,
+        bootstrap_status: "pending",
+        bootstrap_from_seconds: startSeconds,
+        bootstrap_to_seconds: now,
+        bootstrap_cursor_seconds: startSeconds,
+        recent_cursor_seconds: now,
+        next_run_at: new Date().toISOString(),
+        failure_count: 0,
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "tenant_id,marketplace_account_id,marketplace" }
+    );
+
+    fetch(`${args.supabaseUrl.replace(/\/+$/, "")}/functions/v1/marketplace-order-pull`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-marketplace-cron-secret": cronSecret,
+      },
+      body: JSON.stringify({
+        tenant_id: args.tenantId,
+        marketplace_account_id: args.marketplaceAccountId,
+        marketplace: args.marketplace,
+        mode: "bootstrap",
+        start_seconds: startSeconds,
+        end_seconds: now,
+      }),
+    }).catch((err) => console.warn(`[Immediate Pull Trigger Error] ${err}`));
+  } catch (e) {
+    console.warn(`[Immediate Pull Init Error] ${e}`);
+  }
 }
 
 function resolveShopeeCredentials(environmentValue: unknown): ShopeeCredentials {

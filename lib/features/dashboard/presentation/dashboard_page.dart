@@ -46,6 +46,8 @@ import '../../stock/presentation/stock_out_page.dart';
 import '../../stock/presentation/low_stock_page.dart';
 import '../../supplier/presentation/supplier_page.dart';
 import '../../tasks/presentation/task_page.dart';
+import 'widgets/tenant_onboarding_banner_widget.dart';
+import 'widgets/marketplace_sync_progress_banner_widget.dart';
 
 class DashboardPage extends StatefulWidget {
   final AppUser? currentUser;
@@ -1027,6 +1029,13 @@ class _DashboardPageState extends State<DashboardPage> {
                                   const SizedBox(height: 12),
                                   _demoReadOnlyBanner(),
                                 ],
+                                const SizedBox(height: 12),
+                                TenantOnboardingBannerWidget(
+                                    currentUser: widget.currentUser ?? _requiredAppUser,
+                                    onRefresh: _loadDashboard),
+                                MarketplaceSyncProgressBannerWidget(
+                                    currentUser: widget.currentUser ?? _requiredAppUser,
+                                    onSyncComplete: _loadDashboard),
                                 const SizedBox(height: 14),
                                 _summaryGrid(),
                                 const SizedBox(height: 20),
@@ -1458,6 +1467,13 @@ class _DashboardPageState extends State<DashboardPage> {
   List<Widget> _webDashboardContent() {
     return [
       _topBar(),
+      const SizedBox(height: 18),
+      TenantOnboardingBannerWidget(
+          currentUser: widget.currentUser ?? _requiredAppUser,
+          onRefresh: _loadDashboard),
+      MarketplaceSyncProgressBannerWidget(
+          currentUser: widget.currentUser ?? _requiredAppUser,
+          onSyncComplete: _loadDashboard),
       const SizedBox(height: 18),
       _webHeroWelcomeCard(),
       const SizedBox(height: 18),
@@ -2158,6 +2174,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                 if (!mounted) return;
                                 if (item.notificationType == 'low_stock') {
                                   _open(const LowStockPage());
+                                } else if (item.notificationType.startsWith('marketplace_') ||
+                                    item.notificationType.contains('stock_difference')) {
+                                  _open(MarketplaceStockDifferencePage(currentUser: _requiredAppUser));
                                 }
                               },
                               child: Container(
@@ -2189,7 +2208,13 @@ class _DashboardPageState extends State<DashboardPage> {
                                     Icon(
                                       item.notificationType == 'low_stock'
                                           ? Icons.warning_amber_rounded
-                                          : Icons.notifications_rounded,
+                                          : item.notificationType == 'marketplace_out_of_stock'
+                                              ? Icons.remove_shopping_cart_rounded
+                                              : item.notificationType == 'marketplace_stock_difference'
+                                                  ? Icons.sync_problem_rounded
+                                                  : item.notificationType == 'marketplace_low_stock'
+                                                      ? Icons.storefront_rounded
+                                                      : Icons.notifications_rounded,
                                       color: item.severityColor(context),
                                     ),
                                     const SizedBox(width: 10),
@@ -4016,7 +4041,10 @@ class _DashboardPageState extends State<DashboardPage> {
                     Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: () => AiChatAssistantSheet.show(context),
+                        onTap: () => AiChatAssistantSheet.show(
+                          context,
+                          isPlatformOwner: _isPlatformOwner,
+                        ),
                         borderRadius: BorderRadius.circular(20),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),

@@ -50,7 +50,6 @@ class _StockProgressPageState extends State<StockProgressPage> {
   List<Map<String, dynamic>> _deposits = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _materialPurchases = <Map<String, dynamic>>[];
   List<Product> _localProducts = <Product>[];
-  List<MarketplaceSkuMap> _skuMaps = <MarketplaceSkuMap>[];
 
   @override
   void initState() {
@@ -131,12 +130,6 @@ class _StockProgressPageState extends State<StockProgressPage> {
         }
         _localProducts = products
             .where((item) => item.status.toLowerCase() != 'inactive')
-            .toList();
-        _skuMaps = skuMaps
-            .where((item) =>
-                item.hasLocalProduct &&
-                item.localProductStatus.toLowerCase() != 'inactive' &&
-                item.status.toLowerCase() != 'deleted')
             .toList();
         _loading = false;
       });
@@ -1178,7 +1171,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 if (paymentType == 'kasbon' &&
                     selectedTailorIdForPayment == null &&
                     _tailors.isNotEmpty) {
-                  selectedTailorIdForPayment = progress?['tailor_id'];
+                  selectedTailorIdForPayment = progress['tailor_id'];
                 }
                 if (payment == null && paymentType == 'sewing_payment') {
                   amount.text = AppUi.moneyInput(unpaid);
@@ -1186,10 +1179,10 @@ class _StockProgressPageState extends State<StockProgressPage> {
                 if (note.text.isEmpty || note.text == 'Deposit awal produksi') {
                   if (paymentType == 'sewing_payment') {
                     note.text =
-                        'Bayar ${_stageLabel(selectedStageKey!)} - ${AppUi.text(progress?['surat_jalan_number'])}';
+                        'Bayar ${_stageLabel(selectedStageKey!)} - ${AppUi.text(progress['surat_jalan_number'])}';
                   } else {
                     note.text =
-                        'Kasbon ${_stageLabel(selectedStageKey!)} - ${AppUi.text(progress?['surat_jalan_number'])}';
+                        'Kasbon ${_stageLabel(selectedStageKey!)} - ${AppUi.text(progress['surat_jalan_number'])}';
                   }
                 }
               }
@@ -3164,7 +3157,6 @@ class _StockProgressPageState extends State<StockProgressPage> {
         ? <_MaterialPurchaseLineInput>[_MaterialPurchaseLineInput()]
         : existingLines.map((row) {
             final line = _MaterialPurchaseLineInput();
-            final productId = AppUi.text(row['product_id'], '');
             line.nameController.text = AppUi.text(
               row['nama_barang'] ?? row['nama_barang_manual'],
               '',
@@ -3676,13 +3668,6 @@ class _StockProgressPageState extends State<StockProgressPage> {
           'Progress ID': progress['progress_id'],
         });
       }
-    }
-    // Add standalone kasbon from tailors if not linked to progress
-    for (final tailor in _tailorCards) {
-      final tailorId = tailor['tailor_id'];
-      final tailorName = tailor['tailor_name'];
-      // We'd need to fetch standalone payments if any, but the current _items covers most.
-      // For now, ensure we have a Tailor Summary sheet.
     }
     _appendExcelSheet(workbook, 'ledger_payments', paymentRows);
 

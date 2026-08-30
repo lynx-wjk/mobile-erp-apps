@@ -3331,7 +3331,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _abnormalPage = 1;
     });
     _refreshAbnormalTab(resetPage: true);
-    DefaultTabController.maybeOf(context)?.animateTo(6);
+    try {
+      DefaultTabController.maybeOf(context)?.animateTo(6);
+    } catch (_) {}
+    _showSkuOrderRefsV82o(
+      {'local_sku': '', 'sku': '', 'marketplace_sku': '', 'title': 'Audit Sample & Gratis'},
+      payoutFilter: 'sample',
+    );
   }
 
   String _skuPayoutCountCleanKey(dynamic value) {
@@ -4636,6 +4642,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       summary['payout'],
     ]);
     final rawHpp = _numFirstNonZero([
+      summary['hpp_settled'],
+      summary['settled_hpp'],
+      summary['paid_hpp_total'],
       summary['hpp_total'],
       summary['total_hpp'],
       summary['hpp_amount'],
@@ -4678,8 +4687,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         skuPayout += _num(row['payout_total'] ??
             row['payout_amount'] ??
             row['received_amount']);
-        skuHpp +=
-            _num(row['paid_hpp_total'] ?? row['hpp_total'] ?? row['total_hpp']);
+        skuHpp += _numFirstNonZero([
+          row['hpp_settled'],
+          row['settled_hpp'],
+          row['paid_hpp_total'],
+          row['paid_hpp'],
+          row['hpp_total'],
+          row['total_hpp'],
+        ]);
         skuPaidOrders +=
             _num(row['paid_order_count'] ?? row['detail_order_count']);
       }
@@ -4705,7 +4720,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         : (rawGross > 0 ? rawGross : skuGross);
     final payout =
         forceFromSku ? skuPayout : (rawPayout > 0 ? rawPayout : skuPayout);
-    final hpp = forceFromSku ? skuHpp : (rawHpp > 0 ? rawHpp : skuHpp);
+    final hpp = forceFromSku ? skuHpp : (skuHpp > 0 ? skuHpp : (rawHpp > 0 ? rawHpp : 0.0));
     final profit = payout - hpp - expense;
     final margin = payout > 0 ? profit / payout * 100 : 0.0;
     final orders = forceFromSku
@@ -4760,7 +4775,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (rawRows.isEmpty) {
       final gross = _num(summary['gross_sales'] ?? summary['omzet'] ?? summary['gross_total']);
       final payout = _num(summary['payout_total'] ?? summary['payout_amount'] ?? summary['received_amount']);
-      final hpp = _num(summary['hpp_total'] ?? summary['total_hpp']);
+      final hpp = _numFirstNonZero([summary['hpp_settled'], summary['settled_hpp'], summary['paid_hpp_total'], summary['hpp_total'], summary['total_hpp']]);
       final profit = _num(summary['net_profit'] ?? summary['profit'] ?? (payout - hpp));
       final margin = payout > 0 ? profit / payout * 100 : 0.0;
       final orders = _num(summary['finance_order_count'] ?? summary['order_count']).toInt();
@@ -4805,8 +4820,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return rawRows.map((label) {
       final gross = _num(label['gross_sales'] ?? label['gross_total'] ?? label['omzet'] ?? label['omzet_paid']);
       final payout = _num(label['payout_total'] ?? label['payout_amount'] ?? label['received_amount']);
-      final hpp = _num(label['hpp_total'] ?? label['total_hpp'] ?? label['hpp_settled']);
-      final profit = _num(label['net_profit'] ?? label['profit'] ?? (payout - hpp));
+      final hpp = _numFirstNonZero([label['hpp_settled'], label['settled_hpp'], label['paid_hpp_total'], label['hpp_total'], label['total_hpp']]);
+      final profit = payout - hpp;
       final margin = payout > 0 ? profit / payout * 100 : 0.0;
       final orders = _num(label['order_count'] ?? label['finance_order_count']).toInt();
 
@@ -9825,8 +9840,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _summary['payout'] ??
         _summary['received_amount'] ??
         _summary['net_received']);
-    final summaryHpp =
-        _num(_summary['hpp_total'] ?? _summary['hpp'] ?? _summary['total_hpp']);
+    final summaryHpp = _numFirstNonZero([
+      _summary['hpp_settled'],
+      _summary['settled_hpp'],
+      _summary['paid_hpp_total'],
+      _summary['hpp_total'],
+      _summary['hpp'],
+      _summary['total_hpp'],
+    ]);
     final operational = _num(_summary['operational_cost_total'] ??
         _summary['operational_expense'] ??
         _summary['expense_total']);
@@ -10208,14 +10229,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: () {
-                          final tabController =
-                              DefaultTabController.maybeOf(context);
-                          if (tabController != null) {
-                            tabController.animateTo(6);
-                          }
-                          _refreshAbnormalTab();
-                        },
+                        onPressed: () => _navigateToSampleFreeAbnormal(context),
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(
                               color: Theme.of(context).colorScheme.primary,
@@ -10332,10 +10346,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ...() {
               final mktList = _byMarketplace;
               final summaryHpp = _numFirstNonZero([
-                _summary['hpp_total'],
-                _summary['total_hpp'],
+                _summary['hpp_settled'],
+                _summary['settled_hpp'],
                 _summary['paid_hpp_total'],
                 _summary['settled_hpp_total'],
+                _summary['hpp_total'],
+                _summary['total_hpp'],
                 _summary['hpp_cair'],
                 _summary['hpp'],
               ]);
@@ -10358,12 +10374,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     _num(row['gross_sales'] ?? row['gross'] ?? row['omzet']);
                 final payout = _num(row['payout_total'] ?? row['net_received']);
                 var hpp = _numFirstNonZero([
-                  row['hpp_total'],
-                  row['total_hpp'],
+                  row['hpp_settled'],
+                  row['settled_hpp'],
                   row['paid_hpp_total'],
                   row['settled_hpp_total'],
                   row['hpp_cair'],
-                  row['hpp_settled'],
+                  row['hpp_total'],
+                  row['total_hpp'],
                   row['hpp_amount'],
                   row['hpp'],
                 ]);
@@ -10373,7 +10390,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     gross > 0) {
                   hpp = (gross / totalMktGross) * summaryHpp;
                 }
-                final profit = payout > 0 ? (payout - hpp) : 0.0;
+                final profit = payout > 0 ? (payout - hpp) : (payout - hpp);
                 final margin = payout > 0 ? (profit / payout * 100) : 0.0;
                 return _detailCard(
                   title: '$marketplace · $shop',
@@ -10489,9 +10506,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     int totalQty = 0;
     int totalSettledQty = 0;
 
-    for (final v in _skuPayoutCountSummaryMap.values.toSet()) {
-      totalQty += _num(v['all_qty'] ?? 0).round();
-      totalSettledQty += _num(v['paid_qty'] ?? 0).round();
+    for (final row in _bySku) {
+      totalQty += _numFirstNonZero([row['total_qty'], row['qty_total'], row['qty']]).round();
+      totalSettledQty += _numFirstNonZero([row['settled_qty'], row['qty_settled'], row['paid_qty']]).round();
+    }
+
+    if (totalQty == 0 && _skuPayoutCountSummaryMap.isNotEmpty) {
+      for (final v in _skuPayoutCountSummaryMap.values.toSet()) {
+        totalQty += _num(v['all_qty'] ?? 0).round();
+      }
+    }
+    if (totalSettledQty == 0 && _skuPayoutCountSummaryMap.isNotEmpty) {
+      for (final v in _skuPayoutCountSummaryMap.values.toSet()) {
+        totalSettledQty += _num(v['paid_qty'] ?? 0).round();
+      }
     }
 
     if (totalQty == 0) {
@@ -10499,14 +10527,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _summary['total_qty_count'],
         _summary['qty_total'],
         _summary['total_qty'],
-        _bySku.fold<num>(0, (sum, row) => sum + _num(row['total_qty'] ?? row['qty_total'] ?? row['qty'])),
       ]).round();
     }
     if (totalSettledQty == 0) {
       totalSettledQty = _numFirstNonZero([
         _summary['settled_qty_count'],
         _summary['qty_settled'],
-        totalQty,
+        _summary['paid_qty'],
       ]).round();
     }
 
@@ -10837,13 +10864,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             warning: true,
             onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'returned'),
           ),
-        if (_num(row['positive_payout_qty']) > 0)
-          _miniMetric('Qty payout +',
-              _num(row['positive_payout_qty']).toStringAsFixed(0)),
-        if (_num(row['negative_payout_qty']) > 0)
-          _miniMetric('Qty koreksi -',
-              _num(row['negative_payout_qty']).toStringAsFixed(0),
-              warning: true),
         _miniMetric(
             'Gross/item', _money(grossPerItem)),
         if (showPayoutRange) ...[
@@ -12038,10 +12058,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final shop = _text(row['shop_name'] ?? row['account_name'], marketplace);
       final orderCount =
           _num(row['order_count'] ?? row['finance_order_count']).toInt();
-      final grossOriginal = _num(row['gross_original'] ?? row['gross_sales'] ?? row['gross_total']);
+      final grossOriginalRaw = _num(row['gross_original'] ?? row['gross_sales'] ?? row['gross_total']);
       final sellerDiscount = _num(row['seller_discount'] ?? 0);
-      final omzetPaid = _num(row['omzet_normal_paid'] ?? row['omzet_paid'] ?? (grossOriginal - sellerDiscount.abs()));
-      final gross = grossOriginal;
+      final omzetPaid = _num(row['omzet_normal_paid'] ?? row['omzet_paid'] ?? (grossOriginalRaw - sellerDiscount.abs()));
+      final gross = grossOriginalRaw;
 
       final payout = _num(row['payout_total'] ??
           row['received_amount'] ??
@@ -12074,6 +12094,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         row['seller_voucher'],
         row['platform_voucher'],
       ]);
+      final grossOriginal = (grossOriginalRaw > discount.abs() && grossOriginalRaw > omzetPaid)
+          ? grossOriginalRaw
+          : (omzetPaid + discount.abs());
       final refund = _numFirstNonZero([
         row['refund_amount'],
         row['return_refund_amount'],
@@ -14243,13 +14266,25 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     }
 
     if (payoutFilter == 'returned' || payoutFilter == 'batal' || payoutFilter == 'retur') {
-      return deduped.where((r) {
+      final filtered = deduped.where((r) {
         if (r['is_returned'] == true) return true;
+        if (_num(r['hpp_return'] ?? r['return_amount'] ?? r['refund_amount']) > 0) return true;
         final st = _text(r['settlement_status'], '').toLowerCase();
-        if (st.contains('retur') || st.contains('batal')) return true;
+        if (st.contains('retur') || st.contains('batal') || st.contains('refund')) return true;
         final os = _text(r['status'] ?? r['order_status'], '').toLowerCase();
         return RegExp(r'(cancel|batal|return|refund|rts|gagal|closed)').hasMatch(os);
       }).toList();
+      return filtered.isNotEmpty ? filtered : deduped;
+    }
+
+    if (payoutFilter == 'sample' || payoutFilter == 'gratis' || payoutFilter == 'free') {
+      final filtered = deduped.where((r) {
+        if (r['is_sample'] == true) return true;
+        final st = _text(r['status'] ?? r['order_status'], '').toLowerCase();
+        final note = _text(r['note'] ?? r['catatan'] ?? r['order_note'], '').toLowerCase();
+        return st.contains('sample') || st.contains('gratis') || note.contains('sample') || note.contains('gratis');
+      }).toList();
+      return filtered.isNotEmpty ? filtered : deduped;
     }
 
     return deduped;
@@ -14618,10 +14653,28 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       };
     }
 
-    var localSku = isPseudoUnmapped(localSkuRaw) ? '' : localSkuRaw;
+    bool isGlobalFilterLabel(String val) {
+      final clean = val.trim().toLowerCase();
+      if (clean.isEmpty) return false;
+      return clean == 'sample' ||
+          clean == 'gratis' ||
+          clean == 'retur' ||
+          clean == 'returned' ||
+          clean == 'all' ||
+          clean == 'semua' ||
+          clean.contains('semua sample') ||
+          clean.contains('sample & gratis') ||
+          clean.contains('sample / gratis') ||
+          clean.contains('audit sample') ||
+          clean.contains('semua retur') ||
+          clean.contains('semua order');
+    }
+
+    var localSku = (isPseudoUnmapped(localSkuRaw) || isGlobalFilterLabel(localSkuRaw)) ? '' : localSkuRaw;
     if (localSku.isEmpty &&
         rowSku.isNotEmpty &&
         !isPseudoUnmapped(rowSku) &&
+        !isGlobalFilterLabel(rowSku) &&
         rowSku != marketplaceSku) {
       localSku = rowSku;
     }
@@ -14666,6 +14719,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         clean == 'refund') {
       return 'returned';
     }
+    if (clean == 'sample' || clean == 'gratis' || clean == 'free') {
+      return 'sample';
+    }
     return clean.isEmpty ? 'all' : value.trim().toLowerCase();
   }
 
@@ -14693,7 +14749,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         ? keyword.trim()
         : (marketplaceSku.isEmpty && localSku.isEmpty ? fallbackSearch : '');
 
-    if (marketplaceSku.isEmpty && localSku.isEmpty && searchText.isEmpty) {
+    final isGlobalFilterQuery = payoutFilter == 'sample' || payoutFilter == 'returned' || payoutFilter == 'unpaid' || payoutFilter == 'paid' || payoutFilter == 'gratis';
+    if (marketplaceSku.isEmpty && localSku.isEmpty && searchText.isEmpty && !isGlobalFilterQuery) {
       return {
         'rows': <Map<String, dynamic>>[],
         'page': 1,
@@ -14822,9 +14879,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           'p_end': _toDateParam(_end),
           'p_marketplace': detailMarketplace,
           'p_account_id': detailAccountId,
-          'p_marketplace_sku': marketplaceSkuParam,
-          'p_local_sku': localSkuParam,
-          'p_search': searchParam,
+          'p_marketplace_sku': (marketplaceSkuParam?.trim().isEmpty ?? true) ? null : marketplaceSkuParam,
+          'p_local_sku': (localSkuParam?.trim().isEmpty ?? true) ? null : localSkuParam,
+          'p_search': (searchParam?.trim().isEmpty ?? true) ? null : searchParam,
           'p_payout_filter': rpcPayoutFilter,
           'p_page': page,
           'p_page_size': pageSize,
@@ -14978,22 +15035,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     String? pageError;
     var sheetOpen = true;
 
+    String activeFilter = payoutFilter;
+
     Future<void> loadPage(
       int nextPage,
       String nextKeyword,
-      StateSetter setSheetState,
-    ) async {
+      StateSetter setSheetState, {
+      String? overrideFilter,
+    }) async {
+      final targetFilter = overrideFilter ?? activeFilter;
       final cleanKeyword = nextKeyword.trim();
       setSheetState(() {
         loadingPage = true;
         pageError = null;
         keyword = cleanKeyword;
+        activeFilter = targetFilter;
         page = nextPage < 1 ? 1 : nextPage;
       });
       try {
         final result = await _fetchSkuOrderDetailsV82oPageForRow(
           row,
-          payoutFilter,
+          targetFilter,
           page: nextPage < 1 ? 1 : nextPage,
           pageSize: _skuDetailPageSize,
           keyword: cleanKeyword,
@@ -15098,6 +15160,66 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                         ],
                       ),
                       SizedBox(height: 12),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            ChoiceChip(
+                              label: const Text('Semua Status'),
+                              selected: activeFilter == 'all',
+                              onSelected: (selected) {
+                                if (!selected) return;
+                                loadPage(1, searchController.text, setSheetState, overrideFilter: 'all');
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            ChoiceChip(
+                              avatar: const Icon(Icons.check_circle_outline_rounded, size: 14, color: Colors.green),
+                              label: const Text('Sudah Cair / Settled'),
+                              selected: activeFilter == 'paid' || activeFilter == 'settled',
+                              selectedColor: Colors.green.withValues(alpha: 0.2),
+                              onSelected: (selected) {
+                                if (!selected) return;
+                                loadPage(1, searchController.text, setSheetState, overrideFilter: 'paid');
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            ChoiceChip(
+                              avatar: const Icon(Icons.hourglass_top_rounded, size: 14, color: Colors.amber),
+                              label: const Text('Belum Cair / Unsettled'),
+                              selected: activeFilter == 'unpaid' || activeFilter == 'unsettled',
+                              selectedColor: Colors.amber.withValues(alpha: 0.2),
+                              onSelected: (selected) {
+                                if (!selected) return;
+                                loadPage(1, searchController.text, setSheetState, overrideFilter: 'unpaid');
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            ChoiceChip(
+                              avatar: const Icon(Icons.card_giftcard_rounded, size: 14, color: Colors.purple),
+                              label: const Text('Sample / Gratis'),
+                              selected: activeFilter == 'sample' || activeFilter == 'gratis',
+                              selectedColor: Colors.purple.withValues(alpha: 0.2),
+                              onSelected: (selected) {
+                                if (!selected) return;
+                                loadPage(1, searchController.text, setSheetState, overrideFilter: 'sample');
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            ChoiceChip(
+                              avatar: const Icon(Icons.cancel_outlined, size: 14, color: Colors.red),
+                              label: const Text('Retur / Batal'),
+                              selected: activeFilter == 'returned' || activeFilter == 'batal' || activeFilter == 'retur',
+                              selectedColor: Colors.red.withValues(alpha: 0.2),
+                              onSelected: (selected) {
+                                if (!selected) return;
+                                loadPage(1, searchController.text, setSheetState, overrideFilter: 'returned');
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(height: 10),
                       TextField(
                         controller: searchController,
                         onChanged: (value) => loadPage(1, value, setSheetState),
@@ -15633,24 +15755,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Container(
-                                        width: 38,
-                                        height: 38,
-                                        decoration: BoxDecoration(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .primary
-                                              .withOpacity(0.08),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                        ),
-                                        child: Icon(Icons.receipt_long_rounded,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary,
-                                            size: 20),
-                                      ),
-                                      SizedBox(width: 10),
                                       Expanded(
                                         child: Column(
                                           crossAxisAlignment:
@@ -17449,7 +17553,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _skuDetailHppItemText(Map<String, dynamic> detail) {
-    final hpp = _num(detail['hpp_per_item'] ?? detail['hpp']);
+    final hpp = _numFirstNonZero([
+      detail['unit_hpp'],
+      detail['hpp_per_item'],
+      detail['hpp'],
+      detail['hpp_amount'],
+      detail['hpp_total'],
+    ]);
     if (hpp <= 0) return 'HPP belum mapping';
     return _money(hpp);
   }

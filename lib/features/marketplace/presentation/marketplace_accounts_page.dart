@@ -30,6 +30,8 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
   final MarketplaceService _service = MarketplaceService();
 
   String get _roleId => widget.currentUser.role.roleId;
+  bool get _isPlatformOwner =>
+      _roleId.trim().toLowerCase() == 'platform_owner';
   bool get _isDemoSuperAdmin => AppRolePermissions.isDemoSuperAdminId(_roleId);
   bool get _canConnectNew =>
       AppRolePermissions.canConnectNewMarketplace(_roleId) &&
@@ -46,7 +48,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
   final Set<String> _deletingAccountIds = <String>{};
   String? _errorMessage;
   String _selectedMarketplace = 'tiktok_shop';
-  String _selectedEnvironment = 'testing';
+  String _selectedEnvironment = 'production';
   String? _generatedLink;
   String? _generatedLinkTitle;
   String? _generatedLinkEnvironment;
@@ -487,57 +489,64 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                     if (value == null) return;
                     setState(() {
                       _selectedMarketplace = value;
-                      if (value == 'shopee') _selectedEnvironment = 'testing';
+                      if (!_isPlatformOwner) {
+                        _selectedEnvironment = 'production';
+                      } else if (value == 'shopee') {
+                        _selectedEnvironment = 'testing';
+                      }
                     });
                   },
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: _selectedEnvironment,
-            decoration: const InputDecoration(
-              labelText: 'Account Type',
-              border: OutlineInputBorder(),
-            ),
-            items: const [
-              DropdownMenuItem(
-                  value: 'testing', child: Text('Testing / Dev Shop')),
-              DropdownMenuItem(
-                  value: 'production',
-                  child: Text('Production / Real Account')),
-            ],
-            onChanged: _isCreatingLink || !_canConnectNew
-                ? null
-                : (value) {
-                    if (value == null) return;
-                    setState(() => _selectedEnvironment = value);
-                  },
-          ),
-          if (_selectedMarketplace == 'shopee' &&
-              _selectedEnvironment == 'testing') ...[
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppUi.orange.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                    color: AppUi.orange.withOpacity(0.22), width: 0.8),
+          if (_isPlatformOwner) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _selectedEnvironment,
+              decoration: const InputDecoration(
+                labelText: 'Account Type (Platform Owner Mode)',
+                border: OutlineInputBorder(),
               ),
-              child: const Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.science_outlined, color: AppUi.orange),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Shopee yang masih developing wajib pakai Testing / Dev Shop. Isi SHOPEE_TEST_PARTNER_ID dan SHOPEE_TEST_PARTNER_KEY di Supabase Secrets untuk sandbox. Backend sekarang tidak memakai fallback credential production untuk mode Testing.',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+              items: const [
+                DropdownMenuItem(
+                    value: 'production',
+                    child: Text('Production / Real Account')),
+                DropdownMenuItem(
+                    value: 'testing',
+                    child: Text('Testing / Dev Shop')),
+              ],
+              onChanged: _isCreatingLink || !_canConnectNew
+                  ? null
+                  : (value) {
+                      if (value == null) return;
+                      setState(() => _selectedEnvironment = value);
+                    },
+            ),
+            if (_selectedMarketplace == 'shopee' &&
+                _selectedEnvironment == 'testing') ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppUi.orange.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: AppUi.orange.withOpacity(0.22), width: 0.8),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.science_outlined, color: AppUi.orange),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Shopee sandbox mode aktif untuk developer/platform owner.',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+            ],
           ],
           const SizedBox(height: 12),
           TextField(

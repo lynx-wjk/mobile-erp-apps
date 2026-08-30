@@ -1442,42 +1442,6 @@ class _StockOutPageState extends State<StockOutPage> {
     );
   }
 
-  Widget _statPill(String label, String value) {
-    return Container(
-      width: 132,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06),
-        borderRadius: AppTheme.radiusMd,
-        border: Border.all(
-            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12),
-            width: 0.8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurface,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.72),
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _formCard() {
     final isMarketplaceActive = _isMarketplaceVerificationActive;
     return NiceCard(

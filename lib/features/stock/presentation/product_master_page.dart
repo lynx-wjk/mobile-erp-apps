@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/utils/file_download.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProductMasterPage extends StatefulWidget {

@@ -1,67 +1,64 @@
-# BRIEFING — 2026-08-15T01:39:15+07:00
+# BRIEFING — 2026-08-16T16:18:35Z
 
 ## Mission
-Investigate and update finance SKU report RPCs (`finance_sku_order_line_details` and `finance_sku_order_details_group_20260625`) and Flutter UI (`finance_report_page.dart`) so Retur/Batal order detail modal displays full records and pending payout strictly excludes returned/cancelled orders across June & July 2026, then build and deploy to VPS (`https://mdhproduction.com`).
+Re-engineer the Mobile ERP landing page (mdhproduction.com) with 100% truthful codebase feature mapping, zero hallucinations, exclusion of Platform Owner tools, accurate Bandung localization, and Tier-1 UI/UX Pro Max craftsmanship, followed by production verification.
 
 ## 🔒 My Identity
 - Archetype: orchestrator
 - Roles: orchestrator, user_liaison, human_reporter, successor
 - Working directory: c:\Users\budic\Downloads\android\inventory_control_apps\.agents\orchestrator_1
-- Original parent: top-level (caller: b6d8c847-a0a5-4168-94a1-a85a0fa4c93d)
-- Original parent conversation ID: b6d8c847-a0a5-4168-94a1-a85a0fa4c93d
+- Original parent: top-level
+- Original parent conversation ID: 8cab3084-6f7b-4085-80ea-6db24201a463
 
 ## 🔒 My Workflow
-- **Pattern**: Project
+- **Pattern**: Project Orchestration
 - **Scope document**: c:\Users\budic\Downloads\android\inventory_control_apps\PROJECT.md
-1. **Decompose**: Survey codebase via 3 parallel explorers, establish Feature Inventory and Milestones (M1: Database RPC updates & SQL migration, M2: Flutter UI alignment in finance_report_page.dart, M3: Web release build & VPS deployment verification).
+1. **Decompose**: Survey codebase features via parallel Explorers -> Build PROJECT.md -> Decompose into implementation and E2E verification milestones.
 2. **Dispatch & Execute**:
-   - Dual Track: Implementation Track + E2E / Integration Verification Track.
-   - Iteration Loop: Explorer -> Worker -> Reviewer -> Challenger -> Forensic Auditor -> Gate.
-3. **On failure**:
-   - Retry -> Replace -> Skip -> Redistribute -> Redesign -> Escalate.
-4. **Succession**: At 16 spawns, write soft handoff.md, cancel crons, spawn successor.
-- **Work items**:
-  1. Survey and Scope Mapping [in-progress]
-  2. M1: Backend RPC & Database Migrations [pending]
-  3. M2: Flutter Frontend Finance Report UI [pending]
-  4. M3: E2E Verification & Web VPS Deployment [pending]
-- **Current phase**: 0 (Survey)
-- **Current focus**: Codebase survey via 3 parallel explorers
+   - Survey phase: 3 parallel Explorers (Codebase audit, Landing page & UI audit, VPS/Deployment audit).
+   - Implementation: Worker to re-engineer landing_page (HTML, CSS, JS, Assets, SEO, Localization, Truthful Copy).
+   - Review & Verification: Reviewers, Challenger, Forensic Auditor.
+   - Deployment: Deploy to VPS /var/www/landing_page/ & verify production URL https://mdhproduction.com/.
+3. **On failure**: Retry -> Replace -> Skip -> Redistribute -> Redesign -> Escalate.
+4. **Succession**: Self-succeed at 16 spawns.
 
 ## 🔒 Key Constraints
 - NEVER write, modify, or create source code files directly.
-- NEVER run build/test commands directly.
-- All technical investigation and edits must be executed via subagents.
-- Audit verdict is a binary veto.
+- NEVER run build/test commands yourself — require workers to do so.
+- NEVER investigate or explore the problem at the code level — dispatch Explorers for technical investigation.
+- Audit verdict is a BINARY VETO — violation means milestone failure.
+- Zero hallucination (GPS+selfie, no face AI; marketplace API tracking, no direct courier partnership).
+- Zero exposure of Platform Owner tools.
 
 ## Current Parent
-- Conversation ID: b6d8c847-a0a5-4168-94a1-a85a0fa4c93d
-- Updated: 2026-08-15T01:38:46+07:00
+- Conversation ID: 8cab3084-6f7b-4085-80ea-6db24201a463
+- Updated: 2026-08-16T16:18:01Z
 
 ## Key Decisions Made
-- Selected Project pattern with Dual Track (Backend/Frontend Implementation + Verification).
-- Survey phase dispatched: 3 parallel explorers inspecting backend RPCs, Flutter UI, and DevOps deployment.
+- Selected Project Pattern with parallel exploration for codebase mapping, UI/UX audit, and deployment preparation.
+- Dispatched 3 parallel Explorers for Phase 0 survey.
 
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |---|---|---|---|---|
-| explorer_survey_1 | teamwork_preview_explorer | Survey Backend RPC & SQL | in-progress | da83acc8-fafd-447e-848a-edd7c64527f2 |
-| explorer_survey_2 | teamwork_preview_explorer | Survey Flutter UI & Frontend | in-progress | ab84373c-e31c-4451-a58f-624ceb0d9d7a |
-| explorer_survey_3 | teamwork_preview_explorer | Survey DevOps & Deployment | in-progress | f395c2ef-6496-4808-8764-8c58cc605e48 |
+| explorer_codebase_1 | teamwork_preview_explorer | Survey Codebase Features & Truth | IN_PROGRESS | 8dc9f446-0aad-4e1d-a693-932d68703f38 |
+| explorer_landingpage_1 | teamwork_preview_explorer | Audit Existing Landing Page & UX | IN_PROGRESS | 4661e5d1-6b9a-439e-a289-62dbcdcdbabf |
+| explorer_vps_1 | teamwork_preview_explorer | Audit VPS & Deployment Env | IN_PROGRESS | e1fe97f1-4ca3-4363-a56f-c740fd09d6c5 |
 
 ## Succession Status
 - Succession required: no
 - Spawn count: 3 / 16
-- Pending subagents: da83acc8-fafd-447e-848a-edd7c64527f2, ab84373c-e31c-4451-a58f-624ceb0d9d7a, f395c2ef-6496-4808-8764-8c58cc605e48
+- Pending subagents: 8dc9f446-0aad-4e1d-a693-932d68703f38, 4661e5d1-6b9a-439e-a289-62dbcdcdbabf, e1fe97f1-4ca3-4363-a56f-c740fd09d6c5
 - Predecessor: none
 - Successor: not yet spawned
 
 ## Active Timers
-- Heartbeat cron: c1259bc6-fca1-4b25-9f1c-20cdd996dbf3/task-13
+- Heartbeat cron: d3695953-cb70-4f37-96e6-21d4c7fb49ad/task-15
 - Safety timer: none
 
 ## Artifact Index
-- c:\Users\budic\Downloads\android\inventory_control_apps\.agents\ORIGINAL_REQUEST.md — Original User Request
-- c:\Users\budic\Downloads\android\inventory_control_apps\.agents\orchestrator_1\DISPATCH.md — Initial dispatch instruction
-- c:\Users\budic\Downloads\android\inventory_control_apps\.agents\orchestrator_1\plan.md — Orchestrator project plan
-- c:\Users\budic\Downloads\android\inventory_control_apps\.agents\orchestrator_1\progress.md — Liveness & execution heartbeat
+- ORIGINAL_REQUEST.md — Original verbatim user request
+- DISPATCH.md — Dispatch log
+- PROJECT.md — Master project architecture and milestones
+- plan.md — Orchestrator execution plan
+- progress.md — Live status tracking

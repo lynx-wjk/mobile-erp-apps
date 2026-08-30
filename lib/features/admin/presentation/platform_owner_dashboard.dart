@@ -11,6 +11,7 @@ import '../../../core/constants/app_roles.dart';
 import '../../../services/auth_service.dart';
 import '../../auth/presentation/login_page.dart';
 import 'subscription_plans_page.dart';
+import 'landing_page_cms_page.dart';
 import 'tenant_subscription_detail_page.dart';
 import 'user_management_page.dart';
 
@@ -29,6 +30,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
   bool _isLoggingOut = false;
   List<Map<String, dynamic>> _readinessData = [];
   List<Map<String, dynamic>> _tenantsList = [];
+  List<Map<String, dynamic>> _plansList = [];
 
   @override
   void initState() {
@@ -36,11 +38,23 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
     _loadData();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool forceRefresh = false}) async {
     setState(() => _isLoading = true);
     try {
-      // Fetch readiness summary
-      final response = await _client.rpc('platform_tenant_readiness_summary');
+      final response = await _client.rpc('platform_tenant_readiness_summary',
+          params: {'p_force_refresh': forceRefresh});
+      final tenantsRes = await _client
+          .from('app_tenants')
+          .select(
+              'tenant_id, tenant_code, tenant_name, owner_name, owner_email, status, order_retention_days, tenant_subscriptions(status, trial_ends_at, current_period_end, created_at, subscription_plans(plan_name, plan_code, max_order_retention_days))')
+          .order('tenant_name');
+
+      final plansRes = await _client
+          .from('subscription_plans')
+          .select('plan_id, plan_code, plan_name, price_amount, billing_period')
+          .eq('is_active', true)
+          .order('sort_order');
+
       if (response != null && response is List) {
         _readinessData =
             response.map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -48,13 +62,11 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
         _readinessData = [];
       }
 
-      // Fetch distinct tenants list with subscription info
-      final tenantsRes = await _client
-          .from('app_tenants')
-          .select(
-              'tenant_id, tenant_code, tenant_name, owner_name, owner_email, status, tenant_subscriptions(status, trial_ends_at, current_period_end, created_at, subscription_plans(plan_name, plan_code))')
-          .order('tenant_name');
       _tenantsList = (tenantsRes as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+
+      _plansList = (plansRes as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
     } catch (e, st) {
@@ -87,27 +99,134 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
     }
   }
 
-  bool _dateIsPast(dynamic value) {
-    final parsed = DateTime.tryParse(value?.toString() ?? '');
-    return parsed != null && parsed.isBefore(DateTime.now());
-  }
-
-  String _tenantSubscriptionState(String tenantId) {
+  Map<String, dynamic> _getTenantGraceState(String tenantId) {
     final tenantObj = _tenantObjById(tenantId);
     final subs = tenantObj?['tenant_subscriptions'] as List?;
     final activeSub = _getActiveSubscription(subs);
-    if (activeSub == null) return 'unassigned';
-
-    final status = activeSub['status']?.toString().toLowerCase() ?? 'active';
-    if (status == 'expired' ||
-        status == 'suspended' ||
-        status == 'canceled' ||
-        status == 'past_due') {
-      return 'expired';
+    if (activeSub == null) {
+      return {
+        'state': 'unassigned',
+        'label': 'BELUM DISET',
+        'color': AppUi.orange,
+        'daysLeft': 0,
+        'isPurgeable': false,
+        'planName': '-',
+        'planCode': '-',
+      };
     }
-    if (_dateIsPast(activeSub['current_period_end'])) return 'expired';
-    if (status == 'trialing') return 'trialing';
-    return 'active';
+
+    final planName = activeSub['subscription_plans']?['plan_name']?.toString() ??
+        'Standard Plan';
+    final planCode =
+        activeSub['subscription_plans']?['plan_code']?.toString() ?? '-';
+    final status = activeSub['status']?.toString().toLowerCase() ?? 'active';
+    final periodEndStr = activeSub['current_period_end']?.toString();
+    final periodEnd = DateTime.tryParse(periodEndStr ?? '');
+    final now = DateTime.now();
+
+    if (status == 'trialing') {
+      final trialEnd =
+          DateTime.tryParse(activeSub['trial_ends_at']?.toString() ?? '');
+      final days = trialEnd != null ? trialEnd.difference(now).inDays : 0;
+      return {
+        'state': 'trialing',
+        'label': 'TRIAL ($days HARI LAGI)',
+        'color': AppUi.teal,
+        'daysLeft': days,
+        'isPurgeable': false,
+        'planName': planName,
+        'planCode': planCode,
+        'periodEnd': trialEnd,
+        'sub': activeSub,
+      };
+    }
+
+    if (periodEnd == null) {
+      return {
+        'state': 'active',
+        'label': 'AKTIF PERMANEN',
+        'color': AppUi.green,
+        'daysLeft': 9999,
+        'isPurgeable': false,
+        'planName': planName,
+        'planCode': planCode,
+        'periodEnd': null,
+        'sub': activeSub,
+      };
+    }
+
+    final diff = periodEnd.difference(now);
+    if (diff.inSeconds > 0) {
+      final days = diff.inDays;
+      return {
+        'state': 'active',
+        'label': days > 0 ? 'AKTIF ($days HARI LAGI)' : 'JATUH TEMPO HARI INI',
+        'color': AppUi.green,
+        'daysLeft': days,
+        'isPurgeable': false,
+        'planName': planName,
+        'planCode': planCode,
+        'periodEnd': periodEnd,
+        'sub': activeSub,
+      };
+    }
+
+    // Past current_period_end: check 7 days grace period
+    final overdueDays = now.difference(periodEnd).inDays;
+    if (overdueDays <= 7) {
+      final graceDaysLeft = 7 - overdueDays;
+      return {
+        'state': 'grace_period',
+        'label': 'GRACE PERIOD (SISA $graceDaysLeft HARI)',
+        'color': Colors.amber,
+        'daysLeft': -overdueDays,
+        'graceDaysLeft': graceDaysLeft,
+        'isPurgeable': false,
+        'planName': planName,
+        'planCode': planCode,
+        'periodEnd': periodEnd,
+        'sub': activeSub,
+      };
+    }
+
+    return {
+      'state': 'expired',
+      'label': 'EXPIRED ($overdueDays HARI LALU - SIAP PURGE)',
+      'color': AppUi.red,
+      'daysLeft': -overdueDays,
+      'isPurgeable': true,
+      'planName': planName,
+      'planCode': planCode,
+      'periodEnd': periodEnd,
+      'sub': activeSub,
+    };
+  }
+
+  String _tenantSubscriptionState(String tenantId) {
+    return _getTenantGraceState(tenantId)['state']?.toString() ?? 'unassigned';
+  }
+
+  double _calculateEstimatedMrr() {
+    double total = 0;
+    for (final tenant in _tenantsList) {
+      final subs = tenant['tenant_subscriptions'] as List?;
+      final activeSub = _getActiveSubscription(subs);
+      if (activeSub == null) continue;
+      final status = activeSub['status']?.toString().toLowerCase();
+      if (status == 'active' || status == 'trialing') {
+        final planCode =
+            activeSub['subscription_plans']?['plan_code']?.toString() ?? '';
+        final plan = _plansList.firstWhere(
+          (p) => p['plan_code']?.toString() == planCode,
+          orElse: () => <String, dynamic>{},
+        );
+        final price = AppUi.toNum(plan['price_amount']).toDouble();
+        if (price < 100000000) {
+          total += price;
+        }
+      }
+    }
+    return total;
   }
 
   bool _tenantMatchesFilter(String tenantId) {
@@ -259,6 +378,655 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
               child: Text('SIMPAN'),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  // Extend Subscription & Record Payment Dialog
+  void _showExtendSubscriptionDialog({
+    required String tenantId,
+    required String tenantName,
+    required String initialPlanCode,
+  }) {
+    String selectedPlan = _plansList.any((p) => p['plan_code'] == initialPlanCode)
+        ? initialPlanCode
+        : (_plansList.isNotEmpty
+            ? _plansList.first['plan_code']?.toString() ?? 'starter'
+            : 'starter');
+    int selectedMonths = 1;
+    String selectedPaymentMethod = 'bank_transfer';
+    final notesController =
+        TextEditingController(text: 'Perpanjangan via Transfer Bank');
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final currentPlanObj = _plansList.firstWhere(
+              (p) => p['plan_code']?.toString() == selectedPlan,
+              orElse: () => <String, dynamic>{'price_amount': 300000},
+            );
+            final unitPrice =
+                AppUi.toNum(currentPlanObj['price_amount']).toDouble();
+            final totalAmount = unitPrice * selectedMonths;
+
+            return AlertDialog(
+              title: Row(
+                children: [
+                  const Icon(Icons.credit_card_rounded, color: AppUi.blue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'PERPANJANG LANGGANAN'.toUpperCase(),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 16),
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppUi.blue.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border:
+                            Border.all(color: AppUi.blue.withOpacity(0.2)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('TENANT:',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  color: AppUi.mutedText(context, 0.7),
+                                  fontWeight: FontWeight.bold)),
+                          Text(tenantName.toUpperCase(),
+                              style: const TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w800)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('PILIH PAKET LANGGANAN',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 11)),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      value: selectedPlan,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.workspace_premium_rounded),
+                      ),
+                      items: _plansList.map((plan) {
+                        final code = plan['plan_code']?.toString() ?? '';
+                        final name = plan['plan_name']?.toString() ?? code;
+                        final price =
+                            AppUi.toNum(plan['price_amount']).toDouble();
+                        return DropdownMenuItem(
+                          value: code,
+                          child: Text(
+                              '$name - ${AppUi.rupiah(price)}/bln',
+                              style: const TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.w600)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setDialogState(() => selectedPlan = val);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('DURASI PERPANJANGAN',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 11)),
+                    const SizedBox(height: 6),
+                    SegmentedButton<int>(
+                      segments: const [
+                        ButtonSegment(value: 1, label: Text('1 Bln')),
+                        ButtonSegment(value: 3, label: Text('3 Bln')),
+                        ButtonSegment(value: 6, label: Text('6 Bln')),
+                        ButtonSegment(value: 12, label: Text('1 Thn')),
+                      ],
+                      selected: {selectedMonths},
+                      onSelectionChanged: (set) {
+                        setDialogState(() => selectedMonths = set.first);
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('METODE PEMBAYARAN',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 11)),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      value: selectedPaymentMethod,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.payment_rounded),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                            value: 'bank_transfer',
+                            child: Text('Transfer Bank Manual')),
+                        DropdownMenuItem(
+                            value: 'qris', child: Text('QRIS Online')),
+                        DropdownMenuItem(
+                            value: 'virtual_account',
+                            child: Text('Virtual Account (VA)')),
+                        DropdownMenuItem(
+                            value: 'manual_waived',
+                            child: Text('Gratis / Waived / Demo')),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setDialogState(() => selectedPaymentMethod = val);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppUi.green.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border:
+                            Border.all(color: AppUi.green.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('TOTAL TAGIHAN:',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 11)),
+                          Text(
+                            AppUi.rupiah(totalAmount),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                                color: AppUi.green),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('CATATAN / NOMOR REFERENSI',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 11)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: notesController,
+                      decoration: const InputDecoration(
+                        hintText:
+                            'Contoh: Transfer BCA an Budi / Ref: TR-9988',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.pop(context),
+                  child: const Text('BATAL',
+                      style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+                FilledButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          setDialogState(() => isSubmitting = true);
+                          try {
+                            final res = await _client.rpc(
+                              'platform_extend_tenant_subscription',
+                              params: {
+                                'p_tenant_id': tenantId,
+                                'p_plan_code': selectedPlan,
+                                'p_duration_months': selectedMonths,
+                                'p_payment_method': selectedPaymentMethod,
+                                'p_amount': totalAmount,
+                                'p_notes': notesController.text.trim(),
+                              },
+                            );
+                            final ok =
+                                res is Map && (res['ok'] as bool? ?? false);
+                            if (ok) {
+                              if (context.mounted) Navigator.pop(context);
+                              AppUi.showSnack(res['message']?.toString() ??
+                                  'Langganan berhasil diperpanjang!');
+                              _loadData(forceRefresh: true);
+                            } else {
+                              throw Exception(res['message'] ??
+                                  'Gagal memperpanjang langganan');
+                            }
+                          } catch (e, st) {
+                            debugPrint('[EXTEND_SUB_ERROR] $e\n$st');
+                            AppUi.showSnack('GAGAL: ${e.toString()}');
+                          } finally {
+                            if (context.mounted) {
+                              setDialogState(() => isSubmitting = false);
+                            }
+                          }
+                        },
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('KONFIRMASI PEMBAYARAN'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Configure Historical Data Lookback Dialog
+  void _showConfigureLookbackDialog({
+    required String tenantId,
+    required String tenantName,
+    required String tenantCode,
+    int? currentRetentionDays,
+    int? defaultPlanDays,
+  }) {
+    int selectedDays = currentRetentionDays ?? defaultPlanDays ?? 90;
+    bool shouldResetHistoricalPull = false;
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                    color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2)),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppUi.blue.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.history_toggle_off_rounded,
+                        color: AppUi.blue, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'HISTORICAL LOOKBACK',
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.5),
+                        ),
+                        Text(
+                          '$tenantName ($tenantCode)',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).textTheme.bodySmall?.color ?? Colors.grey,
+                              fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 480,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppUi.blue.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppUi.blue.withOpacity(0.2),
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.info_outline_rounded,
+                                color: AppUi.blue, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Tentukan batas lookback hari penarikan data historis marketplace (Shopee & TikTok Shop). Maksimal 180 hari untuk menjaga performa server.',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: Theme.of(context).textTheme.bodySmall?.color ?? Colors.grey,
+                                    height: 1.4),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'PILIH RENTANG LOOKBACK HARI:',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                            color: Theme.of(context).textTheme.bodySmall?.color ?? Colors.grey),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [30, 60, 90, 120, 180].map((days) {
+                          final isSelected = selectedDays == days;
+                          return ChoiceChip(
+                            label: Text(
+                              days == 180 ? '180 Hari (Max)' : '$days Hari',
+                              style: TextStyle(
+                                fontWeight: isSelected
+                                    ? FontWeight.w900
+                                    : FontWeight.w600,
+                                fontSize: 12,
+                                color: isSelected ? Colors.white : null,
+                              ),
+                            ),
+                            selected: isSelected,
+                            selectedColor: AppUi.blue,
+                            onSelected: (selected) {
+                              if (selected) {
+                                setDialogState(() => selectedDays = days);
+                              }
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.35),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            Checkbox(
+                              value: shouldResetHistoricalPull,
+                              activeColor: AppUi.blue,
+                              onChanged: (val) {
+                                setDialogState(() =>
+                                    shouldResetHistoricalPull = val ?? false);
+                              },
+                            ),
+                            const Expanded(
+                              child: Text(
+                                'Reset cursor & jalankan auto-pull data historis dari rentang awal hari ini',
+                                style: TextStyle(
+                                    fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.pop(context),
+                  child: const Text('BATAL'),
+                ),
+                FilledButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          setDialogState(() => isSaving = true);
+                          try {
+                            // 1. Update app_tenants order_retention_days
+                            await _client.from('app_tenants').update({
+                              'order_retention_days': selectedDays,
+                              'updated_at': DateTime.now().toIso8601String(),
+                            }).eq('tenant_id', tenantId);
+
+                            // 2. If requested, reset historical sync state cursors
+                            if (shouldResetHistoricalPull) {
+                              final nowSec =
+                                  DateTime.now().millisecondsSinceEpoch ~/ 1000;
+                              final fromSec = nowSec - (selectedDays * 86400);
+
+                              await _client
+                                  .from('marketplace_order_sync_state')
+                                  .update({
+                                'bootstrap_status': 'pending',
+                                'bootstrap_from_seconds': fromSec,
+                                'bootstrap_to_seconds': nowSec,
+                                'bootstrap_cursor_seconds': fromSec,
+                                'next_run_at': DateTime.now().toIso8601String(),
+                                'failure_count': 0,
+                                'last_error': null,
+                                'updated_at': DateTime.now().toIso8601String(),
+                              }).eq('tenant_id', tenantId);
+
+                              final fromDate = DateTime.now()
+                                  .subtract(Duration(days: selectedDays))
+                                  .toIso8601String()
+                                  .split('T')
+                                  .first;
+                              final toDate = DateTime.now()
+                                  .toIso8601String()
+                                  .split('T')
+                                  .first;
+
+                              await _client
+                                  .from('marketplace_finance_sync_state')
+                                  .update({
+                                'finance_status': 'pending',
+                                'bootstrap_from_date': fromDate,
+                                'bootstrap_to_date': toDate,
+                                'bootstrap_cursor_date': fromDate,
+                                'next_run_at': DateTime.now().toIso8601String(),
+                                'failure_count': 0,
+                                'last_error': null,
+                                'updated_at': DateTime.now().toIso8601String(),
+                              }).eq('tenant_id', tenantId);
+                            }
+
+                            if (mounted) {
+                              Navigator.pop(context);
+                              AppUi.showSnack(
+                                  'Historical Lookback berhasil diset ke $selectedDays hari.');
+                              _loadData();
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              setDialogState(() => isSaving = false);
+                              AppUi.showSnack('Gagal menyimpan: $e');
+                            }
+                          }
+                        },
+                  style: FilledButton.styleFrom(backgroundColor: AppUi.blue),
+                  child: isSaving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('SIMPAN KONFIGURASI'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Hard Delete / Purge Operational Data Dialog
+  void _showPurgeTenantDialog({
+    required String tenantId,
+    required String tenantName,
+    required String tenantCode,
+  }) {
+    final confirmController = TextEditingController();
+    bool isPurging = false;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final isMatch = confirmController.text.trim().toLowerCase() ==
+                tenantCode.trim().toLowerCase();
+
+            return AlertDialog(
+              title: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      color: AppUi.red, size: 28),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'HARD DELETE DATA OPERASIONAL'.toUpperCase(),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: AppUi.red,
+                          fontSize: 15),
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppUi.red.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border:
+                            Border.all(color: AppUi.red.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '⚠️ PERINGATAN PENGHAPUSAN PERMANEN:',
+                            style: TextStyle(
+                                color: AppUi.red,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Tindakan ini akan menghapus 100% data operasional tenant:\n'
+                            '• Semua Katalog Produk & Varian\n'
+                            '• Riwayat Mutasi Stok & Barcode\n'
+                            '• Seluruh Pesanan & Item Marketplace\n'
+                            '• Laporan Keuangan, Payout & Mutasi Kas\n'
+                            '• Data Pembelian, Supplier, Payroll & Absensi\n\n'
+                            '🛡️ AKUN LOGIN OWNER TETAP DISIMPAN:\n'
+                            'User Owner tetap dapat login di kemudian hari untuk memilih paket baru dan mengaktifkan kembali tokonya.',
+                            style: TextStyle(fontSize: 11, height: 1.4),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Ketik kode tenant "$tenantCode" di bawah untuk mengonfirmasi:',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: confirmController,
+                      decoration: InputDecoration(
+                        hintText: tenantCode,
+                        prefixIcon: const Icon(Icons.delete_forever_rounded,
+                            color: AppUi.red),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onChanged: (_) => setDialogState(() {}),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isPurging ? null : () => Navigator.pop(context),
+                  child: const Text('BATAL',
+                      style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: AppUi.red),
+                  onPressed: (!isMatch || isPurging)
+                      ? null
+                      : () async {
+                          setDialogState(() => isPurging = true);
+                          try {
+                            final res = await _client.rpc(
+                              'platform_purge_tenant_operational_data',
+                              params: {
+                                'p_tenant_id': tenantId,
+                                'p_confirmation_code':
+                                    confirmController.text.trim(),
+                              },
+                            );
+                            final ok =
+                                res is Map && (res['ok'] as bool? ?? false);
+                            if (ok) {
+                              if (context.mounted) Navigator.pop(context);
+                              AppUi.showSnack(res['message']?.toString() ??
+                                  'Data operasional tenant berhasil dibersihkan!');
+                              _loadData(forceRefresh: true);
+                            } else {
+                              throw Exception(res['message'] ??
+                                  'Gagal membersihkan data tenant');
+                            }
+                          } catch (e, st) {
+                            debugPrint('[PURGE_TENANT_ERROR] $e\n$st');
+                            AppUi.showSnack('GAGAL: ${e.toString()}');
+                          } finally {
+                            if (context.mounted) {
+                              setDialogState(() => isPurging = false);
+                            }
+                          }
+                        },
+                  child: isPurging
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('HAPUS TOTAL DATA'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -433,7 +1201,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
         registerUrl = '$publicWebUrl?invite=$token';
       }
     } else {
-      registerUrl = 'https://mobile-erp-apps.vercel.app/register?invite=$token';
+      registerUrl = 'https://app.mdhproduction.com/register?invite=$token';
     }
 
     final appDeepLink = 'mobileerp://register?invite=$token';
@@ -678,27 +1446,57 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Welcome Header
-                    FuturisticHeader(
-                      icon: Icons.admin_panel_settings_rounded,
-                      title: 'PLATFORM MANAGEMENT',
-                      subtitle:
-                          'Pantau kesiapan integrasi dan kelola client multi-tenant secara terpusat.',
-                      stats: [
-                        StatPill(
-                            label: 'Total Tenants',
-                            value: _tenantsList.length.toString(),
-                            accentColor: AppUi.blue),
-                        StatPill(
-                            label: 'Integrations',
-                            value: _readinessData
-                                .where(
-                                    (e) => e['marketplace_account_id'] != null)
-                                .length
-                                .toString(),
-                            accentColor: AppUi.teal),
-                      ],
-                    ),
+                    // Welcome Header & Bento Stats
+                    Builder(builder: (context) {
+                      final activeCount = _tenantsList
+                          .where((t) =>
+                              _getTenantGraceState(
+                                  t['tenant_id']?.toString() ?? '')['state'] ==
+                              'active')
+                          .length;
+                      final graceCount = _tenantsList
+                          .where((t) =>
+                              _getTenantGraceState(
+                                  t['tenant_id']?.toString() ?? '')['state'] ==
+                              'grace_period')
+                          .length;
+                      final expiredCount = _tenantsList
+                          .where((t) =>
+                              _getTenantGraceState(
+                                  t['tenant_id']?.toString() ?? '')['state'] ==
+                              'expired')
+                          .length;
+                      final mrr = _calculateEstimatedMrr();
+
+                      return FuturisticHeader(
+                        icon: Icons.admin_panel_settings_rounded,
+                        title: 'PLATFORM MANAGEMENT',
+                        subtitle:
+                            'Pantau kesiapan integrasi, kelola siklus langganan SaaS, dan bersihkan data tenant expired.',
+                        stats: [
+                          StatPill(
+                              label: 'Total Tenants',
+                              value: _tenantsList.length.toString(),
+                              accentColor: AppUi.blue),
+                          StatPill(
+                              label: 'Aktif',
+                              value: activeCount.toString(),
+                              accentColor: AppUi.green),
+                          StatPill(
+                              label: 'Grace Period',
+                              value: graceCount.toString(),
+                              accentColor: Colors.amber),
+                          StatPill(
+                              label: 'Expired',
+                              value: expiredCount.toString(),
+                              accentColor: AppUi.red),
+                          StatPill(
+                              label: 'Projected MRR',
+                              value: AppUi.rupiah(mrr),
+                              accentColor: AppUi.teal),
+                        ],
+                      );
+                    }),
                     const SizedBox(height: 24),
 
                     // Quick Actions
@@ -750,6 +1548,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                 context,
                                 title: '🤖 Platform Owner AI Assistant',
                                 subtitle: 'Tanyakan statistik tenant, performa VPS, atau kesehatan server',
+                                isPlatformOwner: true,
                               ),
                             ),
                             actionCard(
@@ -778,6 +1577,17 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                 );
                               },
                             ),
+                            actionCard(
+                              icon: Icons.web_rounded,
+                              label: 'CMS LANDING PAGE',
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const LandingPageCmsPage()),
+                                );
+                              },
+                            ),
                           ],
                         );
                       },
@@ -791,8 +1601,9 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                         _filterChip('all', 'SEMUA'),
                         _filterChip('active', 'AKTIF'),
                         _filterChip('trialing', 'TRIAL'),
+                        _filterChip('grace_period', 'GRACE PERIOD (7D)'),
+                        _filterChip('expired', 'EXPIRED / PURGE'),
                         _filterChip('unassigned', 'BELUM DISET'),
-                        _filterChip('expired', 'EXPIRED/SUSPENDED'),
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -801,7 +1612,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                     SectionTitle(
                       title: 'DAFTAR CLIENT & STATUS KESIAPAN',
                       actionText: 'RELOAD',
-                      onAction: _loadData,
+                      onAction: () => _loadData(forceRefresh: true),
                     ),
 
                     if (grouped.isEmpty)
@@ -821,10 +1632,21 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                         final tenantStatus =
                             rows.first['tenant_status']?.toString() ?? 'active';
 
+                        final tenantObj = _tenantObjById(tenantId) ??
+                            <String, dynamic>{};
+                        final tenantCode =
+                            tenantObj['tenant_code']?.toString() ?? '-';
+                        final graceState = _getTenantGraceState(tenantId);
+                        final graceColor = graceState['color'] as Color;
+                        final isPurgeable =
+                            graceState['isPurgeable'] as bool? ?? false;
+                        final planCode =
+                            graceState['planCode']?.toString() ?? 'starter';
+
                         return Container(
                           margin: const EdgeInsets.only(bottom: 20),
                           child: NiceCard(
-                            borderColor: null,
+                            borderColor: isPurgeable ? AppUi.red.withOpacity(0.5) : null,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
@@ -834,217 +1656,272 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                     Icon(Icons.business_center, size: 20),
                                     const SizedBox(width: 8),
                                     Expanded(
-                                      child: Text(
-                                        tenantName.toUpperCase(),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 15),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  children: [
-                                    _tenantStatusChip(tenantStatus),
-                                    IconButton(
-                                      tooltip: 'Kelola Subscription',
-                                      icon: Icon(Icons.card_membership_rounded,
-                                          size: 18),
-                                      onPressed: () {
-                                        final tenantObj =
-                                            _tenantObjById(tenantId) ??
-                                                <String, dynamic>{};
-                                        Navigator.of(context)
-                                            .push(
-                                              MaterialPageRoute(
-                                                builder: (_) =>
-                                                    TenantSubscriptionDetailPage(
-                                                  tenantId: tenantId,
-                                                  tenantName: tenantName,
-                                                  tenantCode:
-                                                      tenantObj['tenant_code']
-                                                              ?.toString() ??
-                                                          '-',
-                                                  ownerName:
-                                                      tenantObj['owner_name']
-                                                          ?.toString(),
-                                                  ownerEmail:
-                                                      tenantObj['owner_email']
-                                                          ?.toString(),
-                                                ),
-                                              ),
-                                            )
-                                            .then((_) => _loadData());
-                                      },
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Undang user ke tenant ini',
-                                      icon: Icon(Icons.person_add_alt_1_rounded,
-                                          size: 18),
-                                      onPressed: () =>
-                                          _showGenerateInviteDialog(
-                                              preselectedTenantId: tenantId),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Kelola User / Reset Password',
-                                      icon: Icon(Icons.manage_accounts_rounded,
-                                          size: 18),
-                                      onPressed: () {
-                                        Navigator.of(context)
-                                            .push(
-                                              MaterialPageRoute(
-                                                builder: (_) =>
-                                                    UserManagementPage(
-                                                  tenantId: tenantId,
-                                                  tenantName: tenantName,
-                                                ),
-                                              ),
-                                            )
-                                            .then((_) => _loadData());
-                                      },
-                                    ),
-                                  ],
-                                ),
-                                Builder(builder: (context) {
-                                  final tenantObj = _tenantsList.firstWhere(
-                                    (t) =>
-                                        t['tenant_id']?.toString() == tenantId,
-                                    orElse: () => <String, dynamic>{},
-                                  );
-                                  final subs = tenantObj['tenant_subscriptions']
-                                      as List?;
-                                  final activeSub =
-                                      _getActiveSubscription(subs);
-                                  if (activeSub == null) {
-                                    return Container(
-                                      margin: const EdgeInsets.only(top: 8),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: AppUi.orange.withOpacity(0.12),
-                                        border: Border.all(
-                                            color: AppUi.orange, width: 1.5),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
-                                          Icon(Icons.warning_amber_rounded,
-                                              size: 12, color: AppUi.orange),
-                                          const SizedBox(width: 4),
                                           Text(
-                                            'UNASSIGNED (FALLBACK ACTIVE)'
-                                                .toUpperCase(),
-                                            style: TextStyle(
-                                                color: AppUi.orange,
+                                            tenantName.toUpperCase(),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
                                                 fontWeight: FontWeight.w800,
-                                                fontSize: 9),
+                                                fontSize: 15),
+                                          ),
+                                          Text(
+                                            'CODE: $tenantCode',
+                                            style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w700,
+                                                color: AppUi.mutedText(
+                                                    context, 0.7)),
                                           ),
                                         ],
                                       ),
-                                    );
-                                  }
-
-                                  final planName =
-                                      activeSub['subscription_plans']
-                                                  ?['plan_name']
-                                              ?.toString() ??
-                                          'Unknown Plan';
-                                  final planCode =
-                                      activeSub['subscription_plans']
-                                                  ?['plan_code']
-                                              ?.toString() ??
-                                          '-';
-                                  final subStatus =
-                                      activeSub['status']?.toString() ??
-                                          'active';
-                                  final trialEnd =
-                                      activeSub['trial_ends_at']?.toString();
-                                  final periodEnd =
-                                      activeSub['current_period_end']
-                                          ?.toString();
-                                  final expired = _dateIsPast(periodEnd);
-                                  final color = expired
-                                      ? AppUi.red
-                                      : AppUi.statusColor(subStatus);
-
-                                  return Container(
-                                    width: double.infinity,
-                                    margin: const EdgeInsets.only(top: 8),
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: color.withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(
-                                          color: color.withOpacity(0.28),
-                                          width: 0.8),
                                     ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Icon(Icons.card_membership_rounded,
-                                                size: 12, color: color),
-                                            const SizedBox(width: 4),
-                                            Expanded(
-                                              child: Text(
-                                                'PAKET: $planName ($planCode) - $subStatus'
-                                                    .toUpperCase(),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    fontSize: 9,
-                                                    color: color),
-                                              ),
+                                    _tenantStatusChip(tenantStatus),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+
+                                // Subscription & Grace Period Banner
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: graceColor.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                        color: graceColor.withOpacity(0.4),
+                                        width: 1),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(Icons.card_membership_rounded,
+                                              size: 14, color: graceColor),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              'PAKET: ${graceState['planName']} (${graceState['planCode']})'
+                                                  .toUpperCase(),
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 11,
+                                                  color: graceColor),
                                             ),
-                                          ],
-                                        ),
-                                        if (trialEnd != null ||
-                                            periodEnd != null) ...[
-                                          const SizedBox(height: 4),
-                                          Wrap(
-                                            spacing: 8,
-                                            runSpacing: 4,
-                                            children: [
-                                              if (trialEnd != null)
-                                                Text(
-                                                  'TRIAL: ${AppUi.date(trialEnd)}'
-                                                      .toUpperCase(),
-                                                  style: TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                      fontSize: 9),
-                                                ),
-                                              if (periodEnd != null)
-                                                Text(
-                                                  '${expired ? "EXPIRED" : "EXP"}: ${AppUi.date(periodEnd)}'
-                                                      .toUpperCase(),
-                                                  style: TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                      fontSize: 9,
-                                                      color: expired
-                                                          ? AppUi.red
-                                                          : null),
-                                                ),
-                                            ],
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color:
+                                                  graceColor.withOpacity(0.2),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              graceState['label']
+                                                  .toString()
+                                                  .toUpperCase(),
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 9,
+                                                  color: graceColor),
+                                            ),
                                           ),
                                         ],
+                                      ),
+                                      if (graceState['periodEnd'] != null) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Jatuh Tempo: ${AppUi.date(graceState['periodEnd'].toString())}',
+                                          style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w700,
+                                              color: AppUi.mutedText(
+                                                  context, 0.8)),
+                                        ),
                                       ],
-                                    ),
-                                  );
-                                }),
+                                    ],
+                                  ),
+                                ),
                                 const SizedBox(height: 12),
-                                Divider(height: 1, thickness: 2, color: accent),
+
+                                // Quick Action Buttons Bar
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      FilledButton.icon(
+                                        onPressed: () =>
+                                            _showExtendSubscriptionDialog(
+                                          tenantId: tenantId,
+                                          tenantName: tenantName,
+                                          initialPlanCode: planCode,
+                                        ),
+                                        icon: const Icon(
+                                            Icons.credit_card_rounded,
+                                            size: 14),
+                                        label: const Text('PERPANJANG / BAYAR',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 10)),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: AppUi.blue,
+                                          minimumSize: const Size(0, 34),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      OutlinedButton.icon(
+                                        onPressed: () {
+                                          Navigator.of(context)
+                                              .push(
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      TenantSubscriptionDetailPage(
+                                                    tenantId: tenantId,
+                                                    tenantName: tenantName,
+                                                    tenantCode: tenantCode,
+                                                    ownerName:
+                                                        tenantObj['owner_name']
+                                                            ?.toString(),
+                                                    ownerEmail:
+                                                        tenantObj['owner_email']
+                                                            ?.toString(),
+                                                  ),
+                                                ),
+                                              )
+                                              .then((_) => _loadData());
+                                        },
+                                        icon: const Icon(Icons.settings_rounded,
+                                            size: 14),
+                                        label: const Text('DETAIL PAKET',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 10)),
+                                        style: OutlinedButton.styleFrom(
+                                          minimumSize: const Size(0, 34),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      OutlinedButton.icon(
+                                        onPressed: () {
+                                          final currentRetention = tenantObj['order_retention_days'] is int
+                                              ? tenantObj['order_retention_days'] as int
+                                              : int.tryParse(tenantObj['order_retention_days']?.toString() ?? '');
+                                          final subList = tenantObj['tenant_subscriptions'] as List?;
+                                          final activeSub = subList != null && subList.isNotEmpty ? subList.first as Map<String, dynamic>? : null;
+                                          final defaultPlanDays = activeSub?['subscription_plans']?['max_order_retention_days'] is int
+                                              ? activeSub!['subscription_plans']['max_order_retention_days'] as int
+                                              : int.tryParse(activeSub?['subscription_plans']?['max_order_retention_days']?.toString() ?? '');
+                                          _showConfigureLookbackDialog(
+                                            tenantId: tenantId,
+                                            tenantName: tenantName,
+                                            tenantCode: tenantCode,
+                                            currentRetentionDays: currentRetention,
+                                            defaultPlanDays: defaultPlanDays,
+                                          );
+                                        },
+                                        icon: const Icon(Icons.history_toggle_off_rounded,
+                                            size: 14),
+                                        label: Text(
+                                          tenantObj['order_retention_days'] != null
+                                              ? 'LOOKBACK (' + tenantObj['order_retention_days'].toString() + 'H)'
+                                              : 'LOOKBACK',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 10),
+                                        ),
+                                        style: OutlinedButton.styleFrom(
+                                          minimumSize: const Size(0, 34),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      OutlinedButton.icon(
+                                        onPressed: () {
+                                          Navigator.of(context)
+                                              .push(
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      UserManagementPage(
+                                                    tenantId: tenantId,
+                                                    tenantName: tenantName,
+                                                  ),
+                                                ),
+                                              )
+                                              .then((_) => _loadData());
+                                        },
+                                        icon: const Icon(
+                                            Icons.manage_accounts_rounded,
+                                            size: 14),
+                                        label: const Text('USER',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 10)),
+                                        style: OutlinedButton.styleFrom(
+                                          minimumSize: const Size(0, 34),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      OutlinedButton.icon(
+                                        onPressed: () =>
+                                            _showGenerateInviteDialog(
+                                                preselectedTenantId: tenantId),
+                                        icon: const Icon(
+                                            Icons.person_add_alt_1_rounded,
+                                            size: 14),
+                                        label: const Text('UNDANG',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 10)),
+                                        style: OutlinedButton.styleFrom(
+                                          minimumSize: const Size(0, 34),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                        ),
+                                      ),
+                                      if (isPurgeable) ...[
+                                        const SizedBox(width: 8),
+                                        FilledButton.icon(
+                                          onPressed: () => _showPurgeTenantDialog(
+                                            tenantId: tenantId,
+                                            tenantName: tenantName,
+                                            tenantCode: tenantCode,
+                                          ),
+                                          icon: const Icon(
+                                              Icons.delete_forever_rounded,
+                                              size: 14),
+                                          label: const Text('HARD DELETE DATA',
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 10)),
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: AppUi.red,
+                                            minimumSize: const Size(0, 34),
+                                            padding:
+                                                const EdgeInsets.symmetric(
+                                                    horizontal: 10),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Divider(height: 1, thickness: 1, color: accent.withOpacity(0.3)),
                                 const SizedBox(height: 12),
 
                                 // Accounts list
@@ -1309,14 +2186,28 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
     final status = report['system_status']?.toString() ?? 'HEALTHY';
     final cpuMetrics = telemetry['cpu_metrics'] is Map ? Map<String, dynamic>.from(telemetry['cpu_metrics'] as Map) : <String, dynamic>{};
     final memMetrics = telemetry['memory_metrics'] is Map ? Map<String, dynamic>.from(telemetry['memory_metrics'] as Map) : <String, dynamic>{};
+    final diskMetrics = telemetry['disk_health'] is Map ? Map<String, dynamic>.from(telemetry['disk_health'] as Map) : <String, dynamic>{};
+    final saasOverview = telemetry['saas_overview'] is Map ? Map<String, dynamic>.from(telemetry['saas_overview'] as Map) : <String, dynamic>{};
     final secMetrics = telemetry['security_hardening'] is Map ? Map<String, dynamic>.from(telemetry['security_hardening'] as Map) : <String, dynamic>{};
     final recs = report['recommendations'] is List ? (report['recommendations'] as List) : <dynamic>[];
     final containers = telemetry['active_containers'] is List ? (telemetry['active_containers'] as List) : <dynamic>[];
+    final execSummary = report['executive_summary']?.toString() ?? '';
 
-    final cpuLoad = cpuMetrics['postgres_cpu_load']?.toString() ?? '0.76% (Optimal)';
-    final ramUsed = memMetrics['used_ram_gb']?.toString() ?? '3.0';
-    final ramTotal = memMetrics['total_ram_gb']?.toString() ?? '4.0';
-    final swapUsed = memMetrics['swap_used_mb']?.toString() ?? '784';
+    final cpuLoad = cpuMetrics['postgres_cpu_load']?.toString() ?? 'Load 1m: 0.30';
+    final bufferCache = cpuMetrics['buffer_cache_hit_ratio']?.toString() ?? '99.89%';
+    final activeConns = cpuMetrics['active_connections']?.toString() ?? '1';
+    final ramUsed = memMetrics['used_ram_gb']?.toString() ?? '2.6';
+    final ramTotal = memMetrics['total_ram_gb']?.toString() ?? '3.8';
+    final swapUsed = memMetrics['swap_used_mb']?.toString() ?? '910';
+    final diskUsed = diskMetrics['used_space']?.toString() ?? '32G (49%)';
+    final diskTotal = diskMetrics['total_space']?.toString() ?? '69G';
+    final diskAvail = diskMetrics['available_space']?.toString() ?? '34G';
+
+    final totalTenants = saasOverview['total_tenants']?.toString() ?? '4';
+    final activeTenants = saasOverview['active_tenants']?.toString() ?? '2';
+    final projectedMrr = (saasOverview['projected_mrr_idr'] is num)
+        ? 'Rp ${(saasOverview['projected_mrr_idr'] as num).round().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}'
+        : 'Rp 2.000.000.000';
 
     return Container(
       constraints: BoxConstraints(
@@ -1377,14 +2268,45 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Detailed Health Grid
+                  // Executive Summary Box
+                  if (execSummary.isNotEmpty) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.indigo.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.indigo.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.auto_awesome_rounded, color: Colors.indigo, size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Evaluasi AI DevSecOps', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: Colors.indigo)),
+                                const SizedBox(height: 4),
+                                Text(execSummary, style: const TextStyle(fontSize: 12, height: 1.4)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // 4-Grid Telemetry Cards
                   Row(
                     children: [
                       Expanded(
                         child: Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.1),
+                            color: Colors.green.withOpacity(0.08),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: Colors.green.withOpacity(0.3)),
                           ),
@@ -1395,11 +2317,11 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                 children: const [
                                   Icon(Icons.speed_rounded, color: Colors.green, size: 18),
                                   SizedBox(width: 6),
-                                  Text('Postgres CPU Load', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                                  Text('Postgres CPU Load', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11.5)),
                                 ],
                               ),
                               const SizedBox(height: 6),
-                              Text(cpuLoad, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                              Text(cpuLoad, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
                             ],
                           ),
                         ),
@@ -1409,7 +2331,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                         child: Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.1),
+                            color: Colors.blue.withOpacity(0.08),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: Colors.blue.withOpacity(0.3)),
                           ),
@@ -1420,16 +2342,97 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                                 children: const [
                                   Icon(Icons.memory_rounded, color: Colors.blue, size: 18),
                                   SizedBox(width: 6),
-                                  Text('RAM & Swap', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                                  Text('RAM & Swap', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11.5)),
                                 ],
                               ),
                               const SizedBox(height: 6),
-                              Text('$ramUsed / $ramTotal GB (Swap $swapUsed MB)', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                              Text('$ramUsed / $ramTotal GB (Swap: ${swapUsed}MB)', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                             ],
                           ),
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: const [
+                                  Icon(Icons.storage_rounded, color: Colors.orange, size: 18),
+                                  SizedBox(width: 6),
+                                  Text('NVMe Disk', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11.5)),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text('$diskUsed dari $diskTotal (Sisa: $diskAvail)', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: const [
+                                  Icon(Icons.data_thresholding_rounded, color: Colors.teal, size: 18),
+                                  SizedBox(width: 6),
+                                  Text('DB Cache Hit & Conns', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11.5)),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text('$bufferCache • $activeConns active', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // SaaS Multi-Tenant Live Stats Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.purple.withOpacity(0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: const [
+                                Icon(Icons.hub_rounded, color: Colors.purple, size: 18),
+                            SizedBox(width: 8),
+                            Text('SaaS Multi-Tenant Overview (Live)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: Colors.purple)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text('• Total Tenant Terdaftar: $totalTenants toko ($activeTenants aktif)', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        Text('• Projected MRR: $projectedMrr / bulan', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.purple)),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 16),
 

@@ -14,6 +14,7 @@ import '../../subscription/presentation/feature_gate_page.dart';
 import '../models/marketplace_account_public.dart';
 import '../models/marketplace_order_item.dart';
 import '../models/marketplace_order_summary.dart';
+import '../models/marketplace_sync_progress_info.dart';
 import '../services/marketplace_service.dart';
 import 'marketplace_refund_monitor_page.dart';
 
@@ -39,6 +40,8 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   bool _isLoading = true;
   bool _isPulling = false;
   bool _pullProgressFromServerActive = false;
+  Timer? _autoSyncPollTimer;
+  double? _syncProgressPercentage;
   String _pullProgressTitle = _cachedPullProgressTitle;
   final List<String> _pullProgressLines =
       List<String>.from(_cachedPullProgressLines);
@@ -108,6 +111,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
 
   @override
   void dispose() {
+    _autoSyncPollTimer?.cancel();
     _backgroundRefreshToken += 1;
     _ordersLoadToken += 1;
     _searchController.dispose();
@@ -356,36 +360,97 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   Future<bool> _refreshPersistentOrderPullLog() async {
+    final tenantId = widget.currentUser.tenantId;
     final dispatcherLastSuccess =
         await _service.getLatestOrderDispatcherSuccessAt(
-      tenantId: widget.currentUser.tenantId,
+      tenantId: tenantId,
     );
     final digest = await _service.getRecentOrderPullJobDigest(
-      tenantId: widget.currentUser.tenantId,
+      tenantId: tenantId,
       limit: 20,
     );
+    final syncStates = await _service.getAutomaticOrderSyncStates(
+      tenantId: tenantId,
+    );
+
     if (!mounted) return false;
     _orderDispatcherLastSuccessAt = dispatcherLastSuccess;
-    if (digest == null || digest.total == 0) {
-      setState(() {});
-      return dispatcherLastSuccess != null;
+
+    // Detect automatic background sync / bootstrap with unified calculation
+    final syncSummary = MarketplaceSyncProgressSummary.fromRawStates(
+      syncStates,
+      filterMarketplace: _filterMarketplace,
+      filterAccountId: _filterAccountId,
+    );
+
+    final hasActiveAutoSync = syncSummary.hasActiveSync;
+    final overallPct = syncSummary.overallProgressPercent;
+    final calculatedPercentage =
+        hasActiveAutoSync ? (overallPct / 100.0).clamp(0.02, 1.0) : null;
+
+    final channelBadges = syncSummary.accounts.map((a) {
+      final statusLabel =
+          a.isActive ? '${a.progressPercent.toInt()}%' : 'Selesai';
+      return '${a.displayName}: $statusLabel';
+    }).join(' · ');
+
+    final activeMarketplaces = syncSummary.accounts
+        .where((a) => a.isActive)
+        .map((a) => a.displayName)
+        .toSet()
+        .join(' & ');
+
+    final pctLabel = calculatedPercentage != null
+        ? ' (${(calculatedPercentage * 100).toInt()}%)'
+        : '';
+    final autoSyncTitle =
+        'Sinkronisasi Otomatis Pesanan $activeMarketplaces Sedang Berjalan$pctLabel';
+    final autoSyncDetail = channelBadges.isNotEmpty
+        ? 'Progress per kanal: $channelBadges · Data otomatis diperbarui.'
+        : 'Menarik riwayat pesanan di background. Data otomatis diperbarui.';
+
+    final hasActiveManualJob = digest?.hasActive ?? false;
+    final isAnyActive = hasActiveAutoSync || hasActiveManualJob;
+
+    if (isAnyActive) {
+      if (_autoSyncPollTimer == null || !_autoSyncPollTimer!.isActive) {
+        _autoSyncPollTimer =
+            Timer.periodic(const Duration(seconds: 4), (_) async {
+          if (!mounted) return;
+          final stillRunning = await _refreshPersistentOrderPullLog();
+          if (stillRunning) {
+            await _loadOrders(showLoader: false);
+          } else {
+            _autoSyncPollTimer?.cancel();
+            _autoSyncPollTimer = null;
+            await _loadOrders(showLoader: false);
+          }
+        });
+      }
+    } else {
+      _autoSyncPollTimer?.cancel();
+      _autoSyncPollTimer = null;
     }
 
-    final updatedLabel = digest.latestUpdatedAt == null
+    final updatedLabel = digest?.latestUpdatedAt == null
         ? '-'
-        : _dateTimeWib(digest.latestUpdatedAt);
-    final active = digest.hasActive;
-    final header =
-        active ? 'Pembaruan order masih berjalan' : 'Riwayat pembaruan order';
-    final friendlySummary =
-        'Berjalan ${digest.running} · Menunggu ${digest.pending} · Selesai ${digest.done} · Gagal ${digest.failed} · Update $updatedLabel';
-    final summary =
-        'Running ${digest.running} · Pending ${digest.pending} · Done ${digest.done} · Failed ${digest.failed} · Update $updatedLabel';
+        : _dateTimeWib(digest!.latestUpdatedAt);
+    final active = isAnyActive;
+    final header = hasActiveAutoSync
+        ? autoSyncTitle
+        : (active ? 'Pembaruan order masih berjalan' : 'Riwayat pembaruan order');
+    final friendlySummary = hasActiveAutoSync
+        ? autoSyncDetail
+        : (digest != null
+            ? 'Berjalan ${digest.running} · Menunggu ${digest.pending} · Selesai ${digest.done} · Gagal ${digest.failed} · Update $updatedLabel'
+            : '');
 
     setState(() {
       _orderJobDigest = digest;
       _orderDispatcherLastSuccessAt = dispatcherLastSuccess;
-      _lastOrderDigestSignature = _orderDigestSignature(digest);
+      _syncProgressPercentage = calculatedPercentage;
+      _lastOrderDigestSignature =
+          digest != null ? _orderDigestSignature(digest) : '';
       _pullProgressFromServerActive = active;
       _pullProgressTitle = header;
       _pullProgressLines
@@ -393,7 +458,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
         ..add(friendlySummary);
       _cachePullProgress();
     });
-    return _lastOrderDigestSignature.isNotEmpty;
+    return active;
   }
 
   String _orderDigestSignature(MarketplaceOrderPullJobDigest digest) {
@@ -515,7 +580,95 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
   }
 
   Widget _pullProgressCard() {
-    return const SizedBox.shrink();
+    final bool active = _isPulling ||
+        _pullProgressFromServerActive ||
+        (_orderJobDigest?.hasActive ?? false);
+    if (!active) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final title = _pullProgressTitle.trim().isNotEmpty
+        ? _pullProgressTitle.trim()
+        : 'Sedang menyinkronkan data pesanan marketplace...';
+    final latestDetail = _pullProgressLines.isNotEmpty
+        ? _pullProgressLines.first.trim()
+        : 'Memproses penarikan order terbaru & riwayat dari Shopee / TikTok...';
+
+    final progress = _syncProgressPercentage;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  progress != null ? '${(progress * 100).toInt()}%' : 'SYNCING',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.primary,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 6,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          if (latestDetail.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              latestDetail,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   String _shortMessage(String value) {

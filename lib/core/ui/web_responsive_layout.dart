@@ -4,7 +4,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../theme/app_theme_mode.dart';
-import 'app_ui.dart';
 
 /// Helper to detect web viewport
 bool isDesktopWeb(BuildContext context) {
@@ -267,32 +266,36 @@ class _WebFloatingHeaderBar extends StatelessWidget {
           // Navigation Links or Tabs Bar in Middle
           Expanded(
             child: bottom != null
-                ? Theme(
-                    data: Theme.of(context).copyWith(
-                      tabBarTheme: TabBarThemeData(
-                        indicator: BoxDecoration(
-                          color: isDark
-                              ? const Color(0xFF334155)
-                              : const Color(0xFFE2E8F0),
-                          borderRadius: BorderRadius.circular(999),
+                ? Align(
+                    alignment: Alignment.centerLeft,
+                    child: Theme(
+                      data: Theme.of(context).copyWith(
+                        tabBarTheme: TabBarThemeData(
+                          indicator: BoxDecoration(
+                            color: isDark
+                                ? const Color(0xFF334155)
+                                : const Color(0xFFE2E8F0),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          indicatorSize: TabBarIndicatorSize.tab,
+                          labelColor: textColor,
+                          unselectedLabelColor: mutedColor,
+                          labelStyle: GoogleFonts.outfit(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          unselectedLabelStyle: GoogleFonts.outfit(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          dividerColor: Colors.transparent,
                         ),
-                        indicatorSize: TabBarIndicatorSize.tab,
-                        labelColor: textColor,
-                        unselectedLabelColor: mutedColor,
-                        labelStyle: GoogleFonts.outfit(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        unselectedLabelStyle: GoogleFonts.outfit(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        dividerColor: Colors.transparent,
                       ),
-                    ),
-                    child: SizedBox(
-                      height: 38,
-                      child: bottom!,
+                      child: Container(
+                        height: 38,
+                        constraints: const BoxConstraints(maxWidth: 420),
+                        child: bottom!,
+                      ),
                     ),
                   )
                 : Align(

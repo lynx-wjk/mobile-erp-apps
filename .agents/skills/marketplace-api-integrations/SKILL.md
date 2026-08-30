@@ -99,6 +99,11 @@ Before changing signed request logic:
 
 Never log raw signatures together with secrets.
 
+### Shopee Credential Invariants (App Partner Key vs. Push Mechanism Secret)
+- `SHOPEE_PARTNER_KEY`: The primary private key found on **Shopee Console -> App Basic Info / Overview**. Used exclusively for HMAC-SHA256 request signatures (`signBase = partnerId + path + timestamp + accessToken + shopId`) and OAuth token exchange/refresh.
+- `SHOPEE_PUSH_SECRET`: The webhook push key found on **Shopee Console -> Push Mechanism Settings**. Used exclusively to verify incoming webhook HMAC push signatures.
+- **NEVER** overwrite `SHOPEE_PARTNER_KEY` with `SHOPEE_PUSH_SECRET` or vice-versa. Overwriting partner key with push secret causes instant `HTTP 403: Wrong sign` on all API calls.
+
 ## Sync rules
 
 All sync jobs must be:

@@ -561,6 +561,35 @@ class MarketplaceService {
     return null;
   }
 
+  Future<List<Map<String, dynamic>>> getAutomaticOrderSyncStates({
+    required String tenantId,
+  }) async {
+    if (tenantId.trim().isEmpty) return const [];
+    try {
+      try {
+        final rpcRes = await _client.rpc(
+          'get_marketplace_sync_states_for_app',
+          params: {'p_tenant_id': tenantId},
+        );
+        if (rpcRes is List) {
+          return rpcRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      } catch (_) {}
+
+      final res = await _client
+          .from('marketplace_order_sync_state')
+          .select(
+              'sync_state_id, marketplace, marketplace_account_id, bootstrap_status, bootstrap_from_seconds, bootstrap_to_seconds, bootstrap_cursor_seconds, recent_cursor_seconds, next_run_at, locked_until, failure_count, last_error, last_success_at, updated_at')
+          .eq('tenant_id', tenantId);
+      if (res is List) {
+        return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      return const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<MarketplaceOrderPullJobDigest?> getRecentOrderPullJobDigest({
     required String tenantId,
     int limit = 20,

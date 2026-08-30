@@ -75,11 +75,6 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
     return int.tryParse(trimmed.replaceAll('.', '').replaceAll(',', ''));
   }
 
-  num _numOrZero(String value) {
-    final cleaned = value.trim().replaceAll('.', '').replaceAll(',', '.');
-    return num.tryParse(cleaned) ?? 0;
-  }
-
   String _priceText(dynamic value) {
     final price = AppUi.toNum(value);
     if (price == 0) return '0';
@@ -1149,19 +1144,6 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
         ),
       ),
     );
-  }
-
-  String _subscriptionMoneyInput(dynamic value) {
-    final raw = value?.toString().trim() ?? '';
-    if (raw.isEmpty) return '';
-
-    final normalized = raw.replaceAll(',', '.');
-    final parsed = num.tryParse(normalized);
-    if (parsed != null) {
-      return _formatSubscriptionMoney(parsed.round().toString());
-    }
-
-    return _formatSubscriptionMoney(raw);
   }
 
   num _subscriptionMoneyValue(String value) {

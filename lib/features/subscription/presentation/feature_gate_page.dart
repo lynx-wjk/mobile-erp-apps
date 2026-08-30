@@ -104,13 +104,24 @@ class _FeatureGatePageState extends State<FeatureGatePage> {
                             ),
                       ),
                       const SizedBox(height: 20),
-                      FilledButton.icon(
-                        onPressed: () {
-                          final navigator = Navigator.of(context);
-                          if (navigator.canPop()) navigator.pop();
-                        },
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        label: const Text('Kembali'),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              final navigator = Navigator.of(context);
+                              if (navigator.canPop()) navigator.pop();
+                            },
+                            icon: const Icon(Icons.arrow_back_rounded),
+                            label: const Text('Kembali'),
+                          ),
+                          const SizedBox(width: 12),
+                          FilledButton.icon(
+                            onPressed: () => _showUpgradeRequestDialog(context),
+                            icon: const Icon(Icons.upgrade_rounded),
+                            label: const Text('Ajukan Upgrade'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -118,6 +129,118 @@ class _FeatureGatePageState extends State<FeatureGatePage> {
               ),
             ),
           ),
+        );
+      },
+    );
+  }
+
+  void _showUpgradeRequestDialog(BuildContext context) {
+    String selectedPlan = 'starter';
+    int selectedMonths = 1;
+    final notesController = TextEditingController();
+    bool isSending = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: const Text('AJUKAN UPGRADE / PERPANJANGAN',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text('Pilih paket yang Anda butuhkan:',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: selectedPlan,
+                      items: const [
+                        DropdownMenuItem(
+                            value: 'starter', child: Text('Starter (Rp 300.000/bln)')),
+                        DropdownMenuItem(
+                            value: 'growth', child: Text('Growth (Rp 500.000/bln)')),
+                        DropdownMenuItem(
+                            value: 'pro', child: Text('Pro (Rp 800.000/bln)')),
+                        DropdownMenuItem(
+                            value: 'enterprise',
+                            child: Text('Enterprise (Rp 1.300.000/bln)')),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setDialogState(() => selectedPlan = v);
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Durasi:',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    SegmentedButton<int>(
+                      segments: const [
+                        ButtonSegment(value: 1, label: Text('1 Bln')),
+                        ButtonSegment(value: 3, label: Text('3 Bln')),
+                        ButtonSegment(value: 6, label: Text('6 Bln')),
+                        ButtonSegment(value: 12, label: Text('1 Thn')),
+                      ],
+                      selected: {selectedMonths},
+                      onSelectionChanged: (set) =>
+                          setDialogState(() => selectedMonths = set.first),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: notesController,
+                      decoration: const InputDecoration(
+                        labelText: 'Catatan / Kontak Konfirmasi',
+                        hintText: 'Misal: Butuh aktivasi fitur finance, WA: 08123xxx',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSending ? null : () => Navigator.pop(ctx),
+                  child: const Text('BATAL'),
+                ),
+                FilledButton(
+                  onPressed: isSending
+                      ? null
+                      : () async {
+                          setDialogState(() => isSending = true);
+                          try {
+                            final res = await Supabase.instance.client.rpc(
+                              'tenant_submit_renewal_request',
+                              params: {
+                                'p_plan_code': selectedPlan,
+                                'p_duration_months': selectedMonths,
+                                'p_proof_url': null,
+                                'p_notes': notesController.text.trim(),
+                              },
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            AppUi.showSnack(res['message']?.toString() ??
+                                'Pengajuan berhasil dikirim!');
+                          } catch (e) {
+                            AppUi.showSnack('Gagal mengirim: $e');
+                          } finally {
+                            if (ctx.mounted) {
+                              setDialogState(() => isSending = false);
+                            }
+                          }
+                        },
+                  child: isSending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('KIRIM PENGAJUAN'),
+                ),
+              ],
+            );
+          },
         );
       },
     );

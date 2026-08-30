@@ -1,21 +1,29 @@
-# Project Plan: Finance SKU Report & Retur/Batal Fix
+# Execution Plan: Mobile ERP Landing Page Re-engineering
 
-## Overview
-Update database RPCs and Flutter UI to correctly categorize returned/cancelled orders, display full order rows in Retur/Batal modal, ensure pending payout strictly excludes returned/cancelled orders across June & July 2026, and deploy web build to VPS.
+## Phase 0: Discovery & Survey (Parallel Explorers)
+- **Explorer 1 (Codebase Truth Miner)**: Scan `lib/features/` (wms, oms, fms, hris, live_host, konveksi, purchasing, tasks, ems) and extract genuine feature lists, data models, workflows, and role permissions. Verify exact constraints (GPS+selfie, marketplace APIs, no platform owner exposure).
+- **Explorer 2 (Landing Page & UX Auditor)**: Inspect `landing_page/` (`index.html`, `styles.css`, `app.js`, assets), identify all hallucinations, outdated copy, missing modules, broken layout/styling, and review against UI/UX Pro Max standards.
+- **Explorer 3 (Deployment & VPS Specialist)**: Inspect VPS deployment environment (`/var/www/landing_page/`, web server config, DNS/SSL for `mdhproduction.com`, sitemap, robots.txt, deployment scripts/MCP tools).
 
-## Milestones & Roadmap
-- [ ] **Phase 0: Survey & Scope Mapping**
-  - Explorer 1: Inspect SQL migrations & backend RPC definitions (`finance_sku_order_line_details`, `finance_sku_order_details_group_20260625`, CTEs, payout filters).
-  - Explorer 2: Inspect Flutter UI (`finance_report_page.dart`, modal dialogs, `_skuReturnedCountMap`, payout filter wiring).
-  - Explorer 3: Inspect Supabase deployment & database live connection / migrations applying scripts / VPS deployment setup.
-- [ ] **Phase 1: Database RPC Implementation (M1)**
-  - Worker updates/creates SQL migration scripts.
-  - Apply RPC migrations to Supabase database.
-  - Review, Challenge, and Audit M1.
-- [ ] **Phase 2: Flutter UI Implementation (M2)**
-  - Worker updates `finance_report_page.dart` and any related widgets.
-  - Review, Challenge, and Audit M2.
-- [ ] **Phase 3: E2E Verification & Web Build VPS Deployment (M3)**
-  - Worker runs flutter tests, `flutter build web --release`, deploys to VPS (`https://mdhproduction.com`).
-  - Verify live web endpoint & RPC execution outputs.
-  - Final Review & Forensic Audit.
+## Phase 1: Master Specification & Milestone Decomposition
+- Synthesize findings into `PROJECT.md`.
+- Establish strict feature inventory with milestone mapping.
+- Set up interface contracts and asset layouts.
+
+## Phase 2: Implementation & Re-engineering
+- Dispatch **Worker** (loaded with `frontend` / `ui-ux-pro-max` skills) to:
+  - Re-engineer `index.html`, `styles.css`, `app.js`, `sitemap.xml`, `robots.txt`.
+  - Implement full obsidian theme (#080C14 / #0D1322), Outfit + Plus Jakarta Sans typography, micro-borders, metallic logo.
+  - Implement genuine feature cards, interactive workflow demonstrator tabs across WMS, OMS, FMS, HRIS/Payroll, Live Host, Konveksi, Purchasing, Tasks, EMS.
+  - Implement zero-hallucination copy, Bandung localization, WA link to 085155338246, Email to bdchydi@sre.co.id.
+  - Exclude all Platform Owner features.
+
+## Phase 3: Review, Challenge & Forensic Integrity Audit
+- Dispatch 2 **Reviewers** (code quality, design compliance, mobile responsiveness, accessibility).
+- Dispatch 2 **Challengers** (cross-browser layout checks, link/CTA verification, feature truthfulness validation, zero hallucination checks).
+- Dispatch 1 **Forensic Auditor** (`teamwork_preview_auditor`) (static analysis, zero hallucination check, strict non-exposure of platform owner tools).
+
+## Phase 4: Production Deployment & Verification
+- Deploy updated assets to VPS `/var/www/landing_page/`.
+- Verify live production endpoint `https://mdhproduction.com/` (HTTP 200 OK, SSL, sitemap.xml, robots.txt, responsive rendering).
+- Synthesize final handoff and report to user.

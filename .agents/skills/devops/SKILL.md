@@ -1,4 +1,4 @@
-﻿---
+---
 name: devops
 description: Use this skill for VPS maintenance, Docker Supabase self-hosted operations, MCP access, SSH, tunnels, cron, backups, logs, deployment, monitoring, and safe production operations.
 ---
@@ -100,6 +100,15 @@ Check:
 - docker stats --no-stream
 
 Do not install heavy services on the 4GB RAM VPS without checking memory headroom.
+
+## Flutter Web Nginx Gzip Deployment Rule
+
+When deploying Flutter Web to Nginx servers configured with `gzip_static on;`:
+1. Extract new web assets directly to the host release volume directory (e.g. `/root/mobile-erp-web/releases/rel_latest/`).
+2. Remove stale `.gz` pre-compressed files (`rm -f main.dart.js.gz flutter_bootstrap.js.gz`).
+3. Re-compress the updated bundles with gzip (`gzip -k -9 main.dart.js flutter_bootstrap.js`).
+4. Ensure Nginx configuration serves `Cache-Control: no-cache, must-revalidate` for `main.dart.js`, `index.html`, and `flutter_bootstrap.js`.
+5. Execute `docker exec mobile-erp-web nginx -s reload` (and reload host Nginx if reverse proxy caching is configured).
 
 ## MCP usage
 
