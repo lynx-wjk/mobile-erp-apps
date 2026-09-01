@@ -13,6 +13,7 @@ import '../../../core/constants/app_roles.dart';
 import '../../subscription/services/tenant_entitlement_service.dart';
 import '../../subscription/presentation/feature_gate_page.dart';
 import '../../../models/app_user.dart';
+import '../../../services/auth_service.dart';
 
 import '../../attendance/presentation/attendance_page.dart';
 import '../../auth/presentation/login_page.dart';
@@ -28,6 +29,7 @@ import '../../hr/presentation/hr_performance_page.dart';
 import '../../hr/presentation/payroll_page.dart';
 import '../../overtime/presentation/overtime_page.dart';
 
+import '../../marketplace/models/marketplace_account_public.dart';
 import '../../marketplace/presentation/marketplace_accounts_page.dart';
 import '../../marketplace/presentation/marketplace_orders_page.dart';
 import '../../marketplace/presentation/marketplace_dispatcher_monitor_page.dart';
@@ -82,11 +84,14 @@ class _DashboardPageState extends State<DashboardPage> {
   num _financeOmzet = 0;
   int _financeOrderCount = 0;
   List<_TrendPoint> _financeTrend = const <_TrendPoint>[];
+  List<Map<String, dynamic>> _financeByMarketplace = const <Map<String, dynamic>>[];
   int? _selectedTrendIndex;
   String _dashboardFinanceMarketplaceFilter = 'all';
   static const String _dashboardFinanceCacheVersion =
       'finance_live_20260620_v31_dashboard_mtd_order_date_wib';
   static const String _dashboardFinanceCacheTab = 'dashboard';
+  List<MarketplaceAccountPublic> _marketplaceAccountsNeedingReauth =
+      const <MarketplaceAccountPublic>[];
   List<_AppNotification> _notifications = const <_AppNotification>[];
   int _contentTotal = 0;
   int _contentDueSoon = 0;
@@ -342,6 +347,19 @@ class _DashboardPageState extends State<DashboardPage> {
             status == 'scheduled';
       }).length;
 
+      final mktAccountsRes = await _safeList(() => _client
+          .from('marketplace_accounts')
+          .select(
+              'marketplace_account_id, tenant_id, marketplace, store_alias, shop_name, shop_region, status, environment, stock_sync_enabled, last_error, shop_id, shop_cipher, access_token_expired_at, refresh_token_expired_at, connected_at, reauthorized_at, created_at, updated_at')
+          .eq('is_deleted', false));
+      final mktAccounts = mktAccountsRes
+          .whereType<Map>()
+          .map((m) => MarketplaceAccountPublic.fromMap(
+              Map<String, dynamic>.from(m)))
+          .toList(growable: false);
+      final mktNeedingReauth =
+          mktAccounts.where((a) => a.needsReauth).toList(growable: false);
+
       if (!mounted) return;
       setState(() {
         _appUser = appUser;
@@ -360,6 +378,7 @@ class _DashboardPageState extends State<DashboardPage> {
         _allOpenTasks = allOpenTasks;
         _myTodayLive = myTodayLive;
         _pendingLiveReview = pendingLiveReview;
+        _marketplaceAccountsNeedingReauth = mktNeedingReauth;
         _financeAbnormalCount = AppUi.toNum(financeSummary['abnormal_count'] ??
                 financeSummary['anomaly_count'])
             .toInt();
@@ -369,6 +388,12 @@ class _DashboardPageState extends State<DashboardPage> {
             AppUi.toNum(financeSummary['orders_count']).toInt();
         _financeTrend = (financeSummary['trend'] as List<_TrendPoint>?) ??
             const <_TrendPoint>[];
+        _financeByMarketplace = (financeSummary['by_marketplace'] is List)
+            ? (financeSummary['by_marketplace'] as List)
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList()
+            : const <Map<String, dynamic>>[];
         _notifications = notifications;
         _contentTotal = myContentRows.length;
         _contentDueSoon = contentDueSoon;
@@ -494,6 +519,13 @@ class _DashboardPageState extends State<DashboardPage> {
       return <String, dynamic>{};
     }
 
+    final byMarketplace = data['by_marketplace'] is List
+        ? (data['by_marketplace'] as List)
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : <Map<String, dynamic>>[];
+
     return <String, dynamic>{
       'abnormal_count': abnormalCount,
       'anomaly_count': abnormalCount,
@@ -503,6 +535,7 @@ class _DashboardPageState extends State<DashboardPage> {
       'omzet_total': omzet,
       'orders_count': orders,
       'trend': points,
+      'by_marketplace': byMarketplace,
       'source_rpc': AppUi.text(
           data['source'], 'dashboard_marketplace_order_analytics_90d'),
     };
@@ -648,6 +681,12 @@ class _DashboardPageState extends State<DashboardPage> {
         : _monthToDateTrend(now, <_TrendPoint>[
             _TrendPoint(date: now, omzet: gross, orders: orders),
           ]);
+    final byMarketplace = (data['by_marketplace'] ?? data['marketplaces']) is List
+        ? ((data['by_marketplace'] ?? data['marketplaces']) as List)
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : <Map<String, dynamic>>[];
     return <String, dynamic>{
       'abnormal_count': abnormalCount,
       'anomaly_count': abnormalCount,
@@ -655,6 +694,7 @@ class _DashboardPageState extends State<DashboardPage> {
       'omzet_total': gross,
       'orders_count': orders,
       'trend': trend,
+      'by_marketplace': byMarketplace,
       'source_rpc': source,
     };
   }
@@ -822,7 +862,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _logout() async {
-    await _client.auth.signOut();
+    await AuthService().signOut();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -1036,6 +1076,10 @@ class _DashboardPageState extends State<DashboardPage> {
                                 MarketplaceSyncProgressBannerWidget(
                                     currentUser: widget.currentUser ?? _requiredAppUser,
                                     onSyncComplete: _loadDashboard),
+                                if (_marketplaceAccountsNeedingReauth.isNotEmpty) ...[
+                                  const SizedBox(height: 12),
+                                  _marketplaceReauthAlertBanner(),
+                                ],
                                 const SizedBox(height: 14),
                                 _summaryGrid(),
                                 const SizedBox(height: 20),
@@ -1474,6 +1518,10 @@ class _DashboardPageState extends State<DashboardPage> {
       MarketplaceSyncProgressBannerWidget(
           currentUser: widget.currentUser ?? _requiredAppUser,
           onSyncComplete: _loadDashboard),
+      if (_marketplaceAccountsNeedingReauth.isNotEmpty) ...[
+        const SizedBox(height: 14),
+        _marketplaceReauthAlertBanner(),
+      ],
       const SizedBox(height: 18),
       _webHeroWelcomeCard(),
       const SizedBox(height: 18),
@@ -2349,6 +2397,99 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  Widget _marketplaceReauthAlertBanner() {
+    if (_marketplaceAccountsNeedingReauth.isEmpty) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final warningColor = isDark ? Colors.amber.shade400 : Colors.amber.shade900;
+    final warningBg = isDark
+        ? Colors.amber.shade900.withOpacity(0.18)
+        : Colors.amber.shade50;
+    final warningBorder = isDark
+        ? Colors.amber.shade700.withOpacity(0.4)
+        : Colors.amber.shade300;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: warningBg,
+        border: Border.all(
+          color: warningBorder,
+          width: 0.9,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.warning_amber_rounded, color: warningColor, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Peringatan Otorisasi Marketplace',
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ..._marketplaceAccountsNeedingReauth.map((acc) {
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          '• ${acc.safeStoreName} (${acc.marketplaceLabel}): ${acc.reauthWarningMessage}',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontSize: 12,
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonal(
+              onPressed: () =>
+                  _open(MarketplaceAccountsPage(currentUser: _requiredAppUser)),
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.sync_rounded, size: 16),
+                  SizedBox(width: 6),
+                  Text(
+                    'Hubungkan Ulang',
+                    style:
+                        TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openAdminSettingsSheet() {
     if (!_canOpenSuperSettings) {
       AppUi.safeSnack(context, 'Pengaturan sistem hanya untuk Super Admin.');
@@ -2837,10 +2978,24 @@ class _DashboardPageState extends State<DashboardPage> {
       _financeTrend = (finSummary['trend'] is List)
           ? List<_TrendPoint>.from(finSummary['trend'] as List)
           : <_TrendPoint>[];
+      _financeByMarketplace = (finSummary['by_marketplace'] is List)
+          ? (finSummary['by_marketplace'] as List)
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList()
+          : const <Map<String, dynamic>>[];
       _financeOmzet = AppUi.toNum(finSummary['omzet_total']);
       _financeOrderCount = AppUi.toNum(finSummary['orders_count']).toInt();
       _selectedTrendIndex = null;
     });
+  }
+
+  String _marketplaceLabel(String value) {
+    final clean = value.toLowerCase();
+    if (clean.contains('tiktok')) return 'TikTok Shop';
+    if (clean.contains('shopee')) return 'Shopee';
+    if (clean == '-' || clean == 'all') return 'Marketplace';
+    return value;
   }
 
   Widget _dashboardFinanceMarketplaceFilterCards() {
@@ -2857,14 +3012,12 @@ class _DashboardPageState extends State<DashboardPage> {
         final selected = _dashboardFinanceMarketplaceFilter == item.value ||
             (item.value == 'all' &&
                 _dashboardFinanceMarketplaceFilter.trim().isEmpty);
-        final accent = selected
-            ? Theme.of(context).colorScheme.primary
-            : AppUi.mutedText(context, 0.92).withOpacity(0.55);
 
         return Material(
           color: Colors.transparent,
           child: InkWell(
             onTap: () => _setDashboardFinanceMarketplaceFilter(item.value),
+            borderRadius: BorderRadius.circular(999),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
               decoration: BoxDecoration(
@@ -2913,9 +3066,10 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _adminAnalyticsCard() {
     final points = _financeTrendForChart();
     final defaultSelectedIndex = _defaultFinanceTrendIndex(points);
+    final hasSelection = _selectedTrendIndex != null;
     final selected = points.isEmpty
         ? null
-        : points[(_selectedTrendIndex ?? defaultSelectedIndex)
+        : points[(hasSelection ? _selectedTrendIndex! : defaultSelectedIndex)
             .clamp(0, points.length - 1)
             .toInt()];
     final totalOrders = points.fold<int>(0, (sum, point) => sum + point.orders);
@@ -2955,84 +3109,207 @@ class _DashboardPageState extends State<DashboardPage> {
           const SizedBox(height: 10),
           _dashboardFinanceMarketplaceFilterCards(),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: _miniBadge('Filter ${_dashboardFinanceMarketplaceLabel()}'),
-          ),
-          const SizedBox(height: 10),
-          if (selected != null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                borderRadius: AppTheme.radiusMd,
-                color: Theme.of(context)
-                    .colorScheme
-                    .surfaceVariant
-                    .withOpacity(0.3),
-                border: Border.all(
-                  color:
-                      Theme.of(context).colorScheme.outlineVariant.withOpacity(
-                            Theme.of(context).brightness == Brightness.dark
-                                ? 0.3
-                                : 0.5,
-                          ),
-                  width: 0.8,
+          Row(
+            children: [
+              _miniBadge('Filter ${_dashboardFinanceMarketplaceLabel()}'),
+              const Spacer(),
+              if (_dashboardFinanceMarketplaceFilter == 'all' && _financeByMarketplace.length > 1)
+                Text(
+                  '${_financeByMarketplace.length} platform terhubung',
+                  style: TextStyle(
+                    color: AppUi.mutedText(context, 0.9),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Omzet hari terpilih',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _shortRupiah(selected.omzet),
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                            height: 1,
-                          ),
-                        ),
-                      ],
+            ],
+          ),
+          if (_financeByMarketplace.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _financeByMarketplace.map((mkt) {
+                final mktName = _marketplaceLabel(AppUi.text(mkt['marketplace']));
+                final mktOmzet = AppUi.toNum(mkt['omzet_total'] ?? mkt['omzet'] ?? mkt['gross_sales']);
+                final mktOrders = AppUi.toNum(mkt['orders_count'] ?? mkt['order_count']).toInt();
+                final isShopee = mktName.toLowerCase().contains('shopee');
+                final isTiktok = mktName.toLowerCase().contains('tiktok');
+                final filterVal = isShopee ? 'shopee' : (isTiktok ? 'tiktok' : 'all');
+                final isCurrent = _dashboardFinanceMarketplaceFilter == filterVal;
+
+                return InkWell(
+                  onTap: () => _setDashboardFinanceMarketplaceFilter(filterVal),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isCurrent
+                          ? Theme.of(context).colorScheme.primary.withOpacity(0.12)
+                          : Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isCurrent
+                            ? Theme.of(context).colorScheme.primary.withOpacity(0.3)
+                            : Theme.of(context).colorScheme.outlineVariant.withOpacity(0.3),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Text(
+                      '$mktName: ${_shortRupiah(mktOmzet)} · $mktOrders order',
+                      style: TextStyle(
+                        color: isCurrent
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.onSurface,
+                        fontSize: 11.5,
+                        fontWeight:
+                            isCurrent ? FontWeight.w700 : FontWeight.w600,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                );
+              }).toList(growable: false),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: AppTheme.radiusMd,
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceVariant
+                  .withOpacity(0.3),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
+                      Theme.of(context).brightness == Brightness.dark
+                          ? 0.3
+                          : 0.5,
+                    ),
+                width: 0.8,
+              ),
+            ),
+            child: hasSelection && selected != null
+                ? Row(
                     children: [
-                      Text(
-                        AppUi.date(selected.date),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Omzet harian (${AppUi.date(selected.date)})',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.onSurface,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _shortRupiah(selected.omzet),
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                height: 1,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${selected.orders} pesanan',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${selected.orders} pesanan',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          InkWell(
+                            onTap: () => setState(() => _selectedTrendIndex = null),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.close_rounded,
+                                  size: 13,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  'Total bulan ini',
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.primary,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Total Omzet ${_dashboardFinanceMarketplaceLabel()} (Bulan Ini)',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.onSurface,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _shortRupiah(totalOmzet),
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                height: 1,
+                              ),
+                            ),
+                          ],
                         ),
+                      ),
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '$totalOrders pesanan',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Akumulasi ${points.length} hari',
+                            style: TextStyle(
+                              color: AppUi.mutedText(context, 0.8),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
-            ),
+          ),
           const SizedBox(height: 14),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -3047,8 +3324,9 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: CustomPaint(
                     painter: _FinanceTrendPainter(
                       points: points,
-                      selectedIndex:
-                          selected == null ? null : points.indexOf(selected),
+                      selectedIndex: hasSelection && selected != null
+                          ? points.indexOf(selected)
+                          : null,
                       omzetColor: Theme.of(context).colorScheme.primary,
                       orderColor: Theme.of(context).colorScheme.tertiary,
                     ),
@@ -3057,14 +3335,22 @@ class _DashboardPageState extends State<DashboardPage> {
               );
             },
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Row(
             children: [
+              _legendDot(Theme.of(context).colorScheme.primary, 'Omzet harian'),
+              const SizedBox(width: 12),
               _legendDot(
-                  Theme.of(context).colorScheme.primary, 'Omzet per hari'),
-              const SizedBox(width: 14),
-              _legendDot(
-                  Theme.of(context).colorScheme.tertiary, 'Pesanan per hari'),
+                  Theme.of(context).colorScheme.tertiary, 'Volume order'),
+              const Spacer(),
+              Text(
+                'Ketuk grafik untuk lihat per tanggal',
+                style: TextStyle(
+                  color: AppUi.mutedText(context, 0.8),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ],
           ),
         ],
@@ -4385,7 +4671,7 @@ class _DashboardPageState extends State<DashboardPage> {
                               Icon(Icons.campaign_rounded, color: Colors.amber, size: 20),
                               SizedBox(width: 8),
                               Text(
-                                '📈 Strategi Marketing & Penjualan Tenant',
+                                'Strategi Marketing & Penjualan Tenant',
                                 style: TextStyle(
                                     fontWeight: FontWeight.w800, fontSize: 14),
                               ),
@@ -4394,21 +4680,21 @@ class _DashboardPageState extends State<DashboardPage> {
                           const SizedBox(height: 10),
                           if (mkt['channel_focus'] != null) ...[
                             Text(
-                              '🎯 Fokus Kanal Sales: ${mkt['channel_focus']}',
+                              'Fokus Kanal Sales: ${mkt['channel_focus']}',
                               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                             ),
                             const SizedBox(height: 6),
                           ],
                           if (mkt['promotional_tactic'] != null) ...[
                             Text(
-                              '💡 Taktik Promosi: ${mkt['promotional_tactic']}',
+                              'Taktik Promosi: ${mkt['promotional_tactic']}',
                               style: const TextStyle(fontSize: 12),
                             ),
                             const SizedBox(height: 6),
                           ],
                           if (mkt['cancellation_mitigation'] != null) ...[
                             Text(
-                              '🛡️ Mitigasi Pembatalan: ${mkt['cancellation_mitigation']}',
+                              'Mitigasi Pembatalan: ${mkt['cancellation_mitigation']}',
                               style: const TextStyle(fontSize: 12),
                             ),
                           ],
@@ -4470,7 +4756,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
                   // Actionable Recommendations
                   const Text(
-                    '🎯 Rekomendasi Aksi Prioritas Super Admin',
+                    'Rekomendasi Aksi Prioritas Super Admin',
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 10),

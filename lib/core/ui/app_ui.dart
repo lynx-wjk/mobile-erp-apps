@@ -218,6 +218,42 @@ class AppUi {
     return raw.isEmpty ? fallback : raw;
   }
 
+  static void selectAll(TextEditingController? controller) {
+    if (controller == null) return;
+    if (controller.text.isNotEmpty) {
+      void doSelect() {
+        if (controller.text.isNotEmpty) {
+          controller.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: controller.text.length,
+          );
+        }
+      }
+
+      doSelect();
+      WidgetsBinding.instance.addPostFrameCallback((_) => doSelect());
+      Future.delayed(const Duration(milliseconds: 60), doSelect);
+    }
+  }
+
+  static VoidCallback selectOnTap(TextEditingController? controller,
+      [VoidCallback? extra]) {
+    return () {
+      selectAll(controller);
+      extra?.call();
+    };
+  }
+
+  static FocusNode createSelectAllFocusNode(TextEditingController controller) {
+    final focusNode = FocusNode();
+    focusNode.addListener(() {
+      if (focusNode.hasFocus) {
+        selectAll(controller);
+      }
+    });
+    return focusNode;
+  }
+
   static Color statusColor(String status) {
     final clean = status.toLowerCase();
     if (clean.contains('done') ||
@@ -1087,23 +1123,31 @@ class SearchBox extends StatelessWidget {
 class AppTextField extends StatelessWidget {
   final TextEditingController? controller;
   final ValueChanged<String>? onChanged;
+  final VoidCallback? onTap;
   final String? labelText;
   final String? hintText;
   final TextInputType? keyboardType;
   final bool obscureText;
+  final bool selectAllOnTap;
   final Widget? prefixIcon;
   final Widget? suffixIcon;
+  final int maxLines;
+  final bool enabled;
 
   const AppTextField({
     super.key,
     this.controller,
     this.onChanged,
+    this.onTap,
     this.labelText,
     this.hintText,
     this.keyboardType,
     this.obscureText = false,
+    this.selectAllOnTap = true,
     this.prefixIcon,
     this.suffixIcon,
+    this.maxLines = 1,
+    this.enabled = true,
   });
 
   @override
@@ -1111,8 +1155,11 @@ class AppTextField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
+      onTap: selectAllOnTap ? AppUi.selectOnTap(controller, onTap) : onTap,
       keyboardType: keyboardType,
       obscureText: obscureText,
+      maxLines: maxLines,
+      enabled: enabled,
       decoration: InputDecoration(
         labelText: labelText,
         hintText: hintText,
@@ -1411,3 +1458,26 @@ class AppMoneyInputFormatter extends TextInputFormatter {
     return text.length;
   }
 }
+
+class AppCleanZeroInputFormatter extends TextInputFormatter {
+  const AppCleanZeroInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    var text = newValue.text;
+    if (text.length > 1 &&
+        text.startsWith('0') &&
+        !text.startsWith('0.') &&
+        !text.startsWith('0,')) {
+      text = text.replaceFirst(RegExp(r'^0+'), '');
+      if (text.isEmpty) text = '0';
+      return TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    }
+    return newValue;
+  }
+}
+

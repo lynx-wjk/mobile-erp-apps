@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/ui/app_ui.dart';
 import 'core/theme/app_theme_mode.dart';
 import 'features/auth/presentation/auth_gate.dart';
+import 'services/app_session_manager.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,43 +31,41 @@ Future<void> main() async {
         ? supabaseUrl.trim()
         : const String.fromEnvironment('SUPABASE_URL',
             defaultValue: 'https://mdhproduction.com');
+    supabaseAnonKey =
+        (supabaseAnonKey != null && supabaseAnonKey.trim().isNotEmpty)
+            ? supabaseAnonKey.trim()
+            : const String.fromEnvironment('SUPABASE_ANON_KEY',
+                defaultValue:
+                    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxMzY1OTkwLCJleHAiOjQxMDI0NDQ4MDB9.4ksHkp45OfOVH--8p5ajWnfKUwwDDLUNYbsVV8uFh5Y');
 
-    supabaseAnonKey = (supabaseAnonKey != null && supabaseAnonKey.trim().isNotEmpty)
-        ? supabaseAnonKey.trim()
-        : const String.fromEnvironment('SUPABASE_ANON_KEY',
-            defaultValue:
-                'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxMzY1OTkwLCJleHAiOjQxMDI0NDQ4MDB9.4ksHkp45OfOVH--8p5ajWnfKUwwDDLUNYbsVV8uFh5Y');
-
-    if (supabaseUrl.isEmpty) {
-      throw Exception('SUPABASE_URL is missing');
-    }
-
-    if (supabaseAnonKey.isEmpty) {
-      throw Exception('SUPABASE_ANON_KEY is missing');
+    if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
+      throw Exception('Missing SUPABASE_URL or SUPABASE_ANON_KEY configuration');
     }
 
     await Supabase.initialize(
       url: supabaseUrl,
       anonKey: supabaseAnonKey,
+      authOptions: const FlutterAuthClientOptions(
+        authFlowType: AuthFlowType.pkce,
+        autoRefreshToken: true,
+      ),
     );
 
     await AppThemeModeController.init();
 
-    runApp(const StockRoleManagementApp());
-  } catch (error, stackTrace) {
-    debugPrint('APP START ERROR: $error');
-    debugPrintStack(stackTrace: stackTrace);
-
-    runApp(
-      StartupErrorApp(
-        errorMessage: error.toString(),
-      ),
-    );
+    runApp(const MyApp());
+  } catch (e, stackTrace) {
+    debugPrint('Fatal initialization error: $e\n$stackTrace');
+    runApp(StartupErrorApp(errorMessage: e.toString()));
   }
 }
 
-class StockRoleManagementApp extends StatelessWidget {
-  const StockRoleManagementApp({super.key});
+final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -114,38 +113,34 @@ class _InactivityLogoutWatcher extends StatefulWidget {
 }
 
 class _InactivityLogoutWatcherState extends State<_InactivityLogoutWatcher> {
-  static const Duration _idleTimeout = Duration(hours: 24);
-  static const Duration _checkInterval = Duration(minutes: 1);
+  static const Duration _checkInterval = Duration(seconds: 30);
 
   final SupabaseClient _client = Supabase.instance.client;
 
   Timer? _timer;
   StreamSubscription<AuthState>? _authSubscription;
-  DateTime _lastActivityAt = DateTime.now();
-  bool _hadSession = false;
-  bool _isLoggingOut = false;
 
   @override
   void initState() {
     super.initState();
-    _hadSession = _client.auth.currentSession != null;
-    _lastActivityAt = DateTime.now();
+
+    final currentSession = _client.auth.currentSession;
+    if (currentSession != null) {
+      AppSessionManager.instance.recordActivity();
+    }
 
     _authSubscription = _client.auth.onAuthStateChange.listen((state) {
       final hasSession = state.session != null;
-
-      if (hasSession && !_hadSession) {
-        _markActivity();
-      }
-
-      _hadSession = hasSession;
-
-      if (!hasSession) {
-        _lastActivityAt = DateTime.now();
+      if (hasSession) {
+        AppSessionManager.instance.recordLogin(state.session!.user.id);
+      } else {
+        AppSessionManager.instance.clearSession();
       }
     });
 
-    _timer = Timer.periodic(_checkInterval, (_) => _checkIdleTimeout());
+    _timer = Timer.periodic(_checkInterval, (_) {
+      AppSessionManager.instance.checkAndEnforceSession();
+    });
   }
 
   @override
@@ -155,63 +150,17 @@ class _InactivityLogoutWatcherState extends State<_InactivityLogoutWatcher> {
     super.dispose();
   }
 
-  void _markActivity() {
-    if (_client.auth.currentSession == null) return;
-    _lastActivityAt = DateTime.now();
-  }
-
-  Future<void> _checkIdleTimeout() async {
-    if (_isLoggingOut) return;
-
-    final session = _client.auth.currentSession;
-    if (session == null) {
-      _hadSession = false;
-      _lastActivityAt = DateTime.now();
-      return;
-    }
-
-    _hadSession = true;
-
-    final idleDuration = DateTime.now().difference(_lastActivityAt);
-    if (idleDuration < _idleTimeout) return;
-
-    await _logoutDueToInactivity();
-  }
-
-  Future<void> _logoutDueToInactivity() async {
-    if (_isLoggingOut) return;
-    _isLoggingOut = true;
-
-    try {
-      await _client.auth.signOut();
-    } catch (_) {
-      // AuthGate akan menampilkan halaman login ketika session sudah tidak aktif.
-    } finally {
-      _hadSession = false;
-      _lastActivityAt = DateTime.now();
-      _isLoggingOut = false;
-    }
-
-    rootScaffoldMessengerKey.currentState?.showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Sesi berakhir karena tidak ada aktivitas selama 24 jam. Silakan login kembali.',
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Listener(
       behavior: HitTestBehavior.translucent,
-      onPointerDown: (_) => _markActivity(),
-      onPointerMove: (_) => _markActivity(),
-      onPointerUp: (_) => _markActivity(),
-      onPointerSignal: (_) => _markActivity(),
+      onPointerDown: (_) => AppSessionManager.instance.recordActivity(),
+      onPointerMove: (_) => AppSessionManager.instance.recordActivity(),
+      onPointerUp: (_) => AppSessionManager.instance.recordActivity(),
+      onPointerSignal: (_) => AppSessionManager.instance.recordActivity(),
       child: NotificationListener<ScrollNotification>(
         onNotification: (_) {
-          _markActivity();
+          AppSessionManager.instance.recordActivity();
           return false;
         },
         child: widget.child,

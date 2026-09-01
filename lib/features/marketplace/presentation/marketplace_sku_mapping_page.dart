@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/constants/marketplace_providers.dart';
+import '../../../core/ui/app_segmented_tab_bar.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
@@ -58,6 +59,12 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
   bool _isSyncingHpp = false;
   bool _isRecalculatingFinance = false;
   bool _hppMissingOnly = false;
+  String _hppFilterMode = 'all';
+  int _hppMissingHppTotal = 0;
+  int _hppMissingMappingTotal = 0;
+  int _hppMissingAnyTotal = 0;
+  int _hppSetHppTotal = 0;
+  int _hppTotalAll = 0;
   bool _unmappedOnly = false;
   bool _formSyncEnabled = true;
   String? _errorMessage;
@@ -254,6 +261,9 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
       setState(() {
         _hppRows = const [];
         _hppTotal = 0;
+        _hppMissingTotal = 0;
+        _hppMissingHppTotal = 0;
+        _hppMissingMappingTotal = 0;
       });
       return;
     }
@@ -261,31 +271,14 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
 
     setState(() => _isHppLoading = true);
     try {
-      final futures = <Future<Map<String, dynamic>>>[
-        _service.hppList(
-          accountId: accountId,
-          search: _hppCariController.text,
-          missingOnly: _hppMissingOnly,
-          page: _hppPage,
-          pageSize: _hppPageSize,
-        ),
-      ];
-
-      if (!_hppMissingOnly) {
-        futures.add(
-          _service.hppList(
-            accountId: accountId,
-            search: _hppCariController.text,
-            missingOnly: true,
-            page: 1,
-            pageSize: 1,
-          ),
-        );
-      }
-
-      final results = await Future.wait(futures);
-      final payload = results[0];
-      final missingPayload = results.length > 1 ? results[1] : null;
+      final payload = await _service.hppList(
+        accountId: accountId,
+        search: _hppCariController.text,
+        missingOnly: _hppFilterMode != 'all',
+        filterMode: _hppFilterMode,
+        page: _hppPage,
+        pageSize: _hppPageSize,
+      );
 
       final rows = <Map<String, dynamic>>[];
       final rawRows = payload['rows'];
@@ -298,14 +291,26 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
 
       final currentTotal =
           int.tryParse('${payload['total'] ?? rows.length}') ?? rows.length;
-      final missingTotal = _hppMissingOnly
-          ? currentTotal
-          : (int.tryParse('${missingPayload?['total'] ?? 0}') ?? 0);
+      final totalAll =
+          int.tryParse('${payload['total_variants'] ?? payload['total'] ?? 0}') ?? 0;
+      final missingHppTotal =
+          int.tryParse('${payload['total_missing_hpp'] ?? payload['missing_hpp_count'] ?? 0}') ?? 0;
+      final missingMappingTotal =
+          int.tryParse('${payload['total_missing_mapping'] ?? payload['missing_mapping_count'] ?? 0}') ?? 0;
+      final missingAnyTotal =
+          int.tryParse('${payload['total_missing_any'] ?? payload['missing_any_count'] ?? 0}') ?? 0;
+      final setHppTotal =
+          int.tryParse('${payload['total_set_hpp'] ?? payload['set_hpp_count'] ?? 0}') ?? 0;
 
       setState(() {
         _hppRows = rows;
         _hppTotal = currentTotal;
-        _hppMissingTotal = missingTotal;
+        _hppTotalAll = totalAll;
+        _hppMissingTotal = missingHppTotal;
+        _hppMissingHppTotal = missingHppTotal;
+        _hppMissingMappingTotal = missingMappingTotal;
+        _hppMissingAnyTotal = missingAnyTotal;
+        _hppSetHppTotal = setHppTotal;
       });
     } catch (error) {
       if (!mounted) return;
@@ -420,12 +425,22 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
   }
 
   Future<void> _editHppRow(Map<String, dynamic> row) async {
-    final hppController = TextEditingController(
-        text: AppUi.moneyInput(
-            _rowDouble(row, const ['hpp_amount', 'hpp_per_item', 'hpp'])));
-    final marginController = TextEditingController(
-        text: _rowDouble(row, const ['target_margin_percent', 'target_margin'])
-            .toStringAsFixed(0));
+    final initialHpp =
+        _rowDouble(row, const ['hpp_amount', 'hpp_per_item', 'hpp']);
+    final initialMargin =
+        _rowDouble(row, const ['target_margin_percent', 'target_margin']);
+
+    final hppText = (initialHpp > 0) ? AppUi.moneyInput(initialHpp) : '';
+    final marginText = (initialMargin > 0) ? initialMargin.toStringAsFixed(0) : '';
+
+    final hppController = TextEditingController(text: hppText);
+    final marginController = TextEditingController(text: marginText);
+
+    if (marginController.text == '0') marginController.text = '';
+    if (hppController.text == '0') hppController.text = '';
+
+    final hppFocus = AppUi.createSelectAllFocusNode(hppController);
+    final marginFocus = AppUi.createSelectAllFocusNode(marginController);
 
     final saved = await showModalBottomSheet<bool>(
       context: context,
@@ -470,19 +485,43 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
                   SizedBox(height: 14),
                   TextField(
                     controller: hppController,
+                    focusNode: hppFocus,
                     keyboardType: TextInputType.number,
-                    inputFormatters: const [AppMoneyInputFormatter()],
+                    inputFormatters: const [
+                      AppMoneyInputFormatter(),
+                      AppCleanZeroInputFormatter(),
+                    ],
+                    onTap: AppUi.selectOnTap(hppController),
                     decoration: const InputDecoration(
                         labelText: 'HPP per item',
+                        hintText: 'Contoh: 50.000',
                         prefixText: 'Rp ',
                         border: OutlineInputBorder()),
                   ),
                   SizedBox(height: 12),
                   TextField(
                     controller: marginController,
+                    focusNode: marginFocus,
                     keyboardType: TextInputType.number,
+                    inputFormatters: const [
+                      AppCleanZeroInputFormatter(),
+                    ],
+                    onTap: AppUi.selectOnTap(marginController),
+                    onChanged: (val) {
+                      if (val.length > 1 &&
+                          val.startsWith('0') &&
+                          !val.startsWith('0.') &&
+                          !val.startsWith('0,')) {
+                        final clean = val.replaceFirst(RegExp(r'^0+'), '');
+                        marginController.value = TextEditingValue(
+                          text: clean,
+                          selection: TextSelection.collapsed(offset: clean.length),
+                        );
+                      }
+                    },
                     decoration: const InputDecoration(
                         labelText: 'Target margin %',
+                        hintText: 'Contoh: 20',
                         border: OutlineInputBorder()),
                   ),
                   SizedBox(height: 16),
@@ -558,6 +597,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
         );
       },
     );
+    hppFocus.dispose();
+    marginFocus.dispose();
     hppController.dispose();
     marginController.dispose();
     if (saved == true) await _loadHpp();
@@ -576,7 +617,8 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
       final payload = await _service.hppList(
         accountId: accountId,
         search: _hppCariController.text,
-        missingOnly: _hppMissingOnly,
+        missingOnly: _hppFilterMode != 'all',
+        filterMode: _hppFilterMode,
         page: page,
         pageSize: exportPageSize,
       );
@@ -2170,23 +2212,55 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
               FilledButton.tonalIcon(
                   onPressed:
                       _isHppLoading ? null : () => _loadHpp(resetPage: true),
-                  icon: Icon(Icons.search),
-                  label: Text('Cari HPP')),
+                  icon: const Icon(Icons.search),
+                  label: const Text('Cari HPP')),
               FilterChip(
-                  selected: _hppMissingOnly,
+                  selected: _hppFilterMode == 'all',
                   onSelected: (value) {
-                    setState(() => _hppMissingOnly = value);
+                    setState(() => _hppFilterMode = 'all');
                     _loadHpp(resetPage: true);
                   },
-                  label: Text('Belum mapping/HPP saja')),
+                  label: Text('Semua (${_hppTotalAll > 0 ? _hppTotalAll : _hppTotal})')),
+              FilterChip(
+                  selected: _hppFilterMode == 'missing_hpp',
+                  onSelected: (value) {
+                    setState(() => _hppFilterMode =
+                        value ? 'missing_hpp' : 'all');
+                    _loadHpp(resetPage: true);
+                  },
+                  label: Text('Belum Set HPP ($_hppMissingHppTotal)')),
+              FilterChip(
+                  selected: _hppFilterMode == 'set_hpp',
+                  onSelected: (value) {
+                    setState(() => _hppFilterMode =
+                        value ? 'set_hpp' : 'all');
+                    _loadHpp(resetPage: true);
+                  },
+                  label: Text('Sudah Set HPP ($_hppSetHppTotal)')),
+              FilterChip(
+                  selected: _hppFilterMode == 'missing_mapping',
+                  onSelected: (value) {
+                    setState(() => _hppFilterMode =
+                        value ? 'missing_mapping' : 'all');
+                    _loadHpp(resetPage: true);
+                  },
+                  label: Text('Belum Mapping SKU Lokal ($_hppMissingMappingTotal)')),
+              FilterChip(
+                  selected: _hppFilterMode == 'missing_any',
+                  onSelected: (value) {
+                    setState(() => _hppFilterMode =
+                        value ? 'missing_any' : 'all');
+                    _loadHpp(resetPage: true);
+                  },
+                  label: Text('Belum Lengkap ($_hppMissingAnyTotal)')),
               OutlinedButton.icon(
                   onPressed: _isHppSaving ? null : _exportHppExcel,
-                  icon: Icon(Icons.download_outlined),
-                  label: Text('Export Excel')),
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('Export Excel')),
               OutlinedButton.icon(
                   onPressed: _isHppSaving ? null : _importHppExcel,
-                  icon: Icon(Icons.upload_file_outlined),
-                  label: Text('Import Excel')),
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: const Text('Import Excel')),
             ],
           ),
           SizedBox(height: 12),
@@ -2631,8 +2705,10 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
   Widget _hppMappingTabBody() {
     if (_isLoading) return const LoadingState();
 
-    final mappedHppCount =
-        (_hppTotal - _hppMissingTotal).clamp(0, _hppTotal);
+    final totalVariants = _hppTotalAll > 0 ? _hppTotalAll : _hppTotal;
+    final mappedHppCount = _hppSetHppTotal > 0
+        ? _hppSetHppTotal
+        : (totalVariants - _hppMissingHppTotal).clamp(0, totalVariants);
 
     return RefreshIndicator(
       onRefresh: () => _loadHpp(resetPage: true),
@@ -2645,14 +2721,18 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
             subtitle:
                 'Atur HPP dan target margin per varian marketplace agar laporan keuangan, laba kotor, dan omset tercatat akurat.',
             stats: [
-              StatPill(label: 'Total Varian', value: _hppTotal.toString()),
+              StatPill(label: 'Total Varian', value: totalVariants.toString()),
               StatPill(
                 label: 'Belum Set HPP',
-                value: _hppMissingTotal.toString(),
+                value: _hppMissingHppTotal.toString(),
               ),
               StatPill(
                 label: 'Sudah Set HPP',
                 value: mappedHppCount.toString(),
+              ),
+              StatPill(
+                label: 'Belum Mapping SKU',
+                value: _hppMissingMappingTotal.toString(),
               ),
             ],
           ),
@@ -2675,37 +2755,7 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
   Widget build(BuildContext context) {
     return WebResponsiveScaffold(
       title: 'Integrasi SKU & HPP Marketplace',
-      bottom: TabBar(
-        controller: _tabController,
-        dividerColor: Colors.transparent,
-        indicatorSize: TabBarIndicatorSize.tab,
-        tabs: const [
-          Tab(
-            height: 38,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.account_tree_outlined, size: 16),
-                SizedBox(width: 8),
-                Text('Pemetaan SKU'),
-              ],
-            ),
-          ),
-          Tab(
-            height: 38,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.price_change_outlined, size: 16),
-                SizedBox(width: 8),
-                Text('Harga Modal (HPP)'),
-              ],
-            ),
-          ),
-        ],
-      ),
+      activeWebTitle: 'Pemetaan SKU & Harga Pokok Penjualan (HPP)',
       actions: [
         IconButton(
           onPressed: () {
@@ -2718,12 +2768,29 @@ class _MarketplaceSkuMappingPageState extends State<MarketplaceSkuMappingPage>
           icon: const Icon(Icons.refresh),
         ),
       ],
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _skuMappingTabBody(),
-          _hppMappingTabBody(),
-        ],
+      body: WebResponsiveWrapper(
+        activeTitle: 'Integrasi SKU & HPP Marketplace',
+        child: Column(
+          children: [
+            AppSegmentedTabBar(
+              controller: _tabController,
+              maxWidth: 480,
+              tabs: const [
+                AppTabItem(label: 'Pemetaan SKU', icon: Icons.account_tree_outlined),
+                AppTabItem(label: 'Harga Modal (HPP)', icon: Icons.price_change_outlined),
+              ],
+            ),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _skuMappingTabBody(),
+                  _hppMappingTabBody(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2813,6 +2880,7 @@ class _MarketplaceProductPickerState extends State<_MarketplaceProductPicker> {
                 child: TextField(
                   controller: _controller,
                   autofocus: true,
+                  onTap: AppUi.selectOnTap(_controller),
                   textInputAction: TextInputAction.search,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.search_rounded),
@@ -3317,6 +3385,7 @@ class _LocalProductCariSheetState extends State<_LocalProductCariSheet> {
               child: TextField(
                 controller: _controller,
                 autofocus: true,
+                onTap: AppUi.selectOnTap(_controller),
                 textInputAction: TextInputAction.search,
                 decoration: InputDecoration(
                   prefixIcon: Icon(Icons.search_rounded),

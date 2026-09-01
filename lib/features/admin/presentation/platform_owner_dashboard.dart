@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/ui/app_segmented_tab_bar.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/ui/ai_chat_assistant_sheet.dart';
@@ -22,8 +23,10 @@ class PlatformOwnerDashboard extends StatefulWidget {
   State<PlatformOwnerDashboard> createState() => _PlatformOwnerDashboardState();
 }
 
-class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
+class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard>
+    with SingleTickerProviderStateMixin {
   final SupabaseClient _client = Supabase.instance.client;
+  late TabController _mainTabController;
   bool _isLoading = true;
   String _tenantFilter = 'all';
   bool _themeSwitching = false;
@@ -31,29 +34,44 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
   List<Map<String, dynamic>> _readinessData = [];
   List<Map<String, dynamic>> _tenantsList = [];
   List<Map<String, dynamic>> _plansList = [];
+  List<Map<String, dynamic>> _autoJobsData = [];
 
   @override
   void initState() {
     super.initState();
+    _mainTabController = TabController(length: 2, vsync: this);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _mainTabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData({bool forceRefresh = false}) async {
     setState(() => _isLoading = true);
     try {
-      final response = await _client.rpc('platform_tenant_readiness_summary',
-          params: {'p_force_refresh': forceRefresh});
-      final tenantsRes = await _client
-          .from('app_tenants')
-          .select(
-              'tenant_id, tenant_code, tenant_name, owner_name, owner_email, status, order_retention_days, tenant_subscriptions(status, trial_ends_at, current_period_end, created_at, subscription_plans(plan_name, plan_code, max_order_retention_days))')
-          .order('tenant_name');
+      final results = await Future.wait<dynamic>([
+        _client.rpc('platform_tenant_readiness_summary',
+            params: {'p_force_refresh': forceRefresh}),
+        _client
+            .from('app_tenants')
+            .select(
+                'tenant_id, tenant_code, tenant_name, owner_name, owner_email, status, order_retention_days, tenant_subscriptions(status, trial_ends_at, current_period_end, created_at, subscription_plans(plan_name, plan_code, max_order_retention_days))')
+            .order('tenant_name'),
+        _client
+            .from('subscription_plans')
+            .select('plan_id, plan_code, plan_name, price_amount, billing_period')
+            .eq('is_active', true)
+            .order('sort_order'),
+        _client.rpc('platform_tenant_auto_jobs_summary'),
+      ]);
 
-      final plansRes = await _client
-          .from('subscription_plans')
-          .select('plan_id, plan_code, plan_name, price_amount, billing_period')
-          .eq('is_active', true)
-          .order('sort_order');
+      final response = results[0];
+      final tenantsRes = results[1];
+      final plansRes = results[2];
+      final jobsRes = results[3];
 
       if (response != null && response is List) {
         _readinessData =
@@ -69,6 +87,13 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
       _plansList = (plansRes as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
+
+      if (jobsRes != null && jobsRes is List) {
+        _autoJobsData =
+            jobsRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      } else {
+        _autoJobsData = [];
+      }
     } catch (e, st) {
       debugPrint('[PLATFORM_DASHBOARD_LOAD_ERROR] $e\n$st');
       AppUi.showSnack('GAGAL MEMUAT DATA: ${e.toString()}');
@@ -234,28 +259,102 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
     return _tenantSubscriptionState(tenantId) == _tenantFilter;
   }
 
-  Widget _filterChip(String value, String label) {
-    return ChoiceChip(
-      label: Text(label,
-          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 10)),
-      selected: _tenantFilter == value,
-      onSelected: (_) => setState(() => _tenantFilter = value),
+  Widget _filterChip(String value, String label, {int? count}) {
+    final selected = _tenantFilter == value;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(() => _tenantFilter = value),
+        borderRadius: BorderRadius.circular(20),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? theme.colorScheme.primary
+                : (isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0)),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected
+                  ? theme.colorScheme.primary
+                  : (isDark ? Colors.white12 : Colors.black12),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  fontSize: 11,
+                  color: selected
+                      ? Colors.white
+                      : (isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155)),
+                ),
+              ),
+              if (count != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? Colors.white.withOpacity(0.25)
+                        : (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06)),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: selected
+                          ? Colors.white
+                          : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 
   Widget _tenantStatusChip(String status) {
     final color = AppUi.statusColor(status);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.34), width: 0.8),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.32), width: 1),
       ),
-      child: Text(
-        status,
-        style:
-            TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            status.toUpperCase(),
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 10.5,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -947,7 +1046,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                             '• Seluruh Pesanan & Item Marketplace\n'
                             '• Laporan Keuangan, Payout & Mutasi Kas\n'
                             '• Data Pembelian, Supplier, Payroll & Absensi\n\n'
-                            '🛡️ AKUN LOGIN OWNER TETAP DISIMPAN:\n'
+                            'AKUN LOGIN OWNER TETAP DISIMPAN:\n'
                             'User Owner tetap dapat login di kemudian hari untuk memilih paket baru dan mengaktifkan kembali tokonya.',
                             style: TextStyle(fontSize: 11, height: 1.4),
                           ),
@@ -1367,28 +1466,38 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
         break;
       case 'token_expired':
         color = AppUi.red;
-        label = 'AKSES TOKEN EXPIRED';
+        label = 'TOKEN EXPIRED';
         break;
       case 'no_account':
-        color = Theme.of(context).colorScheme.onSurfaceVariant;
+        color = Colors.grey;
         label = 'BELUM ADA TOKO';
         break;
       default:
-        color = Theme.of(context).colorScheme.onSurfaceVariant;
+        color = Colors.grey;
         label = status.toUpperCase();
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.30), width: 0.8),
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.35), width: 1),
       ),
-      child: Text(
-        label,
-        style:
-            TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 10),
+          ),
+        ],
       ),
     );
   }
@@ -1402,20 +1511,24 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
       _groupedTenants.entries.where((entry) => _tenantMatchesFilter(entry.key)),
     );
 
+    final errorJobCount = _autoJobsData
+        .where((j) => j['auto_job_health'] == 'error')
+        .length;
+
     return WebResponsiveScaffold(
       appBar: AppBar(
         title: const Text('PLATFORM OWNER DASHBOARD',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
         actions: [
           IconButton(
-            tooltip: '🤖 AI Infrastructure Report',
+            tooltip: 'AI Infrastructure Report',
             icon: const Icon(Icons.smart_toy_rounded, color: Colors.amberAccent),
             onPressed: _showVpsAiInfraDialog,
           ),
           IconButton(
             tooltip: 'Reload data',
             icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
+            onPressed: () => _loadData(forceRefresh: true),
           ),
           ValueListenableBuilder<AppVisualMode>(
             valueListenable: AppThemeModeController.mode,
@@ -1441,658 +1554,1318 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
         child: _isLoading
             ? const Center(
                 child: FuturisticLoader(message: 'MEMUAT DATA TENANT...'))
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Welcome Header & Bento Stats
-                    Builder(builder: (context) {
-                      final activeCount = _tenantsList
-                          .where((t) =>
-                              _getTenantGraceState(
-                                  t['tenant_id']?.toString() ?? '')['state'] ==
-                              'active')
-                          .length;
-                      final graceCount = _tenantsList
-                          .where((t) =>
-                              _getTenantGraceState(
-                                  t['tenant_id']?.toString() ?? '')['state'] ==
-                              'grace_period')
-                          .length;
-                      final expiredCount = _tenantsList
-                          .where((t) =>
-                              _getTenantGraceState(
-                                  t['tenant_id']?.toString() ?? '')['state'] ==
-                              'expired')
-                          .length;
-                      final mrr = _calculateEstimatedMrr();
-
-                      return FuturisticHeader(
-                        icon: Icons.admin_panel_settings_rounded,
-                        title: 'PLATFORM MANAGEMENT',
-                        subtitle:
-                            'Pantau kesiapan integrasi, kelola siklus langganan SaaS, dan bersihkan data tenant expired.',
-                        stats: [
-                          StatPill(
-                              label: 'Total Tenants',
-                              value: _tenantsList.length.toString(),
-                              accentColor: AppUi.blue),
-                          StatPill(
-                              label: 'Aktif',
-                              value: activeCount.toString(),
-                              accentColor: AppUi.green),
-                          StatPill(
-                              label: 'Grace Period',
-                              value: graceCount.toString(),
-                              accentColor: Colors.amber),
-                          StatPill(
-                              label: 'Expired',
-                              value: expiredCount.toString(),
-                              accentColor: AppUi.red),
-                          StatPill(
-                              label: 'Projected MRR',
-                              value: AppUi.rupiah(mrr),
-                              accentColor: AppUi.teal),
-                        ],
-                      );
-                    }),
-                    const SizedBox(height: 24),
-
-                    // Quick Actions
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final itemWidth = constraints.maxWidth >= 720
-                            ? (constraints.maxWidth - 24) / 3
-                            : constraints.maxWidth;
-
-                        Widget actionCard({
-                          required IconData icon,
-                          required String label,
-                          required VoidCallback onTap,
-                        }) {
-                          return SizedBox(
-                            width: itemWidth,
-                            child: NiceCard(
-                              onTap: onTap,
-                              borderColor: null,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(icon),
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      label,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 11),
-                                    ),
+            : Column(
+                children: [
+                  const SizedBox(height: 8),
+                  AppSegmentedTabBar(
+                    controller: _mainTabController,
+                    maxWidth: 580,
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    tabs: [
+                      const AppTabItem(
+                        label: 'Kesiapan & Langganan SaaS',
+                        icon: Icons.storefront_outlined,
+                      ),
+                      AppTabItem(
+                        label: 'Monitoring Auto Job',
+                        icon: Icons.sync_problem_rounded,
+                        badge: errorJobCount > 0
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppUi.red,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '$errorJobCount',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
                                   ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }
-
-                        return Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            actionCard(
-                              icon: Icons.chat_rounded,
-                              label: 'TANYA AI ASSISTANT',
-                              onTap: () => AiChatAssistantSheet.show(
-                                context,
-                                title: '🤖 Platform Owner AI Assistant',
-                                subtitle: 'Tanyakan statistik tenant, performa VPS, atau kesehatan server',
-                                isPlatformOwner: true,
-                              ),
-                            ),
-                            actionCard(
-                              icon: Icons.smart_toy_rounded,
-                              label: '🤖 AI INFRASTRUCTURE',
-                              onTap: _showVpsAiInfraDialog,
-                            ),
-                            actionCard(
-                              icon: Icons.add_business_rounded,
-                              label: 'TAMBAH TENANT',
-                              onTap: _showCreateTenantDialog,
-                            ),
-                            actionCard(
-                              icon: Icons.mail_outline_rounded,
-                              label: 'KIRIM UNDANGAN',
-                              onTap: () => _showGenerateInviteDialog(),
-                            ),
-                            actionCard(
-                              icon: Icons.card_membership_rounded,
-                              label: 'DAFTAR PAKET',
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const SubscriptionPlansPage()),
-                                );
-                              },
-                            ),
-                            actionCard(
-                              icon: Icons.web_rounded,
-                              label: 'CMS LANDING PAGE',
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const LandingPageCmsPage()),
-                                );
-                              },
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 24),
-
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _mainTabController,
                       children: [
-                        _filterChip('all', 'SEMUA'),
-                        _filterChip('active', 'AKTIF'),
-                        _filterChip('trialing', 'TRIAL'),
-                        _filterChip('grace_period', 'GRACE PERIOD (7D)'),
-                        _filterChip('expired', 'EXPIRED / PURGE'),
-                        _filterChip('unassigned', 'BELUM DISET'),
+                        _buildTenantsAndSaaSTab(grouped, theme),
+                        _buildAutoJobMonitoringTab(),
                       ],
                     ),
-                    const SizedBox(height: 16),
-
-                    // Tenants List Header
-                    SectionTitle(
-                      title: 'DAFTAR CLIENT & STATUS KESIAPAN',
-                      actionText: 'RELOAD',
-                      onAction: () => _loadData(forceRefresh: true),
-                    ),
-
-                    if (grouped.isEmpty)
-                      const EmptyState(
-                        title: 'BELUM ADA TENANT',
-                        subtitle:
-                            'Tekan "TAMBAH TENANT" untuk mendaftarkan client pertama Anda.',
-                        icon: Icons.business,
-                      )
-                    else
-                      ...grouped.entries.map((entry) {
-                        final tenantId = entry.key;
-                        final rows = entry.value;
-                        final tenantName =
-                            rows.first['tenant_name']?.toString() ??
-                                'Unknown Tenant';
-                        final tenantStatus =
-                            rows.first['tenant_status']?.toString() ?? 'active';
-
-                        final tenantObj = _tenantObjById(tenantId) ??
-                            <String, dynamic>{};
-                        final tenantCode =
-                            tenantObj['tenant_code']?.toString() ?? '-';
-                        final graceState = _getTenantGraceState(tenantId);
-                        final graceColor = graceState['color'] as Color;
-                        final isPurgeable =
-                            graceState['isPurgeable'] as bool? ?? false;
-                        final planCode =
-                            graceState['planCode']?.toString() ?? 'starter';
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 20),
-                          child: NiceCard(
-                            borderColor: isPurgeable ? AppUi.red.withOpacity(0.5) : null,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                // Tenant Info Row
-                                Row(
-                                  children: [
-                                    Icon(Icons.business_center, size: 20),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            tenantName.toUpperCase(),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 15),
-                                          ),
-                                          Text(
-                                            'CODE: $tenantCode',
-                                            style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w700,
-                                                color: AppUi.mutedText(
-                                                    context, 0.7)),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    _tenantStatusChip(tenantStatus),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-
-                                // Subscription & Grace Period Banner
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: graceColor.withOpacity(0.12),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                        color: graceColor.withOpacity(0.4),
-                                        width: 1),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Icon(Icons.card_membership_rounded,
-                                              size: 14, color: graceColor),
-                                          const SizedBox(width: 6),
-                                          Expanded(
-                                            child: Text(
-                                              'PAKET: ${graceState['planName']} (${graceState['planCode']})'
-                                                  .toUpperCase(),
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.w900,
-                                                  fontSize: 11,
-                                                  color: graceColor),
-                                            ),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color:
-                                                  graceColor.withOpacity(0.2),
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              graceState['label']
-                                                  .toString()
-                                                  .toUpperCase(),
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.w900,
-                                                  fontSize: 9,
-                                                  color: graceColor),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      if (graceState['periodEnd'] != null) ...[
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Jatuh Tempo: ${AppUi.date(graceState['periodEnd'].toString())}',
-                                          style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w700,
-                                              color: AppUi.mutedText(
-                                                  context, 0.8)),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-
-                                // Quick Action Buttons Bar
-                                SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    children: [
-                                      FilledButton.icon(
-                                        onPressed: () =>
-                                            _showExtendSubscriptionDialog(
-                                          tenantId: tenantId,
-                                          tenantName: tenantName,
-                                          initialPlanCode: planCode,
-                                        ),
-                                        icon: const Icon(
-                                            Icons.credit_card_rounded,
-                                            size: 14),
-                                        label: const Text('PERPANJANG / BAYAR',
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 10)),
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor: AppUi.blue,
-                                          minimumSize: const Size(0, 34),
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      OutlinedButton.icon(
-                                        onPressed: () {
-                                          Navigator.of(context)
-                                              .push(
-                                                MaterialPageRoute(
-                                                  builder: (_) =>
-                                                      TenantSubscriptionDetailPage(
-                                                    tenantId: tenantId,
-                                                    tenantName: tenantName,
-                                                    tenantCode: tenantCode,
-                                                    ownerName:
-                                                        tenantObj['owner_name']
-                                                            ?.toString(),
-                                                    ownerEmail:
-                                                        tenantObj['owner_email']
-                                                            ?.toString(),
-                                                  ),
-                                                ),
-                                              )
-                                              .then((_) => _loadData());
-                                        },
-                                        icon: const Icon(Icons.settings_rounded,
-                                            size: 14),
-                                        label: const Text('DETAIL PAKET',
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 10)),
-                                        style: OutlinedButton.styleFrom(
-                                          minimumSize: const Size(0, 34),
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      OutlinedButton.icon(
-                                        onPressed: () {
-                                          final currentRetention = tenantObj['order_retention_days'] is int
-                                              ? tenantObj['order_retention_days'] as int
-                                              : int.tryParse(tenantObj['order_retention_days']?.toString() ?? '');
-                                          final subList = tenantObj['tenant_subscriptions'] as List?;
-                                          final activeSub = subList != null && subList.isNotEmpty ? subList.first as Map<String, dynamic>? : null;
-                                          final defaultPlanDays = activeSub?['subscription_plans']?['max_order_retention_days'] is int
-                                              ? activeSub!['subscription_plans']['max_order_retention_days'] as int
-                                              : int.tryParse(activeSub?['subscription_plans']?['max_order_retention_days']?.toString() ?? '');
-                                          _showConfigureLookbackDialog(
-                                            tenantId: tenantId,
-                                            tenantName: tenantName,
-                                            tenantCode: tenantCode,
-                                            currentRetentionDays: currentRetention,
-                                            defaultPlanDays: defaultPlanDays,
-                                          );
-                                        },
-                                        icon: const Icon(Icons.history_toggle_off_rounded,
-                                            size: 14),
-                                        label: Text(
-                                          tenantObj['order_retention_days'] != null
-                                              ? 'LOOKBACK (' + tenantObj['order_retention_days'].toString() + 'H)'
-                                              : 'LOOKBACK',
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 10),
-                                        ),
-                                        style: OutlinedButton.styleFrom(
-                                          minimumSize: const Size(0, 34),
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      OutlinedButton.icon(
-                                        onPressed: () {
-                                          Navigator.of(context)
-                                              .push(
-                                                MaterialPageRoute(
-                                                  builder: (_) =>
-                                                      UserManagementPage(
-                                                    tenantId: tenantId,
-                                                    tenantName: tenantName,
-                                                  ),
-                                                ),
-                                              )
-                                              .then((_) => _loadData());
-                                        },
-                                        icon: const Icon(
-                                            Icons.manage_accounts_rounded,
-                                            size: 14),
-                                        label: const Text('USER',
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 10)),
-                                        style: OutlinedButton.styleFrom(
-                                          minimumSize: const Size(0, 34),
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      OutlinedButton.icon(
-                                        onPressed: () =>
-                                            _showGenerateInviteDialog(
-                                                preselectedTenantId: tenantId),
-                                        icon: const Icon(
-                                            Icons.person_add_alt_1_rounded,
-                                            size: 14),
-                                        label: const Text('UNDANG',
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 10)),
-                                        style: OutlinedButton.styleFrom(
-                                          minimumSize: const Size(0, 34),
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10),
-                                        ),
-                                      ),
-                                      if (isPurgeable) ...[
-                                        const SizedBox(width: 8),
-                                        FilledButton.icon(
-                                          onPressed: () => _showPurgeTenantDialog(
-                                            tenantId: tenantId,
-                                            tenantName: tenantName,
-                                            tenantCode: tenantCode,
-                                          ),
-                                          icon: const Icon(
-                                              Icons.delete_forever_rounded,
-                                              size: 14),
-                                          label: const Text('HARD DELETE DATA',
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.w900,
-                                                  fontSize: 10)),
-                                          style: FilledButton.styleFrom(
-                                            backgroundColor: AppUi.red,
-                                            minimumSize: const Size(0, 34),
-                                            padding:
-                                                const EdgeInsets.symmetric(
-                                                    horizontal: 10),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Divider(height: 1, thickness: 1, color: accent.withOpacity(0.3)),
-                                const SizedBox(height: 12),
-
-                                // Accounts list
-                                ...rows.map((row) {
-                                  final marketplace =
-                                      row['marketplace']?.toString();
-                                  final storeAlias =
-                                      row['store_alias']?.toString() ?? '-';
-                                  final readinessStatus =
-                                      row['readiness_status']?.toString() ??
-                                          'no_account';
-
-                                  if (marketplace == null) {
-                                    return Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 8),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            'Belum ada akun toko terhubung.'
-                                                .toUpperCase(),
-                                            style: TextStyle(
-                                                color: AppUi.mutedText(
-                                                    context, 0.90),
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w800),
-                                          ),
-                                          _readinessBadge('no_account'),
-                                        ],
-                                      ),
-                                    );
-                                  }
-
-                                  // Account connected metrics
-                                  final productsCount =
-                                      AppUi.toNum(row['product_snapshot_count'])
-                                          .toInt();
-                                  final variantsCount =
-                                      AppUi.toNum(row['variant_snapshot_count'])
-                                          .toInt();
-                                  final orderCount =
-                                      AppUi.toNum(row['order_count']).toInt();
-                                  final financeCount =
-                                      AppUi.toNum(row['finance_count']).toInt();
-                                  final rawSkuMapped =
-                                      AppUi.toNum(row['sku_mapped_count'])
-                                          .toInt();
-                                  final rawHppMapped =
-                                      AppUi.toNum(row['hpp_mapped_count'])
-                                          .toInt();
-                                  final skuMapped = variantsCount > 0 &&
-                                          rawSkuMapped > variantsCount
-                                      ? variantsCount
-                                      : rawSkuMapped;
-                                  final hppMapped = variantsCount > 0 &&
-                                          rawHppMapped > variantsCount
-                                      ? variantsCount
-                                      : rawHppMapped;
-                                  final unmappedItems = AppUi.toNum(
-                                          row['unmapped_order_item_count'])
-                                      .toInt();
-
-                                  return Container(
-                                    margin: const EdgeInsets.only(bottom: 12),
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: AppUi.modernCardDecoration(
-                                      context,
-                                      radius: 16,
-                                      borderColor: accent.withOpacity(0.18),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              marketplace.toLowerCase() ==
-                                                      'shopee'
-                                                  ? Icons.shopping_bag_outlined
-                                                  : Icons.storefront_outlined,
-                                              size: 18,
-                                              color: theme.colorScheme.primary,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                '${marketplace.toUpperCase()}: $storeAlias',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    fontSize: 12),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            _readinessBadge(readinessStatus),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 12),
-                                        // Metrics grid
-                                        Wrap(
-                                          spacing: 8,
-                                          runSpacing: 8,
-                                          children: [
-                                            _smallStat('Products',
-                                                productsCount.toString()),
-                                            _smallStat('Variants',
-                                                variantsCount.toString()),
-                                            _smallStat('Orders',
-                                                orderCount.toString()),
-                                            _smallStat('Finance Recs',
-                                                financeCount.toString()),
-                                            _smallStat('SKU Mapped',
-                                                '$skuMapped/$variantsCount',
-                                                alert: variantsCount > 0 &&
-                                                    skuMapped < variantsCount),
-                                            _smallStat('HPP Mapped',
-                                                '$hppMapped/$variantsCount',
-                                                alert: variantsCount > 0 &&
-                                                    hppMapped < variantsCount),
-                                            _smallStat('Unmapped Items',
-                                                unmappedItems.toString(),
-                                                alert: unmappedItems > 0),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }),
-                              ],
-                            ),
-                          ),
-                        );
-                      }),
-                  ],
-                ),
+                  ),
+                ],
               ),
       ),
     );
   }
 
-  Widget _smallStat(String label, String value, {bool alert = false}) {
+  Widget _buildTenantsAndSaaSTab(
+      Map<String, List<Map<String, dynamic>>> grouped, ThemeData theme) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Welcome Header & Bento Stats
+          Builder(builder: (context) {
+            final activeCount = _tenantsList
+                .where((t) =>
+                    _getTenantGraceState(
+                        t['tenant_id']?.toString() ?? '')['state'] ==
+                    'active')
+                .length;
+            final graceCount = _tenantsList
+                .where((t) =>
+                    _getTenantGraceState(
+                        t['tenant_id']?.toString() ?? '')['state'] ==
+                    'grace_period')
+                .length;
+            final expiredCount = _tenantsList
+                .where((t) =>
+                    _getTenantGraceState(
+                        t['tenant_id']?.toString() ?? '')['state'] ==
+                    'expired')
+                .length;
+            final mrr = _calculateEstimatedMrr();
+
+            return FuturisticHeader(
+              icon: Icons.admin_panel_settings_rounded,
+              title: 'PLATFORM MANAGEMENT',
+              subtitle:
+                  'Pantau kesiapan integrasi, kelola siklus langganan SaaS, dan bersihkan data tenant expired.',
+              stats: [
+                StatPill(
+                    label: 'Total Tenants',
+                    value: _tenantsList.length.toString(),
+                    accentColor: AppUi.blue),
+                StatPill(
+                    label: 'Aktif',
+                    value: activeCount.toString(),
+                    accentColor: AppUi.green),
+                StatPill(
+                    label: 'Grace Period',
+                    value: graceCount.toString(),
+                    accentColor: Colors.amber),
+                StatPill(
+                    label: 'Expired',
+                    value: expiredCount.toString(),
+                    accentColor: AppUi.red),
+                StatPill(
+                    label: 'Projected MRR',
+                    value: AppUi.rupiah(mrr),
+                    accentColor: AppUi.teal),
+              ],
+            );
+          }),
+          const SizedBox(height: 24),
+
+          // Quick Actions
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final itemWidth = constraints.maxWidth >= 720
+                  ? (constraints.maxWidth - 24) / 3
+                  : constraints.maxWidth;
+
+              Widget actionCard({
+                required IconData icon,
+                required String label,
+                required VoidCallback onTap,
+              }) {
+                return SizedBox(
+                  width: itemWidth,
+                  child: NiceCard(
+                    onTap: onTap,
+                    borderColor: null,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(icon),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  actionCard(
+                    icon: Icons.chat_rounded,
+                    label: 'TANYA AI ASSISTANT',
+                    onTap: () => AiChatAssistantSheet.show(
+                      context,
+                      title: 'Platform Owner AI Assistant',
+                      subtitle:
+                          'Tanyakan statistik tenant, performa VPS, atau kesehatan server',
+                      isPlatformOwner: true,
+                    ),
+                  ),
+                  actionCard(
+                    icon: Icons.smart_toy_rounded,
+                    label: 'AI INFRASTRUCTURE',
+                    onTap: _showVpsAiInfraDialog,
+                  ),
+                  actionCard(
+                    icon: Icons.add_business_rounded,
+                    label: 'TAMBAH TENANT',
+                    onTap: _showCreateTenantDialog,
+                  ),
+                  actionCard(
+                    icon: Icons.mail_outline_rounded,
+                    label: 'KIRIM UNDANGAN',
+                    onTap: () => _showGenerateInviteDialog(),
+                  ),
+                  actionCard(
+                    icon: Icons.card_membership_rounded,
+                    label: 'DAFTAR PAKET',
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                const SubscriptionPlansPage()),
+                      );
+                    },
+                  ),
+                  actionCard(
+                    icon: Icons.web_rounded,
+                    label: 'CMS LANDING PAGE',
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                const LandingPageCmsPage()),
+                      );
+                    },
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 24),
+
+          Builder(builder: (context) {
+            final activeCount = _tenantsList
+                .where((t) =>
+                    _tenantSubscriptionState(
+                        t['tenant_id']?.toString() ?? '') ==
+                    'active')
+                .length;
+            final trialCount = _tenantsList
+                .where((t) =>
+                    _tenantSubscriptionState(
+                        t['tenant_id']?.toString() ?? '') ==
+                    'trialing')
+                .length;
+            final graceCount = _tenantsList
+                .where((t) =>
+                    _tenantSubscriptionState(
+                        t['tenant_id']?.toString() ?? '') ==
+                    'grace_period')
+                .length;
+            final expiredCount = _tenantsList
+                .where((t) =>
+                    _tenantSubscriptionState(
+                        t['tenant_id']?.toString() ?? '') ==
+                    'expired')
+                .length;
+            final unassignedCount = _tenantsList
+                .where((t) =>
+                    _tenantSubscriptionState(
+                        t['tenant_id']?.toString() ?? '') ==
+                    'unassigned')
+                .length;
+
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _filterChip('all', 'SEMUA', count: _tenantsList.length),
+                _filterChip('active', 'AKTIF', count: activeCount),
+                _filterChip('trialing', 'TRIAL', count: trialCount),
+                _filterChip('grace_period', 'GRACE PERIOD (7D)',
+                    count: graceCount),
+                _filterChip('expired', 'EXPIRED / PURGE',
+                    count: expiredCount),
+                _filterChip('unassigned', 'BELUM DISET',
+                    count: unassignedCount),
+              ],
+            );
+          }),
+          const SizedBox(height: 16),
+
+          // Tenants List Header
+          SectionTitle(
+            title: 'DAFTAR CLIENT & STATUS KESIAPAN',
+            actionText: 'RELOAD',
+            onAction: () => _loadData(forceRefresh: true),
+          ),
+
+          if (grouped.isEmpty)
+            const EmptyState(
+              title: 'BELUM ADA TENANT',
+              subtitle:
+                  'Tekan "TAMBAH TENANT" untuk mendaftarkan client pertama Anda.',
+              icon: Icons.business,
+            )
+          else
+            ...grouped.entries.map((entry) {
+              final tenantId = entry.key;
+              final rows = entry.value;
+              final tenantName =
+                  rows.first['tenant_name']?.toString() ??
+                      'Unknown Tenant';
+              final tenantStatus =
+                  rows.first['tenant_status']?.toString() ?? 'active';
+
+              final tenantObj = _tenantObjById(tenantId) ??
+                  <String, dynamic>{};
+              final tenantCode =
+                  tenantObj['tenant_code']?.toString() ?? '-';
+              final graceState = _getTenantGraceState(tenantId);
+              final graceColor = graceState['color'] as Color;
+              final isPurgeable =
+                  graceState['isPurgeable'] as bool? ?? false;
+              final planCode =
+                  graceState['planCode']?.toString() ?? 'starter';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 20),
+                child: NiceCard(
+                  borderColor: isPurgeable ? AppUi.red.withOpacity(0.5) : null,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Tenant Info Row
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: theme.colorScheme.primary.withOpacity(0.25),
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                tenantName.isNotEmpty
+                                    ? tenantName.substring(0, 1).toUpperCase()
+                                    : 'T',
+                                style: TextStyle(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        tenantName.toUpperCase(),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 14),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _tenantStatusChip(tenantStatus),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        'KODE: $tenantCode',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                          color: theme.colorScheme.primary,
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      'ID: $tenantId',
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        color: AppUi.mutedText(context, 0.85),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: graceColor.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: graceColor.withOpacity(0.4)),
+                            ),
+                            child: Text(
+                              graceState['label']
+                                      ?.toString()
+                                      .toUpperCase() ??
+                                  '-',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 10,
+                                color: graceColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Subscription Actions Row
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.secondary.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: theme.colorScheme.secondary.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Text(
+                              'PAKET: ${graceState['planName']?.toString().toUpperCase() ?? '-'}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                                color: theme.colorScheme.secondary,
+                              ),
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            icon: const Icon(Icons.tune_rounded, size: 14),
+                            label: const Text('KELOLA LANGGANAN',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700)),
+                            onPressed: () {
+                              Navigator.of(context)
+                                  .push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      TenantSubscriptionDetailPage(
+                                    tenantId: tenantId,
+                                    tenantName: tenantName,
+                                    tenantCode: tenantCode,
+                                    ownerName: tenantObj['owner_name']
+                                        ?.toString(),
+                                    ownerEmail: tenantObj['owner_email']
+                                        ?.toString(),
+                                  ),
+                                ),
+                              )
+                                  .then((_) => _loadData());
+                            },
+                          ),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            icon: const Icon(Icons.people_outline_rounded,
+                                size: 14),
+                            label: const Text('PENGGUNA & AKSES',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700)),
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => UserManagementPage(
+                                    tenantId: tenantId,
+                                    tenantName: tenantName,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          if (isPurgeable)
+                            FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppUi.red,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 8),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              icon: const Icon(Icons.delete_forever_rounded,
+                                  size: 14),
+                              label: const Text('PURGE DATA TENANT',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800)),
+                              onPressed: () => _showPurgeTenantDialog(
+                                tenantId: tenantId,
+                                tenantName: tenantName,
+                                tenantCode: tenantCode,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const Divider(height: 24),
+
+                      // Marketplaces Section
+                      Text(
+                        'AKUN MARKETPLACE & KESIAPAN DATA',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: AppUi.mutedText(context, 0.90),
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      if (rows.isEmpty ||
+                          rows.first['marketplace_account_id'] == null)
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceVariant
+                                .withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline,
+                                  size: 16,
+                                  color: AppUi.mutedText(context, 0.90)),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Belum ada akun marketplace yang terhubung.',
+                                style: TextStyle(fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        ...rows.map((r) {
+                          final mp = r['marketplace']?.toString() ?? '-';
+                          final store = r['store_alias']?.toString() ?? '-';
+                          final readiness =
+                              r['readiness_status']?.toString() ?? 'unknown';
+                          final productsCount =
+                              r['product_snapshot_count'] ?? 0;
+                          final variantsCount =
+                              r['variant_snapshot_count'] ?? 0;
+                          final orderCount = r['order_count'] ?? 0;
+                          final financeCount = r['finance_count'] ?? 0;
+                          final skuMapped = r['sku_mapped_count'] ?? 0;
+                          final hppMapped = r['hpp_mapped_count'] ?? 0;
+                          final unmappedItems =
+                              r['unmapped_order_item_count'] ?? 0;
+
+                          final isShopee = mp.toLowerCase() == 'shopee';
+                          final mpColor = isShopee
+                              ? const Color(0xFFEE4D2D)
+                              : const Color(0xFF00F2FE);
+
+                          return Container(
+                            margin: const EdgeInsets.only(top: 10),
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).brightness == Brightness.dark
+                                  ? const Color(0xFF131D2E)
+                                  : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Theme.of(context).brightness == Brightness.dark
+                                    ? Colors.white.withOpacity(0.08)
+                                    : Colors.black.withOpacity(0.06),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: mpColor.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Icon(
+                                        isShopee
+                                            ? Icons.shopping_bag_rounded
+                                            : Icons.storefront_rounded,
+                                        size: 16,
+                                        color: mpColor,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            store,
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 13),
+                                          ),
+                                          Text(
+                                            mp.toUpperCase(),
+                                            style: TextStyle(
+                                                fontSize: 10.5,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppUi.mutedText(context, 0.75)),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    _readinessBadge(readiness),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                // Metrics grid
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _smallStat('Products', productsCount.toString(),
+                                        icon: Icons.inventory_2_outlined),
+                                    _smallStat('Variants', variantsCount.toString(),
+                                        icon: Icons.style_outlined),
+                                    _smallStat('Orders', orderCount.toString(),
+                                        icon: Icons.shopping_cart_outlined),
+                                    _smallStat('Finance Recs', financeCount.toString(),
+                                        icon: Icons.receipt_long_outlined),
+                                    _smallStat(
+                                      'SKU Mapped',
+                                      '$skuMapped/$variantsCount',
+                                      icon: Icons.link_rounded,
+                                      alert: variantsCount > 0 &&
+                                          skuMapped < variantsCount,
+                                    ),
+                                    _smallStat(
+                                      'HPP Mapped',
+                                      '$hppMapped/$variantsCount',
+                                      icon: Icons.attach_money_rounded,
+                                      alert: variantsCount > 0 &&
+                                          hppMapped < variantsCount,
+                                    ),
+                                    _smallStat(
+                                      'Unmapped Items',
+                                      unmappedItems.toString(),
+                                      icon: Icons.link_off_rounded,
+                                      alert: unmappedItems > 0,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                    ],
+                  ),
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAutoJobMonitoringTab() {
+    final errorTenants =
+        _autoJobsData.where((j) => j['auto_job_health'] == 'error').toList();
+    final healthyTenants =
+        _autoJobsData.where((j) => j['auto_job_health'] == 'healthy').toList();
+    final idleTenants = _autoJobsData
+        .where((j) =>
+            j['auto_job_health'] == 'idle' ||
+            j['auto_job_health'] == 'no_account')
+        .toList();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header & Stats
+          FuturisticHeader(
+            icon: Icons.sync_problem_rounded,
+            title: 'MONITORING AUTO JOB TENANT',
+            subtitle:
+                'Pantau status sinkronisasi otomatis background (Order Pull, Finance Report, Stok Sync) tiap tenant secara real-time.',
+            stats: [
+              StatPill(
+                label: 'Total Tenant',
+                value: _autoJobsData.length.toString(),
+                accentColor: AppUi.blue,
+              ),
+              StatPill(
+                label: 'Auto Job Sehat',
+                value: healthyTenants.length.toString(),
+                accentColor: AppUi.green,
+              ),
+              StatPill(
+                label: 'Ada Error',
+                value: errorTenants.length.toString(),
+                accentColor: AppUi.red,
+              ),
+              StatPill(
+                label: 'Idle / No Shop',
+                value: idleTenants.length.toString(),
+                accentColor: Colors.grey,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          if (errorTenants.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppUi.red.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppUi.red.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      color: AppUi.red, size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Perhatian: ${errorTenants.length} Tenant Mengalami Kendala Auto Sync',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13.5,
+                              color: AppUi.red),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Terdapat kegagalan order / finance pull dalam 24 jam terakhir. Klik tombol "Lihat Log Error" untuk memeriksa payload & response.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          SectionTitle(
+            title: 'DAFTAR KESEHATAN AUTO JOB PER TENANT',
+            actionText: 'RELOAD JOBS',
+            onAction: () => _loadData(forceRefresh: true),
+          ),
+          const SizedBox(height: 12),
+
+          if (_autoJobsData.isEmpty)
+            const EmptyState(
+              title: 'BELUM ADA DATA AUTO JOB',
+              subtitle: 'Data auto sync tenant akan muncul secara otomatis.',
+              icon: Icons.sync_disabled_rounded,
+            )
+          else
+            ..._autoJobsData.map(_buildTenantAutoJobCard),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTenantAutoJobCard(Map<String, dynamic> job) {
+    final tenantName = job['tenant_name']?.toString() ?? 'Tenant';
+    final health = job['auto_job_health']?.toString() ?? 'healthy';
+    final accountCount = job['account_count'] ?? 0;
+    final orderFailures = job['order_failures'] ?? 0;
+    final financeFailures = job['finance_failures'] ?? 0;
+    final syncErrors24h = job['sync_error_count_24h'] ?? 0;
+    final lastOrderSync = job['last_order_sync_at']?.toString();
+    final lastFinanceSync = job['last_finance_sync_at']?.toString();
+    final orderErrors = job['order_errors']?.toString();
+    final financeErrors = job['finance_errors']?.toString();
+    final latestErrorMsg = job['latest_sync_error_msg']?.toString();
+
+    Color healthColor;
+    String healthLabel;
+    IconData healthIcon;
+
+    switch (health) {
+      case 'error':
+        healthColor = AppUi.red;
+        healthLabel = 'ADA ERROR SYNC';
+        healthIcon = Icons.error_outline_rounded;
+        break;
+      case 'healthy':
+        healthColor = AppUi.green;
+        healthLabel = 'SEMUA JOB SEHAT';
+        healthIcon = Icons.check_circle_outline_rounded;
+        break;
+      case 'idle':
+        healthColor = Colors.amber;
+        healthLabel = 'JOB IDLE';
+        healthIcon = Icons.hourglass_empty_rounded;
+        break;
+      default:
+        healthColor = Colors.grey;
+        healthLabel = 'BELUM ADA TOKO';
+        healthIcon = Icons.store_outlined;
+    }
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      margin: const EdgeInsets.only(bottom: 16),
+      child: NiceCard(
+        borderColor: health == 'error' ? AppUi.red.withOpacity(0.4) : null,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Top Row
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: healthColor.withOpacity(0.12),
+                  child: Icon(healthIcon, color: healthColor, size: 18),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tenantName.toUpperCase(),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w900, fontSize: 13.5),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '$accountCount Akun Toko Marketplace Terhubung',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppUi.mutedText(context, 0.8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: healthColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: healthColor.withOpacity(0.35)),
+                  ),
+                  child: Text(
+                    healthLabel,
+                    style: TextStyle(
+                      color: healthColor,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 20),
+
+            // Job Status Grid
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 600;
+                final colWidth =
+                    isWide ? (constraints.maxWidth - 12) / 2 : constraints.maxWidth;
+
+                Widget jobPill({
+                  required String title,
+                  required IconData icon,
+                  required String? lastRun,
+                  required int failures,
+                  required String? errorText,
+                }) {
+                  final hasError = failures > 0 || (errorText != null && errorText.isNotEmpty);
+                  return Container(
+                    width: colWidth,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceVariant
+                          .withOpacity(0.25),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: hasError
+                            ? AppUi.red.withOpacity(0.35)
+                            : Theme.of(context).colorScheme.outline.withOpacity(0.12),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(icon, size: 16, color: hasError ? AppUi.red : AppUi.blue),
+                            const SizedBox(width: 6),
+                            Text(
+                              title,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11.5,
+                                color: hasError ? AppUi.red : null,
+                              ),
+                            ),
+                            const Spacer(),
+                            if (hasError)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppUi.red.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  '$failures FAIL',
+                                  style: const TextStyle(
+                                    color: AppUi.red,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 9.5,
+                                  ),
+                                ),
+                              )
+                            else
+                              const Icon(Icons.check_circle_rounded, color: AppUi.green, size: 14),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Sync Terakhir: ${lastRun != null && lastRun.isNotEmpty ? AppUi.dateTime(lastRun) : '-'}',
+                          style: TextStyle(fontSize: 11, color: AppUi.mutedText(context, 0.85)),
+                        ),
+                        if (errorText != null && errorText.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Error: $errorText',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 10.5,
+                              color: AppUi.red,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }
+
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
+                    jobPill(
+                      title: 'ORDER PULL SYNC JOB',
+                      icon: Icons.shopping_bag_outlined,
+                      lastRun: lastOrderSync,
+                      failures: orderFailures,
+                      errorText: orderErrors,
+                    ),
+                    jobPill(
+                      title: 'FINANCE SETTLEMENT SYNC',
+                      icon: Icons.account_balance_wallet_outlined,
+                      lastRun: lastFinanceSync,
+                      failures: financeFailures,
+                      errorText: financeErrors,
+                    ),
+                  ],
+                );
+              },
+            ),
+
+            if (latestErrorMsg != null && latestErrorMsg.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppUi.red.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppUi.red.withOpacity(0.2)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline_rounded, color: AppUi.red, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Pesan error terakhir: $latestErrorMsg',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11, color: AppUi.red, fontFamily: 'monospace'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 12),
+
+            // Action button
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: syncErrors24h > 0 ? AppUi.red : null,
+                  side: BorderSide(
+                    color: syncErrors24h > 0 ? AppUi.red.withOpacity(0.4) : Colors.grey.withOpacity(0.3),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.history_rounded, size: 16),
+                label: Text(
+                  syncErrors24h > 0
+                      ? 'Lihat Log Error ($syncErrors24h dlm 24 Jam)'
+                      : 'Lihat Riwayat Log Error',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+                ),
+                onPressed: () => _showTenantJobErrorLogsSheet(job),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTenantJobErrorLogsSheet(Map<String, dynamic> job) async {
+    final tenantId = job['tenant_id']?.toString();
+    final tenantName = job['tenant_name']?.toString() ?? 'Tenant';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return DraggableScrollableSheet(
+          initialChildSize: 0.75,
+          minChildSize: 0.4,
+          maxChildSize: 0.95,
+          builder: (_, scrollController) {
+            return Container(
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0F172A) : Colors.white,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.35),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundColor: AppUi.red.withOpacity(0.12),
+                        child: const Icon(Icons.sync_problem_rounded,
+                            color: AppUi.red, size: 20),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Riwayat Log Error Auto Job',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 16)),
+                            Text('Tenant: $tenantName',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppUi.mutedText(ctx, 0.88))),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 20),
+                  Expanded(
+                    child: FutureBuilder<dynamic>(
+                      future: _client
+                          .rpc('platform_tenant_job_error_logs', params: {
+                        'p_tenant_id': tenantId,
+                        'p_limit': 30,
+                      }),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                              child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Center(
+                              child: Text('Gagal memuat log: ${snapshot.error}'));
+                        }
+                        final logs = (snapshot.data as List?) ?? [];
+                        if (logs.isEmpty) {
+                          return Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                    Icons.check_circle_outline_rounded,
+                                    color: AppUi.green,
+                                    size: 48),
+                                const SizedBox(height: 8),
+                                const Text(
+                                    'Tidak ada log error untuk tenant ini.',
+                                    style:
+                                        TextStyle(fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 4),
+                                Text(
+                                    'Semua auto sync berjalan normal atau error telah terselesaikan.',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: AppUi.mutedText(ctx, 0.8))),
+                              ],
+                            ),
+                          );
+                        }
+
+                        return ListView.separated(
+                          controller: scrollController,
+                          itemCount: logs.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
+                          itemBuilder: (context, idx) {
+                            final log = Map<String, dynamic>.from(logs[idx]);
+                            final action = log['action']?.toString() ?? '-';
+                            final msg = log['message']?.toString() ??
+                                'Error tidak diketahui';
+                            final marketplace =
+                                log['marketplace']?.toString() ?? '-';
+                            final createdAt =
+                                log['created_at']?.toString() ?? '';
+
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? const Color(0xFF1E293B)
+                                    : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                    color: AppUi.red.withOpacity(0.3)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: AppUi.red.withOpacity(0.12),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          marketplace.toUpperCase(),
+                                          style: const TextStyle(
+                                            color: AppUi.red,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          action,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 13),
+                                        ),
+                                      ),
+                                      Text(
+                                        AppUi.dateTime(createdAt),
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppUi.mutedText(ctx, 0.7)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  SelectableText(
+                                    msg,
+                                    style: const TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 12,
+                                      color: AppUi.red,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _smallStat(String label, String value, {bool alert = false, IconData? icon}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: alert
-            ? AppUi.red.withOpacity(0.1)
-            : AppUi.mutedText(context, 0.90).withOpacity(0.05),
+            ? AppUi.red.withOpacity(isDark ? 0.16 : 0.08)
+            : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
-            color: alert ? AppUi.red : AppUi.mutedText(context, 0.90),
-            width: 1.5),
+          color: alert
+              ? AppUi.red.withOpacity(0.35)
+              : Theme.of(context).colorScheme.outline.withOpacity(0.12),
+          width: 1,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (icon != null) ...[
+            Icon(
+              icon,
+              size: 13,
+              color: alert ? AppUi.red : AppUi.mutedText(context, 0.75),
+            ),
+            const SizedBox(width: 5),
+          ],
           Text(
-            '$label: '.toUpperCase(),
+            label,
             style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 8.5,
-                color: alert ? AppUi.red : AppUi.mutedText(context, 0.90)),
+              fontWeight: FontWeight.w600,
+              fontSize: 10.5,
+              color: alert ? AppUi.red : AppUi.mutedText(context, 0.85),
+            ),
           ),
-          Text(
-            value,
-            style: TextStyle(
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+            decoration: BoxDecoration(
+              color: alert
+                  ? AppUi.red.withOpacity(0.2)
+                  : (isDark
+                      ? Colors.white.withOpacity(0.08)
+                      : Colors.black.withOpacity(0.06)),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              value,
+              style: TextStyle(
                 fontWeight: FontWeight.w800,
-                fontSize: 9.5,
-                color: alert ? AppUi.red : null),
+                fontSize: 11,
+                color: alert
+                    ? AppUi.red
+                    : (isDark ? Colors.white : const Color(0xFF0F172A)),
+              ),
+            ),
           ),
         ],
       ),
@@ -2240,7 +3013,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        '🤖 VPS & Infra AI Agent Health Audit',
+                        'VPS & Infra AI Agent Health Audit',
                         style: TextStyle(
                             fontSize: 17, fontWeight: FontWeight.w800),
                       ),
@@ -2467,7 +3240,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
                   // Error Logs & VPS Bugs Card
                   if (telemetry['active_error_logs_and_bugs'] is List && (telemetry['active_error_logs_and_bugs'] as List).isNotEmpty) ...[
                     const Text(
-                      '🐛 Audit Error Log & Bug Infrastruktur',
+                      'Audit Error Log & Bug Infrastruktur',
                       style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 10),
@@ -2513,7 +3286,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
 
                   // Docker Microservices Status
                   const Text(
-                    '🐳 Status Docker Microservices',
+                    'Status Docker Microservices',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 10),
@@ -2535,7 +3308,7 @@ class _PlatformOwnerDashboardState extends State<PlatformOwnerDashboard> {
 
                   // AI Recommendations
                   const Text(
-                    '🛡️ Rekomendasi DevSecOps AI Agent',
+                    'Rekomendasi DevSecOps AI Agent',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 10),

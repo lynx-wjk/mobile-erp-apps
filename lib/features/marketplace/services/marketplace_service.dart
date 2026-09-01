@@ -2390,7 +2390,9 @@ class MarketplaceService {
             .whereType<Map>()
             .map((item) => Map<String, dynamic>.from(item))
             .toList();
-        await _attachPendingReturnReviewFlags(tenantId: tenantId, rows: rows);
+        if (rows.isNotEmpty && !rows.first.containsKey('has_pending_return_review')) {
+          await _attachPendingReturnReviewFlags(tenantId: tenantId, rows: rows);
+        }
         return rows.map(MarketplaceOrderSummary.fromMap).toList();
       }
     } catch (_) {
@@ -2720,6 +2722,7 @@ class MarketplaceService {
     String? accountId,
     String? search,
     bool missingOnly = false,
+    String filterMode = 'all',
     int page = 1,
     int pageSize = 20,
   }) async {
@@ -2727,6 +2730,7 @@ class MarketplaceService {
       'p_account_id': accountId?.trim().isEmpty == true ? null : accountId,
       'p_search': search?.trim().isEmpty == true ? null : search?.trim(),
       'p_missing_only': missingOnly,
+      'p_filter_mode': filterMode,
       'p_page': page,
       'p_page_size': pageSize,
     };
@@ -2735,21 +2739,9 @@ class MarketplaceService {
           await _client.rpc('marketplace_variant_hpp_list', params: params);
       return _rpcMap(res);
     } catch (_) {
-      try {
-        final res =
-            await _client.rpc('marketplace_variant_hpp_list', params: params);
-        return _rpcMap(res);
-      } catch (_) {
-        try {
-          final res =
-              await _client.rpc('marketplace_variant_hpp_list', params: params);
-          return _rpcMap(res);
-        } catch (_) {
-          final res =
-              await _client.rpc('marketplace_variant_hpp_list', params: params);
-          return _rpcMap(res);
-        }
-      }
+      final res =
+          await _client.rpc('marketplace_variant_hpp_list', params: params);
+      return _rpcMap(res);
     }
   }
 

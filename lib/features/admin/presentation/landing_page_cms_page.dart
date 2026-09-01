@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/ui/app_segmented_tab_bar.dart';
 import '../../../core/ui/app_ui.dart';
+import '../../../core/ui/web_responsive_layout.dart';
 
 class LandingPageCmsPage extends StatefulWidget {
   const LandingPageCmsPage({super.key});
@@ -173,55 +175,54 @@ class _LandingPageCmsPageState extends State<LandingPageCmsPage>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(
-        title: const Text(
-          'LANDING PAGE CMS & MARKETING',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+    return WebResponsiveScaffold(
+      title: 'LANDING PAGE CMS & MARKETING',
+      activeWebTitle: 'Landing Page CMS & Marketing Manager',
+      actions: [
+        TextButton.icon(
+          onPressed: _openLiveLandingPage,
+          icon: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.blueAccent),
+          label: const Text('LIHAT LANDING PAGE', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
         ),
-        backgroundColor: theme.cardColor,
-        elevation: 0,
-        actions: [
-          TextButton.icon(
-            onPressed: _openLiveLandingPage,
-            icon: const Icon(Icons.open_in_new_rounded, size: 18, color: Colors.blueAccent),
-            label: const Text('LIHAT LANDING PAGE', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
-          ),
-          const SizedBox(width: 8),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          labelColor: Colors.blueAccent,
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: Colors.blueAccent,
-          tabs: const [
-            Tab(icon: Icon(Icons.view_carousel_rounded), text: 'Hero & Banner'),
-            Tab(icon: Icon(Icons.chat_rounded), text: 'Kontak & Sales WA'),
-            Tab(icon: Icon(Icons.star_rounded), text: 'Fitur Unggulan'),
-            Tab(icon: Icon(Icons.quiz_rounded), text: 'FAQ'),
-            Tab(icon: Icon(Icons.reviews_rounded), text: 'Testimoni & SEO'),
-          ],
-        ),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1100),
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildHeroTab(theme),
-                    _buildContactTab(theme),
-                    _buildFeaturesTab(theme),
-                    _buildFaqTab(theme),
-                    _buildTestiAndSeoTab(theme),
-                  ],
+        const SizedBox(width: 8),
+      ],
+      body: WebResponsiveWrapper(
+        activeTitle: 'LANDING PAGE CMS & MARKETING',
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1100),
+                  child: Column(
+                    children: [
+                      AppSegmentedTabBar(
+                        controller: _tabController,
+                        isScrollable: true,
+                        tabs: const [
+                          AppTabItem(label: 'Hero & Banner', icon: Icons.view_carousel_rounded),
+                          AppTabItem(label: 'Kontak & Sales WA', icon: Icons.chat_rounded),
+                          AppTabItem(label: 'Fitur Unggulan', icon: Icons.star_rounded),
+                          AppTabItem(label: 'FAQ', icon: Icons.quiz_rounded),
+                          AppTabItem(label: 'Testimoni & SEO', icon: Icons.reviews_rounded),
+                        ],
+                      ),
+                      Expanded(
+                        child: TabBarView(
+                          controller: _tabController,
+                          children: [
+                            _buildHeroTab(theme),
+                            _buildContactTab(theme),
+                            _buildFeaturesTab(theme),
+                            _buildFaqTab(theme),
+                            _buildTestiAndSeoTab(theme),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 
@@ -263,27 +264,21 @@ class _LandingPageCmsPageState extends State<LandingPageCmsPage>
                 const SizedBox(height: 20),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSaving
-                        ? null
-                        : () {
-                            _saveSection('hero', {
-                              'badge': _heroBadgeCtrl.text.trim(),
-                              'title': _heroTitleCtrl.text.trim(),
-                              'subtitle': _heroSubtitleCtrl.text.trim(),
-                              'cta_primary_text': _heroCtaPrimaryTextCtrl.text.trim(),
-                              'cta_primary_link': _heroCtaPrimaryLinkCtrl.text.trim(),
-                              'cta_secondary_text': _heroCtaSecondaryTextCtrl.text.trim(),
-                              'cta_secondary_link': _heroCtaSecondaryLinkCtrl.text.trim(),
-                              'stats': _statsList,
-                            });
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    ),
-                    icon: const Icon(Icons.save_rounded),
-                    label: const Text('SIMPAN HERO SECTION', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: _buildSaveButton(
+                    theme: theme,
+                    label: 'SIMPAN HERO SECTION',
+                    onSave: () {
+                      _saveSection('hero', {
+                        'badge': _heroBadgeCtrl.text.trim(),
+                        'title': _heroTitleCtrl.text.trim(),
+                        'subtitle': _heroSubtitleCtrl.text.trim(),
+                        'cta_primary_text': _heroCtaPrimaryTextCtrl.text.trim(),
+                        'cta_primary_link': _heroCtaPrimaryLinkCtrl.text.trim(),
+                        'cta_secondary_text': _heroCtaSecondaryTextCtrl.text.trim(),
+                        'cta_secondary_link': _heroCtaSecondaryLinkCtrl.text.trim(),
+                        'stats': _statsList,
+                      });
+                    },
                   ),
                 ),
               ],
@@ -318,26 +313,21 @@ class _LandingPageCmsPageState extends State<LandingPageCmsPage>
                 const SizedBox(height: 20),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSaving
-                        ? null
-                        : () {
-                            _saveSection('contact', {
-                              'company_name': _companyNameCtrl.text.trim(),
-                              'whatsapp_number': _waNumberCtrl.text.trim(),
-                              'whatsapp_message': _waMessageCtrl.text.trim(),
-                              'support_email': _supportEmailCtrl.text.trim(),
-                              'address': _addressCtrl.text.trim(),
-                              'app_login_url': 'https://app.mdhproduction.com',
-                              'app_register_url': 'https://app.mdhproduction.com/register',
-                            });
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    ),
-                    icon: const Icon(Icons.save_rounded),
-                    label: const Text('SIMPAN KONTAK & WHATSAPP', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: _buildSaveButton(
+                    theme: theme,
+                    label: 'SIMPAN KONTAK & WHATSAPP',
+                    color: AppUi.green,
+                    onSave: () {
+                      _saveSection('contact', {
+                        'company_name': _companyNameCtrl.text.trim(),
+                        'whatsapp_number': _waNumberCtrl.text.trim(),
+                        'whatsapp_message': _waMessageCtrl.text.trim(),
+                        'support_email': _supportEmailCtrl.text.trim(),
+                        'address': _addressCtrl.text.trim(),
+                        'app_login_url': 'https://app.mdhproduction.com',
+                        'app_register_url': 'https://app.mdhproduction.com/register',
+                      });
+                    },
                   ),
                 ),
               ],
@@ -395,23 +385,17 @@ class _LandingPageCmsPageState extends State<LandingPageCmsPage>
                 const SizedBox(height: 16),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSaving
-                        ? null
-                        : () {
-                            _saveSection('features', {
-                              'badge': 'Fitur Unggulan',
-                              'title': 'Solusi Menyeluruh untuk Efisiensi Bisnis Anda',
-                              'subtitle': 'Setiap modul dirancang khusus untuk mempermudah operasional harian.',
-                              'items': _featureList,
-                            });
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    ),
-                    icon: const Icon(Icons.save_rounded),
-                    label: const Text('SIMPAN FITUR UNGGULAN', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: _buildSaveButton(
+                    theme: theme,
+                    label: 'SIMPAN FITUR UNGGULAN',
+                    onSave: () {
+                      _saveSection('features', {
+                        'badge': 'Fitur Unggulan',
+                        'title': 'Solusi Menyeluruh untuk Efisiensi Bisnis Anda',
+                        'subtitle': 'Setiap modul dirancang khusus untuk mempermudah operasional harian.',
+                        'items': _featureList,
+                      });
+                    },
                   ),
                 ),
               ],
@@ -487,23 +471,17 @@ class _LandingPageCmsPageState extends State<LandingPageCmsPage>
                 const SizedBox(height: 20),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSaving
-                        ? null
-                        : () {
-                            _saveSection('faq', {
-                              'badge': 'FAQ',
-                              'title': 'Pertanyaan yang Sering Diajukan',
-                              'subtitle': 'Punya pertanyaan seputar cara kerja sistem? Temukan jawabannya di sini.',
-                              'items': _faqList,
-                            });
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    ),
-                    icon: const Icon(Icons.save_rounded),
-                    label: const Text('SIMPAN FAQ', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: _buildSaveButton(
+                    theme: theme,
+                    label: 'SIMPAN FAQ',
+                    onSave: () {
+                      _saveSection('faq', {
+                        'badge': 'FAQ',
+                        'title': 'Pertanyaan yang Sering Diajukan',
+                        'subtitle': 'Punya pertanyaan seputar cara kerja sistem? Temukan jawabannya di sini.',
+                        'items': _faqList,
+                      });
+                    },
                   ),
                 ),
               ],
@@ -593,23 +571,18 @@ class _LandingPageCmsPageState extends State<LandingPageCmsPage>
                 const SizedBox(height: 16),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSaving
-                        ? null
-                        : () {
-                            _saveSection('testimonials', {
-                              'badge': 'Testimoni Pengguna',
-                              'title': 'Dipercaya Oleh Pebisnis & Brand di Seluruh Indonesia',
-                              'subtitle': 'Dengarkan pengalaman langsung dari mereka yang telah mendigitalkan operasionalnya.',
-                              'items': _testiList,
-                            });
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    ),
-                    icon: const Icon(Icons.save_rounded),
-                    label: const Text('SIMPAN TESTIMONI', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: _buildSaveButton(
+                    theme: theme,
+                    label: 'SIMPAN TESTIMONI',
+                    color: AppUi.teal,
+                    onSave: () {
+                      _saveSection('testimonials', {
+                        'badge': 'Testimoni Pengguna',
+                        'title': 'Dipercaya Oleh Pebisnis & Brand di Seluruh Indonesia',
+                        'subtitle': 'Dengarkan pengalaman langsung dari mereka yang telah mendigitalkan operasionalnya.',
+                        'items': _testiList,
+                      });
+                    },
                   ),
                 ),
               ],
@@ -630,28 +603,57 @@ class _LandingPageCmsPageState extends State<LandingPageCmsPage>
                 const SizedBox(height: 20),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSaving
-                        ? null
-                        : () {
-                            _saveSection('seo', {
-                              'meta_title': _seoTitleCtrl.text.trim(),
-                              'meta_description': _seoDescCtrl.text.trim(),
-                              'meta_keywords': _seoKeywordsCtrl.text.trim(),
-                            });
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    ),
-                    icon: const Icon(Icons.save_rounded),
-                    label: const Text('SIMPAN PENGATURAN SEO', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: _buildSaveButton(
+                    theme: theme,
+                    label: 'SIMPAN PENGATURAN SEO',
+                    onSave: () {
+                      _saveSection('seo', {
+                        'meta_title': _seoTitleCtrl.text.trim(),
+                        'meta_description': _seoDescCtrl.text.trim(),
+                        'meta_keywords': _seoKeywordsCtrl.text.trim(),
+                      });
+                    },
                   ),
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSaveButton({
+    required ThemeData theme,
+    required String label,
+    required VoidCallback onSave,
+    Color? color,
+  }) {
+    final btnColor = color ?? theme.colorScheme.primary;
+    return FilledButton.icon(
+      onPressed: _isSaving ? null : onSave,
+      style: FilledButton.styleFrom(
+        backgroundColor: btnColor,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        elevation: 2,
+      ),
+      icon: _isSaving
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: Colors.white))
+          : const Icon(Icons.save_rounded, size: 18, color: Colors.white),
+      label: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+          fontSize: 13,
+          letterSpacing: 0.2,
+        ),
       ),
     );
   }
@@ -686,6 +688,7 @@ class _LandingPageCmsPageState extends State<LandingPageCmsPage>
   Widget _buildTextField(ThemeData theme, String label, TextEditingController ctrl, String hint, {int maxLines = 1}) {
     return TextFormField(
       controller: ctrl,
+      onTap: AppUi.selectOnTap(ctrl),
       maxLines: maxLines,
       decoration: InputDecoration(
         labelText: label,

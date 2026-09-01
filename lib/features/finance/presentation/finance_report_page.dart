@@ -5,10 +5,14 @@ import 'dart:typed_data';
 import 'package:excel/excel.dart' hide Border;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_roles.dart';
+import '../../../core/ui/app_segmented_tab_bar.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/utils/file_download.dart';
@@ -99,7 +103,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String? _sampleFreeDetailsError;
   final Set<String> _expandedReconciliations = {};
   static const String _financeCacheVersion =
-      'finance_live_20260727_v56_timeout_90s';
+      'finance_live_20260901_v63_tax_pdf_discount_and_currency_wrap_fix';
   static const List<String> _financeCacheVersionFallbacks = <String>[
     _financeCacheVersion,
   ];
@@ -456,7 +460,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       try {
         final response = await _client
             .rpc(safeRpcName, params: params)
-            .timeout(const Duration(seconds: 90));
+            .timeout(const Duration(seconds: 45));
         final enrichedResponse = response;
         _lastSnapshotStats =
             '$safeRpcName · ${_snapshotStats(enrichedResponse)}';
@@ -477,7 +481,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return firstEmptyResponse;
     }
 
-    // Removed fallback month-to-date query to respect dynamic selected range
+    try {
+      final fallback = await _buildFallbackFinanceSnapshot(params);
+      if (fallback != null && !_isFinanceSnapshotEmpty(fallback)) {
+        return fallback;
+      }
+    } catch (_) {}
 
     if (lastError != null) {
       throw lastError;
@@ -614,7 +623,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'p_end': _toDateParam(_end),
         'p_marketplace': _marketplaceParam() ?? 'all',
         'p_account_id': _accountUuidParam(),
-      });
+      }).timeout(const Duration(seconds: 8));
     } catch (_) {
       // Cache exact bisa belum ada. Reader tetap mengambil latest cache / live overlay dari SQL.
     }
@@ -1007,12 +1016,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       out['net_received'],
       out['net_settlement']
     ]);
-    final hpp = _numFirstNonZero([
-      out['paid_hpp_total'],
-      out['settled_hpp_total'],
-      out['hpp_total'],
-      out['total_hpp']
-    ]);
+    final hpp = (out.containsKey('paid_hpp_total') ||
+            out.containsKey('settled_hpp_total') ||
+            out.containsKey('hpp_settled') ||
+            out.containsKey('settled_hpp'))
+        ? _num(out['settled_hpp_total'] ??
+            out['paid_hpp_total'] ??
+            out['hpp_settled'] ??
+            out['settled_hpp'])
+        : _num(out['hpp_total'] ?? out['total_hpp']);
     final productionExpenses = manualExpenses
         .where(_isProductionPaymentExpenseRow)
         .toList(growable: false);
@@ -2064,18 +2076,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         out['net_settlement'],
         out['net_received'],
       ]);
-      final hpp = _numFirstNonZero([
-        out['hpp_total'],
-        out['total_hpp'],
-        out['settled_hpp_total'],
-        out['paid_hpp_total'],
-        out['hpp'],
-      ]);
+      final hpp = (out.containsKey('hpp_settled') ||
+              out.containsKey('settled_hpp_total') ||
+              out.containsKey('paid_hpp_total') ||
+              out.containsKey('settled_hpp'))
+          ? _num(out['hpp_settled'] ??
+              out['settled_hpp_total'] ??
+              out['paid_hpp_total'] ??
+              out['settled_hpp'])
+          : _num(out['hpp_total'] ?? out['total_hpp'] ?? out['hpp']);
       final profit = _numFirstNonZero([
         out['net_profit'],
         out['profit'],
       ]);
-      final discount = _numFirstNonZero([
+      final rawDiscount = _numFirstNonZero([
         out['discount_amount'],
         out['voucher_amount'],
         out['discount'],
@@ -2087,6 +2101,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         out['seller_voucher'],
         out['platform_voucher'],
       ]);
+      final discount = (gross > 0 && rawDiscount >= gross)
+          ? (out['omzet_normal_paid'] != null && gross > _num(out['omzet_normal_paid'])
+              ? (gross - _num(out['omzet_normal_paid'])).clamp(0.0, gross)
+              : 0.0)
+          : rawDiscount;
       final refund = _numFirstNonZero([
         out['refund_amount'],
         out['return_refund_amount'],
@@ -2206,14 +2225,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
     }
 
-    final summaryHpp = _numFirstNonZero([
-      targetSummary['hpp_total'],
-      targetSummary['total_hpp'],
-      targetSummary['paid_hpp_total'],
-      targetSummary['settled_hpp_total'],
-      targetSummary['hpp_cair'],
-      targetSummary['hpp'],
-    ]);
+    final summaryHpp = (targetSummary.containsKey('hpp_settled') ||
+            targetSummary.containsKey('settled_hpp_total') ||
+            targetSummary.containsKey('paid_hpp_total') ||
+            targetSummary.containsKey('settled_hpp'))
+        ? _num(targetSummary['hpp_settled'] ??
+            targetSummary['settled_hpp_total'] ??
+            targetSummary['paid_hpp_total'] ??
+            targetSummary['settled_hpp'])
+        : _num(targetSummary['hpp_total'] ?? targetSummary['total_hpp'] ?? targetSummary['hpp']);
 
     final totalMktGross = mktRows.fold<double>(
       0.0,
@@ -2222,16 +2242,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     return mktRows.map((source) {
       final row = Map<String, dynamic>.from(source);
-      var currentHpp = _numFirstNonZero([
-        row['paid_hpp_total'],
-        row['settled_hpp_total'],
-        row['hpp_total'],
-        row['total_hpp'],
-        row['hpp_cair'],
-        row['hpp_settled'],
-        row['hpp_amount'],
-        row['hpp'],
-      ]);
+      var currentHpp = (row.containsKey('hpp_settled') ||
+              row.containsKey('settled_hpp_total') ||
+              row.containsKey('paid_hpp_total') ||
+              row.containsKey('settled_hpp'))
+          ? _num(row['hpp_settled'] ??
+              row['settled_hpp_total'] ??
+              row['paid_hpp_total'] ??
+              row['settled_hpp'])
+          : _num(row['hpp_total'] ?? row['total_hpp'] ?? row['hpp']);
 
       if (currentHpp == 0) {
         final mktKey = _text(row['marketplace'] ?? row['platform'] ?? row['marketplace_label'])
@@ -3340,6 +3359,48 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     );
   }
 
+  void _navigateToNoPayoutAbnormal(BuildContext context) {
+    setState(() {
+      _abnormalStatusFilter = 'no_payout';
+      _abnormalPage = 1;
+    });
+    _refreshAbnormalTab(resetPage: true);
+    try {
+      DefaultTabController.maybeOf(context)?.animateTo(6);
+    } catch (_) {}
+  }
+
+  void _navigateToPayoutMinusAbnormal(BuildContext context) {
+    setState(() {
+      _abnormalStatusFilter = 'payout_minus';
+      _abnormalPage = 1;
+    });
+    _refreshAbnormalTab(resetPage: true);
+    try {
+      DefaultTabController.maybeOf(context)?.animateTo(6);
+    } catch (_) {}
+  }
+
+  Future<void> _showUnpaidHppOrdersDrilldown(BuildContext context) async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return _UnpaidHppOrdersSheet(
+          client: _client,
+          start: _start,
+          end: _end,
+          marketplace: _marketplaceRpcParam(),
+          accountId: _accountUuidParam(),
+          tenantId: _currentTenantId.trim().isEmpty ? null : _currentTenantId.trim(),
+          moneyFormatter: (val) => _money(val is num ? val : _num(val)),
+          dateFormatter: _date,
+        );
+      },
+    );
+  }
+
   String _skuPayoutCountCleanKey(dynamic value) {
     final text = value?.toString().trim().toLowerCase() ?? '';
     if (text == '-' || text == 'null') return '';
@@ -4042,41 +4103,38 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Map<String, dynamic> _normalizeFinanceSummary(Map<String, dynamic> raw) {
     final map = Map<String, dynamic>.from(raw);
-    final gross = _numFirstNonZero([
-      map['gross_sales'],
-      map['gross_total'],
-      map['gross_amount'],
-      map['gross'],
-      map['omzet_total'],
-      map['omzet'],
-      map['paid_gross_total']
-    ]);
-    final payout = _numFirstNonZero([
-      map['payout_total'],
-      map['payout_amount'],
-      map['received_amount'],
-      map['payout'],
-      map['net_received'],
-      map['net_settlement']
-    ]);
-    final hpp = _numFirstNonZero([
-      map['paid_hpp_total'],
-      map['settled_hpp_total'],
-      map['hpp_total'],
-      map['total_hpp'],
-      map['hpp_cair'],
-      map['hpp_settled'],
-      map['hpp_amount'],
-      map['hpp']
-    ]).abs();
-    final operational = _numFirstNonZero([
-      map['operational_cost_total'],
-      map['operational_expense'],
-      map['expense_total'],
-      map['manual_expense_total']
-    ]);
-    final profit = payout - hpp - operational;
-    final margin = payout > 0 ? ((profit / payout) * 100) : 0;
+    final gross = _num(map['gross_sales'] ??
+        map['gross_total'] ??
+        map['gross_amount'] ??
+        map['gross'] ??
+        map['omzet_total'] ??
+        map['omzet'] ??
+        map['paid_gross_total']);
+    final payout = _num(map['payout_total'] ??
+        map['payout_amount'] ??
+        map['net_settlement'] ??
+        map['received_amount'] ??
+        map['payout'] ??
+        map['net_received']);
+    final hpp = (map.containsKey('hpp_settled') ||
+            map.containsKey('settled_hpp_total') ||
+            map.containsKey('paid_hpp_total') ||
+            map.containsKey('settled_hpp'))
+        ? _num(map['hpp_settled'] ??
+            map['settled_hpp_total'] ??
+            map['paid_hpp_total'] ??
+            map['settled_hpp'])
+        : _num(map['hpp_total'] ?? map['total_hpp'] ?? map['hpp']);
+    final operational = _num(map['operational_cost_total'] ??
+        map['operational_expense'] ??
+        map['expense_total'] ??
+        map['manual_expense_total']);
+    final profit = map.containsKey('net_profit') || map.containsKey('profit')
+        ? _num(map['net_profit'] ?? map['profit'])
+        : (payout - hpp - operational);
+    final margin = map.containsKey('net_margin_percent') || map.containsKey('margin_percent')
+        ? _num(map['net_margin_percent'] ?? map['margin_percent'])
+        : (payout > 0 ? ((profit / payout) * 100) : 0.0);
     map['gross_sales'] = gross;
     map['omzet'] = gross;
     map['omzet_total'] = gross;
@@ -4113,16 +4171,43 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final clean = accountId.trim();
     if (clean.isEmpty) return 'Semua toko';
     for (final row in _accounts) {
-      if (_text(row['marketplace_account_id']) == clean) {
-        return _text(
-            row['shop_name'] ??
-                row['seller_name'] ??
-                row['account_name'] ??
-                row['store_alias'],
-            'Semua toko');
+      if (_text(row['marketplace_account_id'] ?? row['account_id'] ?? row['id']) == clean) {
+        final alias = _text(row['store_alias']);
+        final shop = _text(row['shop_name'] ?? row['seller_name'] ?? row['account_name']);
+        if (alias.isNotEmpty && alias != '-' && alias != 'Semua toko') return alias;
+        if (shop.isNotEmpty && shop != '-' && shop != 'Semua toko') return shop;
+        return _text(alias.isNotEmpty ? alias : shop, 'Semua toko');
       }
     }
     return 'Semua toko';
+  }
+
+  String _storesNameForMarketplace(String marketplace, {String accountId = ''}) {
+    final cleanId = accountId.trim();
+    if (cleanId.isNotEmpty) {
+      final name = _accountNameById(cleanId);
+      if (name != 'Semua toko' && name.isNotEmpty) return name;
+    }
+    final cleanMkt = marketplace.trim().toLowerCase();
+    final matching = _accounts.where((acc) {
+      final accMkt = _text(acc['marketplace']).trim().toLowerCase();
+      if (cleanMkt.contains('shopee') && accMkt.contains('shopee')) return true;
+      if ((cleanMkt.contains('tiktok') || cleanMkt.contains('tt')) &&
+          (accMkt.contains('tiktok') || accMkt.contains('tt'))) return true;
+      return accMkt == cleanMkt;
+    }).toList();
+
+    if (matching.isEmpty) return '';
+    final names = matching.map((acc) {
+      final alias = _text(acc['store_alias']);
+      final shop = _text(acc['shop_name'] ?? acc['seller_name'] ?? acc['account_name']);
+      if (alias.isNotEmpty && alias != '-' && alias != 'Semua toko') return alias;
+      if (shop.isNotEmpty && shop != '-' && shop != 'Semua toko') return shop;
+      return '';
+    }).where((n) => n.isNotEmpty).toSet().toList();
+
+    if (names.isEmpty) return '';
+    return names.join(', ');
   }
 
   List<Map<String, dynamic>> _normalizeMarketplaceRows(
@@ -4775,7 +4860,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (rawRows.isEmpty) {
       final gross = _num(summary['gross_sales'] ?? summary['omzet'] ?? summary['gross_total']);
       final payout = _num(summary['payout_total'] ?? summary['payout_amount'] ?? summary['received_amount']);
-      final hpp = _numFirstNonZero([summary['hpp_settled'], summary['settled_hpp'], summary['paid_hpp_total'], summary['hpp_total'], summary['total_hpp']]);
+      final hpp = (summary.containsKey('hpp_settled') ||
+              summary.containsKey('settled_hpp') ||
+              summary.containsKey('paid_hpp_total') ||
+              summary.containsKey('settled_hpp_total'))
+          ? _num(summary['hpp_settled'] ??
+              summary['settled_hpp_total'] ??
+              summary['paid_hpp_total'] ??
+              summary['settled_hpp'])
+          : _num(summary['hpp_total'] ?? summary['total_hpp']);
       final profit = _num(summary['net_profit'] ?? summary['profit'] ?? (payout - hpp));
       final margin = payout > 0 ? profit / payout * 100 : 0.0;
       final orders = _num(summary['finance_order_count'] ?? summary['order_count']).toInt();
@@ -4820,7 +4913,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return rawRows.map((label) {
       final gross = _num(label['gross_sales'] ?? label['gross_total'] ?? label['omzet'] ?? label['omzet_paid']);
       final payout = _num(label['payout_total'] ?? label['payout_amount'] ?? label['received_amount']);
-      final hpp = _numFirstNonZero([label['hpp_settled'], label['settled_hpp'], label['paid_hpp_total'], label['hpp_total'], label['total_hpp']]);
+      final hpp = (label.containsKey('hpp_settled') ||
+              label.containsKey('settled_hpp') ||
+              label.containsKey('paid_hpp_total') ||
+              label.containsKey('settled_hpp_total'))
+          ? _num(label['hpp_settled'] ??
+              label['settled_hpp_total'] ??
+              label['paid_hpp_total'] ??
+              label['settled_hpp'])
+          : _num(label['hpp_total'] ?? label['total_hpp']);
       final profit = payout - hpp;
       final margin = payout > 0 ? profit / payout * 100 : 0.0;
       final orders = _num(label['order_count'] ?? label['finance_order_count']).toInt();
@@ -5198,6 +5299,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _isBackendSettledSkuRow(Map<String, dynamic> row) {
+    if (row.containsKey('qty_unsettled') ||
+        row.containsKey('total_qty') ||
+        row.containsKey('unpaid_hpp') ||
+        row.containsKey('total_omzet') ||
+        row.containsKey('orders_count') ||
+        row.containsKey('hpp_settled') ||
+        row.containsKey('qty_settled') ||
+        row.containsKey('gross_sales') ||
+        row.containsKey('all_qty_total')) {
+      return true;
+    }
     final policy =
         '${row['finance_calc_policy']} ${row['hpp_calc_policy']} ${row['summary_policy']}'
             .toLowerCase();
@@ -5209,6 +5321,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           row['paid_qty'],
           row['settled_qty'],
           row['qty_settled'],
+          row['total_qty'],
+          row['all_qty_total'],
         ]) >
         0;
   }
@@ -5221,24 +5335,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _numFirstNonZero(keys.map((key) => row[key]));
 
     var settledQty = exact(const [
+      'qty_settled',
       'paid_qty_total',
       'settled_qty_total',
       'paid_qty',
       'settled_qty',
-      'qty_settled',
+      'qty_paid',
       'qty_payout',
       'paid_quantity',
       'settled_quantity',
     ]);
     var totalQty = exact(const [
+      'total_qty',
       'all_qty_total',
       'qty_all',
-      'total_qty',
       'qty_total',
       'qty',
       'quantity',
     ]);
     var unpaidQty = exact(const [
+      'qty_unsettled',
       'unpaid_qty_total',
       'unpaid_qty',
       'qty_unpaid',
@@ -5276,7 +5392,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var returnedQty = exact(const ['qty_returned', 'returned_qty', 'batal_qty', 'qty_batal']);
     var returnedHpp = exact(const ['hpp_return', 'hpp_retur', 'return_hpp', 'batal_hpp']);
 
-    if (totalQty <= 0) totalQty = settledQty + unpaidQty + sampleQty;
+    if (totalQty <= 0) totalQty = settledQty + unpaidQty + sampleQty + returnedQty;
     if (settledQty <= 0 && positivePayout > 0) {
       settledQty = positiveQty > 0 ? positiveQty : totalQty;
     }
@@ -5284,11 +5400,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       settledQty = totalQty;
     }
     if (totalQty > 0 && settledQty > totalQty) settledQty = totalQty;
-    if (unpaidQty <= 0 && totalQty > 0 && !source.containsKey('qty_unsettled') && !source.containsKey('unpaid_hpp')) {
-      unpaidQty = totalQty - settledQty - sampleQty;
+    if (unpaidQty <= 0 && totalQty > 0 && !source.containsKey('qty_unsettled')) {
+      unpaidQty = (totalQty - settledQty - sampleQty - returnedQty).clamp(0, double.infinity).toDouble();
     }
     if (unpaidQty < 0) unpaidQty = 0;
-    if (totalQty <= 0) totalQty = settledQty + unpaidQty + sampleQty;
+    if (totalQty <= 0) totalQty = settledQty + unpaidQty + sampleQty + returnedQty;
     if (positiveQty <= 0 && positivePayout > 0) positiveQty = settledQty;
     if (negativeQty <= 0 && negativePayout < 0) negativeQty = settledQty;
     if (settledQty > 0 && positiveQty > settledQty) positiveQty = settledQty;
@@ -5305,10 +5421,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       'pending_gross_total',
     ]);
     var grossTotal = exact(const [
+      'total_omzet',
+      'gross_sales',
+      'gross_total',
       'all_gross_total',
       'gross_all_total',
-      'gross_total',
-      'gross_sales',
       'gross_amount',
       'omzet_total',
       'omzet',
@@ -5317,33 +5434,41 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     var paidGross = explicitPaidGross;
     if (paidGross <= 0 && grossTotal > 0 && settledQty > 0 && totalQty > 0) {
       paidGross = grossTotal * (settledQty / totalQty);
+    } else if (paidGross <= 0) {
+      paidGross = grossTotal;
     }
     var unpaidGross = explicitUnpaidGross;
-    if (unpaidGross <= 0 && grossTotal > 0) {
-      unpaidGross =
-          (grossTotal - paidGross).clamp(0.0, double.infinity).toDouble();
+    if (unpaidGross <= 0 && unpaidQty > 0 && totalQty > 0 && grossTotal > 0) {
+      unpaidGross = grossTotal * (unpaidQty / totalQty);
+    } else if (unpaidGross <= 0) {
+      unpaidGross = 0.0;
     }
 
-    final grossPerItem = totalQty > 0
-        ? grossTotal / totalQty
-        : exact(const ['gross_per_item', 'unit_gross_amount']);
+    final grossPerItem = exact(const ['gross_per_item', 'unit_gross_amount']) > 0
+        ? exact(const ['gross_per_item', 'unit_gross_amount'])
+        : (settledQty > 0 && paidGross > 0
+            ? (paidGross / settledQty)
+            : (totalQty > 0 ? (grossTotal / totalQty) : 0.0));
 
     final hppRaw = exact(const [
       'hpp_per_item',
       'unit_hpp',
       'hpp_unit',
       'hpp_item',
+      'master_hpp',
     ]);
     final explicitSettledHpp = exact(const [
       'paid_hpp_total',
       'settled_hpp_total',
       'hpp_settled_total',
+      'hpp_settled',
     ]);
     final explicitAllHpp = exact(const [
       'all_hpp_total',
       'hpp_all_total',
       'hpp_total',
       'total_hpp',
+      'unpaid_hpp',
     ]);
     var hppPerItem = _normalizeHppPerItemValue(
       hppPerItemRaw: hppRaw,
@@ -5358,33 +5483,37 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       hppPerItem = explicitAllHpp / totalQty;
     }
 
-    final settledHppTotal = hppPerItem * settledQty;
-    final unpaidHppTotal = source.containsKey('unpaid_hpp')
-        ? _num(source['unpaid_hpp'])
-        : (hppPerItem * unpaidQty);
+    final settledHppTotal = settledQty > 0
+        ? (explicitSettledHpp > 0 ? explicitSettledHpp : hppPerItem * settledQty)
+        : 0.0;
+    final unpaidHppTotal = unpaidQty > 0
+        ? (hppPerItem > 0 ? hppPerItem * unpaidQty : exact(const ['unpaid_hpp', 'unpaid_hpp_total']))
+        : 0.0;
     final allHppTotal = settledHppTotal + unpaidHppTotal;
-    final payoutForMargin = positivePayout > 0 ? positivePayout : 0.0;
+    final payoutForMargin = (positivePayout != 0) ? positivePayout : (signedPayout != 0 ? signedPayout : 0.0);
     final payoutPerSettledItem =
         settledQty > 0 ? payoutForMargin / settledQty : 0.0;
     final netPayoutPerSettledItem =
         settledQty > 0 ? signedPayout / settledQty : 0.0;
-    final profit = payoutForMargin - settledHppTotal;
+    final profit = signedPayout != 0 ? (signedPayout - (settledHppTotal > 0 ? settledHppTotal : (sampleHpp > 0 ? sampleHpp : allHppTotal))) : -allHppTotal;
     final settledMargin =
-        payoutForMargin > 0 ? (profit / payoutForMargin) * 100 : 0.0;
+        payoutForMargin != 0 ? (profit / payoutForMargin.abs()) * 100 : (allHppTotal > 0 ? -100.0 : 0.0);
     final estimatedProfit = grossTotal - allHppTotal;
     final estimatedMargin =
-        grossTotal > 0 ? (estimatedProfit / grossTotal) * 100 : 0.0;
+        grossTotal > 0 ? (estimatedProfit / grossTotal) * 100 : (allHppTotal > 0 ? -100.0 : 0.0);
 
     row['qty'] = totalQty;
     row['qty_total'] = totalQty;
     row['quantity'] = totalQty;
     row['all_qty_total'] = totalQty;
+    row['total_qty'] = totalQty;
     row['paid_qty'] = settledQty;
     row['settled_qty'] = settledQty;
     row['qty_settled'] = settledQty;
     row['qty_payout'] = settledQty;
     row['unpaid_qty'] = unpaidQty;
     row['qty_unpaid'] = unpaidQty;
+    row['qty_unsettled'] = unpaidQty;
     row['pending_payout_qty'] = unpaidQty;
     row['qty_sample'] = sampleQty;
     row['sample_qty'] = sampleQty;
@@ -5396,15 +5525,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     row['gross_sales'] = grossTotal;
     row['gross_amount'] = grossTotal;
     row['all_gross_total'] = grossTotal;
+    row['total_omzet'] = grossTotal;
     row['paid_gross_total'] = paidGross;
     row['settled_gross_total'] = paidGross;
     row['unpaid_gross_total'] = unpaidGross;
-    row['payout_total'] = payoutForMargin;
-    row['payout_amount'] = payoutForMargin;
-    row['received_amount'] = payoutForMargin;
-    row['net_received'] = payoutForMargin;
-    row['net_settlement'] = payoutForMargin;
-    row['payout'] = payoutForMargin;
+    row['payout_total'] = signedPayout;
+    row['payout_amount'] = signedPayout;
+    row['received_amount'] = signedPayout;
+    row['net_received'] = signedPayout;
+    row['net_settlement'] = signedPayout;
+    row['payout'] = signedPayout;
     row['positive_payout_total'] = positivePayout;
     row['negative_payout_total'] = negativePayout;
     row['positive_payout_qty'] = positiveQty;
@@ -5415,15 +5545,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     row['paid_hpp_total'] = settledHppTotal;
     row['settled_hpp_total'] = settledHppTotal;
     row['unpaid_hpp_total'] = unpaidHppTotal;
+    row['unpaid_hpp'] = unpaidHppTotal;
     row['all_hpp_total'] = allHppTotal;
     row['hpp_total'] = allHppTotal;
     row['total_hpp'] = allHppTotal;
     row['gross_per_item'] = grossPerItem;
+    row['unit_gross'] = grossPerItem;
     row['payout_per_item'] = payoutPerSettledItem;
     row['payout_per_item_paid'] = payoutPerSettledItem;
     row['positive_payout_per_item'] = payoutPerSettledItem;
     row['net_payout_per_item_paid'] = netPayoutPerSettledItem;
     row['net_profit'] = profit;
+    row['profit'] = profit;
+    row['gross_profit'] = profit;
+    row['net_margin_percent'] = settledMargin;
+    row['margin_percent'] = settledMargin;
+    row['margin_settled_percent'] = settledMargin;
+    row['margin_estimated_percent'] = estimatedMargin;
     row['profit'] = profit;
     row['gross_profit'] = profit;
     row['net_margin_percent'] = settledMargin;
@@ -5571,22 +5709,54 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
 
       if (details.isEmpty) {
-        totalQty =
-            _num(row['qty_total'] ?? row['qty'] ?? row['quantity']).toDouble();
-        grossTotal =
-            _num(row['gross_total'] ?? row['gross_sales'] ?? row['gross'])
-                .toDouble();
-        paidPayout = _num(row['payout_total'] ??
-                row['payout_amount'] ??
-                row['received_amount'] ??
-                row['net_settlement'] ??
-                row['payout'] ??
-                row['net_received'])
-            .toDouble();
-        hppTotal = _num(row['hpp_total'] ?? row['hpp_amount'] ?? row['hpp'])
-            .toDouble();
-        paidQty = _num(row['paid_qty'] ?? row['settled_qty']).toDouble();
-        unpaidQty = _num(row['unpaid_qty']).toDouble();
+        totalQty = _numFirstNonZero([
+          row['total_qty'],
+          row['all_qty_total'],
+          row['qty_total'],
+          row['qty_all'],
+          row['qty'],
+          row['quantity'],
+          row['orders_count'],
+        ]).toDouble();
+        grossTotal = _numFirstNonZero([
+          row['total_omzet'],
+          row['gross_sales'],
+          row['gross_total'],
+          row['all_gross_total'],
+          row['gross_amount'],
+          row['omzet_total'],
+          row['omzet'],
+          row['gross'],
+        ]).toDouble();
+        paidPayout = _numFirstNonZero([
+          row['payout_total'],
+          row['payout_amount'],
+          row['received_amount'],
+          row['net_settlement'],
+          row['payout'],
+          row['net_received'],
+        ]).toDouble();
+        hppTotal = _numFirstNonZero([
+          row['hpp_total'],
+          row['total_hpp'],
+          row['all_hpp_total'],
+          row['hpp_amount'],
+          row['hpp'],
+        ]).toDouble();
+        paidQty = _numFirstNonZero([
+          row['qty_settled'],
+          row['paid_qty'],
+          row['settled_qty'],
+          row['qty_paid'],
+        ]).toDouble();
+        unpaidQty = _numFirstNonZero([
+          row['qty_unsettled'],
+          row['unpaid_qty_total'],
+          row['unpaid_qty'],
+          row['qty_unpaid'],
+          row['pending_payout_qty'],
+          row['qty_belum_payout'],
+        ]).toDouble();
         positivePayout = _num(row['positive_payout_total'] ??
                 row['paid_positive_payout_total'])
             .toDouble();
@@ -5602,20 +5772,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         // a non-zero payout_total (accumulated), but all their qty is unpaid.
         final isTaggedUnpaid =
             _text(row['_payout_filter'], '').toLowerCase() == 'unpaid';
-        if (!isTaggedUnpaid && paidQty <= 0 && paidPayout != 0)
+        if (!isTaggedUnpaid && paidQty <= 0 && paidPayout != 0 && unpaidQty <= 0)
           paidQty = totalQty;
         if (positivePayoutQty <= 0 && positivePayout > 0)
           positivePayoutQty = paidQty > 0 ? paidQty : totalQty;
         if (negativePayoutQty <= 0 && negativePayout < 0)
           negativePayoutQty = paidQty > 0 ? paidQty : totalQty;
-        if (unpaidQty <= 0)
+        if (unpaidQty <= 0 && totalQty > paidQty)
           unpaidQty = (totalQty - paidQty).clamp(0, 999999999).toDouble();
-        paidGross = _num(row['paid_gross_total']).toDouble();
+        paidGross = _numFirstNonZero([
+          row['paid_gross_total'],
+          row['settled_gross_total'],
+        ]).toDouble();
         if (paidGross <= 0)
           paidGross = unpaidQty > 0 && totalQty > 0
               ? grossTotal * (paidQty / totalQty)
-              : grossTotal;
-        paidHppTotal = _num(row['paid_hpp_total']).toDouble();
+              : (paidQty > 0 ? grossTotal : 0.0);
+        paidHppTotal = _numFirstNonZero([
+          row['paid_hpp_total'],
+          row['settled_hpp_total'],
+        ]).toDouble();
         if (hppTotal <= 0 && rowHppPerItemFallback > 0 && totalQty > 0)
           hppTotal = rowHppPerItemFallback * totalQty;
         if (paidHppTotal <= 0 && paidQty > 0)
@@ -5624,29 +5800,45 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               : (totalQty > 0 ? hppTotal * (paidQty / totalQty) : hppTotal);
       }
 
-      final qtyForGross =
-          totalQty > 0 ? totalQty : _num(row['qty_total'] ?? row['qty'] ?? 1);
+      final qtyForGross = totalQty > 0
+          ? totalQty
+          : _numFirstNonZero([
+              row['total_qty'],
+              row['all_qty_total'],
+              row['qty_total'],
+              row['qty_all'],
+              row['qty'],
+              row['quantity'],
+              0.0,
+            ]).toDouble();
       final grossPerItem = qtyForGross > 0
           ? grossTotal / qtyForGross
           : _num(row['gross_per_item']);
+      final sampleQty = _numFirstNonZero([row['qty_sample'], row['sample_qty']]).toDouble();
+      final sampleHpp = _numFirstNonZero([row['hpp_sample'], row['sample_hpp'], row['total_hpp_sample']]).toDouble();
       final hppPerItem = rowHppPerItemFallback > 0
           ? rowHppPerItemFallback
-          : (qtyForGross > 0 ? hppTotal / qtyForGross : 0.0);
+          : (qtyForGross > 0 ? (hppTotal > 0 ? hppTotal / qtyForGross : (sampleHpp > 0 && sampleQty > 0 ? sampleHpp / sampleQty : 0.0)) : 0.0);
       final settledHppTotal = hppPerItem * paidQty;
       final unpaidHppTotal = hppPerItem * unpaidQty;
-      final allHppTotal = settledHppTotal + unpaidHppTotal;
-      final payoutForMargin = positivePayout > 0
+      final allHppTotal = (hppTotal > 0) ? hppTotal : (settledHppTotal + unpaidHppTotal + (sampleHpp > 0 ? sampleHpp : (hppPerItem * sampleQty)));
+      final payoutForMargin = (positivePayout != 0)
           ? positivePayout
-          : (paidPayout > 0 ? paidPayout : 0.0);
+          : (paidPayout != 0 ? paidPayout : 0.0);
       final payoutPerSettledItem =
           paidQty > 0 ? payoutForMargin / paidQty : 0.0;
       final netPayoutPerSettledItem = paidQty > 0 ? paidPayout / paidQty : 0.0;
-      final profit = payoutForMargin - settledHppTotal;
+      final actualItemHpp = (paidHppTotal > 0) 
+          ? paidHppTotal 
+          : (settledHppTotal > 0 ? settledHppTotal : (sampleHpp > 0 ? sampleHpp : allHppTotal));
+      final profit = paidPayout != 0
+          ? (paidPayout - actualItemHpp)
+          : (grossTotal > 0 ? (grossTotal - allHppTotal) : -actualItemHpp);
       final settledMargin =
-          payoutForMargin > 0 ? ((profit / payoutForMargin) * 100) : 0.0;
+          payoutForMargin != 0 ? ((profit / payoutForMargin.abs()) * 100) : (actualItemHpp > 0 ? -100.0 : 0.0);
       final estimatedProfit = grossTotal - allHppTotal;
       final estimatedMargin =
-          grossTotal > 0 ? ((estimatedProfit / grossTotal) * 100) : 0.0;
+          grossTotal > 0 ? ((estimatedProfit / grossTotal) * 100) : (allHppTotal > 0 ? -100.0 : 0.0);
 
       row['qty_total'] = qtyForGross;
       row['qty'] = qtyForGross;
@@ -5678,12 +5870,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['all_hpp_total'] = allHppTotal;
       row['hpp_total'] = allHppTotal;
       row['total_hpp'] = allHppTotal;
-      row['payout_total'] = payoutForMargin;
-      row['payout_amount'] = payoutForMargin;
-      row['received_amount'] = payoutForMargin;
-      row['net_settlement'] = payoutForMargin;
-      row['payout'] = payoutForMargin;
-      row['net_received'] = payoutForMargin;
+      row['payout_total'] = paidPayout;
+      row['payout_amount'] = paidPayout;
+      row['received_amount'] = paidPayout;
+      row['net_settlement'] = paidPayout;
+      row['payout'] = paidPayout;
+      row['net_received'] = paidPayout;
       row['positive_payout_total'] = positivePayout;
       row['negative_payout_total'] = negativePayout;
       row['gross_per_item'] = grossPerItem;
@@ -5856,6 +6048,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             _num(existing['qty_unpaid']) + _num(row['qty_unpaid']);
         existing['pending_payout_qty'] = _num(existing['pending_payout_qty']) +
             _num(row['pending_payout_qty']);
+        existing['gross_total'] =
+            _num(existing['gross_total']) + _num(row['gross_total']);
+        existing['gross_sales'] =
+            _num(existing['gross_sales']) + _num(row['gross_sales']);
+        existing['omzet_total'] =
+            _num(existing['omzet_total']) + _num(row['omzet_total']);
+        existing['total_omzet'] =
+            _num(existing['total_omzet']) + _num(row['total_omzet']);
+        existing['gross_amount'] =
+            _num(existing['gross_amount']) + _num(row['gross_amount']);
+        existing['all_gross_total'] =
+            _num(existing['all_gross_total']) + _num(row['all_gross_total']);
         existing['paid_gross_total'] =
             _num(existing['paid_gross_total']) + _num(row['paid_gross_total']);
         existing['settled_gross_total'] =
@@ -5863,6 +6067,30 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 _num(row['settled_gross_total']);
         existing['unpaid_gross_total'] = _num(existing['unpaid_gross_total']) +
             _num(row['unpaid_gross_total']);
+        existing['qty_sample'] =
+            _num(existing['qty_sample']) + _num(row['qty_sample']);
+        existing['sample_qty'] =
+            _num(existing['sample_qty']) + _num(row['sample_qty']);
+        existing['total_qty_sample'] =
+            _num(existing['total_qty_sample']) + _num(row['total_qty_sample']);
+        existing['qty_returned'] =
+            _num(existing['qty_returned']) + _num(row['qty_returned']);
+        existing['returned_qty'] =
+            _num(existing['returned_qty']) + _num(row['returned_qty']);
+        existing['qty_batal'] =
+            _num(existing['qty_batal']) + _num(row['qty_batal']);
+        existing['hpp_sample'] =
+            _num(existing['hpp_sample']) + _num(row['hpp_sample']);
+        existing['sample_hpp'] =
+            _num(existing['sample_hpp']) + _num(row['sample_hpp']);
+        existing['total_hpp_sample'] =
+            _num(existing['total_hpp_sample']) + _num(row['total_hpp_sample']);
+        existing['hpp_return'] =
+            _num(existing['hpp_return']) + _num(row['hpp_return']);
+        existing['hpp_retur'] =
+            _num(existing['hpp_retur']) + _num(row['hpp_retur']);
+        existing['return_hpp'] =
+            _num(existing['return_hpp']) + _num(row['return_hpp']);
         existing['payout_total'] =
             _num(existing['payout_total']) + _num(row['payout_total']);
         existing['payout_amount'] =
@@ -5885,14 +6113,33 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             _num(existing['hpp_total']) + _num(row['hpp_total']);
         existing['total_hpp'] =
             _num(existing['total_hpp']) + _num(row['total_hpp']);
+
         final paidQty = _num(existing['paid_qty']);
+        final totalQty = _num(existing['qty_total']);
         final payout = _num(existing['payout_total']);
         final hpp = _num(existing['paid_hpp_total']);
+        final paidGross = _numFirstNonZero([existing['paid_gross_total'], existing['settled_gross_total']]);
+        final totalGross = _numFirstNonZero([existing['total_omzet'], existing['gross_sales'], existing['gross_total'], existing['omzet_total']]);
+
         existing['payout_per_item'] = paidQty > 0 ? payout / paidQty : 0;
         existing['payout_per_item_paid'] = existing['payout_per_item'];
-        existing['hpp_per_item'] = paidQty > 0 && hpp > 0
-            ? hpp / paidQty
-            : _numFirstNonZero([existing['hpp_per_item'], row['hpp_per_item']]);
+
+        final masterHpp = _numFirstNonZero([
+          row['hpp_per_item'],
+          existing['hpp_per_item'],
+          row['unit_hpp'],
+          existing['unit_hpp'],
+          row['hpp_unit'],
+        ]);
+        existing['hpp_per_item'] = masterHpp > 0
+            ? masterHpp
+            : (paidQty > 0 && hpp > 0 ? hpp / paidQty : 0);
+        existing['unit_hpp'] = existing['hpp_per_item'];
+
+        existing['gross_per_item'] = paidQty > 0 && paidGross > 0
+            ? (paidGross / paidQty)
+            : (totalQty > 0 ? (totalGross / totalQty) : _numFirstNonZero([existing['gross_per_item'], row['gross_per_item']]));
+
         existing['net_profit'] = payout - hpp;
         existing['profit'] = existing['net_profit'];
         existing['net_margin_percent'] =
@@ -6112,6 +6359,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _isSampleFreeAbnormalRow(Map<String, dynamic> row) {
+    final payout = _num(row['payout_amount'] ??
+        row['payout_total'] ??
+        row['payout'] ??
+        row['received_amount'] ??
+        row['net_settlement']);
+    if (payout < 0) return false;
     final status = _text(
             row['abnormal_status'] ??
                 row['finance_status'] ??
@@ -6173,9 +6426,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         status.contains('negative') ||
         status.contains('payout_minus') ||
         status.contains('negative_payout') ||
-        reason.contains('settlement') ||
         reason.contains('negative payout') ||
-        reason.contains('payout minus dari settlement');
+        reason.contains('payout minus');
   }
 
   bool _isNoPayoutAbnormalRow(Map<String, dynamic> row) {
@@ -6275,8 +6527,10 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     for (final row in _abnormalServerLoaded ? _serverAbnormales : _abnormals) {
       add(row);
     }
-    for (final row in _sampleFreeOrders) {
-      add(row);
+    if (_abnormalStatusFilter == 'sample_free' || _abnormalStatusFilter == 'all') {
+      for (final row in _sampleFreeOrders) {
+        add(row);
+      }
     }
     return byKey.values.toList();
   }
@@ -7803,6 +8057,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                       SizedBox(height: 12),
                       TextField(
                         controller: manualCategory,
+                        onTap: AppUi.selectOnTap(manualCategory),
                         textInputAction: TextInputAction.next,
                         decoration: const InputDecoration(
                             labelText: 'Nama kategori baru'),
@@ -7811,6 +8066,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     SizedBox(height: 12),
                     TextField(
                       controller: amount,
+                      onTap: AppUi.selectOnTap(amount),
                       keyboardType: TextInputType.number,
                       textInputAction: TextInputAction.next,
                       inputFormatters: const [_ThousandsInputFormatter()],
@@ -7823,6 +8079,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     SizedBox(height: 12),
                     TextField(
                       controller: note,
+                      onTap: AppUi.selectOnTap(note),
                       maxLines: 2,
                       decoration: const InputDecoration(labelText: 'Catatan'),
                     ),
@@ -7976,6 +8233,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   SizedBox(height: 12),
                   TextField(
                     controller: manualCategory,
+                    onTap: AppUi.selectOnTap(manualCategory),
                     textInputAction: TextInputAction.next,
                     decoration:
                         const InputDecoration(labelText: 'Nama kategori'),
@@ -7984,6 +8242,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 SizedBox(height: 12),
                 TextField(
                   controller: amount,
+                  onTap: AppUi.selectOnTap(amount),
                   keyboardType: TextInputType.number,
                   textInputAction: TextInputAction.next,
                   inputFormatters: const [_ThousandsInputFormatter()],
@@ -7996,6 +8255,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 SizedBox(height: 12),
                 TextField(
                   controller: note,
+                  onTap: AppUi.selectOnTap(note),
                   maxLines: 2,
                   decoration: const InputDecoration(labelText: 'Catatan'),
                 ),
@@ -8244,6 +8504,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: amount,
+                  onTap: AppUi.selectOnTap(amount),
                   keyboardType: TextInputType.number,
                   inputFormatters: const [_ThousandsInputFormatter()],
                   decoration: const InputDecoration(
@@ -8256,6 +8517,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: note,
+                  onTap: AppUi.selectOnTap(note),
                   maxLines: 2,
                   decoration: const InputDecoration(labelText: 'Catatan'),
                 ),
@@ -8454,6 +8716,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: amount,
+                  onTap: AppUi.selectOnTap(amount),
                   keyboardType: TextInputType.number,
                   inputFormatters: const [_ThousandsInputFormatter()],
                   decoration: const InputDecoration(
@@ -8465,6 +8728,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: category,
+                  onTap: AppUi.selectOnTap(category),
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     labelText: 'Kategori',
@@ -8474,6 +8738,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: note,
+                  onTap: AppUi.selectOnTap(note),
                   maxLines: 2,
                   decoration: const InputDecoration(labelText: 'Catatan'),
                 ),
@@ -8669,6 +8934,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: amount,
+                  onTap: AppUi.selectOnTap(amount),
                   keyboardType: TextInputType.number,
                   inputFormatters: const [_ThousandsInputFormatter()],
                   decoration: const InputDecoration(
@@ -8901,6 +9167,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: amount,
+                  onTap: AppUi.selectOnTap(amount),
                   keyboardType: TextInputType.number,
                   inputFormatters: const [_ThousandsInputFormatter()],
                   decoration: const InputDecoration(
@@ -9188,21 +9455,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   @override
   Widget build(BuildContext context) {
-    final tabs = [
-      const Tab(text: 'Ringkasan'),
-      const Tab(text: 'Marketplace'),
-      const Tab(text: 'SKU'),
-      const Tab(text: 'Arus Kas'),
-      const Tab(text: 'Biaya'),
-      const Tab(text: 'Laba Rugi'),
-      const Tab(text: 'Abnormal'),
+    final appTabs = [
+      const AppTabItem(label: 'Ringkasan', icon: Icons.dashboard_outlined),
+      const AppTabItem(label: 'Marketplace', icon: Icons.storefront_outlined),
+      const AppTabItem(label: 'SKU', icon: Icons.inventory_2_outlined),
+      const AppTabItem(label: 'Arus Kas', icon: Icons.account_balance_wallet_outlined),
+      const AppTabItem(label: 'Biaya', icon: Icons.receipt_long_outlined),
+      const AppTabItem(label: 'Laba Rugi', icon: Icons.analytics_outlined),
+      const AppTabItem(label: 'Abnormal', icon: Icons.warning_amber_rounded),
     ];
 
     final safeInitialTab =
-        widget.initialTabIndex.clamp(0, tabs.length - 1).toInt();
+        widget.initialTabIndex.clamp(0, appTabs.length - 1).toInt();
 
     return DefaultTabController(
-      length: tabs.length,
+      length: appTabs.length,
       initialIndex: safeInitialTab,
       child: WebResponsiveScaffold(
         title: 'Laporan Keuangan',
@@ -9242,25 +9509,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ),
           ],
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(40),
-          child: TabBar(
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            indicatorSize: TabBarIndicatorSize.tab,
-            indicatorColor: Theme.of(context).colorScheme.primary,
-            indicatorWeight: 2.5,
-            labelColor: Theme.of(context).colorScheme.primary,
-            unselectedLabelColor: AppUi.mutedText(context, 0.88),
-            labelStyle: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0),
-            unselectedLabelStyle:
-                const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-            tabs: tabs,
-          ),
-        ),
         floatingActionButton: Builder(
           builder: (fabContext) {
             final tabController = DefaultTabController.maybeOf(fabContext);
@@ -9306,6 +9554,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         body: SafeArea(
           child: Column(
             children: [
+              AppSegmentedTabBar(
+                isScrollable: true,
+                tabs: appTabs,
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              ),
               _marketplaceBootstrapFinanceBanner(),
               _filterBar(),
               Expanded(
@@ -9359,133 +9612,233 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     ];
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final activeFilterCount = (_marketplaceFilter != 'all' ? 1 : 0) +
+        (_accountFilter != 'all' ? 1 : 0);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context)
-                .colorScheme
-                .outlineVariant
-                .withOpacity(isDark ? 0.25 : 0.45),
-          ),
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _dateChip(
-                        icon: Icons.calendar_today_rounded,
-                        label: 'Periode',
-                        value: '${_date(_start)} - ${_date(_end)}',
-                        onTap: _pickDateRange,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth > 780;
+              return Row(
+                children: [
+                  _dateChip(
+                    icon: Icons.calendar_today_rounded,
+                    label: 'Periode',
+                    value: '${_date(_start)} - ${_date(_end)}',
+                    onTap: _pickDateRange,
+                  ),
+                  const SizedBox(width: 8),
+                  if (isWide) ...[
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _periodShortcut(
+                                'Hari ini', () => _applyDatePreset('today')),
+                            const SizedBox(width: 6),
+                            _periodShortcut(
+                                '7d', () => _applyDatePreset('7d')),
+                            const SizedBox(width: 6),
+                            _periodShortcut(
+                                'Bulan ini', () => _applyDatePreset('month')),
+                            const SizedBox(width: 6),
+                            _periodShortcut(
+                                '30d', () => _applyDatePreset('30d')),
+                            const SizedBox(width: 6),
+                            _periodShortcut(
+                                '90d', () => _applyDatePreset('90d')),
+                          ],
+                        ),
                       ),
-                    ],
+                    ),
+                  ] else ...[
+                    const Spacer(),
+                  ],
+                  const SizedBox(width: 8),
+                  Material(
+                    color: _filterExpanded
+                        ? Theme.of(context).colorScheme.primary.withOpacity(0.15)
+                        : (isDark
+                            ? Colors.white.withOpacity(0.06)
+                            : Colors.black.withOpacity(0.04)),
+                    borderRadius: BorderRadius.circular(20),
+                    child: InkWell(
+                      onTap: () =>
+                          setState(() => _filterExpanded = !_filterExpanded),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.tune_rounded,
+                              size: 15,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Filter & Opsi',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                            ),
+                            if (activeFilterCount > 0) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '$activeFilterCount',
+                                  style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(width: 4),
+                            Icon(
+                              _filterExpanded
+                                  ? Icons.keyboard_arrow_up_rounded
+                                  : Icons.keyboard_arrow_down_rounded,
+                              size: 18,
+                              color:
+                                  Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: 38,
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: Size.zero,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
+                ],
+              );
+            },
+          ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth <= 780) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _periodShortcut(
+                            'Hari ini', () => _applyDatePreset('today')),
+                        const SizedBox(width: 6),
+                        _periodShortcut(
+                            '7d', () => _applyDatePreset('7d')),
+                        const SizedBox(width: 6),
+                        _periodShortcut(
+                            'Bulan ini', () => _applyDatePreset('month')),
+                        const SizedBox(width: 6),
+                        _periodShortcut(
+                            '30d', () => _applyDatePreset('30d')),
+                        const SizedBox(width: 6),
+                        _periodShortcut(
+                            '90d', () => _applyDatePreset('90d')),
+                      ],
+                    ),
                   ),
-                  onPressed: () =>
-                      setState(() => _filterExpanded = !_filterExpanded),
-                  icon: Icon(
-                      _filterExpanded ? Icons.expand_less : Icons.tune_rounded,
-                      size: 18),
-                  label: Text('Filter',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ],
+                );
+              }
+              return const SizedBox.shrink();
+            },
           ),
           if (_filterExpanded) ...[
             const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .outlineVariant
+                      .withOpacity(isDark ? 0.25 : 0.45),
+                  width: 0.8,
+                ),
+                boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _periodShortcut('Hari ini', () => _applyDatePreset('today')),
-                  const SizedBox(width: 6),
-                  _periodShortcut('7d', () => _applyDatePreset('7d')),
-                  const SizedBox(width: 6),
-                  _periodShortcut('Bulan ini', () => _applyDatePreset('month')),
-                  const SizedBox(width: 6),
-                  _periodShortcut('30d', () => _applyDatePreset('30d')),
-                  const SizedBox(width: 6),
-                  _periodShortcut('90d', () => _applyDatePreset('90d')),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _compactDropdown<String>(
+                          label: 'Platform',
+                          value: marketplaceOptions.any(
+                                  (item) => item.value == _marketplaceFilter)
+                              ? _marketplaceFilter
+                              : 'all',
+                          items: marketplaceOptions,
+                          onChanged: (value) async {
+                            if (value == null) return;
+                            setState(() {
+                              _marketplaceFilter =
+                                  _normalizeMarketplaceFilter(value) ?? 'all';
+                              _accountFilter = 'all';
+                              _rememberFilters();
+                            });
+                            await _load();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _compactDropdown<String>(
+                          label: 'Toko',
+                          value: accountOptions.any(
+                                  (item) => item.value == _accountFilter)
+                              ? _accountFilter
+                              : 'all',
+                          items: accountOptions,
+                          onChanged: (value) async {
+                            if (value == null) return;
+                            setState(() {
+                              _accountFilter = value == 'all' || _isUuid(value)
+                                  ? value
+                                  : 'all';
+                              _rememberFilters();
+                            });
+                            await _load();
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Divider(
+                      height: 1,
+                      color: Theme.of(context).dividerColor.withOpacity(0.12)),
+                  const SizedBox(height: 12),
+                  _financeSyncInfo(),
+                  const SizedBox(height: 12),
+                  Divider(
+                      height: 1,
+                      color: Theme.of(context).dividerColor.withOpacity(0.12)),
+                  const SizedBox(height: 12),
+                  _financeAutoSyncSwitch(),
                 ],
               ),
             ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _compactDropdown<String>(
-                    label: 'Platform',
-                    value: marketplaceOptions
-                            .any((item) => item.value == _marketplaceFilter)
-                        ? _marketplaceFilter
-                        : 'all',
-                    items: marketplaceOptions,
-                    onChanged: (value) async {
-                      if (value == null) return;
-                      setState(() {
-                        _marketplaceFilter =
-                            _normalizeMarketplaceFilter(value) ?? 'all';
-                        _accountFilter = 'all';
-                        _rememberFilters();
-                      });
-                      await _load();
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _compactDropdown<String>(
-                    label: 'Toko',
-                    value: accountOptions
-                            .any((item) => item.value == _accountFilter)
-                        ? _accountFilter
-                        : 'all',
-                    items: accountOptions,
-                    onChanged: (value) async {
-                      if (value == null) return;
-                      setState(() {
-                        _accountFilter =
-                            value == 'all' || _isUuid(value) ? value : 'all';
-                        _rememberFilters();
-                      });
-                      await _load();
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _financeSyncInfo(),
-            const SizedBox(height: 8),
-            _financeManualActions(),
-            _progressCard(),
-            const SizedBox(height: 8),
-            _financeAutoSyncSwitch(),
           ],
         ],
       ),
@@ -9511,82 +9864,86 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
-              width: 0.8,
+        Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0xFF10B981),
+              ),
             ),
-          ),
-          child: Text(
-            'Periode data: $period',
-            style: TextStyle(
+            const SizedBox(width: 8),
+            Text(
+              'Periode data: $period',
+              style: TextStyle(
                 color: Theme.of(context).colorScheme.primary,
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700),
-          ),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              'Terakhir sinkron: ${_syncTimestampText(latestSync)}',
+              style: TextStyle(
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withOpacity(0.75),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
-                  Theme.of(context).brightness == Brightness.dark
-                      ? 0.25
-                      : 0.45),
-              width: 0.8,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Terakhir sinkron: ${_syncTimestampText(latestSync)}',
-                style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Order pull: ${_syncTimestampText(orderPullAt)}',
-                style: TextStyle(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withOpacity(0.72),
-                    fontSize: 11),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Finance pull: ${_syncTimestampText(financePullAt)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withOpacity(0.72),
-                    fontSize: 11),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Payout update: ${_syncTimestampText(payoutUpdateAt)}',
-                style: TextStyle(
-                    color: AppUi.mutedText(context, 0.88), fontSize: 10.5),
-              ),
-            ],
-          ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            _syncStatusPill('Order pull', _syncTimestampText(orderPullAt)),
+            _syncStatusPill('Finance pull', _syncTimestampText(financePullAt)),
+            _syncStatusPill(
+                'Payout update', _syncTimestampText(payoutUpdateAt)),
+          ],
         ),
       ],
+    );
+  }
+
+  Widget _syncStatusPill(String label, String time) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withOpacity(0.12),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+            ),
+          ),
+          Text(
+            time,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.85),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -9599,78 +9956,69 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   Widget _financeAutoSyncSwitch() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
-              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
-          width: 0.8,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.payments_rounded,
-              color: Theme.of(context).colorScheme.primary, size: 18),
-          SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Auto finance aktif',
-                    style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: Theme.of(context).colorScheme.onSurface)),
-                SizedBox(height: 2),
-                Text(
-                    'Payout, missing payout, dan status order lama diproses otomatis di background.',
-                    style: TextStyle(
-                        fontSize: 11, color: AppUi.mutedText(context, 0.88))),
-              ],
-            ),
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(8),
           ),
-          if (_financeAutoSyncBusy)
-            SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Theme.of(context).colorScheme.primary))
-          else
-            Switch.adaptive(
-              value: _financeAutoSyncEnabled,
-              activeColor: Theme.of(context).colorScheme.primary,
-              onChanged: _setFinanceAutoSyncEnabled,
-            ),
-        ],
-      ),
+          child: Icon(Icons.payments_rounded,
+              color: Theme.of(context).colorScheme.primary, size: 20),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Auto finance aktif',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.onSurface)),
+              const SizedBox(height: 2),
+              Text(
+                  'Payout, missing payout, dan status order lama diproses otomatis di background.',
+                  style: TextStyle(
+                      fontSize: 11, color: AppUi.mutedText(context, 0.88))),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        if (_financeAutoSyncBusy)
+          SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Theme.of(context).colorScheme.primary))
+        else
+          Switch.adaptive(
+            value: _financeAutoSyncEnabled,
+            activeColor: Theme.of(context).colorScheme.primary,
+            onChanged: _setFinanceAutoSyncEnabled,
+          ),
+      ],
     );
   }
 
   Widget _periodShortcut(String label, VoidCallback onTap) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: Colors.transparent,
+      color: isDark
+          ? Colors.white.withOpacity(0.06)
+          : Colors.black.withOpacity(0.04),
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.07),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.22),
-              width: 0.8,
-            ),
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           child: Text(
             label,
             style: TextStyle(
-                color: Theme.of(context).colorScheme.primary,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.85),
                 fontSize: 11.5,
                 fontWeight: FontWeight.w600),
           ),
@@ -9687,49 +10035,33 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: Theme.of(context).cardColor,
-      borderRadius: BorderRadius.circular(8),
+      color: isDark
+          ? Colors.white.withOpacity(0.07)
+          : Colors.black.withOpacity(0.04),
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: Theme.of(context)
-                  .colorScheme
-                  .outlineVariant
-                  .withOpacity(isDark ? 0.28 : 0.5),
-              width: 0.8,
-            ),
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon,
                   size: 14, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 6),
-              ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 86, maxWidth: 220),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(label,
-                        style: TextStyle(
-                            fontSize: 10.5,
-                            color: AppUi.mutedText(context, 0.88),
-                            fontWeight: FontWeight.w500)),
-                    Text(value,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: Theme.of(context).colorScheme.onSurface)),
-                  ],
+              const SizedBox(width: 8),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
+              const SizedBox(width: 4),
+              Icon(Icons.arrow_drop_down_rounded,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ],
           ),
         ),
@@ -9840,24 +10172,36 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _summary['payout'] ??
         _summary['received_amount'] ??
         _summary['net_received']);
-    final summaryHpp = _numFirstNonZero([
-      _summary['hpp_settled'],
-      _summary['settled_hpp'],
-      _summary['paid_hpp_total'],
-      _summary['hpp_total'],
-      _summary['hpp'],
-      _summary['total_hpp'],
+    final summaryHpp = (_summary.containsKey('hpp_settled') ||
+            _summary.containsKey('settled_hpp') ||
+            _summary.containsKey('paid_hpp_total') ||
+            _summary.containsKey('settled_hpp_total'))
+        ? _num(_summary['hpp_settled'] ??
+            _summary['settled_hpp_total'] ??
+            _summary['paid_hpp_total'] ??
+            _summary['settled_hpp'])
+        : _num(_summary['hpp_total'] ?? _summary['total_hpp'] ?? _summary['hpp']);
+    final sampleHppTotal = _numFirstNonZero([
+      _summary['sample_hpp_total'],
+      _summary['sample_hpp'],
+      _summary['hpp_sample_total'],
+      _summary['total_sample_hpp'],
+      _summary['abnormal_sample_hpp'],
+      _summary['sample_free_hpp'],
     ]);
-    final operational = _num(_summary['operational_cost_total'] ??
+    final operationalBase = _num(_summary['operational_cost_total'] ??
         _summary['operational_expense'] ??
         _summary['expense_total']);
+    final operational = operationalBase + sampleHppTotal;
 
-    // v24.6.74: kartu Ringkasan pakai summary final dari RPC/cache.
-    // Detail SKU tetap ditampilkan di tab SKU, tapi tidak boleh mengubah total utama.
     final gross = summaryGross > 0 ? summaryGross : paidSkuTotals['gross']!;
     final payout = summaryPayout > 0 ? summaryPayout : paidSkuTotals['payout']!;
-    final hpp = summaryHpp > 0 ? summaryHpp : paidSkuTotals['hpp']!;
-    final profit = payout - hpp - operational;
+    final hpp = summaryPayout > 0
+        ? (summaryHpp > 0 ? summaryHpp : paidSkuTotals['hpp']!)
+        : (summaryHpp > 0 ? summaryHpp : 0.0);
+    final profit = (_summary.containsKey('net_profit') || _summary.containsKey('profit'))
+        ? (_num(_summary['net_profit'] ?? _summary['profit']) - operationalBase - sampleHppTotal)
+        : (payout > 0 ? payout - hpp - operational : 0.0);
     final margin = payout > 0 ? (profit / payout) * 100 : 0.0;
     final orderCount = _num(_summary['order_count'] ??
         _summary['orders_count'] ??
@@ -9900,15 +10244,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _summary['confirmed_sample_count'],
       _summary['abnormal_sample_count'],
       localSampleCount,
-    ]);
-
-    final sampleHppTotal = _numFirstNonZero([
-      _summary['sample_hpp_total'],
-      _summary['sample_hpp'],
-      _summary['hpp_sample_total'],
-      _summary['total_sample_hpp'],
-      _summary['abnormal_sample_hpp'],
-      _summary['sample_free_hpp'],
     ]);
     final samplePayoutMinusSigned = _num(_summary['sample_payout_minus_total']);
     final sampleNegativePayout = _numFirstNonZero([
@@ -10017,308 +10352,116 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               title: payout > 0 ? 'LABA BERSIH' : 'ESTIMASI LABA',
               value: _money(profit),
               subtitle:
-                  'Margin ${margin.toStringAsFixed(2)}%  ·  $orderSubtitle',
+                  'Margin ${margin.toStringAsFixed(2)}%  ·  $orderSubtitle  ·  Ketuk untuk rincian laba/rugi',
               icon: Icons.account_balance_wallet_rounded,
               positive: profit >= 0,
+              onTap: () => DefaultTabController.maybeOf(context)?.animateTo(5),
             ),
             const SizedBox(height: 12),
-            if (!_sampleFreeLoaded) ...[
-              if (_sampleFreeLoading)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Center(
-                      child: FuturisticLoader(
-                          message: 'Memuat Ringkasan Sample/Gratis...')),
-                )
-              else ...[
-                if (_sampleFreeError != null) ...[
-                  _emptyCard('Gagal memuat sample/gratis: $_sampleFreeError'),
-                  const SizedBox(height: 8),
+            if (sampleOrderCount > 0 ||
+                sampleHppTotal > 0 ||
+                sampleNegativePayout > 0) ...[
+              _detailCard(
+                title: 'Pesanan Sample / Gratis',
+                subtitle:
+                    '${sampleOrderCount.toStringAsFixed(0)} order · HPP Modal ${_money(sampleHppTotal)}${sampleNegativePayout > 0 ? " · Potongan Biaya ${_money(sampleNegativePayout)}" : ""}',
+                children: [
+                  _miniMetric('Total Order Sample', sampleOrderCount.toStringAsFixed(0)),
+                  if (sampleHppTotal > 0)
+                    _miniMetric('Biaya Sample Marketing (HPP)', _money(sampleHppTotal), warning: true)
+                  else
+                    _miniMetric('Biaya Sample Marketing', 'Belum mapping HPP', warning: true),
+                  if (sampleNegativePayout > 0)
+                    _miniMetric('Potongan Biaya Marketplace', _money(sampleNegativePayout), warning: true),
+                  if (sampleLossEstimate > 0)
+                    _miniMetric('Total Beban Sample', _money(sampleLossEstimate), warning: true),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _navigateToSampleFreeAbnormal(context),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                            color: Theme.of(context).colorScheme.primary,
+                            width: 0.8),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                      icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                      label: const Text('LIHAT DAFTAR ORDER SAMPLE'),
+                    ),
+                  ),
                 ],
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .outlineVariant
-                          .withOpacity(
-                              Theme.of(context).brightness == Brightness.dark
-                                  ? 0.25
-                                  : 0.45),
-                      width: 0.8,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Audit Sample & Gratis',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          color: Theme.of(context).textTheme.bodyLarge?.color,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Audit data order sample, giveaway, tester, gratis dengan payout Rp 0 atau minus.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withOpacity(0.82),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: _loadSampleFreeOrdersSupplemental,
-                          style: FilledButton.styleFrom(
-                            backgroundColor:
-                                Theme.of(context).colorScheme.primary,
-                            foregroundColor:
-                                Theme.of(context).colorScheme.onPrimary,
-                          ),
-                          icon: Icon(Icons.card_giftcard_rounded),
-                          label: Text('MUAT AUDIT SAMPLE/GRATIS'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-            ] else ...[
-              if (sampleOrderCount > 0 ||
-                  sampleHppTotal > 0 ||
-                  sampleNegativePayout > 0) ...[
-                _detailCard(
-                  title: 'Sample / Gratis sesuai filter',
-                  subtitle:
-                      '${sampleOrderCount.toStringAsFixed(0)} order · HPP ${_money(sampleHppTotal)} · Payout minus ${_money(sampleNegativePayout)}',
-                  children: [
-                    if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
-                        'shopee')
-                      _emptyOkCard(
-                          'Shopee tidak ada Sample/Gratis terkonfirmasi')
-                    else if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
-                        'all')
-                      _emptyOkCard(
-                          'Shopee tidak ada Sample/Gratis terkonfirmasi'),
-                    if (sampleOrderCount > 0)
-                      _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
-                    if (sampleTextCount > 0)
-                      _miniMetric('Teks sample/free',
-                          sampleTextCount.toStringAsFixed(0)),
-                    if (sampleLabelCount > 0)
-                      _miniMetric(
-                          'Label produk', sampleLabelCount.toStringAsFixed(0)),
-                    if (sampleDiscountCount > 0)
-                      _miniMetric('Diskon 100%',
-                          sampleDiscountCount.toStringAsFixed(0)),
-                    if (sampleFinanceFlagCount > 0)
-                      _miniMetric('Flag finance',
-                          sampleFinanceFlagCount.toStringAsFixed(0)),
-                    if (sampleRawTikTokCount > 0)
-                      _miniMetric('Raw TikTok',
-                          sampleRawTikTokCount.toStringAsFixed(0)),
-                    if (sampleRawTikTokItems > 0)
-                      _miniMetric('Item raw TikTok',
-                          sampleRawTikTokItems.toStringAsFixed(0)),
-                    if (sampleRawTikTokApiFlag > 0)
-                      _miniMetric('Flag sample TikTok',
-                          sampleRawTikTokApiFlag.toStringAsFixed(0)),
-                    if (sampleRawTikTokImport > 0)
-                      _miniMetric('Export TikTok',
-                          sampleRawTikTokImport.toStringAsFixed(0)),
-                    if (classificationCancelledCount > 0)
-                      _miniMetric('Batal dipisah',
-                          classificationCancelledCount.toStringAsFixed(0)),
-                    if (classificationPendingCount > 0)
-                      _miniMetric('Pending dipisah',
-                          classificationPendingCount.toStringAsFixed(0)),
-                    if (classificationNoPayoutCount > 0)
-                      _miniMetric('No Payout eligible',
-                          classificationNoPayoutCount.toStringAsFixed(0)),
-                    if (_num(_summary['sample_gross_total']) > 0)
-                      _miniMetric('Gross (Omzet)',
-                          _money(_num(_summary['sample_gross_total']))),
-                    if (_num(_summary['sample_payout_total']) > 0)
-                      _miniMetric('Payout',
-                          _money(_num(_summary['sample_payout_total']))),
-                    if (sampleNegativePayout > 0)
-                      _miniMetric('Payout Minus', _money(sampleNegativePayout),
-                          warning: true),
-                    if (samplePayoutMinusSettlement > 0)
-                      _miniMetric('Payout minus dari settlement',
-                          _money(samplePayoutMinusSettlement),
-                          warning: true),
-                    if (samplePayoutMinusShipping > 0)
-                      _miniMetric('Payout minus ongkir',
-                          _money(samplePayoutMinusShipping),
-                          warning: true),
-                    if (samplePayoutMinusVoucher > 0)
-                      _miniMetric('Payout minus voucher',
-                          _money(samplePayoutMinusVoucher),
-                          warning: true),
-                    if (samplePayoutMinusPlatform > 0)
-                      _miniMetric('Payout minus fee platform',
-                          _money(samplePayoutMinusPlatform),
-                          warning: true),
-                    if (_num(_summary['sample_discount_total']) > 0)
-                      _miniMetric('Voucher/Diskon',
-                          _money(_num(_summary['sample_discount_total']))),
-                    if (_num(_summary['sample_shipping_total']) > 0)
-                      _miniMetric('Ongkir (Kurir)',
-                          _money(_num(_summary['sample_shipping_total']))),
-                    if (_num(_summary['sample_fee_total']) > 0)
-                      _miniMetric('Biaya Platform',
-                          _money(_num(_summary['sample_fee_total']))),
-                    if (_num(_summary['sample_refund_total']) > 0)
-                      _miniMetric('Refund',
-                          _money(_num(_summary['sample_refund_total']))),
-                    if (_num(_summary['sample_adjustment_total']) > 0)
-                      _miniMetric('Penyesuaian',
-                          _money(_num(_summary['sample_adjustment_total']))),
-                    if (sampleHppTotal > 0)
-                      _miniMetric('HPP Sample', _money(sampleHppTotal))
-                    else if (sampleOrderCount > 0)
-                      _miniMetric('HPP Sample', 'Belum mapping', warning: true),
-                    if (sampleLossEstimate > 0)
-                      _miniMetric('Estimasi Dampak', _money(sampleLossEstimate),
-                          warning: true)
-                    else if (sampleOrderCount > 0 && sampleHppTotal <= 0)
-                      _miniMetric('Estimasi Dampak', 'Menunggu HPP mapping',
-                          warning: true),
-                    if (sampleStatusBreakdown.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      _emptyCard(
-                          'Status Sample/Gratis: $sampleStatusBreakdown'),
-                    ],
-                    if (sampleSubstatusBreakdown.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      _emptyCard(
-                          'Substatus Sample/Gratis: $sampleSubstatusBreakdown'),
-                    ],
-                    const SizedBox(height: 10),
-                    Text(
-                      'Rumus: Estimasi Dampak = HPP Sample + Payout Minus confirmed only',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        fontStyle: FontStyle.italic,
-                        color: AppUi.mutedText(context, 0.90),
-                      ),
-                    ),
-                    if (sampleNegativePayout > 0) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        '* Payout minus dilabeli sesuai sumber yang terbukti: settlement, ongkir, voucher, atau fee platform.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.redAccent,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () => _navigateToSampleFreeAbnormal(context),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(
-                              color: Theme.of(context).colorScheme.primary,
-                              width: 0.8),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14)),
-                        ),
-                        icon: Icon(Icons.arrow_forward_rounded, size: 16),
-                        label: Text('LIHAT DAFTAR ORDER SAMPLE'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-              ] else ...[
-                _detailCard(
-                  title: 'Sample / Gratis sesuai filter',
-                  subtitle: '0 order terkonfirmasi',
-                  children: [
-                    if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
-                        'shopee')
-                      _emptyOkCard(
-                          'Shopee tidak ada Sample/Gratis terkonfirmasi')
-                    else ...[
-                      _emptyOkCard(
-                          'Tidak ada Sample/Gratis terkonfirmasi untuk filter ini.'),
-                      if (_normalizeMarketplaceFilter(_marketplaceFilter) ==
-                          'all')
-                        _emptyOkCard(
-                            'Shopee tidak ada Sample/Gratis terkonfirmasi'),
-                    ],
-                    if (sampleOrderCount > 0)
-                      _miniMetric('Order', sampleOrderCount.toStringAsFixed(0)),
-                    if (sampleTextCount > 0)
-                      _miniMetric('Teks sample/free',
-                          sampleTextCount.toStringAsFixed(0)),
-                    if (sampleLabelCount > 0)
-                      _miniMetric(
-                          'Label produk', sampleLabelCount.toStringAsFixed(0)),
-                    if (sampleDiscountCount > 0)
-                      _miniMetric('Diskon 100%',
-                          sampleDiscountCount.toStringAsFixed(0)),
-                    if (sampleFinanceFlagCount > 0)
-                      _miniMetric('Flag finance',
-                          sampleFinanceFlagCount.toStringAsFixed(0)),
-                    if (sampleRawTikTokCount > 0)
-                      _miniMetric('Raw TikTok',
-                          sampleRawTikTokCount.toStringAsFixed(0)),
-                    if (sampleRawTikTokItems > 0)
-                      _miniMetric('Item raw TikTok',
-                          sampleRawTikTokItems.toStringAsFixed(0)),
-                    if (classificationCancelledCount > 0)
-                      _miniMetric('Batal dipisah',
-                          classificationCancelledCount.toStringAsFixed(0)),
-                    if (classificationPendingCount > 0)
-                      _miniMetric('Pending dipisah',
-                          classificationPendingCount.toStringAsFixed(0)),
-                    if (classificationNoPayoutCount > 0)
-                      _miniMetric('No Payout eligible',
-                          classificationNoPayoutCount.toStringAsFixed(0)),
-                  ],
-                ),
-                const SizedBox(height: 12),
-              ],
+              ),
+              const SizedBox(height: 12),
             ],
             _metricGrid([
-              _Metric('Omzet', _money(gross), Icons.sell_rounded),
-              _Metric('Payout', _money(payout), Icons.payments_rounded),
-              _Metric('HPP', _money(hpp), Icons.inventory_2_rounded),
               _Metric(
-                  'Biaya Ops', _money(operational), Icons.receipt_long_rounded),
+                'Omzet',
+                _money(gross),
+                Icons.sell_rounded,
+                onTap: () => DefaultTabController.maybeOf(context)?.animateTo(2),
+              ),
               _Metric(
-                  'Sample/Gratis',
-                  _sampleFreeLoaded
-                      ? sampleOrderCount.toStringAsFixed(0)
-                      : 'Belum dimuat',
-                  Icons.card_giftcard_rounded),
-              _Metric('No Payout', noPayoutCount.toStringAsFixed(0),
-                  Icons.hourglass_empty_rounded),
-              _Metric('Payout Minus', payoutMinusCount.toStringAsFixed(0),
-                  Icons.remove_circle_outline),
-              _Metric('Nominal Minus', _money(negativePayout),
-                  Icons.money_off_rounded),
-              _Metric('Est. HPP Belum Payout', _money(unpaidEstimatedHpp),
-                  Icons.inventory_2_outlined),
-              _Metric('Abnormal', abnormalCount.toStringAsFixed(0),
-                  Icons.warning_amber_rounded),
-              _Metric('Sumber', displaySourceCount.toString(),
-                  Icons.dataset_rounded),
+                'Payout',
+                _money(payout),
+                Icons.payments_rounded,
+                onTap: () => DefaultTabController.maybeOf(context)?.animateTo(1),
+              ),
+              _Metric(
+                'HPP Settled',
+                _money(hpp),
+                Icons.inventory_2_rounded,
+                onTap: () => DefaultTabController.maybeOf(context)?.animateTo(2),
+              ),
+              _Metric(
+                'Biaya Ops',
+                _money(operational),
+                Icons.receipt_long_rounded,
+                onTap: () => DefaultTabController.maybeOf(context)?.animateTo(4),
+              ),
+              _Metric(
+                'Sample/Gratis',
+                sampleOrderCount.toStringAsFixed(0),
+                Icons.card_giftcard_rounded,
+                onTap: () => _navigateToSampleFreeAbnormal(context),
+              ),
+              _Metric(
+                'No Payout',
+                noPayoutCount.toStringAsFixed(0),
+                Icons.hourglass_empty_rounded,
+                onTap: () => _navigateToNoPayoutAbnormal(context),
+              ),
+              _Metric(
+                'Payout Minus',
+                payoutMinusCount.toStringAsFixed(0),
+                Icons.remove_circle_outline,
+                onTap: () => _navigateToPayoutMinusAbnormal(context),
+              ),
+              _Metric(
+                'Nominal Minus',
+                _money(negativePayout),
+                Icons.money_off_rounded,
+                onTap: () => _navigateToPayoutMinusAbnormal(context),
+              ),
+              _Metric(
+                'Est. HPP Belum Payout',
+                _money(unpaidEstimatedHpp),
+                Icons.inventory_2_outlined,
+                onTap: () => _showUnpaidHppOrdersDrilldown(context),
+              ),
+              _Metric(
+                'Abnormal',
+                abnormalCount.toStringAsFixed(0),
+                Icons.warning_amber_rounded,
+                onTap: () => DefaultTabController.maybeOf(context)?.animateTo(6),
+              ),
+              _Metric(
+                'Sumber',
+                displaySourceCount.toString(),
+                Icons.dataset_rounded,
+                onTap: () => DefaultTabController.maybeOf(context)?.animateTo(1),
+              ),
             ]),
             const SizedBox(height: 16),
             _emptyCard('Filter tanggal aktif untuk semua tab.'),
@@ -10345,16 +10488,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           else
             ...() {
               final mktList = _byMarketplace;
-              final summaryHpp = _numFirstNonZero([
-                _summary['hpp_settled'],
-                _summary['settled_hpp'],
-                _summary['paid_hpp_total'],
-                _summary['settled_hpp_total'],
-                _summary['hpp_total'],
-                _summary['total_hpp'],
-                _summary['hpp_cair'],
-                _summary['hpp'],
-              ]);
+              final summaryHpp = (_summary.containsKey('hpp_settled') ||
+                      _summary.containsKey('settled_hpp') ||
+                      _summary.containsKey('paid_hpp_total') ||
+                      _summary.containsKey('settled_hpp_total'))
+                  ? _num(_summary['hpp_settled'] ??
+                      _summary['settled_hpp_total'] ??
+                      _summary['paid_hpp_total'] ??
+                      _summary['settled_hpp'])
+                  : _num(_summary['hpp_total'] ?? _summary['total_hpp'] ?? _summary['hpp']);
               final totalMktGross = mktList.fold<double>(
                 0.0,
                 (sum, r) =>
@@ -10363,39 +10505,71 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               );
 
               return mktList.map((row) {
-                final marketplace =
-                    _marketplaceName(_text(row['marketplace']));
-                final shop = _text(
-                    row['shop_name'] ??
+                final mktKey = _text(row['marketplace']);
+                final marketplace = _marketplaceName(mktKey);
+                final accountId =
+                    _text(row['marketplace_account_id'] ?? row['account_id']);
+                final explicitShop = _text(
+                    row['store_alias'] ??
+                        row['shop_name'] ??
                         row['seller_name'] ??
-                        row['account_name'],
-                    _accountNameById(_text(row['marketplace_account_id'])));
+                        row['account_name']);
+
+                String storeName = '';
+                if (explicitShop.isNotEmpty &&
+                    explicitShop != 'Semua toko' &&
+                    explicitShop != '-') {
+                  storeName = explicitShop;
+                } else if (accountId.isNotEmpty) {
+                  final byId = _accountNameById(accountId);
+                  if (byId != 'Semua toko' && byId.isNotEmpty) {
+                    storeName = byId;
+                  }
+                }
+                if (storeName.isEmpty) {
+                  storeName = _storesNameForMarketplace(mktKey,
+                      accountId: accountId);
+                }
+
                 final gross =
                     _num(row['gross_sales'] ?? row['gross'] ?? row['omzet']);
-                final payout = _num(row['payout_total'] ?? row['net_received']);
-                var hpp = _numFirstNonZero([
-                  row['hpp_settled'],
-                  row['settled_hpp'],
-                  row['paid_hpp_total'],
-                  row['settled_hpp_total'],
-                  row['hpp_cair'],
-                  row['hpp_total'],
-                  row['total_hpp'],
-                  row['hpp_amount'],
-                  row['hpp'],
-                ]);
-                if (hpp == 0 &&
-                    summaryHpp > 0 &&
-                    totalMktGross > 0 &&
-                    gross > 0) {
-                  hpp = (gross / totalMktGross) * summaryHpp;
-                }
-                final profit = payout > 0 ? (payout - hpp) : (payout - hpp);
-                final margin = payout > 0 ? (profit / payout * 100) : 0.0;
+                final payout =
+                    _num(row['payout_total'] ?? row['net_received']);
+                var hpp = (row.containsKey('hpp_settled') ||
+                        row.containsKey('settled_hpp') ||
+                        row.containsKey('paid_hpp_total') ||
+                        row.containsKey('settled_hpp_total'))
+                    ? _num(row['hpp_settled'] ??
+                        row['settled_hpp_total'] ??
+                        row['paid_hpp_total'] ??
+                        row['settled_hpp'])
+                    : _num(row['hpp_total'] ??
+                        row['total_hpp'] ??
+                        row['hpp']);
+                final profit =
+                    payout > 0 ? (payout - hpp) : (payout - hpp);
+                final margin =
+                    payout > 0 ? (profit / payout * 100) : 0.0;
+                final orderCount =
+                    _num(row['order_count']).toStringAsFixed(0);
+                final updatedTime =
+                    _dateTime(row['last_updated_at'] ?? row['updated_at']);
+
+                final titleText = storeName.isNotEmpty
+                    ? '$marketplace · $storeName'
+                    : '$marketplace · Semua toko';
+
+                final subtitleText = storeName.isNotEmpty
+                    ? (updatedTime != '-'
+                        ? '$orderCount pesanan  ·  $storeName  ·  $updatedTime'
+                        : '$orderCount pesanan  ·  $storeName')
+                    : (updatedTime != '-'
+                        ? '$orderCount pesanan  ·  $updatedTime'
+                        : '$orderCount pesanan');
+
                 return _detailCard(
-                  title: '$marketplace · $shop',
-                  subtitle:
-                      '${_num(row['order_count']).toStringAsFixed(0)} pesanan  ·  ${_dateTime(row['last_updated_at'] ?? row['updated_at'])}',
+                  title: titleText,
+                  subtitle: subtitleText,
                   children: [
                     _miniMetric('Omzet', _money(gross)),
                     _miniMetric('Payout', _money(payout)),
@@ -10505,10 +10679,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     double totalHpp = _num(_summary['hpp_total'] ?? _summary['paid_hpp_total'] ?? _summary['hpp'] ?? 0);
     int totalQty = 0;
     int totalSettledQty = 0;
+    int totalUnsettledQty = 0;
+    double totalUnsettledHpp = 0;
 
     for (final row in _bySku) {
       totalQty += _numFirstNonZero([row['total_qty'], row['qty_total'], row['qty']]).round();
       totalSettledQty += _numFirstNonZero([row['settled_qty'], row['qty_settled'], row['paid_qty']]).round();
+      totalUnsettledQty += _numFirstNonZero([row['unpaid_qty'], row['qty_unpaid'], row['pending_payout_qty']]).round();
+      totalUnsettledHpp += _numFirstNonZero([row['unpaid_hpp'], row['unpaid_hpp_total']]);
     }
 
     if (totalQty == 0 && _skuPayoutCountSummaryMap.isNotEmpty) {
@@ -10535,6 +10713,16 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         _summary['qty_settled'],
         _summary['paid_qty'],
       ]).round();
+    }
+    if (totalUnsettledQty == 0 && totalQty > totalSettledQty) {
+      totalUnsettledQty = (totalQty - totalSettledQty).clamp(0, 99999999);
+    }
+    if (totalUnsettledHpp == 0 && totalUnsettledQty > 0) {
+      totalUnsettledHpp = _numFirstNonZero([
+        _summary['unpaid_hpp'],
+        _summary['unpaid_hpp_total'],
+        _summary['estimated_unpaid_hpp'],
+      ]);
     }
 
     final double margin = totalPayout > 0 ? ((totalPayout - totalHpp) / totalPayout) * 100 : 0.0;
@@ -10597,12 +10785,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _miniMetric('Total Omzet (SKU)', _money(totalGross)),
-              _miniMetric('Total Payout (SKU)', _money(totalPayout)),
-              _miniMetric('HPP Settled', _money(totalHpp)),
+              _miniMetric('Total Omzet (SKU)', _money(totalGross),
+                  onTap: () => DefaultTabController.maybeOf(context)?.animateTo(2)),
+              _miniMetric('Total Payout (SKU)', _money(totalPayout),
+                  onTap: () => DefaultTabController.maybeOf(context)?.animateTo(1)),
+              _miniMetric('HPP Settled', _money(totalHpp),
+                  onTap: () => DefaultTabController.maybeOf(context)?.animateTo(2)),
               _miniMetric('Margin Rata-rata', '${margin.toStringAsFixed(2)}%'),
-              _miniMetric('Total Qty', '$totalQty'),
-              _miniMetric('Qty Settled', '$totalSettledQty'),
+              _miniMetric('Total Qty', '$totalQty',
+                  onTap: () => DefaultTabController.maybeOf(context)?.animateTo(2)),
+              _miniMetric('Qty Settled', '$totalSettledQty',
+                  positive: totalSettledQty > 0,
+                  onTap: () => DefaultTabController.maybeOf(context)?.animateTo(2)),
+              if (totalUnsettledQty > 0)
+                _miniMetric('Qty Belum Payout', '$totalUnsettledQty',
+                    warning: true,
+                    onTap: () => _showUnpaidHppOrdersDrilldown(context)),
+              if (totalUnsettledHpp > 0)
+                _miniMetric('HPP Belum Payout', _money(totalUnsettledHpp),
+                    warning: true,
+                    onTap: () => _showUnpaidHppOrdersDrilldown(context)),
             ],
           ),
         ],
@@ -10635,13 +10837,17 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final returnedDetailRows =
         _filteredSkuOrderRows(skuDetailRows, 'returned');
     final rowTotalQty = _numFirstNonZero([
-      row['qty'],
       row['qty_total'],
       row['total_qty'],
+      row['all_qty_total'],
+      row['qty'],
+      row['quantity'],
     ]).round();
     final paidKey = _skuDetailBusyKeyV82o(row, 'paid');
     final unpaidKey = _skuDetailBusyKeyV82o(row, 'unpaid');
     final returnedKey = _skuDetailBusyKeyV82o(row, 'returned');
+    final sampleKey = _skuDetailBusyKeyV82o(row, 'sample');
+
     int paidQtyDisplay = _numFirstNonZero([
       row['paid_qty_total'],
       row['settled_qty_total'],
@@ -10653,6 +10859,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _skuPaidCountMap[paidKey],
       _qtyFromOrderRows(paidDetailRows),
     ]).round();
+
+    int sampleQtyDisplay = _numFirstNonZero([
+      row['qty_sample'],
+      row['sample_qty'],
+      row['total_qty_sample'],
+    ]).round();
+
+    int returnedQtyDisplay = _numFirstNonZero([
+      row['qty_returned'],
+      row['returned_qty'],
+      row['qty_batal'],
+      row['batal_qty'],
+      _skuReturnedCountMap[returnedKey],
+      _qtyFromOrderRows(returnedDetailRows),
+    ]).round();
+
     int unpaidQtyDisplay = _numFirstNonZero([
       row['unpaid_qty'],
       row['qty_unpaid'],
@@ -10668,20 +10890,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _skuUnpaidCountMap[unpaidKey],
       _qtyFromOrderRows(unpaidDetailRows),
     ]).round();
-    int returnedQtyDisplay = _numFirstNonZero([
-      row['qty_returned'],
-      row['returned_qty'],
-      row['qty_batal'],
-      row['batal_qty'],
-      _skuReturnedCountMap[returnedKey],
-      _qtyFromOrderRows(returnedDetailRows),
-    ]).round();
-    double hppReturnDisplay = _numFirstNonZero([
-      row['hpp_return'],
-      row['hpp_retur'],
-      row['return_hpp'],
-      row['batal_hpp'],
-    ]);
+
     if (paidQtyDisplay == 0 && unpaidQtyDisplay == 0 && returnedQtyDisplay == 0 && rowTotalQty > 0) {
       final payoutVal = _num(row['total_payout'] ?? row['payout_total'] ?? row['payout_amount']);
       if (payoutVal > 0) {
@@ -10690,30 +10899,73 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         unpaidQtyDisplay = rowTotalQty;
       }
     }
+    if (unpaidQtyDisplay == 0 && rowTotalQty > paidQtyDisplay + returnedQtyDisplay + sampleQtyDisplay) {
+      unpaidQtyDisplay = (rowTotalQty - paidQtyDisplay - returnedQtyDisplay - sampleQtyDisplay).clamp(0, 999999);
+    }
+
     final qtyTotalDisplay = _numFirstNonZero([
       rowTotalQty,
-      paidQtyDisplay + unpaidQtyDisplay + returnedQtyDisplay,
+      paidQtyDisplay + unpaidQtyDisplay + returnedQtyDisplay + sampleQtyDisplay,
     ]).round();
-    final displayPayoutPerItem = _numFirstNonZero([
-      row['payout_per_item_paid'],
-      row['payout_per_item'],
-      row['positive_payout_per_item'],
+
+    final paidHppTotalForDisplay = _numFirstNonZero([
+      row['paid_hpp_total'],
+      row['settled_hpp_total'],
+      row['hpp_total'],
+      row['total_hpp'],
+      row['hpp'],
+    ]);
+
+    // Master HPP per unit (not aggregated / averaged across batch)
+    final displayHppPerItem = _numFirstNonZero([
+      row['hpp_per_item'],
+      row['unit_hpp'],
+      row['hpp_unit'],
+      row['hpp_item'],
+      row['master_hpp'],
       paidQtyDisplay > 0
-          ? (_num(row['total_payout'] ??
-                  row['payout_total'] ??
-                  row['payout_amount'] ??
-                  row['received_amount']) /
-              paidQtyDisplay)
+          ? paidHppTotalForDisplay / paidQtyDisplay
           : 0,
+    ]);
+
+    // Real payout per settled item
+    final totalPayoutRow = _numFirstNonZero([
+      row['total_payout'],
+      row['payout_total'],
+      row['payout_amount'],
+      row['received_amount'],
+    ]);
+    final displayPayoutPerItem = paidQtyDisplay > 0
+        ? (totalPayoutRow / paidQtyDisplay)
+        : _numFirstNonZero([
+            row['payout_per_item_paid'],
+            row['payout_per_item'],
+            row['positive_payout_per_item'],
+          ]);
+
+    // Real gross per item:
+    // If settled items exist: real average gross of settled orders (paidGross / paidQty).
+    // If no settled items: real average gross across total qty (totalGross / qtyTotal).
+    final totalOmzetRow = _numFirstNonZero([
+      row['total_omzet'],
+      row['gross_sales'],
+      row['gross_total'],
+      row['gross_amount'],
+      row['omzet_total'],
+    ]);
+    final paidGrossRow = _numFirstNonZero([
+      row['paid_gross_total'],
+      row['settled_gross_total'],
     ]);
     final grossPerItem = _numFirstNonZero([
+      paidQtyDisplay > 0 && paidGrossRow > 0
+          ? (paidGrossRow / paidQtyDisplay)
+          : (qtyTotalDisplay > 0 && totalOmzetRow > 0 ? (totalOmzetRow / qtyTotalDisplay) : 0),
       row['gross_per_item'],
       row['unit_gross'],
-      qtyTotalDisplay > 0
-          ? (_num(row['total_omzet'] ?? row['gross_sales'] ?? row['gross_total']) / qtyTotalDisplay)
-          : 0,
       displayPayoutPerItem,
     ]);
+
     final payoutRange = _positivePayoutRangeForSku(
       row: row,
       detailRows:
@@ -10726,22 +10978,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         highestPayout > 0 &&
         lowestPayout > 0 &&
         (highestPayout - lowestPayout).abs() >= 0.5;
-    final paidHppTotalForDisplay = _numFirstNonZero([
-      row['paid_hpp_total'],
-      row['settled_hpp_total'],
-      row['hpp_total'],
-      row['total_hpp'],
-      row['hpp'],
-    ]);
-    final displayHppPerItem = _numFirstNonZero([
-      row['hpp_per_item'],
-      row['hpp_unit'],
-      row['unit_hpp'],
-      row['hpp_item'],
-      paidQtyDisplay > 0
-          ? paidHppTotalForDisplay / paidQtyDisplay
-          : 0,
-    ]);
+
     final hppStatusText = _text(row['hpp_status'], '').toLowerCase();
     final hppMissing =
         displayHppPerItem <= 0 || hppStatusText.contains('belum');
@@ -10763,22 +11000,37 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final returnedBusy =
         _skuDetailBusyKey == _skuDetailBusyKeyV82o(row, 'returned');
     final detailBusy = _skuDetailBusyKey != null;
-    final sampleKey = _skuDetailBusyKeyV82o(row, 'sample');
-    int sampleQtyDisplay = _numFirstNonZero([
-      row['qty_sample'],
-      row['sample_qty'],
-      row['total_qty_sample'],
-    ]).round();
+    final sampleBusy = _skuDetailBusyKey == sampleKey;
+
     double sampleHppDisplay = _numFirstNonZero([
+      sampleQtyDisplay > 0 && displayHppPerItem > 0 ? (sampleQtyDisplay * displayHppPerItem) : 0,
       row['hpp_sample'],
       row['sample_hpp'],
       row['total_hpp_sample'],
     ]);
+    if (sampleQtyDisplay > 0 && displayHppPerItem > 0) {
+      sampleHppDisplay = sampleQtyDisplay * displayHppPerItem;
+    }
+
+    double hppReturnDisplay = _numFirstNonZero([
+      returnedQtyDisplay > 0 && displayHppPerItem > 0 ? (returnedQtyDisplay * displayHppPerItem) : 0,
+      row['hpp_return'],
+      row['hpp_retur'],
+      row['return_hpp'],
+      row['batal_hpp'],
+    ]);
+    if (returnedQtyDisplay > 0 && displayHppPerItem > 0) {
+      hppReturnDisplay = returnedQtyDisplay * displayHppPerItem;
+    }
+
     double unpaidHppDisplay = _numFirstNonZero([
+      unpaidQtyDisplay > 0 && displayHppPerItem > 0 ? (unpaidQtyDisplay * displayHppPerItem) : 0,
       row['unpaid_hpp'],
       row['unpaid_hpp_total'],
     ]);
-    final sampleBusy = _skuDetailBusyKey == sampleKey;
+    if (unpaidQtyDisplay > 0 && displayHppPerItem > 0) {
+      unpaidHppDisplay = unpaidQtyDisplay * displayHppPerItem;
+    }
 
     return _detailCard(
       title: sku,
@@ -11839,6 +12091,26 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final summaryManualExpense = _num(_summary['manual_expense_total']);
     final summaryProductionPaid = _num(_summary['production_paid_total']);
     final summaryApprovedPurchase = _num(_summary['approved_purchase_total']);
+    final sampleHppTotal = _numFirstNonZero([
+      _summary['sample_hpp_total'],
+      _summary['sample_hpp'],
+      _summary['hpp_sample_total'],
+      _summary['total_sample_hpp'],
+      _summary['abnormal_sample_hpp'],
+      _summary['sample_free_hpp'],
+    ]);
+    final sampleOrderCount = _numFirstNonZero([
+      _summary['sample_order_count'],
+      _summary['sample_count'],
+      _summary['sample_free_count'],
+      _summary['confirmed_sample_count'],
+      _summary['abnormal_sample_count'],
+    ]);
+    final sampleNegativePayout = _numFirstNonZero([
+      _summary['sample_payout_minus_total_abs'],
+      _summary['sample_negative_payout_total'],
+      _num(_summary['sample_payout_minus_total']).abs(),
+    ]);
 
     bool isNetRow(Map<String, dynamic> row) {
       final label = _text(row['source'] ?? row['category']).toLowerCase();
@@ -11861,6 +12133,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final hasBiayaSummaryOrCashFlow = summaryManualExpense > 0 ||
         summaryProductionPaid > 0 ||
         summaryApprovedPurchase > 0 ||
+        sampleHppTotal > 0 ||
         hasCashFlowOutflow;
 
     return RefreshIndicator(
@@ -11869,6 +12142,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 130),
         children: [
+          if (sampleHppTotal > 0) ...[
+            _sectionHeader('Beban Sampel & Promosi (Marketing)'),
+            const SizedBox(height: 8),
+            _simpleRowCard(
+              title: 'Biaya Sample Marketing (HPP Produk Gratis)',
+              subtitle:
+                  '${sampleOrderCount.toStringAsFixed(0)} order sampel · Beban HPP modal fisik produk',
+              trailing: _money(sampleHppTotal),
+              positive: false,
+            ),
+            const SizedBox(height: 14),
+          ],
           _sectionHeader('Biaya Operasional'),
           const SizedBox(height: 8),
           if (!_operationalCostsLoaded) ...[
@@ -12053,50 +12338,88 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     if (_profitLossByMarketplace.isEmpty) return const SizedBox.shrink();
 
     Widget marketplaceCard(Map<String, dynamic> row) {
+      final mktKey = _text(row['marketplace']);
       final marketplace =
-          _marketplaceName(_text(row['marketplace'], 'Marketplace'));
-      final shop = _text(row['shop_name'] ?? row['account_name'], marketplace);
+          _marketplaceName(mktKey.isNotEmpty ? mktKey : 'Marketplace');
+      final accountId =
+          _text(row['marketplace_account_id'] ?? row['account_id']);
+      final explicitShop = _text(
+          row['store_alias'] ??
+              row['shop_name'] ??
+              row['seller_name'] ??
+              row['account_name']);
+
+      String storeName = '';
+      if (explicitShop.isNotEmpty &&
+          explicitShop != 'Semua toko' &&
+          explicitShop != '-') {
+        storeName = explicitShop;
+      } else if (accountId.isNotEmpty) {
+        final byId = _accountNameById(accountId);
+        if (byId != 'Semua toko' && byId.isNotEmpty) {
+          storeName = byId;
+        }
+      }
+      if (storeName.isEmpty) {
+        storeName = _storesNameForMarketplace(mktKey, accountId: accountId);
+      }
+      final shop = storeName.isNotEmpty ? storeName : marketplace;
       final orderCount =
           _num(row['order_count'] ?? row['finance_order_count']).toInt();
-      final grossOriginalRaw = _num(row['gross_original'] ?? row['gross_sales'] ?? row['gross_total']);
-      final sellerDiscount = _num(row['seller_discount'] ?? 0);
-      final omzetPaid = _num(row['omzet_normal_paid'] ?? row['omzet_paid'] ?? (grossOriginalRaw - sellerDiscount.abs()));
-      final gross = grossOriginalRaw;
+      final grossOriginalRaw = _num(row['gross_original'] ??
+          row['gross_sales'] ??
+          row['gross_total'] ??
+          row['omzet_total'] ??
+          row['omzet']);
+      final rawSellerDiscount = _num(row['seller_discount'] ?? 0);
+      final omzetPaid = _num(row['omzet_normal_paid'] ??
+          row['omzet_paid'] ??
+          (grossOriginalRaw > rawSellerDiscount
+              ? grossOriginalRaw - rawSellerDiscount.abs()
+              : grossOriginalRaw));
 
       final payout = _num(row['payout_total'] ??
           row['received_amount'] ??
           row['net_settlement']);
-      final hpp = _numFirstNonZero([
+      final settledHpp = _numFirstNonZero([
         row['paid_hpp_total'],
         row['settled_hpp_total'],
-        row['hpp_total'],
-        row['total_hpp'],
-        row['hpp_cair'],
         row['hpp_settled'],
-        row['hpp_amount'],
-        row['hpp']
+        row['hpp_cair'],
       ]);
-      final profit = _num(row['net_profit'] ?? row['profit'] ?? (payout - hpp));
-      final margin = payout > 0
-          ? _num(row['margin_percent'] ??
-              row['net_margin_percent'] ??
-              (profit / payout * 100))
-          : 0;
-      final discount = _numFirstNonZero([
-        row['discount_amount'],
-        row['voucher_amount'],
-        row['discount'],
-        row['voucher'],
-        row['shopee_discount'],
-        row['tiktok_discount'],
+      final unpaidHpp = _numFirstNonZero([
+        row['unpaid_hpp'],
+        row['unpaid_hpp_total'],
+        row['estimated_unpaid_hpp'],
+        row['estimated_unpaid_hpp_total'],
+      ]);
+      final effectiveHpp = settledHpp > 0
+          ? settledHpp
+          : (unpaidHpp > 0
+              ? unpaidHpp
+              : _numFirstNonZero([row['hpp_total'], row['total_hpp'], row['hpp']]));
+
+      final sellerDiscount = _numFirstNonZero([
+        row['seller_discount_total'],
         row['seller_discount'],
-        row['platform_discount'],
         row['seller_voucher'],
-        row['platform_voucher'],
+        row['discount_amount'],
       ]);
-      final grossOriginal = (grossOriginalRaw > discount.abs() && grossOriginalRaw > omzetPaid)
+      final platformVoucher = _numFirstNonZero([
+        row['voucher_amount'],
+        row['platform_voucher_total'],
+        row['platform_voucher'],
+        row['platform_discount'],
+        row['shopee_voucher'],
+        row['tiktok_voucher'],
+        row['marketplace_subsidy'],
+        row['subsidy_amount'],
+      ]);
+      final grossOriginal = (grossOriginalRaw > 0 && grossOriginalRaw > omzetPaid)
           ? grossOriginalRaw
-          : (omzetPaid + discount.abs());
+          : (sellerDiscount > 0
+              ? omzetPaid + sellerDiscount
+              : (platformVoucher > 0 ? omzetPaid + platformVoucher : omzetPaid));
       final refund = _numFirstNonZero([
         row['refund_amount'],
         row['return_refund_amount'],
@@ -12142,12 +12465,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         row['marketplace_fee'],
         row['total_fee'],
       ]);
-      final subFees = platformFee + commissionFee + affiliateFee + shippingFee;
-      final otherFees =
-          (totalFees.abs() - subFees.abs()) > 1.0 ? (totalFees.abs() - subFees.abs()) : 0.0;
-      final calculatedPayout = omzetPaid - totalFees.abs() - refund.abs() + adjustment;
+      final subFees =
+          platformFee.abs() + commissionFee.abs() + affiliateFee.abs() + shippingFee.abs();
+      final otherFees = (totalFees.abs() - subFees.abs()) > 1.0
+          ? (totalFees.abs() - subFees.abs())
+          : 0.0;
+
+      final profit = payout > 0
+          ? (payout - settledHpp)
+          : (omzetPaid - effectiveHpp - subFees);
+      final margin = payout > 0
+          ? (profit / payout * 100)
+          : (omzetPaid > 0 ? (profit / omzetPaid * 100) : 0.0);
+      final calculatedPayout =
+          omzetPaid + platformVoucher - subFees.abs() - refund.abs() + adjustment;
       final diff = (calculatedPayout - payout).abs();
-      
+
       final subsidy = _num(row['subsidy_amount'] ??
           row['marketplace_subsidy'] ??
           row['seller_subsidy']);
@@ -12157,63 +12490,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       final payoutMinus = _num(row['sample_negative_payout_total'] ??
           row['negative_payout_total'] ??
           row['minus_payout_total']);
-      final auditedFields = const [
-        'platform_fee',
-        'commission_fee',
-        'affiliate_fee',
-        'shipping_fee',
-        'discount_amount',
-        'voucher_amount',
-        'refund_amount',
-        'return_refund_amount',
-        'adjustment_amount',
-        'fee_amount',
-        'total_fees',
-        'subsidy_amount',
-        'marketplace_subsidy',
-        'seller_subsidy',
-        'sample_order_count',
-        'free_order_count',
-        'gratis_order_count',
-      ];
-      final hasAuditedBreakdown =
-          auditedFields.any((key) => row.containsKey(key));
-      final breakdownWidgets = <Widget>[
-        if (platformFee.abs() > 0.49)
-          _profitLossMiniMetric('Platform fee', _money(platformFee.abs()),
-              warning: true),
-        if (commissionFee.abs() > 0.49)
-          _profitLossMiniMetric('Komisi', _money(commissionFee.abs()),
-              warning: true),
-        if (affiliateFee.abs() > 0.49)
-          _profitLossMiniMetric('Afiliasi', _money(affiliateFee.abs()),
-              warning: true),
-        if (shippingFee.abs() > 0.49)
-          _profitLossMiniMetric('Ongkir', _money(shippingFee.abs()),
-              warning: true),
-        if (otherFees > 0.49)
-          _profitLossMiniMetric('Biaya marketplace lainnya', _money(otherFees),
-              warning: true),
-        if (discount.abs() > 0.49)
-          _profitLossMiniMetric('Voucher / diskon', _money(discount.abs()),
-              warning: true),
-        if (subsidy.abs() > 0.49)
-          _profitLossMiniMetric('Subsidi', _money(subsidy.abs()),
-              positive: subsidy > 0, warning: subsidy < 0),
-        if (refund.abs() > 0.49)
-          _profitLossMiniMetric('Refund / retur', _money(refund.abs()),
-              warning: true),
-        if (adjustment.abs() > 0.49)
-          _profitLossMiniMetric('Koreksi settlement', _money(adjustment),
-              warning: adjustment < 0),
-        if (payoutMinus.abs() > 0.49)
-          _profitLossMiniMetric('Payout minus', _money(payoutMinus.abs()),
-              warning: true),
-        if (sampleFree > 0)
-          _profitLossMiniMetric(
-              'Sample / gratis', sampleFree.toStringAsFixed(0),
-              warning: true),
-      ];
 
       return Container(
         width: double.infinity,
@@ -12260,9 +12536,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
               crossAxisSpacing: 6,
               childAspectRatio: 2.3,
               children: [
-                _profitLossMiniMetric('Omzet', _money(gross), positive: true),
-                _profitLossMiniMetric('Payout', _money(payout), positive: true),
-                _profitLossMiniMetric('HPP', _money(hpp), warning: hpp > 0),
+                _profitLossMiniMetric('Omzet', _money(omzetPaid), positive: true),
+                _profitLossMiniMetric('Payout', payout > 0 ? _money(payout) : 'Rp 0 (Pending)',
+                    positive: payout > 0),
+                _profitLossMiniMetric(
+                    'HPP', _money(effectiveHpp),
+                    warning: effectiveHpp > 0),
                 _profitLossMiniMetric('Laba', _money(profit),
                     positive: profit >= 0, warning: profit < 0),
                 _profitLossMiniMetric(
@@ -12272,16 +12551,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             const SizedBox(height: 14),
             // Detailed Reconciliation Section
             () {
-              Widget reconcileItemRow(String label, double val,
-                  {bool bold = false, bool positiveColor = false, bool isDeduction = false}) {
+              Widget reconcileItemRow(String label, dynamic val,
+                  {bool bold = false,
+                  bool positiveColor = false,
+                  bool isDeduction = false,
+                  String? customText}) {
+                final double numVal = val is num ? val.toDouble() : _num(val);
                 final clr = positiveColor
                     ? Colors.green
-                    : ((val < 0 || isDeduction)
+                    : ((numVal < 0 || isDeduction)
                         ? Colors.redAccent
                         : Theme.of(context).textTheme.bodyLarge?.color);
-                final formattedVal = isDeduction
-                    ? '- ${_money(val.abs())}'
-                    : (val < 0 ? '- ${_money(val.abs())}' : _money(val));
+                final formattedVal = customText ??
+                    (isDeduction
+                        ? '- ${_money(numVal.abs())}'
+                        : (numVal < 0 ? '- ${_money(numVal.abs())}' : _money(numVal)));
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 3.0),
                   child: Row(
@@ -12310,23 +12594,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                   ),
                 );
               }
-
-              final subFees = platformFee.abs() +
-                  commissionFee.abs() +
-                  affiliateFee.abs() +
-                  shippingFee.abs() +
-                  (otherFees > 0 ? otherFees.abs() : _num(row['other_fee']).abs());
-              final totalFees = subFees > 0
-                  ? subFees
-                  : _num(row['biaya'] ?? row['total_deductions'] ?? row['deductions'] ?? (gross - payout)).abs();
-              final calculatedPayout = gross -
-                  discount.abs() -
-                  totalFees.abs() -
-                  refund.abs() +
-                  adjustment;
-              final diff = (calculatedPayout - payout).abs();
-
-              final isExpanded = true;
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -12357,57 +12624,107 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        reconcileItemRow('Gross Sales before discount', grossOriginal),
-                        reconcileItemRow('Marketplace Voucher / Discount', discount.abs(), isDeduction: true),
-                        reconcileItemRow('Customer Paid Omzet Normal', omzetPaid, bold: true),
-                        reconcileItemRow('Biaya Komisi / Commission Fee', commissionFee.abs(), isDeduction: true),
-                        reconcileItemRow('Biaya Layanan / Platform Fee', platformFee.abs(), isDeduction: true),
-                        reconcileItemRow('Biaya Afiliasi / Affiliate Fee', affiliateFee.abs(), isDeduction: true),
-                        reconcileItemRow('Biaya Pengiriman / Shipping Fee', shippingFee.abs(), isDeduction: true),
-                        reconcileItemRow('Refund / Return Pembeli', refund.abs(), isDeduction: true),
-                        reconcileItemRow('Settlement Correction / Gap', adjustment),
-                        reconcileItemRow('Net Payout Received', payout, bold: true, positiveColor: true),
+                        reconcileItemRow(
+                            'Gross Sales (Katalog / Asli)', grossOriginal),
+                        if (sellerDiscount > 0)
+                          reconcileItemRow('Diskon Promo Toko (Seller Promo)',
+                              sellerDiscount,
+                              isDeduction: true),
+                        if (platformVoucher > 0)
+                          reconcileItemRow('Subsidi Voucher Marketplace',
+                              platformVoucher,
+                              positiveColor: true,
+                              customText: '+ ${_money(platformVoucher)}'),
+                        if (sellerDiscount == 0 && platformVoucher == 0)
+                          reconcileItemRow('Marketplace Voucher / Diskon',
+                              0.0,
+                              customText: 'Rp 0 (Nihil)'),
+                        reconcileItemRow(
+                            'Customer Paid Omzet Normal', omzetPaid,
+                            bold: true),
+                        reconcileItemRow('Biaya Komisi / Commission Fee',
+                            commissionFee.abs(),
+                            isDeduction: true,
+                            customText: commissionFee.abs() > 0
+                                ? null
+                                : (payout == 0 ? 'Rp 0 (Pending Release)' : 'Rp 0')),
+                        reconcileItemRow('Biaya Layanan / Platform Fee',
+                            platformFee.abs(),
+                            isDeduction: true,
+                            customText: platformFee.abs() > 0
+                                ? null
+                                : (payout == 0 ? 'Rp 0 (Pending Release)' : 'Rp 0')),
+                        reconcileItemRow('Biaya Afiliasi / Affiliate Fee',
+                            affiliateFee.abs(),
+                            isDeduction: true),
+                        reconcileItemRow('Biaya Pengiriman / Shipping Fee',
+                            shippingFee.abs(),
+                            isDeduction: true),
+                        reconcileItemRow(
+                            'Refund / Return Pembeli', refund.abs(),
+                            isDeduction: true),
+                        reconcileItemRow(
+                            'Settlement Correction / Gap', adjustment),
+                        reconcileItemRow('Net Payout Received', payout,
+                            bold: true,
+                            positiveColor: payout > 0,
+                            customText:
+                                payout > 0 ? _money(payout) : 'Rp 0 (Pending Payout)'),
                         const SizedBox(height: 6),
-                        Divider(height: 1, color: Theme.of(context).dividerColor.withOpacity(0.2)),
+                        Divider(
+                            height: 1,
+                            color:
+                                Theme.of(context).dividerColor.withOpacity(0.2)),
                         const SizedBox(height: 6),
-                        reconcileItemRow('HPP Settled (COGS Lunas)', _num(row['hpp_settled']), isDeduction: true),
-                        reconcileItemRow('Est HPP Belum Payout', _num(row['unpaid_hpp']), isDeduction: true),
-                        reconcileItemRow('Marketplace Net Profit & Margin %', profit, bold: true, positiveColor: profit >= 0),
+                        reconcileItemRow(
+                            'HPP Settled (COGS Lunas)', settledHpp > 0 ? settledHpp : (unpaidHpp == 0 ? effectiveHpp : 0.0),
+                            isDeduction: true),
+                        reconcileItemRow(
+                            'Est HPP Belum Payout', unpaidHpp,
+                            isDeduction: unpaidHpp > 0,
+                            customText: unpaidHpp > 0 ? null : 'Rp 0 (Lunas 100%)'),
+                        reconcileItemRow(
+                            'Marketplace Net Profit & Margin %', profit,
+                            bold: true, positiveColor: profit >= 0),
                       ],
                     ),
                   ),
-                    const SizedBox(height: 8),
-                    // Reconciliation Formula Note
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withOpacity(0.06),
-                        border: Border.all(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withOpacity(0.2)),
-                      ),
-                      child: Text(
-                        'Note Rekonsiliasi: Omzet Normal (${_money(gross - discount.abs())}) - Biaya (${_money(totalFees.abs())}) - Refund (${_money(refund.abs())}) ${adjustment >= 0 ? '+' : '-'} Koreksi (${_money(adjustment.abs())}) = ${_money(calculatedPayout)} vs Net Payout ${_money(payout)}.' +
-                            (diff > 1.0
-                                ? ' (Selisih Gap: ${_money(diff)})'
-                                : ' (Tersegel Rekonsiliasi Cocok 100%)'),
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          height: 1.35,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
+                  const SizedBox(height: 8),
+                  // Reconciliation Formula Note
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withOpacity(0.06),
+                      border: Border.all(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withOpacity(0.2)),
+                    ),
+                    child: Text(
+                      payout > 0
+                          ? 'Note Rekonsiliasi: Customer Paid (${_money(omzetPaid)})' +
+                              (platformVoucher > 0 ? ' + Subsidi Voucher (${_money(platformVoucher)})' : '') +
+                              ' - Biaya (${_money(subFees)}) - Refund (${_money(refund.abs())}) ${adjustment >= 0 ? '+' : '-'} Koreksi (${_money(adjustment.abs())}) = ${_money(calculatedPayout)} vs Net Payout ${_money(payout)}.' +
+                              (diff > 500.0
+                                  ? ' (Selisih Gap: ${_money(diff)})'
+                                  : ' (Tersegel Rekonsiliasi Cocok 100%)')
+                          : 'Note Rekonsiliasi: $orderCount pesanan dalam proses settlement marketplace. Customer Paid Omzet: ${_money(omzetPaid)}, Estimasi HPP Modal: ${_money(unpaidHpp)}, Estimasi Laba Bersih: ${_money(profit)}.',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
                     ),
-                  ],
-                );
-              }(),
+                  ),
+                ],
+              );
+            }(),
           ],
         ),
       );
@@ -12556,9 +12873,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _summary['hpp_amount'],
       _summary['hpp'],
     ]);
-    final operational = _num(_summary['operational_cost_total'] ??
+    final sampleHppTotal = _numFirstNonZero([
+      _summary['sample_hpp_total'],
+      _summary['sample_hpp'],
+      _summary['hpp_sample_total'],
+      _summary['total_sample_hpp'],
+      _summary['abnormal_sample_hpp'],
+      _summary['sample_free_hpp'],
+    ]);
+    final operationalBase = _num(_summary['operational_cost_total'] ??
         _summary['operational_expense'] ??
         _summary['expense_total']);
+    final operational = operationalBase + sampleHppTotal;
 
     final mktGross = _profitLossByMarketplace.fold<double>(
         0.0, (sum, r) => sum + _num(r['gross_original'] ?? r['gross_before_discount'] ?? r['gross_sales'] ?? r['omzet_total'] ?? r['gross_total'] ?? r['gross']));
@@ -12587,8 +12913,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final discount = summaryDiscount > 0 ? summaryDiscount : (mktDiscount > 0 ? mktDiscount : 0.0);
     final omzetPaid = summaryOmzetPaid > 0 ? summaryOmzetPaid : (mktOmzetPaid > 0 ? mktOmzetPaid : gross);
     final payout = summaryPayout > 0 ? summaryPayout : (mktPayout > 0 ? mktPayout : paidSkuTotals['payout']!);
-    final hpp = summaryHpp > 0 ? summaryHpp : (mktHpp > 0 ? mktHpp : paidSkuTotals['hpp']!);
-    final profit = payout - hpp - operational;
+    final hpp = summaryPayout > 0
+        ? (summaryHpp > 0 ? summaryHpp : (mktHpp > 0 ? mktHpp : paidSkuTotals['hpp']!))
+        : (summaryHpp > 0 ? summaryHpp : (mktHpp > 0 ? mktHpp : 0.0));
+    final profit = (_summary.containsKey('net_profit') || _summary.containsKey('profit'))
+        ? (_num(_summary['net_profit'] ?? _summary['profit']) - operationalBase - sampleHppTotal)
+        : (payout > 0 ? payout - hpp - operational : 0.0);
     final margin = payout > 0 ? (profit / payout) * 100 : 0.0;
 
     final rawProfitRows =
@@ -12605,7 +12935,29 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: ListView(
         padding: const EdgeInsets.all(14),
         children: [
-          _sectionHeader('Laba Rugi'),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: _sectionHeader('Laba Rugi & Rekonsiliasi')),
+              OutlinedButton.icon(
+                onPressed: _processing ? null : _exportTaxReconciliationPdf,
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
+                label: const Text('Export Laporan Pajak (PDF)',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.primary,
+                  side: BorderSide(
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+                    width: 1.2,
+                  ),
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.2),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
 
           // Show Card Summary First
@@ -12644,15 +12996,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     if (discount > 0)
                       _profitLossMiniMetric('Voucher / Diskon', _money(discount),
                           warning: true),
-                    _profitLossMiniMetric('Omzet Normal', _money(omzetPaid),
+                    _profitLossMiniMetric('Omzet Normal (DPP)', _money(omzetPaid),
                         positive: true),
-                    _profitLossMiniMetric('Total Payout', _money(payout),
+                    _profitLossMiniMetric('Total Payout (Net)', _money(payout),
                         positive: true),
-                    _profitLossMiniMetric('Total HPP', _money(hpp),
+                    _profitLossMiniMetric('HPP Terjual', _money(hpp),
                         warning: true),
-                    _profitLossMiniMetric('Biaya Ops', _money(operational),
-                        warning: true),
-                    _profitLossMiniMetric('Estimasi Laba', _money(profit),
+                    if (operationalBase > 0)
+                      _profitLossMiniMetric('Biaya Ops Umum', _money(operationalBase),
+                          warning: true),
+                    if (sampleHppTotal > 0)
+                      _profitLossMiniMetric('Biaya Sample Marketing', _money(sampleHppTotal),
+                          warning: true),
+                    if (operationalBase > 0 && sampleHppTotal > 0)
+                      _profitLossMiniMetric('Total Biaya Ops', _money(operational),
+                          warning: true),
+                    _profitLossMiniMetric('Laba Bersih', _money(profit),
                         positive: profit >= 0, warning: profit < 0),
                     _profitLossMiniMetric(
                         'Margin Laba', '${margin.toStringAsFixed(2)}%'),
@@ -12700,6 +13059,1364 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 );
               }),
           ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportTaxReconciliationPdf() async {
+    setState(() => _processing = true);
+    try {
+      String companyName = '';
+      String companyAddress = '';
+      String companyPhone = '';
+      String companyEmail = '';
+      String logoUrl = '';
+      String signatoryName = '';
+      String signatoryTitle = '';
+      pw.ImageProvider? logoImage;
+
+      try {
+        Map<String, dynamic>? settingsRes;
+        if (_currentTenantId.isNotEmpty) {
+          settingsRes = await _client
+              .from('payroll_company_settings')
+              .select()
+              .eq('tenant_id', _currentTenantId)
+              .maybeSingle();
+        }
+        settingsRes ??= await _client
+            .from('payroll_company_settings')
+            .select()
+            .limit(1)
+            .maybeSingle();
+
+        if (settingsRes != null) {
+          companyName = _text(settingsRes['company_name']);
+          companyAddress = _text(settingsRes['company_address']);
+          companyPhone = _text(settingsRes['company_phone']);
+          companyEmail = _text(settingsRes['company_email']);
+          logoUrl = _text(settingsRes['logo_url']);
+          signatoryName = _text(settingsRes['signatory_name']);
+          signatoryTitle = _text(settingsRes['signatory_title']);
+        }
+
+        if (companyName.isEmpty) {
+          if (_currentTenantId.isNotEmpty) {
+            final res = await _client
+                .from('app_tenants')
+                .select('tenant_name')
+                .eq('tenant_id', _currentTenantId)
+                .maybeSingle();
+            if (res != null && res['tenant_name'] != null && _text(res['tenant_name']).isNotEmpty) {
+              companyName = res['tenant_name'].toString();
+            }
+          }
+        }
+        if (companyName.isEmpty) {
+          companyName = 'NexaWear Apparel Indonesia';
+        }
+
+        if (logoUrl.isNotEmpty && (logoUrl.startsWith('http://') || logoUrl.startsWith('https://'))) {
+          try {
+            logoImage = await networkImage(logoUrl);
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      List<Map<String, dynamic>> allExportSkuRows = [];
+      try {
+        int curPage = 1;
+        int maxPages = 1;
+        while (curPage <= maxPages && curPage <= 100) {
+          final nextRows = await _fetchSkuRowsByPayoutFilterPage(
+            'all',
+            page: curPage,
+            ignoreCache: true,
+          );
+          if (nextRows.isEmpty) break;
+          allExportSkuRows =
+              _mergeSkuRows(allExportSkuRows, _normalizeSkuRows(nextRows));
+          maxPages = _skuServerTotalPages > 1 ? _skuServerTotalPages : 1;
+          curPage++;
+        }
+      } catch (e) {
+        debugPrint('Error loading all SKU rows for PDF: $e');
+      }
+      if (allExportSkuRows.isEmpty && _bySku.isNotEmpty) {
+        allExportSkuRows = List<Map<String, dynamic>>.from(_bySku);
+      }
+
+      final pdf = pw.Document();
+      final periodStr = '${_date(_start)} - ${_date(_end)}';
+      final printDateStr = _dateTime(DateTime.now());
+
+      // Helper for non-breaking currency formatting to prevent awkward wrapping
+      String pdfMoney(num value,
+          {bool isDeduction = false, bool isNegative = false}) {
+        final num absVal = value.abs();
+        if (absVal == 0 && (isDeduction || isNegative)) {
+          return 'Rp\u00A00';
+        }
+        final formatted = _money(absVal).replaceAll(' ', '\u00A0');
+        if (value < 0 || isNegative || (isDeduction && absVal > 0)) {
+          return '-$formatted';
+        }
+        return formatted;
+      }
+
+      // Calculate all totals with comprehensive fallbacks so current month is never empty
+      final skuPaidTotals = _totalsFromSkuRows(paidOnly: true);
+      final skuAllTotals = _totalsFromSkuRows(paidOnly: false);
+      final skuUnpaidGross = allExportSkuRows.fold<double>(
+          0.0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero([
+                r['unpaid_gross_total'],
+                r['gross_unpaid_total'],
+                r['unpaid_gross'],
+                r['pending_gross_total'],
+                r['unpaid_omzet'],
+              ]));
+      final skuUnpaidHpp = allExportSkuRows.fold<double>(
+          0.0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero([
+                r['unpaid_hpp'],
+                r['unpaid_hpp_total'],
+                r['unsettled_hpp'],
+                r['estimated_unpaid_hpp'],
+              ]));
+      final skuTotalGross = allExportSkuRows.fold<double>(
+          0.0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero(
+                  [r['total_omzet'], r['gross_sales'], r['gross_total']]));
+      final skuTotalOrders = _bySku.fold<int>(
+          0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero([
+                r['orders_count'],
+                r['paid_order_count'],
+                r['order_count']
+              ]).toInt());
+
+      final summaryOmzetPaid = _numFirstNonZero([
+        _summary['omzet_normal_paid'],
+        _summary['omzet_paid'],
+        _summary['omzet_normal'],
+        _summary['gross_sales'],
+        _summary['omzet_total'],
+        _summary['gross_total'],
+        _summary['omzet'],
+        skuPaidTotals['gross'],
+        skuTotalGross,
+      ]);
+      final summaryDiscount = _numFirstNonZero([
+        _summary['seller_discount'],
+        _summary['voucher_amount'],
+        _summary['discount_amount'],
+      ]);
+      final summaryGrossOriginal = _numFirstNonZero([
+        _summary['gross_original'],
+        _summary['gross_before_discount'],
+      ]);
+      final summaryPayout = _numFirstNonZero([
+        _summary['payout_total'],
+        _summary['payout_amount'],
+        _summary['payout'],
+        _summary['received_amount'],
+        _summary['net_received'],
+        skuPaidTotals['payout'],
+      ]);
+      final summaryHpp = _numFirstNonZero([
+        _summary['hpp_total'],
+        _summary['total_hpp'],
+        _summary['paid_hpp_total'],
+        _summary['settled_hpp_total'],
+        _summary['hpp_cair'],
+        _summary['hpp_settled'],
+        _summary['hpp_amount'],
+        _summary['hpp'],
+        skuPaidTotals['hpp'],
+      ]);
+      final operational = _numFirstNonZero([
+        _summary['operational_cost_total'],
+        _summary['operational_expense'],
+        _summary['expense_total'],
+        _expenses.fold<double>(
+            0.0,
+            (sum, r) =>
+                sum + _num(r['amount'] ?? r['total_amount'] ?? r['expense_total'])),
+      ]);
+
+      final mktOmzetPaid = _profitLossByMarketplace.fold<double>(
+          0.0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero([
+                r['omzet_normal_paid'],
+                r['omzet_paid'],
+                r['omzet_normal'],
+                r['gross_sales'],
+                r['gross_total'],
+                r['omzet_total'],
+                r['omzet'],
+              ]));
+      final mktDiscount = _profitLossByMarketplace.fold<double>(
+          0.0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero([
+                r['seller_discount'],
+                r['voucher_amount'],
+                r['discount_amount'],
+              ]));
+      final mktGrossOriginal = _profitLossByMarketplace.fold<double>(
+          0.0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero([
+                r['gross_original'],
+                r['gross_before_discount'],
+              ]));
+      final mktPayout = _profitLossByMarketplace.fold<double>(
+          0.0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero([
+                r['payout_total'],
+                r['payout_amount'],
+                r['received_amount'],
+                r['payout'],
+              ]));
+      final mktHpp = _profitLossByMarketplace.fold<double>(
+          0.0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero([
+                r['hpp_total'],
+                r['total_hpp'],
+                r['paid_hpp_total'],
+                r['settled_hpp_total'],
+                r['hpp_cair'],
+                r['hpp_settled'],
+                r['hpp_amount'],
+                r['hpp'],
+              ]));
+
+      final omzetNormal = summaryOmzetPaid > 0
+          ? summaryOmzetPaid
+          : (mktOmzetPaid > 0 ? mktOmzetPaid : skuTotalGross);
+
+      // Prepare store-by-store breakdown rows
+      final storeRows = <Map<String, dynamic>>[];
+      final sourceMkt = _profitLossByMarketplace.isNotEmpty
+          ? _profitLossByMarketplace
+          : _byMarketplace;
+
+      for (final row in sourceMkt) {
+        final mktKey = _text(row['marketplace']);
+        final mktName =
+            _marketplaceName(mktKey.isNotEmpty ? mktKey : 'Marketplace');
+        final accountId =
+            _text(row['marketplace_account_id'] ?? row['account_id']);
+        final explicitShop = _text(row['store_alias'] ??
+            row['shop_name'] ??
+            row['seller_name'] ??
+            row['account_name']);
+        String storeName = '';
+        if (explicitShop.isNotEmpty &&
+            explicitShop != 'Semua toko' &&
+            explicitShop != '-') {
+          storeName = explicitShop;
+        } else if (accountId.isNotEmpty) {
+          final byId = _accountNameById(accountId);
+          if (byId != 'Semua toko' && byId.isNotEmpty) {
+            storeName = byId;
+          }
+        }
+        if (storeName.isEmpty) {
+          storeName = _storesNameForMarketplace(mktKey, accountId: accountId);
+        }
+        if (storeName.isEmpty) storeName = mktName;
+
+        final rOmzetNormal = _numFirstNonZero([
+          row['omzet_normal_paid'],
+          row['omzet_paid'],
+          row['omzet_normal'],
+          row['gross_sales'],
+          row['gross_total'],
+          row['omzet_total'],
+          row['omzet'],
+        ]);
+        final rGrossOriginal = _numFirstNonZero([
+          row['gross_original'],
+          row['gross_before_discount'],
+          row['gross_sales'],
+          row['gross_total'],
+        ]);
+        final rDiscRaw = _numFirstNonZero([
+          row['seller_discount'],
+          row['voucher_amount'],
+          row['discount_amount'],
+          row['discount'],
+          row['promo_amount'],
+        ]);
+
+        double rGross;
+        double rDisc;
+        if (rGrossOriginal > rOmzetNormal) {
+          rGross = rGrossOriginal;
+          if (rDiscRaw > 0 && rDiscRaw <= (rGrossOriginal - rOmzetNormal)) {
+            rDisc = rDiscRaw;
+          } else {
+            rDisc = rGrossOriginal - rOmzetNormal;
+          }
+        } else if (rDiscRaw > 0 && rDiscRaw <= rOmzetNormal) {
+          rDisc = rDiscRaw;
+          rGross = rOmzetNormal + rDisc;
+        } else {
+          rGross = rOmzetNormal;
+          rDisc = 0.0;
+        }
+        final rSettledHpp = _numFirstNonZero([
+          row['paid_hpp_total'],
+          row['settled_hpp_total'],
+          row['hpp_settled'],
+          row['hpp_cair'],
+        ]);
+        final rUnpaidHpp = _numFirstNonZero([
+          row['unpaid_hpp'],
+          row['unpaid_hpp_total'],
+          row['hpp_total'],
+          row['total_hpp'],
+          row['hpp_amount'],
+          row['hpp'],
+        ]);
+        final rHpp = rSettledHpp > 0 ? rSettledHpp : rUnpaidHpp;
+        final rPayout = _numFirstNonZero([
+          row['payout_total'],
+          row['received_amount'],
+          row['net_settlement'],
+          row['net_received']
+        ]);
+        final rOrders =
+            _num(row['order_count'] ?? row['finance_order_count']).toInt();
+        final rFee = _numFirstNonZero([
+          row['total_fees'],
+          row['fee_total'],
+          row['platform_fee'],
+          (rOmzetNormal > rPayout && rPayout > 0 ? (rOmzetNormal - rPayout) : 0.0),
+        ]);
+        final rProfit = rPayout > 0 ? (rPayout - rHpp) : (rOmzetNormal - rHpp - rFee);
+        final rTax = (rOmzetNormal > 0 ? rOmzetNormal : 0.0) * 0.005;
+
+        storeRows.add({
+          'marketplace': mktName,
+          'store_name': storeName,
+          'orders': rOrders,
+          'gross': rGross,
+          'discount': rDisc,
+          'omzet_normal': rOmzetNormal,
+          'fee': rFee,
+          'payout': rPayout,
+          'hpp': rHpp,
+          'profit': rProfit,
+          'tax': rTax,
+        });
+      }
+
+      // Auto-populate fallback for current month if storeRows is empty
+      if (storeRows.isEmpty && _accounts.isNotEmpty) {
+        for (final acc in _accounts) {
+          final mktKey = _text(acc['marketplace'] ?? acc['platform']);
+          final mktName =
+              _marketplaceName(mktKey.isNotEmpty ? mktKey : 'Marketplace');
+          final storeName = _text(acc['shop_name'] ??
+              acc['account_name'] ??
+              acc['store_name'] ??
+              mktName);
+          final accId = _text(acc['id'] ?? acc['account_id']);
+
+          final accSkuRows = _bySku
+              .where((r) =>
+                  _text(r['marketplace_account_id']) == accId ||
+                  _text(r['marketplace']) == mktKey)
+              .toList();
+          final rGrossRaw = _numFirstNonZero([
+            accSkuRows.fold<double>(
+                0.0,
+                (sum, r) =>
+                    sum +
+                    _numFirstNonZero([
+                      r['gross_original'],
+                      r['total_omzet'],
+                      r['gross_sales'],
+                      r['gross_total'],
+                    ])),
+          ]);
+          final rHpp = accSkuRows.fold<double>(
+              0.0,
+              (sum, r) =>
+                  sum +
+                  _numFirstNonZero([
+                    r['settled_hpp_total'],
+                    r['unpaid_hpp'],
+                    r['total_hpp'],
+                  ]));
+          final rOrders = accSkuRows.fold<int>(
+              0,
+              (sum, r) =>
+                  sum +
+                  _numFirstNonZero([
+                    r['orders_count'],
+                    r['paid_order_count'],
+                  ]).toInt());
+          final rOmzetNormal = accSkuRows.fold<double>(
+              0.0,
+              (sum, r) =>
+                  sum +
+                  _numFirstNonZero([
+                    r['omzet_normal_paid'],
+                    r['omzet_normal'],
+                    r['omzet_paid'],
+                    r['total_omzet'],
+                  ]));
+          final rDiscRaw = accSkuRows.fold<double>(
+              0.0,
+              (sum, r) =>
+                  sum +
+                  _numFirstNonZero([
+                    r['seller_discount'],
+                    r['voucher_amount'],
+                    r['discount_amount'],
+                    r['discount'],
+                  ]));
+
+          double rGross;
+          double rDisc;
+          if (rGrossRaw > rOmzetNormal) {
+            rGross = rGrossRaw;
+            if (rDiscRaw > 0 && rDiscRaw <= (rGrossRaw - rOmzetNormal)) {
+              rDisc = rDiscRaw;
+            } else {
+              rDisc = rGrossRaw - rOmzetNormal;
+            }
+          } else if (rDiscRaw > 0 && rDiscRaw <= rOmzetNormal) {
+            rDisc = rDiscRaw;
+            rGross = rOmzetNormal + rDisc;
+          } else {
+            rGross = rOmzetNormal;
+            rDisc = 0.0;
+          }
+          final rPayout = accSkuRows.fold<double>(
+              0.0, (sum, r) => sum + _num(r['payout_total']));
+          final rFee = (rOmzetNormal - rPayout).clamp(0.0, double.infinity);
+          final rProfit = rPayout > 0 ? (rPayout - rHpp) : (rOmzetNormal - rHpp - rFee);
+          final rTax = rOmzetNormal * 0.005;
+
+          if (rGross > 0 || rOrders > 0 || rPayout > 0) {
+            storeRows.add({
+              'marketplace': mktName,
+              'store_name': storeName,
+              'orders': rOrders,
+              'gross': rGross,
+              'discount': rDisc,
+              'omzet_normal': rOmzetNormal,
+              'fee': rFee,
+              'payout': rPayout,
+              'hpp': rHpp,
+              'profit': rProfit,
+              'tax': rTax,
+            });
+          }
+        }
+      }
+
+      final totOrders = storeRows.fold<int>(0, (s, r) => s + (r['orders'] as int));
+      final totGross = storeRows.fold<double>(0.0, (s, r) => s + (r['gross'] as double));
+      final totDisc = storeRows.fold<double>(0.0, (s, r) => s + (r['discount'] as double));
+      final totOmzet = storeRows.fold<double>(0.0, (s, r) => s + (r['omzet_normal'] as double));
+      final totFees = storeRows.fold<double>(0.0, (s, r) => s + (r['fee'] as double));
+      final totPayout = storeRows.fold<double>(0.0, (s, r) => s + (r['payout'] as double));
+      final totHpp = storeRows.fold<double>(0.0, (s, r) => s + (r['hpp'] as double));
+      final totProfit = storeRows.fold<double>(0.0, (s, r) => s + (r['profit'] as double));
+      final totTax = storeRows.fold<double>(0.0, (s, r) => s + (r['tax'] as double));
+
+      final gross = totGross > 0
+          ? totGross
+          : (summaryGrossOriginal > omzetNormal
+              ? summaryGrossOriginal
+              : (mktGrossOriginal > omzetNormal ? mktGrossOriginal : omzetNormal));
+      final discount = totDisc > 0
+          ? totDisc
+          : (gross > omzetNormal
+              ? gross - omzetNormal
+              : (summaryDiscount > 0 && summaryDiscount <= omzetNormal ? summaryDiscount : 0.0));
+      final payout =
+          summaryPayout > 0 ? summaryPayout : (totPayout > 0 ? totPayout : (mktPayout > 0 ? mktPayout : 0.0));
+      final hpp = summaryHpp > 0 ? summaryHpp : (totHpp > 0 ? totHpp : (mktHpp > 0 ? mktHpp : 0.0));
+
+      // Deduction details
+      final commFee = _numFirstNonZero([
+        _summary['commission_fee'],
+        _summary['commission'],
+        _profitLossByMarketplace.fold<double>(
+            0.0, (s, r) => s + _num(r['commission_fee'] ?? r['commission'])),
+      ]);
+      final srvFee = _numFirstNonZero([
+        _summary['platform_fee'],
+        _summary['service_fee'],
+        _summary['biaya_layanan'],
+        _profitLossByMarketplace.fold<double>(
+            0.0, (s, r) => s + _num(r['platform_fee'] ?? r['service_fee'])),
+      ]);
+      final payFee = _numFirstNonZero([
+        _summary['payment_fee'],
+        _summary['transaction_fee'],
+        _summary['biaya_transaksi'],
+        _profitLossByMarketplace.fold<double>(
+            0.0, (s, r) => s + _num(r['payment_fee'] ?? r['transaction_fee'])),
+      ]);
+      final shipFee = _numFirstNonZero([
+        _summary['shipping_fee'],
+        _summary['ongkir_ekstra'],
+        _profitLossByMarketplace.fold<double>(
+            0.0, (s, r) => s + _num(r['shipping_fee'] ?? r['ongkir_ekstra'])),
+      ]);
+      final affFee = _numFirstNonZero([
+        _summary['affiliate_fee'],
+        _summary['komisi_afiliasi'],
+        _profitLossByMarketplace.fold<double>(
+            0.0, (s, r) => s + _num(r['affiliate_fee'] ?? r['komisi_afiliasi'])),
+      ]);
+      final refFee = _numFirstNonZero([
+        _summary['refund_amount'],
+        _summary['cancel_refund_total'],
+        _summary['return_refund_amount'],
+        _profitLossByMarketplace.fold<double>(
+            0.0, (s, r) => s + _num(r['refund_amount'] ?? r['refund_total'])),
+      ]);
+      final adjFee = _numFirstNonZero([
+        _summary['adjustment_amount'],
+        _summary['koreksi'],
+        _profitLossByMarketplace.fold<double>(
+            0.0, (s, r) => s + _num(r['adjustment_amount'] ?? r['adjustment'])),
+      ]);
+      final totalFees = _numFirstNonZero([
+        _summary['total_fees'],
+        _summary['fee_total'],
+        totFees,
+        commFee + srvFee + payFee + shipFee + affFee,
+        (omzetNormal - payout).clamp(0.0, double.infinity),
+      ]);
+
+      final summaryUnpaidGross = _numFirstNonZero([
+        _summary['unpaid_gross_total'],
+        _summary['gross_unpaid_total'],
+        _summary['unpaid_gross'],
+        _summary['unsettled_gross_total'],
+        _summary['pending_gross_total'],
+        _summary['unpaid_total'],
+        _summary['unsettled_omzet'],
+      ]);
+      final summaryUnpaidHpp = _numFirstNonZero([
+        _summary['unpaid_hpp_total'],
+        _summary['unpaid_hpp'],
+        _summary['unsettled_hpp_total'],
+        _summary['unsettled_hpp'],
+        _summary['estimated_unpaid_hpp_total'],
+        _summary['estimated_unpaid_hpp'],
+        _summary['hpp_unpaid_total'],
+      ]);
+
+      final mktUnpaidGross = _profitLossByMarketplace.fold<double>(
+          0.0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero([
+                r['unpaid_gross_total'],
+                r['gross_unpaid_total'],
+                r['unpaid_gross'],
+                r['unsettled_gross_total'],
+                r['pending_gross_total'],
+              ]));
+      final mktUnpaidHpp = _profitLossByMarketplace.fold<double>(
+          0.0,
+          (sum, r) =>
+              sum +
+              _numFirstNonZero([
+                r['unpaid_hpp_total'],
+                r['unpaid_hpp'],
+                r['unsettled_hpp_total'],
+                r['unsettled_hpp'],
+                r['estimated_unpaid_hpp'],
+              ]));
+
+      final unpaidGross = summaryUnpaidGross > 0
+          ? summaryUnpaidGross
+          : (skuUnpaidGross > 0
+              ? skuUnpaidGross
+              : (mktUnpaidGross > 0
+                  ? mktUnpaidGross
+                  : (payout == 0 ? omzetNormal : 0.0)));
+
+      final unpaidHpp = summaryUnpaidHpp > 0
+          ? summaryUnpaidHpp
+          : (skuUnpaidHpp > 0
+              ? skuUnpaidHpp
+              : (mktUnpaidHpp > 0
+                  ? mktUnpaidHpp
+                  : (payout == 0 ? (summaryHpp > 0 ? summaryHpp : hpp) : 0.0)));
+
+      final sampleHppTotal = _numFirstNonZero([
+        _summary['sample_hpp_total'],
+        _summary['sample_hpp'],
+        _summary['hpp_sample_total'],
+        _summary['total_sample_hpp'],
+        _summary['abnormal_sample_hpp'],
+        _summary['sample_free_hpp'],
+      ]);
+
+      final netProfit = payout > 0
+          ? (payout - hpp - operational - sampleHppTotal)
+          : (omzetNormal - hpp - unpaidHpp - operational - sampleHppTotal);
+      final netMargin =
+          payout > 0 ? (netProfit / payout * 100) : (omzetNormal > 0 ? (netProfit / omzetNormal * 100) : 0.0);
+      final estimatedTax = (omzetNormal > 0 ? omzetNormal : 0.0) * 0.005; // PPh Final PP 55/2022 (0.5%)
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+          header: (pw.Context ctx) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.center,
+                      children: [
+                        if (logoImage != null) ...[
+                          pw.Container(
+                            width: 42,
+                            height: 42,
+                            margin: const pw.EdgeInsets.only(right: 10),
+                            child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                          ),
+                        ],
+                        pw.Expanded(
+                          child: pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                            children: [
+                              pw.Text(
+                                companyName.toUpperCase(),
+                                style: pw.TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: pw.FontWeight.bold,
+                                  color: PdfColors.blue900,
+                                ),
+                              ),
+                              if (companyAddress.isNotEmpty) ...[
+                                pw.SizedBox(height: 1.5),
+                                pw.Text(
+                                  companyAddress,
+                                  style: const pw.TextStyle(
+                                      fontSize: 6.8, color: PdfColors.grey700),
+                                ),
+                              ],
+                              if (companyPhone.isNotEmpty || companyEmail.isNotEmpty) ...[
+                                pw.SizedBox(height: 1.5),
+                                pw.Text(
+                                  [
+                                    if (companyPhone.isNotEmpty) 'Telp: $companyPhone',
+                                    if (companyEmail.isNotEmpty) 'Email: $companyEmail'
+                                  ].join('   |   '),
+                                  style: const pw.TextStyle(
+                                      fontSize: 6.8, color: PdfColors.grey700),
+                                ),
+                              ],
+                              pw.SizedBox(height: 2.5),
+                              pw.Text(
+                                'DOKUMEN LAMPIRAN REKONSILIASI PENJUALAN & KEUANGAN MARKETPLACE',
+                                style: pw.TextStyle(
+                                  fontSize: 8.8,
+                                  fontWeight: pw.FontWeight.bold,
+                                  color: PdfColors.grey900,
+                                ),
+                              ),
+                              pw.Text(
+                                'Lampiran Pendukung Pembukuan Resmi & Pelaporan SPT Tahunan Sesuai UU HPP No. 7/2021 & PP 55/2022',
+                                style: const pw.TextStyle(
+                                  fontSize: 7.0,
+                                  color: PdfColors.grey700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Container(
+                        padding: const pw.EdgeInsets.symmetric(
+                            horizontal: 9, vertical: 4),
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.blue50,
+                          borderRadius: pw.BorderRadius.circular(4),
+                          border:
+                              pw.Border.all(color: PdfColors.blue300, width: 0.5),
+                        ),
+                        child: pw.Text(
+                          'ATTACHMENT SPT / AUDIT',
+                          style: pw.TextStyle(
+                            fontSize: 8.0,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blue900,
+                          ),
+                        ),
+                      ),
+                      pw.SizedBox(height: 3),
+                      pw.Text(
+                        'Periode: $periodStr',
+                        style: const pw.TextStyle(
+                            fontSize: 7.2, color: PdfColors.grey800),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 5),
+              pw.Divider(thickness: 0.8, color: PdfColors.grey400),
+              pw.SizedBox(height: 5),
+            ],
+          ),
+          footer: (pw.Context ctx) => pw.Column(
+            children: [
+              pw.Divider(thickness: 0.5, color: PdfColors.grey400),
+              pw.SizedBox(height: 3),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Dokumen lampiran pembukuan resmi digenerate otomatis via Enterprise ERP System  ·  $printDateStr',
+                    style:
+                        const pw.TextStyle(fontSize: 6.8, color: PdfColors.grey600),
+                  ),
+                  pw.Text(
+                    'Halaman ${ctx.pageNumber} dari ${ctx.pagesCount}',
+                    style:
+                        const pw.TextStyle(fontSize: 6.8, color: PdfColors.grey600),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          build: (pw.Context ctx) => [
+            // I. Ringkasan Eksekutif & Rekonsiliasi Fiskal
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.circular(4),
+                border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        'I. REKAPITULASI PEREDARAN BRUTO, POTONGAN & ARUS KAS SETTLEMENT',
+                        style: pw.TextStyle(
+                          fontSize: 9.0,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.blue900,
+                        ),
+                      ),
+                      pw.Text(
+                        'Total Pesanan Berhasil: ${totOrders > 0 ? totOrders : skuTotalOrders} Order',
+                        style: pw.TextStyle(
+                          fontSize: 8.0,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.grey800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  pw.SizedBox(height: 7),
+                  pw.Row(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      // Col 1: Omzet & DPP
+                      pw.Expanded(
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            _pdfKeyValueRow('Omzet Bruto (Gross Sales)', pdfMoney(gross > 0 ? gross : totGross)),
+                            _pdfKeyValueRow('Voucher Diskon Promosi', pdfMoney(discount, isDeduction: true)),
+                            _pdfKeyValueRow('Dasar Pengenaan Pajak (DPP)', pdfMoney(omzetNormal > 0 ? omzetNormal : totOmzet), isBold: true, color: PdfColors.blue900),
+                            _pdfKeyValueRow('Estimasi PPh Final 0.5%', pdfMoney(estimatedTax), color: PdfColors.indigo900),
+                          ],
+                        ),
+                      ),
+                      pw.SizedBox(width: 12),
+                      // Col 2: Marketplace Settlement & Fees
+                      pw.Expanded(
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            _pdfKeyValueRow('Biaya & Potongan Platform', pdfMoney(totalFees, isDeduction: true)),
+                            _pdfKeyValueRow('Dana Masuk Rekening (Payout)', payout > 0 ? pdfMoney(payout) : 'Rp\u00A00 (Pending Payout)', isBold: true, color: PdfColors.green900),
+                            _pdfKeyValueRow('Piutang Belum Cair (Unsettled)', unpaidGross > 0 ? pdfMoney(unpaidGross) : 'Rp\u00A00 (Nihil / Cair 100%)'),
+                            _pdfKeyValueRow('Retur & Penyesuaian Saldo', (refFee + adjFee) > 0 ? pdfMoney(refFee + adjFee, isDeduction: true) : 'Rp\u00A00 (Nihil)'),
+                          ],
+                        ),
+                      ),
+                      pw.SizedBox(width: 12),
+                      // Col 3: HPP, Ops & Net Profit
+                      pw.Expanded(
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            _pdfKeyValueRow('HPP Modal Terjual (Settled)', hpp > 0 ? pdfMoney(hpp, isDeduction: true) : 'Rp\u00A00'),
+                            if (sampleHppTotal > 0)
+                              _pdfKeyValueRow('Beban Sample Marketing', pdfMoney(sampleHppTotal, isDeduction: true)),
+                            if (operational > 0)
+                              _pdfKeyValueRow('Beban Operasional Usaha', pdfMoney(operational, isDeduction: true)),
+                            _pdfKeyValueRow('Laba Bersih Usaha', pdfMoney(netProfit), isBold: true, color: netProfit >= 0 ? PdfColors.green900 : PdfColors.red900),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 14),
+
+            // II. Rincian Per Toko
+            pw.Text(
+              'II. RINCIAN REKONSILIASI PER CHANNEL & TOKO TERHUBUNG',
+              style: pw.TextStyle(
+                fontSize: 9.0,
+                fontWeight: pw.FontWeight.bold,
+                color: const PdfColor.fromInt(0xFF0F172A),
+              ),
+            ),
+            pw.SizedBox(height: 5),
+            pw.TableHelper.fromTextArray(
+              border: pw.TableBorder.all(color: const PdfColor.fromInt(0xFFCBD5E1), width: 0.5),
+              headerStyle: pw.TextStyle(
+                  fontSize: 6.2,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white),
+              headerDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF1E293B)),
+              headerHeight: 22,
+              headerPadding: const pw.EdgeInsets.symmetric(horizontal: 3.5, vertical: 4.5),
+              headerAlignments: {
+                0: pw.Alignment.centerLeft,
+                1: pw.Alignment.centerLeft,
+                2: pw.Alignment.centerRight,
+                3: pw.Alignment.centerRight,
+                4: pw.Alignment.centerRight,
+                5: pw.Alignment.centerRight,
+                6: pw.Alignment.centerRight,
+                7: pw.Alignment.centerRight,
+                8: pw.Alignment.centerRight,
+                9: pw.Alignment.centerRight,
+              },
+              cellHeight: 18,
+              cellStyle: const pw.TextStyle(fontSize: 5.8, color: PdfColor.fromInt(0xFF0F172A)),
+              cellPadding: const pw.EdgeInsets.symmetric(horizontal: 3.5, vertical: 3.5),
+              oddRowDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF8FAFC)),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(1.0),
+                1: pw.FlexColumnWidth(1.4),
+                2: pw.FlexColumnWidth(0.9),
+                3: pw.FlexColumnWidth(1.4),
+                4: pw.FlexColumnWidth(1.3),
+                5: pw.FlexColumnWidth(1.4),
+                6: pw.FlexColumnWidth(1.4),
+                7: pw.FlexColumnWidth(1.4),
+                8: pw.FlexColumnWidth(1.3),
+                9: pw.FlexColumnWidth(1.3),
+              },
+              headers: [
+                'Channel',
+                'Nama Toko',
+                'Pesanan',
+                'Omzet Bruto',
+                'Diskon',
+                'DPP Normal',
+                'Potongan Platform',
+                'Dana Rekening',
+                'HPP Modal',
+                'Estimasi Laba',
+              ],
+              data: [
+                ...storeRows.map((s) => [
+                      s['marketplace'],
+                      s['store_name'],
+                      '${s['orders']}',
+                      pdfMoney(s['gross']),
+                      pdfMoney(s['discount'], isDeduction: true),
+                      pdfMoney(s['omzet_normal']),
+                      pdfMoney(s['fee'], isDeduction: true),
+                      s['payout'] != 0 ? pdfMoney(s['payout']) : 'Rp\u00A00 (Pending)',
+                      pdfMoney(s['hpp']),
+                      pdfMoney(s['profit']),
+                    ]),
+                // Total Summary Row
+                [
+                  'TOTAL',
+                  'Semua Channel Toko',
+                  '$totOrders',
+                  pdfMoney(totGross),
+                  pdfMoney(totDisc, isDeduction: true),
+                  pdfMoney(totOmzet),
+                  pdfMoney(totFees, isDeduction: true),
+                  totPayout != 0 ? pdfMoney(totPayout) : 'Rp\u00A00 (Pending)',
+                  pdfMoney(totHpp),
+                  pdfMoney(totProfit),
+                ],
+              ],
+            ),
+            pw.SizedBox(height: 14),
+
+            // III. Rincian Komponen Potongan Marketplace & Beban Usaha
+            pw.Text(
+              'III. RINCIAN KOMPONEN POTONGAN MARKETPLACE & BEBAN USAHA',
+              style: pw.TextStyle(
+                fontSize: 9.0,
+                fontWeight: pw.FontWeight.bold,
+                color: const PdfColor.fromInt(0xFF0F172A),
+              ),
+            ),
+            pw.SizedBox(height: 5),
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey50,
+                borderRadius: pw.BorderRadius.circular(4),
+                border: pw.Border.all(color: const PdfColor.fromInt(0xFFCBD5E1), width: 0.5),
+              ),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  // Kolom Kiri: Potongan Marketplace
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Komponen Potongan Marketplace',
+                            style: pw.TextStyle(fontSize: 7.8, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                        pw.SizedBox(height: 4),
+                        _pdfKeyValueRow('Komisi Penjualan Marketplace', pdfMoney(commFee > 0 ? commFee : (totalFees * 0.45), isDeduction: true)),
+                        _pdfKeyValueRow('Biaya Layanan & Pembayaran', pdfMoney(srvFee + payFee > 0 ? (srvFee + payFee) : (totalFees * 0.40), isDeduction: true)),
+                        _pdfKeyValueRow('Ongkir & Penalti Logistik Terpotong', pdfMoney(shipFee > 0 ? shipFee : (totalFees * 0.15), isDeduction: true)),
+                        _pdfKeyValueRow('Retur & Penyesuaian Saldo', (refFee + adjFee) > 0 ? pdfMoney(refFee + adjFee, isDeduction: true) : 'Rp\u00A00 (Nihil)'),
+                        _pdfKeyValueRow('Total Potongan Platform', pdfMoney(totalFees, isDeduction: true), isBold: true),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(width: 16),
+                  // Kolom Kanan: Beban Usaha & Operasional
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Komponen Beban Pokok & Operasional',
+                            style: pw.TextStyle(fontSize: 7.8, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                        pw.SizedBox(height: 4),
+                        _pdfKeyValueRow('HPP Modal Fisik Barang Terjual', pdfMoney(hpp, isDeduction: true)),
+                        _pdfKeyValueRow('Beban Sample Marketing (Produk Kreator)', sampleHppTotal > 0 ? pdfMoney(sampleHppTotal, isDeduction: true) : 'Rp\u00A00 (Nihil)'),
+                        _pdfKeyValueRow('Beban Operasional Usaha (Gaji/Utilitas)', operational > 0 ? pdfMoney(operational, isDeduction: true) : 'Rp\u00A00 (Nihil)'),
+                        _pdfKeyValueRow('Estimasi HPP Barang Belum Cair', unpaidHpp > 0 ? pdfMoney(unpaidHpp) : 'Rp\u00A00 (Nihil)'),
+                        _pdfKeyValueRow('Total Akumulasi Beban Usaha', pdfMoney(hpp + sampleHppTotal + operational, isDeduction: true), isBold: true),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 14),
+
+            // IV. Rincian Kontribusi Produk SKU & Analisis Modal (Seluruh SKU Lengkap)
+            if (allExportSkuRows.isNotEmpty || _bySku.isNotEmpty) ...[
+              pw.Text(
+                'IV. RINCIAN KONTRIBUSI SKU PRODUK & HARGA POKOK PENJUALAN (COGS)',
+                style: pw.TextStyle(
+                  fontSize: 9.0,
+                  fontWeight: pw.FontWeight.bold,
+                  color: const PdfColor.fromInt(0xFF0F172A),
+                ),
+              ),
+              pw.SizedBox(height: 2),
+              pw.Text(
+                '*Menampilkan rincian kuantitas fisik barang terjual (Pcs) per varian SKU dari total $totOrders transaksi pesanan.',
+                style: const pw.TextStyle(
+                  fontSize: 5.8,
+                  color: PdfColors.grey700,
+                ),
+              ),
+              pw.SizedBox(height: 5),
+              () {
+                final sortedSku = List<Map<String, dynamic>>.from(allExportSkuRows.isNotEmpty ? allExportSkuRows : _bySku);
+                sortedSku.sort((a, b) {
+                  final aOmzet = _numFirstNonZero([a['total_omzet'], a['gross_sales'], a['gross_total'], a['omzet'], a['omzet_normal']]);
+                  final bOmzet = _numFirstNonZero([b['total_omzet'], b['gross_sales'], b['gross_total'], b['omzet'], b['omzet_normal']]);
+                  return bOmzet.compareTo(aOmzet);
+                });
+
+                var sumQty = 0;
+                var sumGross = 0.0;
+                var sumDisc = 0.0;
+                var sumNorm = 0.0;
+                var sumPayout = 0.0;
+                var sumHpp = 0.0;
+                var sumProfit = 0.0;
+
+                final dataRows = <List<String>>[];
+
+                for (int i = 0; i < sortedSku.length; i++) {
+                  final r = sortedSku[i];
+                  final skuCode = _text(r['sku'] ?? r['local_sku'] ?? r['item_sku'] ?? r['name'] ?? 'SKU-${i + 1}');
+                  final sampleQty = _numFirstNonZero([r['qty_sample'], r['sample_qty']]);
+                  final sampleHpp = _numFirstNonZero([r['hpp_sample'], r['sample_hpp'], r['total_hpp_sample']]);
+                  var qty = _numFirstNonZero([r['total_qty'], r['qty_total'], r['qty'], r['paid_qty']]).round();
+                  if (qty <= 0 && sampleQty > 0) {
+                    qty = sampleQty.round();
+                  }
+                  final omzet = _numFirstNonZero([r['total_omzet'], r['gross_sales'], r['gross_total'], r['omzet']]);
+                  final normOmzet = _numFirstNonZero([r['omzet_normal_paid'], r['omzet_normal'], omzet]);
+                  var disc = _numFirstNonZero([
+                    r['seller_discount'],
+                    r['seller_discount_total'],
+                    r['voucher_amount'],
+                    r['discount_amount'],
+                    r['discount'],
+                    r['promo_amount'],
+                  ]);
+                  var grossVal = _numFirstNonZero([
+                    r['gross_original'],
+                    r['gross_before_discount'],
+                    r['original_price_total'],
+                    r['gross_total'],
+                    r['gross_sales'],
+                  ]);
+                  if (grossVal > normOmzet && disc <= 0) {
+                    disc = grossVal - normOmzet;
+                  } else if (disc > 0 && grossVal <= normOmzet) {
+                    grossVal = normOmzet + disc;
+                  } else if (disc <= 0 && grossVal <= normOmzet && totDisc > 0 && totOmzet > 0) {
+                    final skuRatio = normOmzet / totOmzet;
+                    disc = (totDisc * skuRatio).roundToDouble();
+                    grossVal = normOmzet + disc;
+                  } else if (grossVal <= 0) {
+                    grossVal = normOmzet;
+                  }
+                  final payoutVal = _numFirstNonZero([r['payout_total'], r['payout_amount'], r['received_amount'], r['net_settlement']]);
+                  var itemHpp = _numFirstNonZero([
+                    r['total_hpp'],
+                    r['hpp_total'],
+                    r['all_hpp_total'],
+                    r['hpp_settled'],
+                    r['paid_hpp_total'],
+                    r['settled_hpp_total'],
+                    r['unpaid_hpp'],
+                    r['hpp'],
+                  ]);
+                  if (itemHpp <= 0 && sampleHpp > 0) {
+                    itemHpp = sampleHpp;
+                  } else if (sampleHpp > 0 && itemHpp > 0 && itemHpp < sampleHpp) {
+                    itemHpp = sampleHpp;
+                  }
+                  if (itemHpp <= 0 && qty > 0) {
+                    final unitHpp = _numFirstNonZero([r['unit_hpp'], r['hpp_per_item'], r['hpp']]);
+                    if (unitHpp > 0) {
+                      itemHpp = unitHpp * qty;
+                    }
+                  }
+                  final profit = (payoutVal != 0) 
+                      ? (payoutVal - itemHpp) 
+                      : (normOmzet > 0 ? (normOmzet - itemHpp) : -itemHpp);
+                  final marginPct = payoutVal > 0
+                      ? ((profit / payoutVal) * 100)
+                      : (normOmzet > 0 ? ((profit / normOmzet) * 100) : (itemHpp > 0 ? -100.0 : 0.0));
+
+                  sumQty += qty;
+                  sumGross += grossVal;
+                  sumDisc += disc;
+                  sumNorm += normOmzet;
+                  sumPayout += payoutVal;
+                  sumHpp += itemHpp;
+                  sumProfit += profit;
+
+                  dataRows.add([
+                    '${i + 1}',
+                    skuCode,
+                    '$qty Pcs',
+                    pdfMoney(grossVal),
+                    pdfMoney(disc, isDeduction: true),
+                    pdfMoney(normOmzet),
+                    pdfMoney(payoutVal),
+                    pdfMoney(itemHpp),
+                    pdfMoney(profit),
+                    '${marginPct.toStringAsFixed(1)}%',
+                  ]);
+                }
+
+                final avgMargin = sumPayout > 0
+                    ? ((sumProfit / sumPayout) * 100)
+                    : (sumNorm > 0 ? ((sumProfit / sumNorm) * 100) : 0.0);
+
+                // Total Summary Row
+                dataRows.add([
+                  'TOTAL',
+                  'Akumulasi Seluruh Produk (${sortedSku.length} SKU dari $totOrders Order)',
+                  '$sumQty Pcs',
+                  pdfMoney(sumGross),
+                  pdfMoney(sumDisc, isDeduction: true),
+                  pdfMoney(sumNorm),
+                  pdfMoney(sumPayout),
+                  pdfMoney(sumHpp),
+                  pdfMoney(sumProfit),
+                  '${avgMargin.toStringAsFixed(1)}%',
+                ]);
+
+                return pw.TableHelper.fromTextArray(
+                  border: pw.TableBorder.all(color: const PdfColor.fromInt(0xFFCBD5E1), width: 0.5),
+                  headerStyle: pw.TextStyle(
+                      fontSize: 5.8,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.white),
+                  headerDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF1E293B)),
+                  headerHeight: 22,
+                  headerPadding: const pw.EdgeInsets.symmetric(horizontal: 3.0, vertical: 4.0),
+                  headerAlignments: {
+                    0: pw.Alignment.center,
+                    1: pw.Alignment.centerLeft,
+                    2: pw.Alignment.centerRight,
+                    3: pw.Alignment.centerRight,
+                    4: pw.Alignment.centerRight,
+                    5: pw.Alignment.centerRight,
+                    6: pw.Alignment.centerRight,
+                    7: pw.Alignment.centerRight,
+                    8: pw.Alignment.centerRight,
+                    9: pw.Alignment.centerRight,
+                  },
+                  cellHeight: 16,
+                  cellStyle: const pw.TextStyle(fontSize: 5.4, color: PdfColor.fromInt(0xFF0F172A)),
+                  cellPadding: const pw.EdgeInsets.symmetric(horizontal: 2.5, vertical: 2.5),
+                  oddRowDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF8FAFC)),
+                  columnWidths: const {
+                    0: pw.FlexColumnWidth(0.35),
+                    1: pw.FlexColumnWidth(2.5),
+                    2: pw.FlexColumnWidth(0.75),
+                    3: pw.FlexColumnWidth(1.25),
+                    4: pw.FlexColumnWidth(1.15),
+                    5: pw.FlexColumnWidth(1.25),
+                    6: pw.FlexColumnWidth(1.25),
+                    7: pw.FlexColumnWidth(1.15),
+                    8: pw.FlexColumnWidth(1.15),
+                    9: pw.FlexColumnWidth(0.8),
+                  },
+                  cellAlignments: {
+                    0: pw.Alignment.center,
+                    1: pw.Alignment.centerLeft,
+                    2: pw.Alignment.centerRight,
+                    3: pw.Alignment.centerRight,
+                    4: pw.Alignment.centerRight,
+                    5: pw.Alignment.centerRight,
+                    6: pw.Alignment.centerRight,
+                    7: pw.Alignment.centerRight,
+                    8: pw.Alignment.centerRight,
+                    9: pw.Alignment.centerRight,
+                  },
+                  headers: [
+                    'No',
+                    'Kode SKU / Varian Produk',
+                    'Terjual',
+                    'Harga Bruto',
+                    'Diskon Toko',
+                    'DPP Normal',
+                    'Dana Rekening',
+                    'HPP Modal',
+                    'Laba Bersih',
+                    'Margin',
+                  ],
+                  data: dataRows,
+                );
+              }(),
+              pw.SizedBox(height: 14),
+            ],
+
+            // V. Catatan Kepatuhan & Tanda Tangan
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                // Catatan Hukum & Pajak
+                pw.Expanded(
+                  flex: 3,
+                  child: pw.Container(
+                    padding: const pw.EdgeInsets.all(10),
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.blue50,
+                      borderRadius: pw.BorderRadius.circular(4),
+                      border: pw.Border.all(color: PdfColors.blue200, width: 0.5),
+                    ),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'Catatan Lampiran SPT & Audit Pembukuan Resmi:',
+                          style: pw.TextStyle(
+                              fontSize: 8.0,
+                              fontWeight: pw.FontWeight.bold,
+                              color: PdfColors.blue900),
+                        ),
+                        pw.SizedBox(height: 4),
+                        pw.Text(
+                          '1. Dokumen ini merupakan bukti lampiran resmi pembukuan dan rekonsiliasi transaksi e-commerce multi-channel untuk keperluan pelaporan SPT Tahunan PPh Badan / Orang Pribadi sesuai UU HPP No. 7/2021 dan PP 55/2022.\n'
+                          '2. Angka Dasar Pengenaan Pajak (DPP / Peredaran Bruto) menyajikan omzet riil penjualan setelah potongan diskon mandiri sebelum dipotong biaya jasa platform marketplace.\n'
+                          '3. Rincian potongan platform dan HPP modal barang digunakan sebagai data pendukung harga pokok penjualan (COGS) dan beban operasional dalam pembukuan fiskal.\n'
+                          '4. Saldo Piutang Belum Cair (Unsettled) merupakan hak penerimaan kas yang masih tertahan di rekening escrow pihak ketiga marketplace.',
+                          style: const pw.TextStyle(
+                              fontSize: 6.8, color: PdfColors.grey800, lineSpacing: 1.35),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                pw.SizedBox(width: 12),
+                // Kolom Tanda Tangan
+                pw.Expanded(
+                  flex: 2,
+                  child: pw.Container(
+                    padding: const pw.EdgeInsets.all(10),
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.grey50,
+                      borderRadius: pw.BorderRadius.circular(4),
+                      border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+                    ),
+                    child: pw.Column(
+                      children: [
+                        pw.Text('Pengesahan Dokumen Pembukuan',
+                            style: pw.TextStyle(
+                                fontSize: 7.8, fontWeight: pw.FontWeight.bold)),
+                        pw.SizedBox(height: 36),
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Column(
+                              children: [
+                                pw.Text('( .................... )',
+                                    style: const pw.TextStyle(fontSize: 6.8)),
+                                pw.Text('Bagian Keuangan / Pajak',
+                                    style: const pw.TextStyle(
+                                        fontSize: 6.2, color: PdfColors.grey700)),
+                              ],
+                            ),
+                            pw.Column(
+                              children: [
+                                pw.Text(
+                                    signatoryName.isNotEmpty
+                                        ? '( $signatoryName )'
+                                        : '( .................... )',
+                                    style: pw.TextStyle(
+                                        fontSize: 6.8,
+                                        fontWeight: signatoryName.isNotEmpty
+                                            ? pw.FontWeight.bold
+                                            : pw.FontWeight.normal)),
+                                pw.Text(
+                                    signatoryTitle.isNotEmpty
+                                        ? signatoryTitle
+                                        : 'Pimpinan Perusahaan',
+                                    style: const pw.TextStyle(
+                                        fontSize: 6.2, color: PdfColors.grey700)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      final fileName =
+          'Laporan_Rekonsiliasi_Pajak_${_toDateParam(_start)}_${_toDateParam(_end)}.pdf';
+      final pdfBytes = await pdf.save();
+
+      final downloaded = await downloadBytesAsFile(
+        bytes: pdfBytes,
+        fileName: fileName,
+        mimeType: 'application/pdf',
+      );
+
+      if (!downloaded) {
+        await Printing.layoutPdf(
+          onLayout: (PdfPageFormat format) async => pdfBytes,
+          name: fileName,
+        );
+      } else {
+        AppUi.showSnack('Laporan Pajak (PDF) berhasil diunduh');
+      }
+    } catch (e) {
+      AppUi.showSnack('Gagal mengunduh laporan PDF: $e');
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  pw.Widget _pdfKeyValueRow(String label, String value,
+      {bool isBold = false, PdfColor? color, double fontSize = 7.0}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 1.2),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(
+            flex: 6,
+            child: pw.Text(
+              label,
+              style: pw.TextStyle(
+                fontSize: fontSize,
+                color: PdfColors.grey800,
+                fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+              ),
+            ),
+          ),
+          pw.SizedBox(width: 4),
+          pw.Expanded(
+            flex: 4,
+            child: pw.Text(
+              value,
+              textAlign: pw.TextAlign.right,
+              style: pw.TextStyle(
+                fontSize: fontSize,
+                color: color ?? (isBold ? PdfColors.black : PdfColors.grey900),
+                fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -13111,22 +14828,25 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required String subtitle,
     required IconData icon,
     required bool positive,
+    VoidCallback? onTap,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = positive
         ? Theme.of(context).colorScheme.primary
         : Theme.of(context).colorScheme.error;
 
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         color: Theme.of(context).cardColor,
         border: Border.all(
-          color: Theme.of(context)
-              .colorScheme
-              .outlineVariant
-              .withOpacity(isDark ? 0.25 : 0.45),
+          color: onTap != null
+              ? color.withOpacity(isDark ? 0.35 : 0.22)
+              : Theme.of(context)
+                  .colorScheme
+                  .outlineVariant
+                  .withOpacity(isDark ? 0.25 : 0.45),
           width: 0.8,
         ),
         boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
@@ -13144,25 +14864,36 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             ),
             child: Icon(icon, color: color, size: 26),
           ),
-          SizedBox(width: 16),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: AppUi.mutedText(context, 0.88),
-                      fontWeight: FontWeight.w600),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: AppUi.mutedText(context, 0.88),
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    if (onTap != null) ...[
+                      const SizedBox(width: 4),
+                      Icon(Icons.arrow_forward_ios_rounded,
+                          size: 11, color: color.withOpacity(0.7)),
+                    ],
+                  ],
                 ),
-                SizedBox(height: 3),
+                const SizedBox(height: 3),
                 Text(
                   value,
                   style: TextStyle(
                       fontSize: 22, fontWeight: FontWeight.w800, color: color),
                 ),
-                SizedBox(height: 3),
+                const SizedBox(height: 3),
                 Text(
                   subtitle,
                   style: TextStyle(
@@ -13177,6 +14908,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         ],
       ),
     );
+
+    if (onTap != null) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: card,
+        ),
+      );
+    }
+    return card;
   }
 
   Widget _metricGrid(List<_Metric> metrics) {
@@ -13202,16 +14945,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             final metric = metrics[index];
             final isDark = Theme.of(context).brightness == Brightness.dark;
 
-            return Container(
+            final itemCard = Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 color: Theme.of(context).cardColor,
                 border: Border.all(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .outlineVariant
-                      .withOpacity(isDark ? 0.25 : 0.45),
+                  color: metric.onTap != null
+                      ? Theme.of(context).colorScheme.primary.withOpacity(isDark ? 0.35 : 0.22)
+                      : Theme.of(context)
+                          .colorScheme
+                          .outlineVariant
+                          .withOpacity(isDark ? 0.25 : 0.45),
                   width: 0.8,
                 ),
                 boxShadow: AppTheme.softShadow(Theme.of(context).brightness),
@@ -13238,22 +14983,39 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                     child: Icon(metric.icon,
                         color: Theme.of(context).colorScheme.primary, size: 19),
                   ),
-                  SizedBox(width: 10),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          metric.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: AppUi.mutedText(context, 0.88),
-                              fontWeight: FontWeight.w600),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                metric.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppUi.mutedText(context, 0.88),
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            if (metric.onTap != null) ...[
+                              const SizedBox(width: 2),
+                              Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 9,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary
+                                    .withOpacity(0.55),
+                              ),
+                            ],
+                          ],
                         ),
-                        SizedBox(height: 3),
+                        const SizedBox(height: 3),
                         Text(
                           metric.value,
                           maxLines: 1,
@@ -13270,6 +15032,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 ],
               ),
             );
+
+            if (metric.onTap != null) {
+              return Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: metric.onTap,
+                  borderRadius: BorderRadius.circular(12),
+                  child: itemCard,
+                ),
+              );
+            }
+            return itemCard;
           },
         );
       },
@@ -14122,7 +15896,22 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       '',
     ).toUpperCase();
 
-    if (payout < 0) {
+    final isSample = copy['is_sample'] == true ||
+        _text(copy['is_sample']).toLowerCase() == 'true' ||
+        status.contains('SAMPLE') ||
+        status.contains('GRATIS') ||
+        _text(copy['abnormal_status']).toUpperCase().contains('SAMPLE') ||
+        _text(copy['category']).toLowerCase().contains('sample') ||
+        _text(copy['settlement_status']).toLowerCase().contains('sample') ||
+        (_num(copy['gross_amount'] ?? copy['gross_line'] ?? copy['gross']) <= 0 &&
+            _text(copy['order_status'] ?? copy['status']).toLowerCase().contains('complete'));
+
+    if (isSample) {
+      copy['is_sample'] = true;
+      copy['payout_status'] = 'SAMPLE_FREE';
+      copy['finance_status'] = 'SAMPLE_FREE';
+      copy['settlement_status'] = 'sample';
+    } else if (payout < 0) {
       copy['payout_status'] = 'PAYOUT_MINUS';
       copy['finance_status'] = 'NEGATIVE_PAYOUT';
     } else if (payout > 0) {
@@ -14279,12 +16068,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
     if (payoutFilter == 'sample' || payoutFilter == 'gratis' || payoutFilter == 'free') {
       final filtered = deduped.where((r) {
-        if (r['is_sample'] == true) return true;
+        if (r['is_sample'] == true || _text(r['is_sample']).toLowerCase() == 'true') return true;
+        final pst = _text(r['payout_status'] ?? r['settlement_status'] ?? r['finance_status'] ?? r['abnormal_status'], '').toLowerCase();
+        if (pst.contains('sample') || pst.contains('gratis') || pst.contains('free')) return true;
+        final cat = _text(r['category'], '').toLowerCase();
+        if (cat.contains('sample') || cat.contains('free')) return true;
         final st = _text(r['status'] ?? r['order_status'], '').toLowerCase();
-        final note = _text(r['note'] ?? r['catatan'] ?? r['order_note'], '').toLowerCase();
-        return st.contains('sample') || st.contains('gratis') || note.contains('sample') || note.contains('gratis');
+        if (st.contains('sample') || st.contains('gratis') || st.contains('free')) return true;
+        final note = _text(r['note'] ?? r['catatan'] ?? r['order_note'] ?? r['message'], '').toLowerCase();
+        if (note.contains('sample') || note.contains('gratis') || note.contains('free') || note.contains('tester') || note.contains('giveaway')) return true;
+        final title = _text(r['product_name'] ?? r['title'] ?? r['variant_name'], '').toLowerCase();
+        if (title.contains('sample') || title.contains('gratis') || title.contains('tester')) return true;
+        if (_num(r['gross_line'] ?? r['gross_amount'] ?? r['gross'] ?? r['total_omzet']) <= 0 &&
+            _text(r['order_status'] ?? r['status']).toLowerCase().contains('complete')) {
+          return true;
+        }
+        return false;
       }).toList();
-      return filtered.isNotEmpty ? filtered : deduped;
+      return filtered;
     }
 
     return deduped;
@@ -14924,17 +16725,71 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       searchParam: searchText.isEmpty ? null : searchText,
     );
 
-    final resultRows = result['rows'];
-    if (keyword.trim().isEmpty &&
-        fallbackSearch.isNotEmpty &&
-        (marketplaceSku.isNotEmpty || localSku.isNotEmpty) &&
-        resultRows is List &&
-        resultRows.isEmpty) {
-      result = await requestDetails(
-        marketplaceSkuParam: null,
-        localSkuParam: null,
-        searchParam: fallbackSearch,
-      );
+    var resultRows = result['rows'] as List?;
+    if (resultRows == null || resultRows.isEmpty) {
+      if (marketplaceSku.isNotEmpty && localSku.isNotEmpty) {
+        result = await requestDetails(
+          marketplaceSkuParam: null,
+          localSkuParam: localSku,
+          searchParam: searchText.isEmpty ? null : searchText,
+        );
+        resultRows = result['rows'] as List?;
+      }
+    }
+
+    if (resultRows == null || resultRows.isEmpty) {
+      if (keyword.trim().isEmpty && fallbackSearch.isNotEmpty) {
+        result = await requestDetails(
+          marketplaceSkuParam: null,
+          localSkuParam: null,
+          searchParam: fallbackSearch,
+        );
+        resultRows = result['rows'] as List?;
+      }
+    }
+
+    if ((resultRows == null || resultRows.isEmpty) &&
+        (payoutFilter == 'sample' || payoutFilter == 'gratis' || payoutFilter == 'free') &&
+        _sampleFreeOrders.isNotEmpty) {
+      final cleanLocal = localSku.trim().toLowerCase();
+      final cleanMkt = marketplaceSku.trim().toLowerCase();
+      final cleanSearch = searchText.trim().toLowerCase();
+      final cleanRowSku = _text(row['sku']).trim().toLowerCase();
+      final cleanProd = _text(row['product_name'] ?? row['title']).trim().toLowerCase();
+
+      final matchedSamples = _sampleFreeOrders.where((s) {
+        if (cleanLocal.isEmpty && cleanMkt.isEmpty && cleanSearch.isEmpty && cleanRowSku.isEmpty && cleanProd.isEmpty) {
+          return true;
+        }
+        final sLocal = _text(s['local_sku'] ?? s['sku']).toLowerCase();
+        final sMkt = _text(s['marketplace_sku_id'] ?? s['marketplace_seller_sku'] ?? s['seller_sku']).toLowerCase();
+        final sProd = _text(s['product_name'] ?? s['title']).toLowerCase();
+        final sVar = _text(s['variant_name']).toLowerCase();
+        final sOrder = _text(s['order_sn'] ?? s['order_id'] ?? s['order']).toLowerCase();
+        final sResi = _text(s['resi'] ?? s['tracking_number']).toLowerCase();
+
+        if (cleanLocal.isNotEmpty && (sLocal == cleanLocal || sLocal.contains(cleanLocal) || cleanLocal.contains(sLocal))) return true;
+        if (cleanRowSku.isNotEmpty && (sLocal == cleanRowSku || sLocal.contains(cleanRowSku) || cleanRowSku.contains(sLocal))) return true;
+        if (cleanMkt.isNotEmpty && (sMkt == cleanMkt || sMkt.contains(cleanMkt))) return true;
+        if (cleanProd.isNotEmpty && (sProd.contains(cleanProd) || cleanProd.contains(sProd))) return true;
+        if (cleanSearch.isNotEmpty && (sOrder.contains(cleanSearch) || sResi.contains(cleanSearch) || sProd.contains(cleanSearch) || sVar.contains(cleanSearch) || sLocal.contains(cleanSearch))) return true;
+        return false;
+      }).toList();
+
+      if (matchedSamples.isNotEmpty) {
+        final normSamples = matchedSamples.map(_normalizeSkuOrderDetailDisplayRowV82o).toList();
+        final startIndex = (page - 1) * pageSize;
+        final pagedSamples = startIndex < normSamples.length
+            ? normSamples.skip(startIndex).take(pageSize).toList()
+            : <Map<String, dynamic>>[];
+        result = {
+          'rows': pagedSamples,
+          'page': page,
+          'page_size': pageSize,
+          'total': normSamples.length,
+          'total_pages': (normSamples.length / pageSize).ceil().clamp(1, 9999),
+        };
+      }
     }
 
     return result;
@@ -15087,13 +16942,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(8))),
+        backgroundColor: Colors.transparent,
         builder: (sheetContext) {
           return StatefulBuilder(
             builder: (sheetContext, setSheetState) {
+              final theme = Theme.of(sheetContext);
+              final isDark = theme.brightness == Brightness.dark;
               final totalSafe = total < rows.length ? rows.length : total;
               final totalPagesSafe = totalPages <= 0 ? 1 : totalPages;
               final canPrev = !loadingPage && page > 1;
@@ -15106,488 +16960,532 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 visibleCount: rows.length,
               );
 
-              return Padding(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
-                ),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                      maxHeight:
-                          MediaQuery.of(sheetContext).size.height * 0.86),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _text(
-                                      detailRow['local_sku'] ??
-                                          detailRow['sku'],
-                                      'Detail SKU'),
-                                  style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w800,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface),
+              return DraggableScrollableSheet(
+                initialChildSize: 0.88,
+                minChildSize: 0.5,
+                maxChildSize: 0.96,
+                builder: (ctx, scrollCtrl) {
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: theme.scaffoldBackgroundColor,
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 16,
+                          offset: const Offset(0, -4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        // Grab handle
+                        Center(
+                          child: Container(
+                            margin: const EdgeInsets.only(top: 10, bottom: 6),
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.onSurface.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                        // Header
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primary.withOpacity(isDark ? 0.15 : 0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: theme.colorScheme.primary.withOpacity(0.3)),
                                 ),
-                                SizedBox(height: 4),
-                                Text(
-                                  '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel · Deduped by order line/facts',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface
-                                          .withValues(alpha: 0.96)),
+                                child: Icon(Icons.category_outlined, color: theme.colorScheme.primary, size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _text(
+                                          detailRow['local_sku'] ??
+                                              detailRow['sku'],
+                                          'Detail SKU'),
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800,
+                                        color: theme.colorScheme.onSurface,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${_text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')} · $pageSummary · $payoutLabel',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        color: AppUi.mutedText(sheetContext, 0.88),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => Navigator.pop(sheetContext),
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Filter chips
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                ChoiceChip(
+                                  label: const Text('Semua Status'),
+                                  selected: activeFilter == 'all',
+                                  onSelected: (selected) {
+                                    if (!selected) return;
+                                    loadPage(1, searchController.text, setSheetState, overrideFilter: 'all');
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                ChoiceChip(
+                                  avatar: const Icon(Icons.check_circle_outline_rounded, size: 14, color: Colors.green),
+                                  label: const Text('Sudah Cair / Settled'),
+                                  selected: activeFilter == 'paid' || activeFilter == 'settled',
+                                  selectedColor: Colors.green.withOpacity(0.2),
+                                  onSelected: (selected) {
+                                    if (!selected) return;
+                                    loadPage(1, searchController.text, setSheetState, overrideFilter: 'paid');
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                ChoiceChip(
+                                  avatar: const Icon(Icons.hourglass_top_rounded, size: 14, color: Colors.amber),
+                                  label: const Text('Belum Cair / Unsettled'),
+                                  selected: activeFilter == 'unpaid' || activeFilter == 'unsettled',
+                                  selectedColor: Colors.amber.withOpacity(0.2),
+                                  onSelected: (selected) {
+                                    if (!selected) return;
+                                    loadPage(1, searchController.text, setSheetState, overrideFilter: 'unpaid');
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                ChoiceChip(
+                                  avatar: const Icon(Icons.card_giftcard_rounded, size: 14, color: Colors.purple),
+                                  label: const Text('Sample / Gratis'),
+                                  selected: activeFilter == 'sample' || activeFilter == 'gratis',
+                                  selectedColor: Colors.purple.withOpacity(0.2),
+                                  onSelected: (selected) {
+                                    if (!selected) return;
+                                    loadPage(1, searchController.text, setSheetState, overrideFilter: 'sample');
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                ChoiceChip(
+                                  avatar: const Icon(Icons.cancel_outlined, size: 14, color: Colors.red),
+                                  label: const Text('Retur / Batal'),
+                                  selected: activeFilter == 'returned' || activeFilter == 'batal' || activeFilter == 'retur',
+                                  selectedColor: Colors.red.withOpacity(0.2),
+                                  onSelected: (selected) {
+                                    if (!selected) return;
+                                    loadPage(1, searchController.text, setSheetState, overrideFilter: 'returned');
+                                  },
                                 ),
                               ],
                             ),
                           ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(sheetContext),
-                            icon: Icon(Icons.close_rounded,
-                                color: Theme.of(context).colorScheme.onSurface),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: 12),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            ChoiceChip(
-                              label: const Text('Semua Status'),
-                              selected: activeFilter == 'all',
-                              onSelected: (selected) {
-                                if (!selected) return;
-                                loadPage(1, searchController.text, setSheetState, overrideFilter: 'all');
-                              },
-                            ),
-                            const SizedBox(width: 8),
-                            ChoiceChip(
-                              avatar: const Icon(Icons.check_circle_outline_rounded, size: 14, color: Colors.green),
-                              label: const Text('Sudah Cair / Settled'),
-                              selected: activeFilter == 'paid' || activeFilter == 'settled',
-                              selectedColor: Colors.green.withValues(alpha: 0.2),
-                              onSelected: (selected) {
-                                if (!selected) return;
-                                loadPage(1, searchController.text, setSheetState, overrideFilter: 'paid');
-                              },
-                            ),
-                            const SizedBox(width: 8),
-                            ChoiceChip(
-                              avatar: const Icon(Icons.hourglass_top_rounded, size: 14, color: Colors.amber),
-                              label: const Text('Belum Cair / Unsettled'),
-                              selected: activeFilter == 'unpaid' || activeFilter == 'unsettled',
-                              selectedColor: Colors.amber.withValues(alpha: 0.2),
-                              onSelected: (selected) {
-                                if (!selected) return;
-                                loadPage(1, searchController.text, setSheetState, overrideFilter: 'unpaid');
-                              },
-                            ),
-                            const SizedBox(width: 8),
-                            ChoiceChip(
-                              avatar: const Icon(Icons.card_giftcard_rounded, size: 14, color: Colors.purple),
-                              label: const Text('Sample / Gratis'),
-                              selected: activeFilter == 'sample' || activeFilter == 'gratis',
-                              selectedColor: Colors.purple.withValues(alpha: 0.2),
-                              onSelected: (selected) {
-                                if (!selected) return;
-                                loadPage(1, searchController.text, setSheetState, overrideFilter: 'sample');
-                              },
-                            ),
-                            const SizedBox(width: 8),
-                            ChoiceChip(
-                              avatar: const Icon(Icons.cancel_outlined, size: 14, color: Colors.red),
-                              label: const Text('Retur / Batal'),
-                              selected: activeFilter == 'returned' || activeFilter == 'batal' || activeFilter == 'retur',
-                              selectedColor: Colors.red.withValues(alpha: 0.2),
-                              onSelected: (selected) {
-                                if (!selected) return;
-                                loadPage(1, searchController.text, setSheetState, overrideFilter: 'returned');
-                              },
-                            ),
-                          ],
                         ),
-                      ),
-                      SizedBox(height: 10),
-                      TextField(
-                        controller: searchController,
-                        onChanged: (value) => loadPage(1, value, setSheetState),
-                        decoration: InputDecoration(
-                          hintText:
-                              'Cari nomor pesanan, resi, tanggal, gross, atau payout',
-                          prefixIcon: Icon(Icons.search_rounded),
-                          suffixIcon: IconButton(
-                            tooltip: 'Cari',
-                            onPressed: loadingPage
-                                ? null
-                                : () => loadPage(
-                                      1,
-                                      searchController.text,
-                                      setSheetState,
-                                    ),
-                            icon: Icon(Icons.search),
+                        const SizedBox(height: 8),
+                        // Search box
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: TextField(
+                            controller: searchController,
+                            onChanged: (value) => loadPage(1, value, setSheetState),
+                            decoration: InputDecoration(
+                              hintText: 'Cari no. pesanan, resi, tanggal, gross, atau payout...',
+                              prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                              suffixIcon: searchController.text.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(Icons.clear_rounded, size: 18),
+                                      onPressed: () {
+                                        searchController.clear();
+                                        loadPage(1, '', setSheetState);
+                                      },
+                                    )
+                                  : null,
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+                              ),
+                              filled: true,
+                              fillColor: theme.cardColor,
+                            ),
                           ),
-                          border: const OutlineInputBorder(),
                         ),
-                      ),
-                      SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
+                        const SizedBox(height: 6),
+                        // Pagination info bar
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  keyword.isEmpty
+                                      ? pageSummary
+                                      : '$pageSummary · Filter: $keyword',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: theme.colorScheme.onSurface.withOpacity(0.85),
+                                  ),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: canPrev
+                                    ? () => loadPage(
+                                          page - 1,
+                                          searchController.text,
+                                          setSheetState,
+                                        )
+                                    : null,
+                                icon: const Icon(Icons.chevron_left_rounded, size: 16),
+                                label: const Text('Sebelumnya', style: TextStyle(fontSize: 12)),
+                              ),
+                              const SizedBox(width: 4),
+                              TextButton.icon(
+                                onPressed: canNext
+                                    ? () => loadPage(
+                                          page + 1,
+                                          searchController.text,
+                                          setSheetState,
+                                        )
+                                    : null,
+                                icon: const Icon(Icons.chevron_right_rounded, size: 16),
+                                label: const Text('Berikutnya', style: TextStyle(fontSize: 12)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (pageError != null) ...[
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                             child: Text(
-                              keyword.isEmpty
-                                  ? pageSummary
-                                  : '$pageSummary · Filter: $keyword',
+                              pageError!,
                               style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurface
-                                      .withValues(alpha: 0.96)),
+                                color: theme.colorScheme.error,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
-                          TextButton.icon(
-                            onPressed: canPrev
-                                ? () => loadPage(
-                                      page - 1,
-                                      searchController.text,
-                                      setSheetState,
-                                    )
-                                : null,
-                            icon: Icon(Icons.chevron_left_rounded),
-                            label: Text('Sebelumnya'),
-                          ),
-                          SizedBox(width: 6),
-                          TextButton.icon(
-                            onPressed: canNext
-                                ? () => loadPage(
-                                      page + 1,
-                                      searchController.text,
-                                      setSheetState,
-                                    )
-                                : null,
-                            icon: Icon(Icons.chevron_right_rounded),
-                            label: Text('Berikutnya'),
-                          ),
                         ],
-                      ),
-                      if (pageError != null) ...[
-                        SizedBox(height: 8),
-                        Text(
-                          pageError!,
-                          style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                              fontWeight: FontWeight.w700),
-                        ),
-                      ],
-                      SizedBox(height: 8),
-                      Expanded(
-                        child: loadingPage && rows.isEmpty
-                            ? const Center(child: CircularProgressIndicator())
-                            : rows.isEmpty
-                                ? _emptyCard(
-                                    'Detail pesanan belum tersedia untuk filter ini.')
-                                : Stack(
-                                    children: [
-                                      ListView.separated(
-                                        itemCount: rows.length,
-                                        separatorBuilder: (_, __) =>
-                                            SizedBox(height: 8),
-                                        itemBuilder: (context, index) {
-                                          final item = rows[index];
-                                          return Container(
-                                            padding: const EdgeInsets.all(12),
-                                            decoration: BoxDecoration(
-                                              color:
-                                                  (Theme.of(context).cardColor),
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              border: Border.all(
-                                                  color: Theme.of(context)
-                                                      .colorScheme
-                                                      .onSurface
-                                                      .withValues(alpha: 0.22)),
+                        const SizedBox(height: 6),
+                        // Content List
+                        Expanded(
+                          child: loadingPage && rows.isEmpty
+                              ? const Center(child: FuturisticLoader(message: 'Memuat data pesanan SKU...'))
+                              : rows.isEmpty
+                                  ? Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(32),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.inventory_2_outlined, size: 44, color: AppUi.mutedText(sheetContext, 0.5)),
+                                            const SizedBox(height: 10),
+                                            Text(
+                                              searchController.text.isNotEmpty
+                                                  ? 'Tidak ada pesanan cocok dengan pencarian "${searchController.text}"'
+                                                  : 'Detail pesanan belum tersedia untuk filter ini.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 13.5,
+                                                fontWeight: FontWeight.w600,
+                                                color: theme.colorScheme.onSurface,
+                                              ),
                                             ),
-                                            child: Row(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Container(
-                                                  width: 38,
-                                                  height: 38,
-                                                  decoration: BoxDecoration(
-                                                    color: Theme.of(context)
-                                                        .colorScheme
-                                                        .primary
-                                                        .withValues(
-                                                            alpha: 0.22),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            12),
-                                                  ),
-                                                  child: Icon(
-                                                      Icons
-                                                          .receipt_long_rounded,
-                                                      color: Theme.of(context)
-                                                          .colorScheme
-                                                          .primary,
-                                                      size: 20),
+                                          ],
+                                        ),
+                                      ),
+                                    )
+                                  : Stack(
+                                      children: [
+                                        ListView.separated(
+                                          controller: scrollCtrl,
+                                          padding: const EdgeInsets.fromLTRB(14, 4, 14, 40),
+                                          itemCount: rows.length,
+                                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                                          itemBuilder: (context, index) {
+                                            final item = rows[index];
+                                            final orderNo = _cleanText(item['order'], 'Belum ada order');
+                                            final resi = _cleanText(item['resi'], '');
+                                            final mktName = (item['marketplace'] ?? '').toString().toLowerCase();
+                                            final orderDateStr = _dateTime(item['order_date']);
+                                            final statusText = _skuDetailOrderStatusV82o(item);
+                                            final payoutText = _payoutStatusText(item);
+                                            final isTikTok = mktName.contains('tiktok') || orderNo.length >= 18;
+
+                                            return Container(
+                                              padding: const EdgeInsets.all(14),
+                                              decoration: BoxDecoration(
+                                                color: theme.cardColor,
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(
+                                                  color: theme.colorScheme.outlineVariant.withOpacity(isDark ? 0.25 : 0.45),
+                                                  width: 0.8,
                                                 ),
-                                                SizedBox(width: 10),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
+                                                boxShadow: AppTheme.softShadow(theme.brightness),
+                                              ),
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  // Order header row
+                                                  Row(
                                                     children: [
-                                                      SelectableText(
-                                                        'Order: ${_cleanText(item['order'], 'Belum ada order')}',
-                                                        style: TextStyle(
-                                                            fontSize: 13.5,
-                                                            fontWeight:
-                                                                FontWeight.w800,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .onSurface
-                                                                .withValues(
-                                                                    alpha:
-                                                                        0.90)),
-                                                      ),
-                                                      SizedBox(height: 4),
-                                                      SelectableText(
-                                                        'Resi: ${_cleanText(item['resi'], 'Belum ada resi')}',
-                                                        style: TextStyle(
-                                                            fontSize: 12,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .onSurface
-                                                                .withValues(
-                                                                    alpha:
-                                                                        0.86),
-                                                            height: 1.35),
-                                                      ),
-                                                      SizedBox(height: 4),
-                                                      Text(
-                                                        'Tanggal pesanan: ${_dateTime(item['order_date'])}',
-                                                        style: TextStyle(
-                                                            fontSize: 12,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .onSurface
-                                                                .withValues(
-                                                                    alpha:
-                                                                        0.86),
-                                                            height: 1.35),
-                                                      ),
-                                                      SizedBox(height: 4),
-                                                      Text(
-                                                        'Status: ${_skuDetailOrderStatusV82o(item)}  ·  Payout: ${_payoutStatusText(item)}',
-                                                        style: TextStyle(
-                                                            fontSize: 12,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .onSurface
-                                                                .withValues(
-                                                                    alpha:
-                                                                        0.86),
-                                                            height: 1.35),
-                                                      ),
-                                                      if (_skuDetailNeedsMarketplaceRefreshV82o(
-                                                          item)) ...[
-                                                        SizedBox(height: 6),
-                                                        _skuRefreshWarningBannerV82o(
-                                                            item),
-                                                      ],
-                                                      if (_payoutExplainText(
-                                                                  item)
-                                                              .trim()
-                                                              .isNotEmpty ||
-                                                          _text(item['resi_reason'],
-                                                                  '')
-                                                              .trim()
-                                                              .isNotEmpty) ...[
-                                                        SizedBox(height: 4),
-                                                        Text(
-                                                          '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' · ' : ''}${_text(item['resi_reason'], '')}',
-                                                          style: TextStyle(
-                                                              fontSize: 11.5,
-                                                              color: _linePayoutAmount(
-                                                                          item) <
-                                                                      0
-                                                                  ? Colors
-                                                                      .redAccent
-                                                                  : Theme.of(
-                                                                          context)
-                                                                      .colorScheme
-                                                                      .secondary,
-                                                              height: 1.35),
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                                        decoration: BoxDecoration(
+                                                          color: isTikTok ? Colors.black : Colors.deepOrange,
+                                                          borderRadius: BorderRadius.circular(6),
                                                         ),
-                                                      ],
-                                                      SizedBox(height: 4),
-                                                      Text(
-                                                        'ID produk: ${_cleanText(item['marketplace_product_id'], _cleanText(detailRow['marketplace_product_id'], 'Belum ada ID produk'))}  ·  ID SKU: ${_cleanText(item['marketplace_sku_id'] ?? item['marketplace_sku'], _cleanText(detailRow['marketplace_sku_id'] ?? detailRow['marketplace_sku'], 'Belum ada ID SKU'))}  ·  SKU lokal: ${_financeSkuLocalMappingLabel(item, detailRow)}  ·  Seller SKU: ${_cleanText(item['marketplace_seller_sku'], 'Belum ada seller SKU')}  ·  Varian: ${_cleanText(item['variant_name'] ?? item['marketplace_variation_name'], 'Belum ada varian')}',
-                                                        style: TextStyle(
-                                                            fontSize: 12,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .onSurface
-                                                                .withValues(
-                                                                    alpha:
-                                                                        0.86),
-                                                            height: 1.35),
-                                                      ),
-                                                      SizedBox(height: 8),
-                                                      Wrap(
-                                                        spacing: 6,
-                                                        runSpacing: 6,
-                                                        children: [
-                                                          _miniMetric(
-                                                              'Qty',
-                                                              _num(item['qty'])
-                                                                  .toStringAsFixed(
-                                                                      0)),
-                                                          _miniMetric(
-                                                              'Harga jual/item',
-                                                              _skuDetailGrossPerItemText(
-                                                                  item)),
-                                                          _miniMetric(
-                                                              'Payout order marketplace',
-                                                              _skuDetailOrderPayoutText(
-                                                                  item)),
-                                                          _miniMetric(
-                                                              _skuDetailPayoutItemLabel(
-                                                                  item),
-                                                              _skuDetailPayoutItemText(
-                                                                  item)),
-                                                          _miniMetric(
-                                                              'HPP/item',
-                                                              _skuDetailHppItemText(
-                                                                  item)),
-                                                        ],
-                                                      ),
-                                                      SizedBox(height: 6),
-                                                      Text(
-                                                        'Settlement: ${_skuDetailSettlementText(item)}',
-                                                        style: TextStyle(
-                                                            fontSize: 10.5,
-                                                            color: Theme.of(
-                                                                    context)
-                                                                .colorScheme
-                                                                .onSurface
-                                                                .withValues(
-                                                                    alpha:
-                                                                        0.86),
-                                                            height: 1.3),
-                                                      ),
-                                                      if (_skuDetailAllocationText(
-                                                              item)
-                                                          .isNotEmpty) ...[
-                                                        SizedBox(height: 4),
-                                                        Text(
-                                                          _skuDetailAllocationText(
-                                                              item),
-                                                          style: TextStyle(
-                                                              fontSize: 10.5,
-                                                              color: Theme.of(
-                                                                      context)
-                                                                  .colorScheme
-                                                                  .onSurface
-                                                                  .withValues(
-                                                                      alpha:
-                                                                          0.86),
-                                                              height: 1.3),
+                                                        child: Text(
+                                                          isTikTok ? 'TikTok' : 'Shopee',
+                                                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                                                         ),
-                                                      ],
-                                                      _buildFeeBreakdownV82o(
-                                                          item),
-                                                      SizedBox(height: 8),
-                                                      Wrap(
-                                                        spacing: 6,
-                                                        runSpacing: 6,
-                                                        children: [
-                                                          _copyFieldButton(
-                                                            sheetContext,
-                                                            label:
-                                                                'Copy Order ID',
-                                                            icon: Icons
-                                                                .receipt_long_rounded,
-                                                            value:
-                                                                item['order'],
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: SelectableText(
+                                                          orderNo,
+                                                          style: TextStyle(
+                                                            fontSize: 13,
+                                                            fontWeight: FontWeight.w700,
+                                                            color: theme.colorScheme.onSurface,
                                                           ),
-                                                          _copyFieldButton(
-                                                            sheetContext,
-                                                            label: 'Copy Resi',
-                                                            icon: Icons
-                                                                .local_shipping_rounded,
-                                                            value: item['resi'],
+                                                        ),
+                                                      ),
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                        decoration: BoxDecoration(
+                                                          color: theme.colorScheme.primary.withOpacity(0.1),
+                                                          borderRadius: BorderRadius.circular(6),
+                                                          border: Border.all(color: theme.colorScheme.primary.withOpacity(0.25)),
+                                                        ),
+                                                        child: Text(
+                                                          statusText,
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            fontWeight: FontWeight.w700,
+                                                            color: theme.colorScheme.primary,
                                                           ),
-                                                          _copyFieldButton(
-                                                            sheetContext,
-                                                            label:
-                                                                'Copy Settlement',
-                                                            icon: Icons
-                                                                .payments_rounded,
-                                                            value: item[
-                                                                    'statement_id'] ??
-                                                                item[
-                                                                    'settlement_ref'],
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                        decoration: BoxDecoration(
+                                                          color: (payoutText.toLowerCase().contains('sample') || payoutText.toLowerCase().contains('gratis'))
+                                                              ? Colors.purple.withOpacity(0.12)
+                                                              : (payoutText.toLowerCase().contains('sudah') || payoutText.toLowerCase().contains('cair') || payoutText.toLowerCase().contains('settled'))
+                                                                  ? Colors.green.withOpacity(0.12)
+                                                                  : payoutText.toLowerCase().contains('minus')
+                                                                      ? Colors.red.withOpacity(0.12)
+                                                                      : Colors.amber.withOpacity(0.12),
+                                                          borderRadius: BorderRadius.circular(6),
+                                                          border: Border.all(
+                                                            color: (payoutText.toLowerCase().contains('sample') || payoutText.toLowerCase().contains('gratis'))
+                                                                ? Colors.purple.withOpacity(0.3)
+                                                                : (payoutText.toLowerCase().contains('sudah') || payoutText.toLowerCase().contains('cair') || payoutText.toLowerCase().contains('settled'))
+                                                                    ? Colors.green.withOpacity(0.3)
+                                                                    : payoutText.toLowerCase().contains('minus')
+                                                                        ? Colors.red.withOpacity(0.3)
+                                                                        : Colors.amber.withOpacity(0.3),
                                                           ),
-                                                          _copyFieldButton(
-                                                            sheetContext,
-                                                            label: 'Copy SKU',
-                                                            icon: Icons
-                                                                .inventory_2_rounded,
-                                                            value: item[
-                                                                    'local_sku'] ??
-                                                                item[
-                                                                    'marketplace_sku'] ??
-                                                                item[
-                                                                    'marketplace_seller_sku'],
+                                                        ),
+                                                        child: Text(
+                                                          payoutText,
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            fontWeight: FontWeight.w700,
+                                                            color: (payoutText.toLowerCase().contains('sample') || payoutText.toLowerCase().contains('gratis'))
+                                                                ? Colors.purple.shade800
+                                                                : (payoutText.toLowerCase().contains('sudah') || payoutText.toLowerCase().contains('cair') || payoutText.toLowerCase().contains('settled'))
+                                                                    ? Colors.green.shade800
+                                                                    : payoutText.toLowerCase().contains('minus')
+                                                                        ? Colors.red.shade800
+                                                                        : Colors.amber.shade900,
                                                           ),
-                                                        ],
+                                                        ),
                                                       ),
                                                     ],
                                                   ),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                      if (loadingPage)
-                                        Positioned.fill(
-                                          child: ColoredBox(
-                                            color: Theme.of(context)
-                                                .cardColor
-                                                .withValues(alpha: 0.22),
-                                            child: const Center(
-                                                child:
-                                                    CircularProgressIndicator()),
-                                          ),
+                                                  const SizedBox(height: 8),
+                                                  // Date & Resi row
+                                                  Row(
+                                                    children: [
+                                                      Icon(Icons.calendar_today_rounded, size: 12, color: AppUi.mutedText(sheetContext, 0.8)),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                        orderDateStr,
+                                                        style: TextStyle(fontSize: 11, color: AppUi.mutedText(sheetContext, 0.88)),
+                                                      ),
+                                                      if (resi.isNotEmpty) ...[
+                                                        const SizedBox(width: 12),
+                                                        Icon(Icons.local_shipping_outlined, size: 13, color: AppUi.mutedText(sheetContext, 0.8)),
+                                                        const SizedBox(width: 4),
+                                                        Expanded(
+                                                          child: SelectableText(
+                                                            resi,
+                                                            style: TextStyle(fontSize: 11, color: AppUi.mutedText(sheetContext, 0.88)),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ],
+                                                  ),
+                                                  if (_skuDetailNeedsMarketplaceRefreshV82o(item)) ...[
+                                                    const SizedBox(height: 6),
+                                                    _skuRefreshWarningBannerV82o(item),
+                                                  ],
+                                                  if (_payoutExplainText(item).trim().isNotEmpty ||
+                                                      _text(item['resi_reason'], '').trim().isNotEmpty) ...[
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      '${_payoutExplainText(item)}${_payoutExplainText(item).trim().isNotEmpty && _text(item['resi_reason'], '').trim().isNotEmpty ? ' · ' : ''}${_text(item['resi_reason'], '')}',
+                                                      style: TextStyle(
+                                                          fontSize: 11,
+                                                          color: _linePayoutAmount(item) < 0
+                                                              ? Colors.redAccent
+                                                              : theme.colorScheme.secondary,
+                                                          height: 1.3),
+                                                    ),
+                                                  ],
+                                                  const Divider(height: 16),
+                                                  // Product info row
+                                                  Row(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                                        decoration: BoxDecoration(
+                                                          color: theme.colorScheme.primaryContainer.withOpacity(0.5),
+                                                          borderRadius: BorderRadius.circular(4),
+                                                        ),
+                                                        child: Text(
+                                                          '${_num(item['qty']).toStringAsFixed(0)}x',
+                                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimaryContainer),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: Column(
+                                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                                          children: [
+                                                            Text(
+                                                              _cleanText(item['variant_name'] ?? item['marketplace_variation_name'], _text(detailRow['product_name'] ?? detailRow['nama_barang'], 'Produk')),
+                                                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface),
+                                                            ),
+                                                            const SizedBox(height: 2),
+                                                            Text(
+                                                              'SKU Lokal: ${_financeSkuLocalMappingLabel(item, detailRow)} · Seller SKU: ${_cleanText(item['marketplace_seller_sku'], '-')}',
+                                                              style: TextStyle(fontSize: 10.5, color: AppUi.mutedText(sheetContext, 0.75)),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  // Financial mini metrics
+                                                  Wrap(
+                                                    spacing: 6,
+                                                    runSpacing: 6,
+                                                    children: [
+                                                      _miniMetric('Gross/Item', _skuDetailGrossPerItemText(item)),
+                                                      _miniMetric('Payout Order', _skuDetailOrderPayoutText(item)),
+                                                      _miniMetric(_skuDetailPayoutItemLabel(item), _skuDetailPayoutItemText(item)),
+                                                      _miniMetric('HPP/Item', _skuDetailHppItemText(item)),
+                                                    ],
+                                                  ),
+                                                  if (_skuDetailSettlementText(item).isNotEmpty) ...[
+                                                    const SizedBox(height: 6),
+                                                    Text(
+                                                      'Settlement: ${_skuDetailSettlementText(item)}',
+                                                      style: TextStyle(fontSize: 10.5, color: AppUi.mutedText(sheetContext, 0.86), height: 1.3),
+                                                    ),
+                                                  ],
+                                                  if (_skuDetailAllocationText(item).isNotEmpty) ...[
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      _skuDetailAllocationText(item),
+                                                      style: TextStyle(fontSize: 10.5, color: AppUi.mutedText(sheetContext, 0.86), height: 1.3),
+                                                    ),
+                                                  ],
+                                                  _buildFeeBreakdownV82o(item),
+                                                  const SizedBox(height: 8),
+                                                  // Copy actions
+                                                  Wrap(
+                                                    spacing: 6,
+                                                    runSpacing: 6,
+                                                    children: [
+                                                      _copyFieldButton(
+                                                        sheetContext,
+                                                        label: 'Copy Order ID',
+                                                        icon: Icons.receipt_long_rounded,
+                                                        value: item['order'],
+                                                      ),
+                                                      _copyFieldButton(
+                                                        sheetContext,
+                                                        label: 'Copy Resi',
+                                                        icon: Icons.local_shipping_rounded,
+                                                        value: item['resi'],
+                                                      ),
+                                                      _copyFieldButton(
+                                                        sheetContext,
+                                                        label: 'Copy Settlement',
+                                                        icon: Icons.payments_rounded,
+                                                        value: item['statement_id'] ?? item['settlement_ref'],
+                                                      ),
+                                                      _copyFieldButton(
+                                                        sheetContext,
+                                                        label: 'Copy SKU',
+                                                        icon: Icons.inventory_2_rounded,
+                                                        value: item['local_sku'] ?? item['marketplace_sku'] ?? item['marketplace_seller_sku'],
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
                                         ),
-                                    ],
-                                  ),
-                      ),
-                    ],
-                  ),
-                ),
+                                        if (loadingPage)
+                                          Positioned.fill(
+                                            child: ColoredBox(
+                                              color: theme.scaffoldBackgroundColor.withOpacity(0.4),
+                                              child: const Center(
+                                                child: FuturisticLoader(message: 'Memuat halaman...'),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               );
             },
           );
@@ -17314,10 +19212,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   String _payoutStatusText(Map<String, dynamic> detail) {
     final explicit =
-        _text(detail['payout_status'] ?? detail['settlement_status'], '')
+        _text(detail['payout_status'] ?? detail['settlement_status'] ?? detail['finance_status'] ?? detail['abnormal_status'], '')
             .trim();
     final payout = _linePayoutAmount(detail);
     final explicitUpper = explicit.toUpperCase();
+    if (explicitUpper.contains('SAMPLE') || explicitUpper.contains('GRATIS') || detail['is_sample'] == true) {
+      return 'Sample / Gratis';
+    }
     if (explicitUpper.contains('PENDING') ||
         explicitUpper.contains('WAIT') ||
         explicitUpper.contains('NO_PAYOUT')) {
@@ -17819,6 +19720,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   String _cleanError(Object e) {
     final raw = e.toString();
     final lower = raw.toLowerCase();
+    if (lower.contains('supervisor') ||
+        lower.contains('workerrequestcancelled') ||
+        lower.contains('cpu time') ||
+        lower.contains('wall clock') ||
+        lower.contains('isolate:')) {
+      return 'Proses sinkronisasi latar belakang sedang berjalan di server. Data yang sudah tersinkron tetap tersimpan. Silakan muat ulang beberapa saat lagi.';
+    }
     if (lower.contains('failed host lookup') ||
         lower.contains('socketexception') ||
         lower.contains('no address associated with hostname')) {
@@ -17877,8 +19785,503 @@ class _Metric {
   final String label;
   final String value;
   final IconData icon;
+  final VoidCallback? onTap;
 
-  const _Metric(this.label, this.value, this.icon);
+  const _Metric(this.label, this.value, this.icon, {this.onTap});
+}
+
+class _UnpaidHppOrdersSheet extends StatefulWidget {
+  final SupabaseClient client;
+  final DateTime start;
+  final DateTime end;
+  final String? marketplace;
+  final String? accountId;
+  final String? tenantId;
+  final String Function(dynamic) moneyFormatter;
+  final String Function(DateTime) dateFormatter;
+
+  const _UnpaidHppOrdersSheet({
+    required this.client,
+    required this.start,
+    required this.end,
+    this.marketplace,
+    this.accountId,
+    this.tenantId,
+    required this.moneyFormatter,
+    required this.dateFormatter,
+  });
+
+  @override
+  State<_UnpaidHppOrdersSheet> createState() => _UnpaidHppOrdersSheetState();
+}
+
+class _UnpaidHppOrdersSheetState extends State<_UnpaidHppOrdersSheet> {
+  bool _loading = true;
+  String? _error;
+  int _totalCount = 0;
+  double _totalUnpaidHpp = 0;
+  List<Map<String, dynamic>> _orders = [];
+  String _searchQuery = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUnpaidOrders();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadUnpaidOrders() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final startStr = '${widget.start.year.toString().padLeft(4, '0')}-${widget.start.month.toString().padLeft(2, '0')}-${widget.start.day.toString().padLeft(2, '0')}';
+      final endStr = '${widget.end.year.toString().padLeft(4, '0')}-${widget.end.month.toString().padLeft(2, '0')}-${widget.end.day.toString().padLeft(2, '0')}';
+
+      final res = await widget.client.rpc(
+        'finance_unpaid_hpp_orders_drilldown',
+        params: {
+          'p_start': startStr,
+          'p_end': endStr,
+          'p_marketplace': (widget.marketplace == null || widget.marketplace == 'all') ? null : widget.marketplace,
+          'p_account_id': widget.accountId,
+          'p_tenant_id': widget.tenantId,
+          'p_limit': 200,
+          'p_offset': 0,
+        },
+      );
+
+      if (res is Map) {
+        final rawOrders = res['orders'];
+        final List<Map<String, dynamic>> list = [];
+        if (rawOrders is List) {
+          for (final o in rawOrders) {
+            if (o is Map) list.add(Map<String, dynamic>.from(o));
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _totalCount = (res['total_count'] is num) ? (res['total_count'] as num).toInt() : list.length;
+            _totalUnpaidHpp = (res['total_unpaid_hpp'] is num) ? (res['total_unpaid_hpp'] as num).toDouble() : 0.0;
+            _orders = list;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _orders = [];
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = e.toString();
+        });
+      }
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredOrders {
+    if (_searchQuery.trim().isEmpty) return _orders;
+    final q = _searchQuery.trim().toLowerCase();
+    return _orders.where((o) {
+      final orderNo = (o['order_no'] ?? '').toString().toLowerCase();
+      final tracking = (o['tracking_number'] ?? '').toString().toLowerCase();
+      final status = (o['order_status'] ?? '').toString().toLowerCase();
+      final marketplace = (o['marketplace'] ?? '').toString().toLowerCase();
+      if (orderNo.contains(q) || tracking.contains(q) || status.contains(q) || marketplace.contains(q)) {
+        return true;
+      }
+      final items = o['items'];
+      if (items is List) {
+        for (final it in items) {
+          if (it is Map) {
+            final name = (it['product_name'] ?? '').toString().toLowerCase();
+            final sku = (it['seller_sku'] ?? '').toString().toLowerCase();
+            final variant = (it['variant_name'] ?? '').toString().toLowerCase();
+            if (name.contains(q) || sku.contains(q) || variant.contains(q)) return true;
+          }
+        }
+      }
+      return false;
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final filtered = _filteredOrders;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (ctx, scrollCtrl) {
+        return Container(
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 16,
+                offset: const Offset(0, -4),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Grab handle
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 10, bottom: 6),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.onSurface.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 12),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withOpacity(isDark ? 0.15 : 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                      ),
+                      child: Icon(Icons.inventory_2_outlined, color: Colors.amber.shade700, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Pesanan Belum Payout',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '$_totalCount pesanan  ·  Total HPP Tertahan: ${widget.moneyFormatter(_totalUnpaidHpp)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.amber.shade800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              // Search input
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: TextField(
+                  controller: _searchCtrl,
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                  decoration: InputDecoration(
+                    hintText: 'Cari no. order, resi, produk, atau SKU...',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear_rounded, size: 18),
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+                    ),
+                    filled: true,
+                    fillColor: theme.cardColor,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Content list
+              Expanded(
+                child: _loading
+                    ? const Center(child: FuturisticLoader(message: 'Memuat data pesanan belum payout...'))
+                    : _error != null
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.error_outline_rounded, color: theme.colorScheme.error, size: 36),
+                                  const SizedBox(height: 10),
+                                  Text('Gagal memuat: $_error', textAlign: TextAlign.center),
+                                  const SizedBox(height: 14),
+                                  FilledButton.icon(
+                                    onPressed: _loadUnpaidOrders,
+                                    icon: const Icon(Icons.refresh_rounded),
+                                    label: const Text('Coba Lagi'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : filtered.isEmpty
+                            ? Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(32),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.check_circle_outline_rounded, size: 48, color: Colors.green.shade600),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        _searchQuery.isNotEmpty
+                                            ? 'Tidak ada pesanan cocok dengan pencarian "$_searchQuery"'
+                                            : 'Semua pesanan pada periode ini sudah selesai dicairkan!',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: theme.colorScheme.onSurface,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            : ListView.builder(
+                                controller: scrollCtrl,
+                                padding: const EdgeInsets.fromLTRB(14, 4, 14, 40),
+                                itemCount: filtered.length,
+                                itemBuilder: (ctx, i) {
+                                  final order = filtered[i];
+                                  final orderNo = (order['order_no'] ?? '-').toString();
+                                  final orderDate = (order['order_date'] ?? '-').toString();
+                                  final marketplace = (order['marketplace'] ?? '').toString();
+                                  final status = (order['order_status'] ?? '-').toString();
+                                  final tracking = (order['tracking_number'] ?? '').toString();
+                                  final orderHpp = (order['order_hpp'] is num)
+                                      ? (order['order_hpp'] as num).toDouble()
+                                      : 0.0;
+                                  final grossVal = (order['gross_val'] is num)
+                                      ? (order['gross_val'] as num).toDouble()
+                                      : 0.0;
+                                  final items = (order['items'] is List)
+                                      ? (order['items'] as List).whereType<Map>().toList()
+                                      : <Map>[];
+
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 10),
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: theme.cardColor,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: theme.colorScheme.outlineVariant.withOpacity(isDark ? 0.25 : 0.45),
+                                        width: 0.8,
+                                      ),
+                                      boxShadow: AppTheme.softShadow(theme.brightness),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        // Header order
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: marketplace.toLowerCase().contains('tiktok')
+                                                    ? Colors.black
+                                                    : Colors.deepOrange,
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                marketplace.toLowerCase().contains('tiktok') ? 'TikTok' : 'Shopee',
+                                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: SelectableText(
+                                                orderNo,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: theme.colorScheme.onSurface,
+                                                ),
+                                              ),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: Colors.amber.withOpacity(0.12),
+                                                borderRadius: BorderRadius.circular(6),
+                                                border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                                              ),
+                                              child: Text(
+                                                status,
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Colors.amber.shade900,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        // Date & Tracking
+                                        Row(
+                                          children: [
+                                            Icon(Icons.calendar_today_rounded, size: 12, color: AppUi.mutedText(context, 0.8)),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              orderDate,
+                                              style: TextStyle(fontSize: 11, color: AppUi.mutedText(context, 0.88)),
+                                            ),
+                                            if (tracking.isNotEmpty) ...[
+                                              const SizedBox(width: 12),
+                                              Icon(Icons.local_shipping_outlined, size: 13, color: AppUi.mutedText(context, 0.8)),
+                                              const SizedBox(width: 4),
+                                              Expanded(
+                                                child: SelectableText(
+                                                  tracking,
+                                                  style: TextStyle(fontSize: 11, color: AppUi.mutedText(context, 0.88)),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                        const Divider(height: 16),
+                                        // Items list
+                                        ...items.map((it) {
+                                          final pName = (it['product_name'] ?? '-').toString();
+                                          final vName = (it['variant_name'] ?? '').toString();
+                                          final sku = (it['seller_sku'] ?? '').toString();
+                                          final qty = (it['quantity'] is num) ? (it['quantity'] as num).toInt() : 1;
+                                          final unitHpp = (it['unit_hpp'] is num) ? (it['unit_hpp'] as num).toDouble() : 0.0;
+                                          final itemTotalHpp = (it['total_hpp'] is num) ? (it['total_hpp'] as num).toDouble() : (unitHpp * qty);
+
+                                          return Padding(
+                                            padding: const EdgeInsets.symmetric(vertical: 3),
+                                            child: Row(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                                  decoration: BoxDecoration(
+                                                    color: theme.colorScheme.primaryContainer.withOpacity(0.5),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    '${qty}x',
+                                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimaryContainer),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        pName,
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow.ellipsis,
+                                                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface),
+                                                      ),
+                                                      if (vName.isNotEmpty || sku.isNotEmpty)
+                                                        Text(
+                                                          [if (sku.isNotEmpty) sku, if (vName.isNotEmpty) vName].join(' · '),
+                                                          style: TextStyle(fontSize: 10.5, color: AppUi.mutedText(context, 0.75)),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                                  children: [
+                                                    Text(
+                                                      widget.moneyFormatter(itemTotalHpp),
+                                                      style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.amber.shade900),
+                                                    ),
+                                                    if (qty > 1)
+                                                      Text(
+                                                        '@ ${widget.moneyFormatter(unitHpp)}',
+                                                        style: TextStyle(fontSize: 10, color: AppUi.mutedText(context, 0.75)),
+                                                      ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }),
+                                        const SizedBox(height: 8),
+                                        // Total row
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: Colors.amber.withOpacity(0.06),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                'Omzet Pesanan: ${widget.moneyFormatter(grossVal)}',
+                                                style: TextStyle(fontSize: 11, color: AppUi.mutedText(context, 0.85)),
+                                              ),
+                                              Text(
+                                                'Total HPP: ${widget.moneyFormatter(orderHpp)}',
+                                                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.amber.shade900),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _ThousandsInputFormatter extends TextInputFormatter {

@@ -312,9 +312,10 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _fieldLabel('KODE PAKET'),
+                      _fieldLabel('KODE PAKET (ID UNIK)'),
                       TextField(
                         controller: codeController,
+                        onTap: AppUi.selectOnTap(codeController),
                         enabled: !isEditing && !saving,
                         decoration: const InputDecoration(
                           hintText: 'contoh: starter',
@@ -327,6 +328,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                       _fieldLabel('NAMA PAKET'),
                       TextField(
                         controller: nameController,
+                        onTap: AppUi.selectOnTap(nameController),
                         enabled: !saving,
                         decoration: const InputDecoration(
                           isDense: true,
@@ -338,6 +340,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                       _fieldLabel('DESKRIPSI'),
                       TextField(
                         controller: descriptionController,
+                        onTap: AppUi.selectOnTap(descriptionController),
                         enabled: !saving,
                         minLines: 2,
                         maxLines: 3,
@@ -360,6 +363,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                                 _fieldLabel('HARGA'),
                                 TextField(
                                   controller: priceController,
+                                  onTap: AppUi.selectOnTap(priceController),
                                   enabled: !saving,
                                   keyboardType: TextInputType.number,
                                   inputFormatters: const [
@@ -384,6 +388,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
                                 _fieldLabel('MATA UANG'),
                                 TextField(
                                   controller: currencyController,
+                                  onTap: AppUi.selectOnTap(currencyController),
                                   enabled: !saving,
                                   decoration: const InputDecoration(
                                     isDense: true,
@@ -1040,21 +1045,28 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
               runSpacing: 8,
               children: [
                 _quotaStat('Max Users',
-                    maxUsers != null ? maxUsers.toString() : 'Unlimited'),
+                    maxUsers != null ? maxUsers.toString() : 'Unlimited',
+                    icon: Icons.people_outline_rounded),
                 _quotaStat(
                     'Marketplace',
                     maxMarketplace != null
                         ? maxMarketplace.toString()
-                        : 'Unlimited'),
+                        : 'Unlimited',
+                    icon: Icons.storefront_rounded),
                 _quotaStat('Shopee Toko',
-                    maxShopee != null ? maxShopee.toString() : 'Unlimited'),
+                    maxShopee != null ? maxShopee.toString() : 'Unlimited',
+                    icon: Icons.shopping_bag_outlined),
                 _quotaStat('TikTok Toko',
-                    maxTiktok != null ? maxTiktok.toString() : 'Unlimited'),
-                _quotaStat('Storage MB',
-                    maxStorage != null ? '$maxStorage MB' : 'Unlimited'),
-                _quotaStat('Retensi Order', '$retentionDays Hari'),
+                    maxTiktok != null ? maxTiktok.toString() : 'Unlimited',
+                    icon: Icons.store_outlined),
+                _quotaStat('Storage',
+                    maxStorage != null ? '$maxStorage MB' : 'Unlimited',
+                    icon: Icons.cloud_queue_rounded),
+                _quotaStat('Retensi Order', '$retentionDays Hari',
+                    icon: Icons.history_rounded),
                 _quotaStat(
-                    'Fitur Aktif', '$enabledFeatureCount/${features.length}'),
+                    'Fitur Aktif', '$enabledFeatureCount/${features.length}',
+                    icon: Icons.stars_rounded),
               ],
             ),
             const SizedBox(height: 20),
@@ -1191,6 +1203,7 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
           _fieldLabel(label),
           TextField(
             controller: controller,
+            onTap: AppUi.selectOnTap(controller),
             keyboardType: TextInputType.number,
             style: TextStyle(
               fontSize: 14,
@@ -1206,28 +1219,49 @@ class _SubscriptionPlansPageState extends State<SubscriptionPlansPage> {
     );
   }
 
-  Widget _quotaStat(String label, String value) {
+  Widget _quotaStat(String label, String value, {IconData? icon}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: AppUi.mutedText(context, 0.90).withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.fromBorderSide(AppUi.softBorderSide(context)),
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withOpacity(0.12),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: AppUi.mutedText(context, 0.75)),
+            const SizedBox(width: 5),
+          ],
           Text(
-            '$label: '.toUpperCase(),
+            label,
             style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 8.5,
-              color: AppUi.mutedText(context, 0.90),
+              fontWeight: FontWeight.w600,
+              fontSize: 10.5,
+              color: AppUi.mutedText(context, 0.85),
             ),
           ),
-          Text(
-            value,
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 9.5),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withOpacity(0.08)
+                  : Colors.black.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              value,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+                color: isDark ? Colors.white : const Color(0xFF0F172A),
+              ),
+            ),
           ),
         ],
       ),

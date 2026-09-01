@@ -542,6 +542,7 @@ class _ModuleRecordFormPageState extends State<ModuleRecordFormPage> {
                     TextFormField(
                       controller: _titleController,
                       validator: _required,
+                      onTap: AppUi.selectOnTap(_titleController),
                       decoration: InputDecoration(
                         labelText: config.titleLabel,
                         hintText: config.titleHint,
@@ -551,6 +552,7 @@ class _ModuleRecordFormPageState extends State<ModuleRecordFormPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _descriptionController,
+                      onTap: AppUi.selectOnTap(_descriptionController),
                       maxLines: 4,
                       decoration: InputDecoration(
                         labelText: config.descriptionLabel,
@@ -562,6 +564,7 @@ class _ModuleRecordFormPageState extends State<ModuleRecordFormPage> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _amountController,
+                        onTap: AppUi.selectOnTap(_amountController),
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
                           labelText: config.amountLabel,
@@ -618,6 +621,7 @@ class _ModuleRecordFormPageState extends State<ModuleRecordFormPage> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _proofController,
+                        onTap: AppUi.selectOnTap(_proofController),
                         decoration: InputDecoration(
                           labelText: config.proofLabel,
                           hintText: config.proofHint,

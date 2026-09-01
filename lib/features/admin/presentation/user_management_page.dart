@@ -662,6 +662,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
             key: formKey,
             child: TextFormField(
               controller: passwordCtrl,
+              onTap: AppUi.selectOnTap(passwordCtrl),
               obscureText: true,
               decoration: const InputDecoration(
                 labelText: 'Password Baru',
@@ -805,33 +806,165 @@ class _UserManagementPageState extends State<UserManagementPage> {
             )
           else
             ..._filtered.map((user) {
-              final color = AppUi.statusColor(AppUi.text(user['status']));
+              final statusStr = AppUi.text(user['status'], 'active');
+              final color = AppUi.statusColor(statusStr);
               final canEdit = _canEditUser(user);
               final canDelete = _canDeleteUser(user);
+              final nama = AppUi.text(user['nama']);
+              final email = AppUi.text(user['email']);
+              final roleId = AppUi.text(user['role_id']);
+              final userId = AppUi.text(user['user_id']);
+              final username = AppUi.text(user['username']);
+              final theme = Theme.of(context);
+              final isDark = theme.brightness == Brightness.dark;
 
-              return NiceCard(
-                padding: EdgeInsets.zero,
-                onTap: canEdit ? () => _openForm(user) : null,
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(14),
-                  leading: CircleAvatar(
-                    backgroundColor: color.withOpacity(0.14),
-                    child: Icon(Icons.person_outline, color: color),
-                  ),
-                  title: Text(
-                    AppUi.text(user['nama']),
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  subtitle: Text(
-                    '${AppUi.text(user['email'])}\n'
-                    '${AppUi.text(user['role_id'])} • ${AppUi.text(user['status'])}\n'
-                    'ID: ${AppUi.text(user['user_id'])}',
-                  ),
-                  isThreeLine: true,
-                  trailing: (_canManageUsers &&
-                          AppUi.text(user['role_id']).toLowerCase() !=
-                              'platform_owner')
-                      ? PopupMenuButton<String>(
+              return Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                child: NiceCard(
+                  padding: const EdgeInsets.all(14),
+                  onTap: canEdit ? () => _openForm(user) : null,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: theme.colorScheme.primary.withOpacity(0.25),
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            nama.isNotEmpty ? nama.substring(0, 1).toUpperCase() : 'U',
+                            style: TextStyle(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    nama,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13.5,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: color.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                        color: color.withOpacity(0.35), width: 0.8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 5,
+                                        height: 5,
+                                        decoration: BoxDecoration(
+                                            color: color, shape: BoxShape.circle),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        statusStr.toUpperCase(),
+                                        style: TextStyle(
+                                          color: color,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 9.5,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              email,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: AppUi.mutedText(context, 0.85),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 2.5),
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.secondary.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    _roleLabel(roleId).toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: theme.colorScheme.secondary,
+                                    ),
+                                  ),
+                                ),
+                                if (username.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 7, vertical: 2.5),
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? Colors.white.withOpacity(0.06)
+                                          : Colors.black.withOpacity(0.04),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      '@$username',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppUi.mutedText(context, 0.75),
+                                      ),
+                                    ),
+                                  ),
+                                Text(
+                                  'ID: $userId',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: AppUi.mutedText(context, 0.65),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      if (_canManageUsers &&
+                          roleId.toLowerCase() != 'platform_owner')
+                        PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert_rounded, size: 20),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           onSelected: (value) {
                             if (value == 'edit') _openForm(user);
                             if (value == 'delete') _deleteUser(user);
@@ -841,27 +974,54 @@ class _UserManagementPageState extends State<UserManagementPage> {
                           itemBuilder: (context) => [
                             if (canEdit)
                               const PopupMenuItem(
-                                  value: 'edit', child: Text('Edit')),
+                                value: 'edit',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.edit_outlined, size: 16),
+                                    SizedBox(width: 8),
+                                    Text('Edit Data'),
+                                  ],
+                                ),
+                              ),
                             if (_currentRoleId == 'platform_owner')
                               const PopupMenuItem(
-                                  value: 'reset_password',
-                                  child: Text('Reset Password')),
+                                value: 'reset_password',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.lock_reset_rounded, size: 16),
+                                    SizedBox(width: 8),
+                                    Text('Reset Password'),
+                                  ],
+                                ),
+                              ),
                             if (canDelete)
                               const PopupMenuItem(
-                                  value: 'delete', child: Text('Hapus')),
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.delete_outline, color: AppUi.red, size: 16),
+                                    SizedBox(width: 8),
+                                    Text('Hapus User', style: TextStyle(color: AppUi.red)),
+                                  ],
+                                ),
+                              ),
                             if (!canEdit &&
                                 !canDelete &&
                                 _currentRoleId != 'platform_owner')
                               const PopupMenuItem(
-                                  enabled: false,
-                                  value: 'locked',
-                                  child: Text('Dikunci')),
+                                enabled: false,
+                                value: 'locked',
+                                child: Text('Dikunci'),
+                              ),
                           ],
                         )
-                      : const Tooltip(
+                      else
+                        const Tooltip(
                           message: 'Mode lihat saja',
-                          child: Icon(Icons.lock_outline),
+                          child: Icon(Icons.lock_outline, size: 18),
                         ),
+                    ],
+                  ),
                 ),
               );
             }),

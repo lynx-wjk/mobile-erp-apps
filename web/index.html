@@ -1,27 +1,13 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
-
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Mobile ERP | Aplikasi ERP & Manajemen Toko Online Terlengkap di Indonesia</title>
-  <meta name="title" content="Mobile ERP | Aplikasi ERP & Manajemen Toko Online Terlengkap di Indonesia">
-  <meta name="description" content="Aplikasi Mobile ERP & manajemen toko online terintegrasi (Stok Gudang, Shopee & TikTok Sync, Keuangan Otomatis, Absensi & Gaji Karyawan) #1 di Indonesia.">
+  <title>Mobile ERP | Aplikasi ERP & Manajemen Toko Online</title>
+  <meta name="title" content="Mobile ERP | Aplikasi ERP & Manajemen Toko Online">
+  <meta name="description" content="Aplikasi Mobile ERP & manajemen toko online terintegrasi (Stok Gudang, Shopee & TikTok Sync, Keuangan Otomatis, Absensi & Gaji Karyawan).">
   <meta name="keywords" content="Mobile ERP, Software ERP Indonesia, Aplikasi Toko Online, Integrasi Shopee TikTok, aplikasi inventory multi gudang, rekonsiliasi keuangan marketplace">
   <meta name="author" content="Mobile ERP Solutions">
   <meta name="robots" content="index, follow">
@@ -39,28 +25,127 @@
   <meta name="apple-mobile-web-app-title" content="Mobile ERP">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
-  <!-- Favicon -->
+  <!-- Favicon & Manifest -->
   <link rel="icon" type="image/png" href="favicon.png?v=2"/>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Critical Resource Preconnections & Preload -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" href="flutter_bootstrap.js" as="script">
+  <link rel="preload" href="main.dart.js" as="script">
+
+  <!-- Inline Critical Splash Screen CSS -->
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background-color: #0b1329;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    #app-shell {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #0b1329;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      transition: opacity 0.3s ease-out;
+      pointer-events: none;
+    }
+    .splash-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .splash-logo-img {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      object-fit: contain;
+      box-shadow: 0 10px 25px -5px rgba(2, 132, 199, 0.35);
+      animation: splash-pulse 2s infinite ease-in-out;
+    }
+    .splash-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #f8fafc;
+      letter-spacing: 0.3px;
+    }
+    .splash-progress-track {
+      width: 140px;
+      height: 3px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      position: relative;
+    }
+    .splash-progress-bar {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 50%;
+      background: linear-gradient(90deg, #38bdf8, #2563eb);
+      border-radius: 3px;
+      animation: splash-load 1.4s infinite ease-in-out;
+    }
+    @keyframes splash-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.04); }
+    }
+    @keyframes splash-load {
+      0% { left: -50%; width: 30%; }
+      50% { left: 35%; width: 50%; }
+      100% { left: 100%; width: 30%; }
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <!-- Clean Native App Splash Screen with Official Icon -->
+  <div id="app-shell" aria-hidden="true">
+    <div class="splash-box">
+      <img src="favicon.png?v=2" alt="Mobile ERP Logo" class="splash-logo-img" width="56" height="56">
+      <span class="splash-title">Mobile ERP</span>
+      <div class="splash-progress-track">
+        <div class="splash-progress-bar"></div>
+      </div>
+    </div>
+  </div>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
   <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for (let registration of registrations) {
-          registration.unregister();
-        }
-      });
+    function dismissAppShell() {
+      const shell = document.getElementById('app-shell');
+      if (shell) {
+        shell.style.opacity = '0';
+        setTimeout(function() {
+          if (shell.parentNode) {
+            shell.parentNode.removeChild(shell);
+          }
+        }, 300);
+      }
     }
+    window.addEventListener('flutter-first-frame', dismissAppShell);
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        const hasCanvas = document.querySelector('flutter-view, flt-glass-pane, canvas');
+        if (hasCanvas) dismissAppShell();
+      }, 2500);
+    });
   </script>
-  <script src="flutter_bootstrap.js?v=20260825_0016" async></script>
+  <script src="flutter_bootstrap.js?v=20260902_0228" async></script>
 </body>
 </html>

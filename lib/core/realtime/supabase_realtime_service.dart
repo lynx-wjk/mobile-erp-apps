@@ -53,7 +53,7 @@ class SupabaseRealtimeService {
           final body = payload['body']?.toString() ?? payload['message']?.toString() ?? '';
           final alertType = payload['alert_type']?.toString() ?? 'general';
 
-          debugPrint('🔔 [Realtime Broadcast Alert] $title: $body');
+          debugPrint('[Realtime Broadcast Alert] $title: $body');
           onAlertBroadcast(title, body, alertType);
         },
       )

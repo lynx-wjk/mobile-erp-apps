@@ -6,6 +6,7 @@ import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../repositories/user_repository.dart';
+import '../../../services/app_session_manager.dart';
 import '../../admin/presentation/platform_owner_dashboard.dart';
 import '../../dashboard/presentation/dashboard_page.dart';
 import '../../finance/services/finance_local_cache.dart';
@@ -104,6 +105,8 @@ class _LoginPageState extends State<LoginPage>
         AppUi.showSnack('Login berhasil tapi sesi belum aktif. Coba lagi.');
         return;
       }
+
+      await AppSessionManager.instance.recordLogin(authResponse.user!.id);
 
       final appUser = await UserRepository().getCurrentUserProfile();
       if (!mounted) return;
@@ -247,6 +250,7 @@ class _LoginPageState extends State<LoginPage>
         const SizedBox(height: 22),
         TextField(
           controller: _emailController,
+          onTap: AppUi.selectOnTap(_emailController),
           keyboardType: TextInputType.emailAddress,
           decoration: const InputDecoration(
             labelText: 'Email atau username',
@@ -256,6 +260,7 @@ class _LoginPageState extends State<LoginPage>
         const SizedBox(height: 14),
         TextField(
           controller: _passwordController,
+          onTap: AppUi.selectOnTap(_passwordController),
           obscureText: _obscure,
           decoration: InputDecoration(
             labelText: 'Password',

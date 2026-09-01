@@ -139,6 +139,7 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
                     const SizedBox(height: 14),
                     TextField(
                         controller: nameController,
+                        onTap: AppUi.selectOnTap(nameController),
                         decoration: const InputDecoration(
                             labelText: 'Nama Barang / Bahan',
                             border: OutlineInputBorder())),
@@ -147,6 +148,7 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
                       Expanded(
                           child: TextField(
                               controller: qtyController,
+                              onTap: AppUi.selectOnTap(qtyController),
                               keyboardType:
                                   const TextInputType.numberWithOptions(
                                       decimal: true),
@@ -157,6 +159,7 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
                       Expanded(
                           child: TextField(
                               controller: unitController,
+                              onTap: AppUi.selectOnTap(unitController),
                               decoration: const InputDecoration(
                                   labelText: 'Satuan',
                                   border: OutlineInputBorder()))),
@@ -164,6 +167,7 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: priceController,
+                      onTap: AppUi.selectOnTap(priceController),
                       keyboardType: TextInputType.number,
                       inputFormatters: const [AppMoneyInputFormatter()],
                       decoration: const InputDecoration(
@@ -174,6 +178,7 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
                     const SizedBox(height: 12),
                     TextField(
                         controller: noteController,
+                        onTap: AppUi.selectOnTap(noteController),
                         maxLines: 2,
                         decoration: const InputDecoration(
                             labelText: 'Catatan Item',
@@ -350,6 +355,7 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _supplierManualController,
+                  onTap: AppUi.selectOnTap(_supplierManualController),
                   enabled: _selectedSupplier == null,
                   decoration: const InputDecoration(
                     labelText: 'Supplier Manual (opsional)',
@@ -370,6 +376,7 @@ class _PurchaseRequestPageState extends State<PurchaseRequestPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _noteController,
+                  onTap: AppUi.selectOnTap(_noteController),
                   maxLines: 3,
                   decoration: const InputDecoration(
                     labelText: 'Catatan',

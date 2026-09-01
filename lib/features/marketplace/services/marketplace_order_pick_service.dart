@@ -416,10 +416,16 @@ class MarketplaceOrderPickService {
 
   Future<List<Map<String, dynamic>>> findReturnByResi({
     required String resi,
+    String? tenantId,
   }) async {
+    final cleanTenant = tenantId?.trim();
     final response = await _client.rpc(
       'marketplace_find_return_by_resi_for_app',
-      params: <String, dynamic>{'p_resi': resi.trim()},
+      params: <String, dynamic>{
+        'p_resi': resi.trim(),
+        if (cleanTenant != null && cleanTenant.isNotEmpty)
+          'p_tenant_id': cleanTenant,
+      },
     );
     final payload = _rpcMap(response);
     final rows = payload['rows'];

@@ -12,16 +12,54 @@ const CONFIG = {
   APP_URL: 'https://app.mdhproduction.com'
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+function initAll() {
   initYear();
   initMobileMenu();
   initConsoleTabs();
   initTabScrollNavigation();
   initScreenshotSwitchers();
-  initAetherFlowBackground();
   initFaqAccordion();
-  fetchLandingPageData();
-});
+
+  // Lazy load data & background only when idle to ensure 0ms TBT
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(() => {
+      fetchLandingPageData();
+      initLazyCanvasBackground();
+    }, { timeout: 2000 });
+  } else {
+    setTimeout(() => {
+      fetchLandingPageData();
+      initLazyCanvasBackground();
+    }, 500);
+  }
+}
+
+function initLazyCanvasBackground() {
+  // Disable completely on mobile devices (screens < 900px or touch-only) for peak performance
+  if (window.innerWidth < 900 || ('ontouchstart' in window && !window.matchMedia('(hover: hover)').matches)) {
+    const canvas = document.getElementById('webgl-3d-bg');
+    if (canvas) canvas.style.display = 'none';
+    return;
+  }
+  
+  // Start on desktop only when user starts interacting
+  let started = false;
+  function onFirstInteraction() {
+    if (started) return;
+    started = true;
+    window.removeEventListener('mousemove', onFirstInteraction);
+    window.removeEventListener('scroll', onFirstInteraction);
+    initAetherFlowBackground();
+  }
+  window.addEventListener('mousemove', onFirstInteraction, { passive: true, once: true });
+  window.addEventListener('scroll', onFirstInteraction, { passive: true, once: true });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAll);
+} else {
+  initAll();
+}
 
 function initYear() {
   const el = document.getElementById('current-year');
@@ -104,14 +142,6 @@ function initConsoleTabs() {
       const targetPane = document.getElementById(targetId);
       if (targetPane) {
         targetPane.classList.add('active');
-        
-        // Micro-pop 3D animation for the active pane
-        if (typeof gsap !== 'undefined') {
-          gsap.fromTo(targetPane, 
-            { opacity: 0, y: 12, scale: 0.98 }, 
-            { opacity: 1, y: 0, scale: 1, duration: 0.35, ease: 'power2.out' }
-          );
-        }
       }
     });
   });
@@ -479,7 +509,7 @@ function applyCmsData(cms) {
             <div class="testi-author-block">
               <div class="author-monogram-circle">${monogram}</div>
               <div class="author-info-box">
-                <h4>${escapeHtml(item.name)}</h4>
+                <h3 class="author-name">${escapeHtml(item.name)}</h3>
                 <span>${escapeHtml(item.role)}</span>
               </div>
             </div>

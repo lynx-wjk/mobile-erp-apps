@@ -330,7 +330,10 @@ class _StockInPageState extends State<StockInPage> {
 
     setState(() => _returnBusy = true);
     try {
-      final rows = await _returnPickService.findReturnByResi(resi: value);
+      final rows = await _returnPickService.findReturnByResi(
+        resi: value,
+        tenantId: _tenantId,
+      );
       if (!mounted) return;
       if (rows.isEmpty) {
         AppUi.showSnack(
@@ -734,6 +737,7 @@ class _StockInPageState extends State<StockInPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _qtyController,
+                  onTap: AppUi.selectOnTap(_qtyController),
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     labelText: 'Qty Masuk',
@@ -758,6 +762,7 @@ class _StockInPageState extends State<StockInPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _noteController,
+                  onTap: AppUi.selectOnTap(_noteController),
                   maxLines: 3,
                   decoration: const InputDecoration(
                     labelText: 'Catatan',

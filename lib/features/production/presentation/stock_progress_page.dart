@@ -12,6 +12,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/evidence/models/photo_evidence.dart';
 import '../../../core/evidence/services/photo_evidence_service.dart';
 import '../../../core/evidence/widgets/evidence_camera_field.dart';
+import '../../../core/ui/app_segmented_tab_bar.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../marketplace/models/marketplace_sku_map.dart';
@@ -1869,6 +1870,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: manualTailorController,
+                      onTap: AppUi.selectOnTap(manualTailorController),
                       enabled: !saving && !isProgressLocked,
                       decoration: const InputDecoration(
                         labelText: 'Nama Pekerja',
@@ -1887,6 +1889,9 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     ),
                     const SizedBox(height: 6),
                     ...sizeInputs.map((input) {
+                      final ctrlIn = input['qty_in_controller'] as TextEditingController;
+                      final ctrlOut = input['qty_out_controller'] as TextEditingController;
+                      final ctrlReject = input['qty_reject_controller'] as TextEditingController;
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         padding: const EdgeInsets.all(8),
@@ -1918,8 +1923,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               children: [
                                 Expanded(
                                   child: TextField(
-                                    controller: input['qty_in_controller']
-                                        as TextEditingController,
+                                    controller: ctrlIn,
+                                    onTap: AppUi.selectOnTap(ctrlIn),
                                     keyboardType: TextInputType.number,
                                     enabled: !saving && !isProgressLocked,
                                     decoration: const InputDecoration(
@@ -1934,8 +1939,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: TextField(
-                                    controller: input['qty_out_controller']
-                                        as TextEditingController,
+                                    controller: ctrlOut,
+                                    onTap: AppUi.selectOnTap(ctrlOut),
                                     keyboardType: TextInputType.number,
                                     enabled: !saving && !isProgressLocked,
                                     decoration: const InputDecoration(
@@ -1950,8 +1955,8 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: TextField(
-                                    controller: input['qty_reject_controller']
-                                        as TextEditingController,
+                                    controller: ctrlReject,
+                                    onTap: AppUi.selectOnTap(ctrlReject),
                                     keyboardType: TextInputType.number,
                                     enabled: !saving && !isProgressLocked,
                                     decoration: const InputDecoration(
@@ -1972,6 +1977,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: priceController,
+                      onTap: AppUi.selectOnTap(priceController),
                       keyboardType: TextInputType.number,
                       inputFormatters: const [AppMoneyInputFormatter()],
                       enabled: !saving && !isProgressLocked,
@@ -3764,31 +3770,32 @@ class _StockProgressPageState extends State<StockProgressPage> {
 
     return DefaultTabController(
       length: 3,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text('Produksi Berjalan'),
-          actions: [
-            IconButton(onPressed: _load, icon: Icon(Icons.refresh)),
-          ],
-          bottom: const TabBar(
-            tabs: [
-              Tab(icon: Icon(Icons.assignment_outlined), text: 'Progress'),
-              Tab(
-                  icon: Icon(Icons.account_balance_wallet_outlined),
-                  text: 'Keuangan'),
-              Tab(icon: Icon(Icons.people_outline), text: 'Pekerja'),
-            ],
-          ),
-        ),
+      child: WebResponsiveScaffold(
+        title: 'Produksi Berjalan',
+        activeWebTitle: 'Pemantauan Produksi Berjalan & SPK',
+        actions: [
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+        ],
         floatingActionButton: FloatingActionButton.extended(
           onPressed: _createProgress,
-          icon: Icon(Icons.add),
-          label: Text('Progress'),
+          icon: const Icon(Icons.add),
+          label: const Text('Progress'),
         ),
         body: WebResponsiveWrapper(
           activeTitle: 'Produksi Berjalan',
-          child: TabBarView(
-          children: [
+          child: Column(
+            children: [
+              const AppSegmentedTabBar(
+                maxWidth: 520,
+                tabs: [
+                  AppTabItem(label: 'Progress', icon: Icons.assignment_outlined),
+                  AppTabItem(label: 'Keuangan', icon: Icons.account_balance_wallet_outlined),
+                  AppTabItem(label: 'Pekerja', icon: Icons.people_outline),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
             // Tab 1: Surat Jalan
             RefreshIndicator(
               onRefresh: _load,
@@ -3859,8 +3866,11 @@ class _StockProgressPageState extends State<StockProgressPage> {
           ],
         ),
       ),
-      ),
-    );
+    ],
+  ),
+),
+),
+);
   }
 
   Widget _monthToolbar() {

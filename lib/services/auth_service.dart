@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'app_session_manager.dart';
 
 class AuthService {
   final SupabaseClient _client = Supabase.instance.client;
@@ -11,13 +12,17 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    await _client.auth.signInWithPassword(
+    final response = await _client.auth.signInWithPassword(
       email: email.trim(),
       password: password,
     );
+    if (response.user != null) {
+      await AppSessionManager.instance.recordLogin(response.user!.id);
+    }
   }
 
   Future<void> signOut() async {
+    await AppSessionManager.instance.clearSession();
     await _client.auth.signOut();
   }
 }

@@ -7,6 +7,7 @@ import '../../../models/app_user.dart';
 import '../../../core/constants/app_roles.dart';
 import '../../../repositories/user_repository.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/app_session_manager.dart';
 import '../../dashboard/presentation/dashboard_page.dart';
 import 'login_page.dart';
 import 'register_page.dart';
@@ -95,7 +96,14 @@ class _AuthGateState extends State<AuthGate> {
         }
 
         return FutureBuilder<AppUser?>(
-          future: UserRepository().getCurrentUserProfile(),
+          future: () async {
+            final expired = await AppSessionManager.instance.isSessionExpired();
+            if (expired) {
+              await AppSessionManager.instance.handleSessionExpired();
+              return null;
+            }
+            return await UserRepository().getCurrentUserProfile();
+          }(),
           builder: (context, profileSnapshot) {
             if (profileSnapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(

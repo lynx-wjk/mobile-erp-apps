@@ -77,18 +77,25 @@ class MarketplaceSyncProgressSummary {
       final lockedUntil = lockedUntilStr != null ? DateTime.tryParse(lockedUntilStr) : null;
       final isLocked = lockedUntil != null && lockedUntil.isAfter(now);
 
-      final isActive = (status.isNotEmpty &&
-              status != 'done' &&
-              status != 'complete' &&
-              status != 'completed') ||
-          isLocked;
+      final isDone = status == 'done' ||
+          status == 'complete' ||
+          status == 'completed' ||
+          status == 'idle' ||
+          status == 'ready';
+
+      final isRunning = status == 'running' ||
+          status == 'in_progress' ||
+          status == 'syncing' ||
+          status == 'bootstrap';
+
+      final isActive = !isDone && (isRunning || (status.isNotEmpty && isLocked));
 
       final from = (s['bootstrap_from_seconds'] as num?)?.toDouble() ?? 0;
       final to = (s['bootstrap_to_seconds'] as num?)?.toDouble() ?? nowSec.toDouble();
       final cursor = (s['bootstrap_cursor_seconds'] as num?)?.toDouble() ?? from;
 
       double pct = 0;
-      if (status == 'done' || status == 'complete' || status == 'completed') {
+      if (isDone) {
         pct = 100.0;
       } else if (to > from && cursor >= from) {
         pct = (((cursor - from) / (to - from)) * 100.0).clamp(0.0, 100.0);

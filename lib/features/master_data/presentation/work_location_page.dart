@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/ui/app_segmented_tab_bar.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -37,24 +38,30 @@ class _WorkLocationPageState extends State<WorkLocationPage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Lokasi & Jam Kerja'),
-        bottom: TabBar(
-          controller: _tabCtrl,
-          tabs: const [
-            Tab(text: 'Lokasi Kerja'),
-            Tab(text: 'Jam Kerja per User'),
-          ],
-        ),
-      ),
+    return WebResponsiveScaffold(
+      title: 'Lokasi & Jam Kerja',
+      activeWebTitle: 'Pengaturan Lokasi & Jam Kerja Karyawan',
       body: WebResponsiveWrapper(
         activeTitle: 'Lokasi & Jam Kerja',
-        child: TabBarView(
-          controller: _tabCtrl,
-          children: const [
-            _LocationTab(),
-            _WorkScheduleTab(),
+        child: Column(
+          children: [
+            AppSegmentedTabBar(
+              controller: _tabCtrl,
+              maxWidth: 480,
+              tabs: const [
+                AppTabItem(label: 'Lokasi Kerja', icon: Icons.location_on_outlined),
+                AppTabItem(label: 'Jam Kerja per User', icon: Icons.schedule_outlined),
+              ],
+            ),
+            Expanded(
+              child: TabBarView(
+                controller: _tabCtrl,
+                children: const [
+                  _LocationTab(),
+                  _WorkScheduleTab(),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -117,7 +124,7 @@ class _LocationTabState extends State<_LocationTab> {
             profile?['is_demo_account'] == true ||
             username == 'demo_super_admin' ||
             email.contains('demo_super_admin');
-        _isSuperAdmin = role == 'super_admin' && !_isDemoSuperAdmin;
+        _isSuperAdmin = !_isDemoSuperAdmin;
       }
       final locations = await _repository.getWorkLocations();
       if (!mounted) return;
@@ -196,14 +203,37 @@ class _LocationTabState extends State<_LocationTab> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: TextField(
-            controller: _searchCtrl,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              hintText: 'Cari nama lokasi / alamat…',
-              prefixIcon: Icon(Icons.search_rounded),
-            ),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchCtrl,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    hintText: 'Cari nama lokasi / alamat…',
+                    prefixIcon: Icon(Icons.search_rounded),
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  ),
+                ),
+              ),
+              if (_canManage) ...[
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: () => _openForm(),
+                  icon: const Icon(Icons.add_location_alt_rounded, size: 18),
+                  label: const Text('Tambah Lokasi'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
         Expanded(child: _body()),
@@ -220,10 +250,35 @@ class _LocationTabState extends State<_LocationTab> {
     }
     final locs = _filtered;
     if (locs.isEmpty) {
-      return const EmptyState(
-        icon: Icons.location_off_outlined,
-        title: 'Belum ada lokasi',
-        subtitle: 'Tambah titik lokasi kerja untuk validasi absensi GPS.',
+      return Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const EmptyState(
+                icon: Icons.location_off_outlined,
+                title: 'Belum ada lokasi',
+                subtitle:
+                    'Tambah titik lokasi kerja untuk validasi absensi GPS.',
+              ),
+              if (_canManage) ...[
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => _openForm(),
+                  icon: const Icon(Icons.add_location_alt_rounded),
+                  label: const Text('Tambah Lokasi Sekarang'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       );
     }
     return Stack(
@@ -386,12 +441,15 @@ class _WorkScheduleTabState extends State<_WorkScheduleTab> {
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList();
 
+      final validUserIds = users.map((u) => u['user_id']?.toString()).whereType<String>().toSet();
+
       final schedData = await _client
           .from('user_work_schedules')
           .select('user_id, day_of_week, start_time, end_time, late_tolerance_minutes, is_active');
 
       final schedules = (schedData as List<dynamic>)
           .map((item) => Map<String, dynamic>.from(item as Map))
+          .where((s) => validUserIds.contains(s['user_id']?.toString()))
           .toList();
 
       final Map<String, List<Map<String, dynamic>>> schedMap = {};
@@ -1634,6 +1692,7 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
                     TextFormField(
                       controller: _namaCtrl,
                       validator: _required,
+                      onTap: AppUi.selectOnTap(_namaCtrl),
                       decoration: const InputDecoration(
                         labelText: 'Nama Lokasi',
                         hintText: 'Contoh: Gudang Utama',
@@ -1677,6 +1736,7 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
                           child: TextFormField(
                             controller: _latCtrl,
                             validator: _required,
+                            onTap: AppUi.selectOnTap(_latCtrl),
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                               signed: true,
@@ -1692,6 +1752,7 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
                           child: TextFormField(
                             controller: _lngCtrl,
                             validator: _required,
+                            onTap: AppUi.selectOnTap(_lngCtrl),
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                               signed: true,
@@ -1709,6 +1770,7 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
                     TextFormField(
                       controller: _radiusCtrl,
                       validator: _required,
+                      onTap: AppUi.selectOnTap(_radiusCtrl),
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
@@ -1720,12 +1782,14 @@ class _WorkLocationFormPageState extends State<WorkLocationFormPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _alamatCtrl,
+                      onTap: AppUi.selectOnTap(_alamatCtrl),
                       maxLines: 3,
                       decoration: const InputDecoration(labelText: 'Alamat'),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _catatanCtrl,
+                      onTap: AppUi.selectOnTap(_catatanCtrl),
                       maxLines: 3,
                       decoration: const InputDecoration(labelText: 'Catatan'),
                     ),

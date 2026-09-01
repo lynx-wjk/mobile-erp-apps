@@ -1164,7 +1164,7 @@ class _UserAttendanceSheetState extends State<_UserAttendanceSheet> {
                                             if (inMeter > 0) ...[
                                               const SizedBox(height: 2),
                                               Text(
-                                                '📍 ${inMeter.round()}m dari lokasi',
+                                                '${inMeter.round()}m dari lokasi',
                                                 style: TextStyle(
                                                   fontSize: 10,
                                                   color: Theme.of(context)
@@ -1219,7 +1219,7 @@ class _UserAttendanceSheetState extends State<_UserAttendanceSheet> {
                                             if (outMeter > 0) ...[
                                               const SizedBox(height: 2),
                                               Text(
-                                                '📍 ${outMeter.round()}m dari lokasi',
+                                                '${outMeter.round()}m dari lokasi',
                                                 style: TextStyle(
                                                   fontSize: 10,
                                                   color: Theme.of(context)

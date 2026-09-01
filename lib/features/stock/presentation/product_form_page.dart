@@ -48,8 +48,8 @@ class _ProductFormPageState extends State<ProductFormPage> {
       _namaBarangController.text = product.namaBarang;
       _kategoriController.text = product.kategori ?? '';
       _satuanController.text = product.satuan;
-      _stockAwalController.text = product.stockAwal.toString();
-      _lowStockController.text = product.lowStockLimit.toString();
+      _stockAwalController.text = product.stockAwal > 0 ? product.stockAwal.toString() : '';
+      _lowStockController.text = product.lowStockLimit > 0 ? product.lowStockLimit.toString() : '5';
       _lokasiRakController.text = product.lokasiRak ?? '';
       _status = product.status;
     } else {
@@ -58,8 +58,8 @@ class _ProductFormPageState extends State<ProductFormPage> {
       _namaBarangController.text = '';
       _kategoriController.text = '';
       _satuanController.text = 'pcs';
-      _stockAwalController.text = '0';
-      _lowStockController.text = '0';
+      _stockAwalController.text = '';
+      _lowStockController.text = '5';
       _lokasiRakController.text = '';
       _status = 'active';
     }
@@ -92,7 +92,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
 
   String? _validateNumber(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return 'Wajib diisi';
+      return null;
     }
 
     final number = double.tryParse(
@@ -230,6 +230,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
                     TextFormField(
                       controller: _kodeSkuController,
                       validator: _required,
+                      onTap: AppUi.selectOnTap(_kodeSkuController),
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Kode SKU',
@@ -241,6 +242,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
                     TextFormField(
                       controller: _kodeBarcodeController,
                       validator: _required,
+                      onTap: AppUi.selectOnTap(_kodeBarcodeController),
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Kode Barcode',
@@ -252,6 +254,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
                     TextFormField(
                       controller: _namaBarangController,
                       validator: _required,
+                      onTap: AppUi.selectOnTap(_namaBarangController),
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Nama Barang',
@@ -262,6 +265,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _kategoriController,
+                      onTap: AppUi.selectOnTap(_kategoriController),
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Kategori',
@@ -273,6 +277,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
                     TextFormField(
                       controller: _satuanController,
                       validator: _required,
+                      onTap: AppUi.selectOnTap(_satuanController),
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Satuan',
@@ -285,6 +290,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
                       controller: _stockAwalController,
                       enabled: !_isEdit,
                       validator: _validateNumber,
+                      onTap: AppUi.selectOnTap(_stockAwalController),
                       keyboardType: TextInputType.number,
                       textInputAction: TextInputAction.next,
                       decoration: InputDecoration(
@@ -311,6 +317,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
                     TextFormField(
                       controller: _lowStockController,
                       validator: _validateNumber,
+                      onTap: AppUi.selectOnTap(_lowStockController),
                       keyboardType: TextInputType.number,
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
@@ -322,6 +329,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _lokasiRakController,
+                      onTap: AppUi.selectOnTap(_lokasiRakController),
                       textInputAction: TextInputAction.done,
                       decoration: const InputDecoration(
                         labelText: 'Lokasi Rak / Gudang',

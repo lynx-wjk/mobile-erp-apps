@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../services/auth_service.dart';
 import '../theme/app_theme_mode.dart';
 
 /// Helper to detect web viewport
@@ -373,7 +374,7 @@ class _WebFloatingHeaderBar extends StatelessWidget {
             icon: const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 18),
             onPressed: () async {
               try {
-                await Supabase.instance.client.auth.signOut();
+                await AuthService().signOut();
               } catch (_) {}
             },
             padding: EdgeInsets.zero,

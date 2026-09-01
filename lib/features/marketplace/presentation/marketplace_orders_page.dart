@@ -67,7 +67,7 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
 
   List<MarketplaceAccountPublic> _accounts = [];
   List<MarketplaceOrderSummary> _orders = [];
-  static const int _ordersPageSize = 300;
+  static const int _ordersPageSize = 100;
   bool _hasMoreOrders = false;
   bool _isLoadingMoreOrders = false;
   String _filterMarketplace = _savedFilterMarketplace ?? 'all';
@@ -169,22 +169,25 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
     });
 
     try {
-      final accounts =
-          await _service.listAccounts(tenantId: widget.currentUser.tenantId);
-      if (!mounted) return;
-      setState(() {
-        _accounts = accounts;
-        if (_filterAccountId != 'all' &&
-            !_filteredAccountsFor(_filterMarketplace, accounts)
-                .any((item) => item.marketplaceAccountId == _filterAccountId)) {
-          _filterAccountId = 'all';
-          _rememberFilters();
-        }
-      });
-      await _loadOrderAutoPullSetting(showSnack: false);
-      await _refreshPersistentOrderPullLog();
-      await _loadOrderAutoPullSetting(showSnack: false);
-      await _loadOrders(showLoader: false);
+      await Future.wait([
+        _service
+            .listAccounts(tenantId: widget.currentUser.tenantId)
+            .then((accounts) {
+          if (!mounted) return;
+          setState(() {
+            _accounts = accounts;
+            if (_filterAccountId != 'all' &&
+                !_filteredAccountsFor(_filterMarketplace, accounts)
+                    .any((item) => item.marketplaceAccountId == _filterAccountId)) {
+              _filterAccountId = 'all';
+              _rememberFilters();
+            }
+          });
+        }),
+        _loadOrderAutoPullSetting(showSnack: false),
+        _refreshPersistentOrderPullLog(),
+        _loadOrders(showLoader: false),
+      ]);
     } catch (error) {
       if (!mounted) return;
       setState(() => _errorMessage = _cleanError(error));
@@ -361,19 +364,17 @@ class _MarketplaceOrdersPageState extends State<MarketplaceOrdersPage> {
 
   Future<bool> _refreshPersistentOrderPullLog() async {
     final tenantId = widget.currentUser.tenantId;
-    final dispatcherLastSuccess =
-        await _service.getLatestOrderDispatcherSuccessAt(
-      tenantId: tenantId,
-    );
-    final digest = await _service.getRecentOrderPullJobDigest(
-      tenantId: tenantId,
-      limit: 20,
-    );
-    final syncStates = await _service.getAutomaticOrderSyncStates(
-      tenantId: tenantId,
-    );
+    final results = await Future.wait([
+      _service.getLatestOrderDispatcherSuccessAt(tenantId: tenantId),
+      _service.getRecentOrderPullJobDigest(tenantId: tenantId, limit: 20),
+      _service.getAutomaticOrderSyncStates(tenantId: tenantId),
+    ]);
 
     if (!mounted) return false;
+    final dispatcherLastSuccess = results[0] as DateTime?;
+    final digest = results[1] as MarketplaceOrderPullJobDigest;
+    final syncStates = results[2] as List<Map<String, dynamic>>;
+
     _orderDispatcherLastSuccessAt = dispatcherLastSuccess;
 
     // Detect automatic background sync / bootstrap with unified calculation

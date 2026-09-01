@@ -13,7 +13,7 @@ class AiChatAssistantSheet extends StatefulWidget {
   const AiChatAssistantSheet({
     super.key,
     this.initialPrompt,
-    this.title = '🤖 Antigravity AI Chat Assistant',
+    this.title = 'Antigravity AI Chat Assistant',
     this.subtitle = 'Tanyakan data store, omzet real, stok SKU, atau strategi marketing',
     this.tenantId,
     this.isPlatformOwner,
@@ -22,7 +22,7 @@ class AiChatAssistantSheet extends StatefulWidget {
   static Future<void> show(
     BuildContext context, {
     String? initialPrompt,
-    String title = '🤖 Antigravity AI Chat Assistant',
+    String title = 'Antigravity AI Chat Assistant',
     String subtitle = 'Tanyakan data store, omzet real, stok SKU, atau strategi marketing',
     String? tenantId,
     bool? isPlatformOwner,
@@ -65,19 +65,19 @@ class _AiChatAssistantSheetState extends State<AiChatAssistantSheet> {
   List<String> get _suggestedPrompts {
     if (_isEffectivePlatformOwner) {
       return [
-        '🛡️ Status kesehatan VPS, RAM, CPU & Database',
-        '🏢 Ringkasan tenant SaaS & proyeksi MRR',
-        '⚡ Audit performa database & throughput RPC',
-        '📊 Analisis pertumbuhan tenant & total revenue platform',
+        'Status kesehatan VPS, RAM, CPU & Database',
+        'Ringkasan tenant SaaS & proyeksi MRR',
+        'Audit performa database & throughput RPC',
+        'Analisis pertumbuhan tenant & total revenue platform',
       ];
     }
     return [
-      '📊 Berapa omzet & order hari ini vs kemarin?',
-      '💡 Ide promo bundling untuk top selling SKU',
-      '⚠️ Apa saja produk dengan stok kritis?',
-      '🛒 Perbandingan omzet Shopee vs TikTok',
-      '🏷️ Rekomendasi margin & profit per varian',
-      '📦 Analisis varian dengan penjualan tertinggi',
+      'Berapa omzet & order hari ini vs kemarin?',
+      'Ide promo bundling untuk top selling SKU',
+      'Apa saja produk dengan stok kritis?',
+      'Perbandingan omzet Shopee vs TikTok',
+      'Rekomendasi margin & profit per varian',
+      'Analisis varian dengan penjualan tertinggi',
     ];
   }
 

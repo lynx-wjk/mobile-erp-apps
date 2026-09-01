@@ -160,6 +160,7 @@ class _MarketplaceRefundMonitorPageState
 
   Future<Map<String, dynamic>> _callReviewRpc(String functionName) async {
     final search = _searchController.text.trim();
+    final tenantId = widget.currentUser?.tenantId.trim() ?? '';
     final result = await _client.rpc(
       functionName,
       params: <String, dynamic>{
@@ -171,6 +172,7 @@ class _MarketplaceRefundMonitorPageState
         'p_action': _actionFilter == 'ALL' ? null : _actionFilter,
         'p_page': _page,
         'p_page_size': _pageSize,
+        if (tenantId.isNotEmpty) 'p_tenant_id': tenantId,
       },
     );
     return _normalizeRpc(result);
@@ -339,7 +341,10 @@ class _MarketplaceRefundMonitorPageState
     if (code == null) return;
 
     try {
-      final matches = await _pickService.findReturnByResi(resi: code);
+      final matches = await _pickService.findReturnByResi(
+        resi: code,
+        tenantId: widget.currentUser?.tenantId,
+      );
       if (matches.isEmpty) {
         setState(() {
           _itemCheckMode = true;

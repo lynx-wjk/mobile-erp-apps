@@ -877,21 +877,16 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
   }
 
   bool _tokenNeedsAdminAttention(MarketplaceAccountPublic account) {
-    final expiredAt = account.accessTokenExpiredAt;
-    if (expiredAt == null) return true;
-    return expiredAt.toLocal().difference(DateTime.now()).inDays <= 3;
+    return account.needsReauth;
   }
 
   String _tokenAttentionText() {
-    final count = _accounts.where(_tokenNeedsAdminAttention).length;
-    if (count <= 0) return '';
-    final expired = _accounts.where((item) {
-      final expiredAt = item.accessTokenExpiredAt;
-      return expiredAt == null || expiredAt.toLocal().isBefore(DateTime.now());
-    }).length;
-    if (expired > 0)
-      return '$expired akun sudah expired. Hubungkan ulang agar sinkron tidak berhenti.';
-    return '$count akun akan expired dalam 3 hari. Hubungkan ulang sebelum sinkron berhenti.';
+    final needy = _accounts.where((a) => a.needsReauth).toList();
+    if (needy.isEmpty) return '';
+    final details = needy
+        .map((a) => '${a.safeStoreName} (${a.marketplaceLabel}): ${a.reauthWarningMessage}')
+        .join('\n');
+    return 'Peringatan Otorisasi Marketplace:\n$details';
   }
 
   Widget _tokenAttentionCard() {
@@ -908,7 +903,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.notifications_active_outlined, color: AppUi.orange),
+          Icon(Icons.warning_amber_rounded, color: AppUi.orange),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -916,6 +911,7 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
               style: TextStyle(
                   color: (Theme.of(context).textTheme).bodyLarge?.color,
                   fontWeight: FontWeight.w800,
+                  fontSize: 12.5,
                   height: 1.35),
             ),
           ),
@@ -1005,17 +1001,26 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: AppUi.statusColor(account.status).withOpacity(0.10),
+                    color: (account.needsReauth
+                            ? (account.isError ? AppUi.red : AppUi.orange)
+                            : AppUi.statusColor(account.status))
+                        .withOpacity(0.10),
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
-                        color:
-                            AppUi.statusColor(account.status).withOpacity(0.22),
+                        color: (account.needsReauth
+                                ? (account.isError ? AppUi.red : AppUi.orange)
+                                : AppUi.statusColor(account.status))
+                            .withOpacity(0.22),
                         width: 0.8),
                   ),
                   child: Text(
-                    account.status,
+                    account.needsReauth
+                        ? (account.isError ? 'Error' : 'Perlu Re-auth')
+                        : account.status,
                     style: TextStyle(
-                        color: AppUi.statusColor(account.status),
+                        color: account.needsReauth
+                            ? (account.isError ? AppUi.red : AppUi.orange)
+                            : AppUi.statusColor(account.status),
                         fontWeight: FontWeight.w700,
                         fontSize: 12,
                         letterSpacing: 0),
@@ -1136,6 +1141,36 @@ class _MarketplaceAccountsPageState extends State<MarketplaceAccountsPage> {
                             color:
                                 (Theme.of(context).textTheme).bodyLarge?.color,
                             fontWeight: FontWeight.w800,
+                            height: 1.35),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (account.needsReauth) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppUi.orange.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: AppUi.orange.withOpacity(0.25), width: 0.8),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: AppUi.orange),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        account.reauthWarningMessage,
+                        style: TextStyle(
+                            color:
+                                (Theme.of(context).textTheme).bodyLarge?.color,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12.5,
                             height: 1.35),
                       ),
                     ),

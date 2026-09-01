@@ -29,6 +29,9 @@ class _MarketplaceSyncProgressBannerWidgetState
   bool _isLoading = true;
   List<Map<String, dynamic>> _syncStates = [];
   bool _wasActive = false;
+  bool _dismissed = false;
+
+  bool _isFetching = false;
 
   @override
   void initState() {
@@ -44,7 +47,8 @@ class _MarketplaceSyncProgressBannerWidgetState
   }
 
   void _startPolling() {
-    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) {
         _loadSyncStates(silent: true);
       }
@@ -59,12 +63,14 @@ class _MarketplaceSyncProgressBannerWidgetState
   }
 
   Future<void> _loadSyncStates({bool silent = false}) async {
+    if (_isFetching) return;
     final tenantId = _tenantId;
     if (tenantId.isEmpty) {
       if (!silent && mounted) setState(() => _isLoading = false);
       return;
     }
 
+    _isFetching = true;
     try {
       List<Map<String, dynamic>> rows = [];
       try {
@@ -103,6 +109,8 @@ class _MarketplaceSyncProgressBannerWidgetState
       });
     } catch (e) {
       if (!silent && mounted) setState(() => _isLoading = false);
+    } finally {
+      _isFetching = false;
     }
   }
 
@@ -112,24 +120,35 @@ class _MarketplaceSyncProgressBannerWidgetState
     return states.any((s) {
       final status =
           (s['bootstrap_status'] ?? '').toString().toLowerCase().trim();
+      final isDone = status == 'done' ||
+          status == 'complete' ||
+          status == 'completed' ||
+          status == 'idle' ||
+          status == 'ready';
+      if (isDone) return false;
+
       final lockedUntilStr = s['locked_until']?.toString();
       final lockedUntil =
           lockedUntilStr != null ? DateTime.tryParse(lockedUntilStr) : null;
       final isLocked = lockedUntil != null && lockedUntil.isAfter(now);
-      return (status.isNotEmpty &&
-              status != 'done' &&
-              status != 'complete' &&
-              status != 'completed') ||
-          isLocked;
+
+      final isRunning = status == 'running' ||
+          status == 'in_progress' ||
+          status == 'syncing' ||
+          status == 'bootstrap';
+
+      return isRunning || (status.isNotEmpty && isLocked);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const SizedBox.shrink();
+    if (_isLoading || _dismissed) return const SizedBox.shrink();
     
     final summary = MarketplaceSyncProgressSummary.fromRawStates(_syncStates);
-    if (!summary.hasActiveSync) return const SizedBox.shrink();
+    if (!summary.hasActiveSync || summary.overallProgressPercent >= 100.0) {
+      return const SizedBox.shrink();
+    }
 
     final theme = Theme.of(context);
     final overallPct = summary.overallProgressPercent;
@@ -222,6 +241,19 @@ class _MarketplaceSyncProgressBannerWidgetState
                               style: theme.textTheme.labelSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: theme.colorScheme.onPrimary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: () => setState(() => _dismissed = true),
+                            borderRadius: BorderRadius.circular(999),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.close,
+                                size: 16,
+                                color: theme.colorScheme.onSurfaceVariant,
                               ),
                             ),
                           ),

@@ -104,6 +104,7 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
               TextField(
                 controller: stockController,
                 keyboardType: TextInputType.number,
+                onTap: AppUi.selectOnTap(stockController),
                 decoration: const InputDecoration(
                   labelText: 'Stock Saat Ini',
                   border: OutlineInputBorder(),

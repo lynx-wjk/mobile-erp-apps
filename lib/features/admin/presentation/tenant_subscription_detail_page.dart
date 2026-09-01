@@ -209,7 +209,7 @@ class _TenantSubscriptionDetailPageState
           response is Map &&
           (response['ok'] as bool? ?? false);
       if (ok) {
-        AppUi.showSnack('Subscription berhasil diperbarui!');
+        AppUi.showSnack('Subscription & periode aktif berhasil diperbarui!');
         await _loadAllData();
       } else {
         throw Exception(
@@ -384,11 +384,13 @@ class _TenantSubscriptionDetailPageState
     );
 
     if (picked != null) {
+      final endOfDay =
+          DateTime(picked.year, picked.month, picked.day, 23, 59, 59);
       setState(() {
         if (isTrial) {
-          _trialEndsAt = picked;
+          _trialEndsAt = endOfDay;
         } else {
-          _currentPeriodEnd = picked;
+          _currentPeriodEnd = endOfDay;
         }
       });
     }
@@ -497,18 +499,19 @@ class _TenantSubscriptionDetailPageState
                               if (_currentSubscription == null)
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 4),
+                                      horizontal: 10, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: AppUi.orange.withOpacity(0.15),
+                                    color: AppUi.orange.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                        color: AppUi.orange, width: 1.5),
+                                        color: AppUi.orange.withOpacity(0.35)),
                                   ),
                                   child: Text(
                                     'UNASSIGNED (FALLBACK)',
                                     style: TextStyle(
                                         color: AppUi.orange,
                                         fontWeight: FontWeight.w800,
-                                        fontSize: 9),
+                                        fontSize: 10),
                                   ),
                                 )
                               else
@@ -528,19 +531,19 @@ class _TenantSubscriptionDetailPageState
                                     const SizedBox(width: 8),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
+                                          horizontal: 10, vertical: 4),
                                       decoration: BoxDecoration(
                                         color: AppUi.statusColor(
                                                 _currentSubscription![
                                                         'status'] ??
                                                     'active')
-                                            .withOpacity(0.15),
+                                            .withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(8),
                                         border: Border.all(
                                             color: AppUi.statusColor(
                                                 _currentSubscription![
                                                         'status'] ??
-                                                    'active'),
-                                            width: 1.5),
+                                                    'active').withOpacity(0.35)),
                                       ),
                                       child: Text(
                                         (_currentSubscription!['status']
@@ -553,7 +556,7 @@ class _TenantSubscriptionDetailPageState
                                                         'status'] ??
                                                     'active'),
                                             fontWeight: FontWeight.w800,
-                                            fontSize: 9),
+                                            fontSize: 10),
                                       ),
                                     ),
                                   ],
@@ -637,18 +640,19 @@ class _TenantSubscriptionDetailPageState
                             const Center(child: CircularProgressIndicator())
                           else if (_previewResult != null)
                             Container(
-                              padding: const EdgeInsets.all(12),
+                              padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
                                 color: (_previewResult!['enabled'] as bool? ??
                                         false)
                                     ? AppUi.green.withOpacity(0.08)
                                     : AppUi.red.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: (_previewResult!['enabled'] as bool? ??
                                           false)
-                                      ? AppUi.green
-                                      : AppUi.red,
-                                  width: 2,
+                                      ? AppUi.green.withOpacity(0.35)
+                                      : AppUi.red.withOpacity(0.35),
+                                  width: 1,
                                 ),
                               ),
                               child: Column(
@@ -658,28 +662,42 @@ class _TenantSubscriptionDetailPageState
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Text('ENABLED:',
+                                      Text('STATUS AKSES FITUR:',
                                           style: TextStyle(
                                               fontWeight: FontWeight.w800,
-                                              fontSize: 12)),
-                                      Text(
-                                        (_previewResult!['enabled'] as bool? ??
-                                                false)
-                                            ? 'YES'
-                                            : 'NO',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 14,
+                                              fontSize: 11.5)),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 4),
+                                        decoration: BoxDecoration(
                                           color: (_previewResult!['enabled']
-                                                      as bool? ??
-                                                  false)
-                                              ? AppUi.green
-                                              : AppUi.red,
+                                                  as bool? ??
+                                              false)
+                                              ? AppUi.green.withOpacity(0.15)
+                                              : AppUi.red.withOpacity(0.15),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          (_previewResult!['enabled']
+                                                  as bool? ??
+                                              false)
+                                              ? 'ENABLED / AKTIF'
+                                              : 'DISABLED / TERKUNCI',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 11,
+                                            color: (_previewResult!['enabled']
+                                                    as bool? ??
+                                                false)
+                                                ? AppUi.green
+                                                : AppUi.red,
+                                          ),
                                         ),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 8),
+                                  const SizedBox(height: 10),
                                   _previewRow(
                                       'SOURCE', _previewResult!['source']),
                                   _previewRow('PLAN CODE',

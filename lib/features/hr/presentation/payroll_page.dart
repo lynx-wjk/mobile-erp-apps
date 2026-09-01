@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_roles.dart';
+import '../../../core/ui/app_segmented_tab_bar.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 
@@ -28,15 +29,15 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
   List<Map<String, dynamic>> _activeUsers = [];
   List<Map<String, dynamic>> _payrollHistory = [];
 
-  // Company Settings
+  // Company Settings (Default kosong agar setiap tenant mengisi branding-nya masing-masing)
   Map<String, dynamic> _companySettings = {
-    'company_name': 'HAI INVENTORY & APPAREL',
-    'company_address': 'Jl. Raya Industri Kebon Jeruk No. 88, Jakarta Barat',
-    'company_phone': '+62 812-9988-7766',
-    'company_email': 'finance@mdhproduction.com',
+    'company_name': '',
+    'company_address': '',
+    'company_phone': '',
+    'company_email': '',
     'logo_url': '',
-    'signatory_name': 'Finance Manager',
-    'signatory_title': 'Manager Keuangan & HR',
+    'signatory_name': '',
+    'signatory_title': '',
   };
 
   // Form Fields
@@ -417,10 +418,12 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
   void _formatCurrencyController(TextEditingController controller, String value) {
     final clean = value.replaceAll(RegExp(r'[^\d]'), '');
     if (clean.isEmpty) {
-      controller.value = const TextEditingValue(
-        text: '0',
-        selection: TextSelection.collapsed(offset: 1),
-      );
+      if (controller.text.isNotEmpty) {
+        controller.value = const TextEditingValue(
+          text: '',
+          selection: TextSelection.collapsed(offset: 0),
+        );
+      }
       return;
     }
     final numVal = int.tryParse(clean) ?? 0;
@@ -602,7 +605,7 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text(_companySettings['company_name'] ?? 'HAI INVENTORY', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+                      pw.Text(_companySettings['company_name'] ?? '', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
                       pw.SizedBox(height: 4),
                       pw.Text(_companySettings['company_address'] ?? '', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
                       pw.Text('${_companySettings['company_phone'] ?? ''}   |   ${_companySettings['company_email'] ?? ''}', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
@@ -768,9 +771,9 @@ class _PayrollPageState extends State<PayrollPage> with SingleTickerProviderStat
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.center,
                     children: [
-                      pw.Text('${_companySettings['signatory_title'] ?? 'Finance Manager'},', style: const pw.TextStyle(fontSize: 10)),
+                      pw.Text(_companySettings['signatory_title'] != null && _companySettings['signatory_title'].toString().trim().isNotEmpty ? '${_companySettings['signatory_title']},' : '', style: const pw.TextStyle(fontSize: 10)),
                       pw.SizedBox(height: 45),
-                      pw.Text(_companySettings['signatory_name'] ?? 'Manager', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                      pw.Text(_companySettings['signatory_name'] ?? '', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
                     ],
                   ),
                 ],
@@ -802,9 +805,9 @@ Halo *$name*,
 
 Berikut kami sampaikan rincian *Slip Gaji Periode $period*:
 
-📄 No. Slip: *$invNum*
-💰 Penerimaan Bersih: *$net*
-📌 Link Download PDF: $pdfUrl
+• No. Slip: *$invNum*
+• Penerimaan Bersih: *$net*
+• Link Download PDF: $pdfUrl
 
 Terima kasih atas kerja keras dan kontribusinya!
 Salam,
@@ -860,6 +863,139 @@ Team Finance & HR ${_companySettings['company_name']}
     await _fetchPayrollHistory();
   }
 
+  Future<void> _changePeriod(DateTime newPeriod) async {
+    setState(() {
+      _selectedPeriod = DateTime(newPeriod.year, newPeriod.month, 1);
+      _generateNewInvoiceNumber();
+    });
+    if (_selectedUser != null) {
+      await _autoCalculatePayrollForPeriod();
+    }
+  }
+
+  Future<void> _pickPeriod() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    int selectedYear = _selectedPeriod.year;
+    int selectedMonth = _selectedPeriod.month;
+
+    const months = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Pilih Periode Penggajian',
+                        style: GoogleFonts.outfit(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.chevron_left_rounded),
+                        onPressed: () => setModalState(() => selectedYear--),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$selectedYear',
+                        style: GoogleFonts.outfit(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF38BDF8),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.chevron_right_rounded),
+                        onPressed: () => setModalState(() => selectedYear++),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 4,
+                      childAspectRatio: 2.2,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
+                    ),
+                    itemCount: 12,
+                    itemBuilder: (context, idx) {
+                      final monthNum = idx + 1;
+                      final isSelected = monthNum == selectedMonth && selectedYear == _selectedPeriod.year;
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () {
+                          setModalState(() => selectedMonth = monthNum);
+                          Navigator.pop(ctx);
+                          _changePeriod(DateTime(selectedYear, monthNum, 1));
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(0xFF38BDF8)
+                                : (isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9)),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isSelected
+                                  ? const Color(0xFF38BDF8)
+                                  : (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            months[idx],
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                              color: isSelected
+                                  ? Colors.black
+                                  : (isDark ? Colors.white : const Color(0xFF334155)),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _openCompanySettingsModal() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final nameCtrl = TextEditingController(text: _companySettings['company_name']);
@@ -905,13 +1041,13 @@ Team Finance & HR ${_companySettings['company_name']}
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _buildTextField(ctx, 'Nama Perusahaan', nameCtrl),
-                    _buildTextField(ctx, 'Alamat Perusahaan', addrCtrl, maxLines: 2),
-                    _buildTextField(ctx, 'Telepon Perusahaan', phoneCtrl),
-                    _buildTextField(ctx, 'Email Perusahaan', emailCtrl),
-                    _buildTextField(ctx, 'URL Logo (Opsional)', logoCtrl),
-                    _buildTextField(ctx, 'Nama Penandatangan (Finance/HR)', signNameCtrl),
-                    _buildTextField(ctx, 'Jabatan Penandatangan', signTitleCtrl),
+                    _buildTextField(ctx, 'Nama Perusahaan', nameCtrl, hintText: 'Contoh: Brand / Perusahaan Anda'),
+                    _buildTextField(ctx, 'Alamat Perusahaan', addrCtrl, maxLines: 2, hintText: 'Alamat kantor / gudang'),
+                    _buildTextField(ctx, 'Telepon Perusahaan', phoneCtrl, hintText: 'Nomor telepon / WA resmi'),
+                    _buildTextField(ctx, 'Email Perusahaan', emailCtrl, hintText: 'Email finance / payroll'),
+                    _buildTextField(ctx, 'URL Logo (Opsional)', logoCtrl, hintText: 'https://...'),
+                    _buildTextField(ctx, 'Nama Penandatangan (Finance/HR)', signNameCtrl, hintText: 'Nama lengkap penandatangan'),
+                    _buildTextField(ctx, 'Jabatan Penandatangan', signTitleCtrl, hintText: 'Contoh: Finance & HR Manager'),
                     const SizedBox(height: 20),
                     SizedBox(
                       width: double.infinity,
@@ -958,6 +1094,7 @@ Team Finance & HR ${_companySettings['company_name']}
     int maxLines = 1,
     TextInputType keyboardType = TextInputType.text,
     bool isCurrency = false,
+    String? hintText,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
@@ -966,6 +1103,7 @@ Team Finance & HR ${_companySettings['company_name']}
         controller: ctrl,
         maxLines: maxLines,
         keyboardType: isCurrency ? TextInputType.number : keyboardType,
+        onTap: AppUi.selectOnTap(ctrl),
         onChanged: (val) {
           if (isCurrency) {
             _formatCurrencyController(ctrl, val);
@@ -975,6 +1113,8 @@ Team Finance & HR ${_companySettings['company_name']}
         style: GoogleFonts.inter(color: isDark ? Colors.white : const Color(0xFF0F172A), fontSize: 14),
         decoration: InputDecoration(
           labelText: label,
+          hintText: hintText,
+          hintStyle: GoogleFonts.inter(color: isDark ? Colors.white38 : Colors.black38, fontSize: 13),
           labelStyle: GoogleFonts.inter(color: isDark ? Colors.white60 : Colors.black54, fontSize: 13),
           filled: true,
           fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
@@ -1038,6 +1178,7 @@ Team Finance & HR ${_companySettings['company_name']}
     return WebResponsiveScaffold(
       backgroundColor: scaffoldBg,
       title: 'Payroll & Slip Gaji',
+      activeWebTitle: 'Penggajian & Slip Gaji Karyawan',
       actions: [
         IconButton(
           icon: Icon(Icons.settings_rounded, color: isDark ? Colors.white70 : Colors.black87),
@@ -1045,28 +1186,34 @@ Team Finance & HR ${_companySettings['company_name']}
           tooltip: 'Pengaturan Branding Perusahaan',
         ),
       ],
-      bottom: TabBar(
-        controller: _tabController,
-        indicatorColor: const Color(0xFF38BDF8),
-        labelColor: const Color(0xFF38BDF8),
-        unselectedLabelColor: isDark ? Colors.white60 : Colors.black54,
-        labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
-        tabs: const [
-          Tab(text: 'Buat Slip Gaji'),
-          Tab(text: 'Tarif & Tipe Gaji'),
-          Tab(text: 'Riwayat Slip Gaji'),
-        ],
+      body: WebResponsiveWrapper(
+        activeTitle: 'Payroll & Slip Gaji',
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8)))
+            : Column(
+                children: [
+                  AppSegmentedTabBar(
+                    controller: _tabController,
+                    maxWidth: 560,
+                    tabs: const [
+                      AppTabItem(label: 'Buat Slip Gaji', icon: Icons.receipt_long_rounded),
+                      AppTabItem(label: 'Tarif & Tipe Gaji', icon: Icons.tune_rounded),
+                      AppTabItem(label: 'Riwayat Slip Gaji', icon: Icons.history_rounded),
+                    ],
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildCreateSlipTab(),
+                        _buildConfigTab(),
+                        _buildHistoryTab(),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF38BDF8)))
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildCreateSlipTab(),
-                _buildConfigTab(),
-                _buildHistoryTab(),
-              ],
-            ),
     );
   }
 
@@ -1116,6 +1263,74 @@ Team Finance & HR ${_companySettings['company_name']}
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Data Karyawan & Periode', style: GoogleFonts.outfit(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+
+                // Period Selector Card
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFF38BDF8).withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Bulan Sebelumnya',
+                        icon: const Icon(Icons.chevron_left_rounded, size: 22),
+                        onPressed: () {
+                          final prev = DateTime(_selectedPeriod.year, _selectedPeriod.month - 1, 1);
+                          _changePeriod(prev);
+                        },
+                      ),
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: _pickPeriod,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Column(
+                              children: [
+                                Text(
+                                  'Periode Penggajian (Klik untuk Ganti Bulan/Tahun)',
+                                  style: GoogleFonts.inter(color: subTextColor, fontSize: 11, fontWeight: FontWeight.w500),
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.calendar_month_rounded, size: 16, color: Color(0xFF38BDF8)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      DateFormat('MMMM yyyy').format(_selectedPeriod),
+                                      style: GoogleFonts.outfit(
+                                        color: textColor,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Icon(Icons.arrow_drop_down_rounded, size: 20, color: Color(0xFF38BDF8)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Bulan Berikutnya',
+                        icon: const Icon(Icons.chevron_right_rounded, size: 22),
+                        onPressed: () {
+                          final next = DateTime(_selectedPeriod.year, _selectedPeriod.month + 1, 1);
+                          _changePeriod(next);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 12),
 
                 // Employee Dropdown
@@ -1673,6 +1888,7 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
     return TextField(
       controller: ctrl,
       keyboardType: TextInputType.number,
+      onTap: AppUi.selectOnTap(ctrl),
       onChanged: (val) => _formatCurrencyController(ctrl, val),
       decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
     );
@@ -1681,10 +1897,12 @@ class _UserPayrollConfigCardState extends State<_UserPayrollConfigCard> {
   void _formatCurrencyController(TextEditingController controller, String value) {
     final clean = value.replaceAll(RegExp(r'[^\d]'), '');
     if (clean.isEmpty) {
-      controller.value = const TextEditingValue(
-        text: '0',
-        selection: TextSelection.collapsed(offset: 1),
-      );
+      if (controller.text.isNotEmpty) {
+        controller.value = const TextEditingValue(
+          text: '',
+          selection: TextSelection.collapsed(offset: 0),
+        );
+      }
       return;
     }
     final numVal = int.tryParse(clean) ?? 0;

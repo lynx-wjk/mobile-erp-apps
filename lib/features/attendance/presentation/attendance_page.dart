@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/ui/app_segmented_tab_bar.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
@@ -1019,13 +1020,26 @@ class _AbsensiPageState extends State<AbsensiPage> {
     final profile = await _currentProfile();
 
     try {
-      final repRes = await _client.from('attendance_bug_reports').select().order('created_at', ascending: false).limit(50);
+      final currentTenant = profile?['tenant_id'];
+      var query = _client.from('attendance_bug_reports').select();
+      if (currentTenant != null && currentTenant.toString().isNotEmpty) {
+        query = query.eq('tenant_id', currentTenant);
+      }
+      final repRes = await query.order('created_at', ascending: false).limit(50);
       bugReports = (repRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
-      final usrRes = await _client.from('users').select('user_id, nama, email, role_id').eq('status', 'active');
+      var userQuery = _client.from('users').select('user_id, nama, email, role_id').eq('status', 'active');
+      if (currentTenant != null && currentTenant.toString().isNotEmpty) {
+        userQuery = userQuery.eq('tenant_id', currentTenant);
+      }
+      final usrRes = await userQuery;
       allUsers = (usrRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
 
-      final schedRes = await _client.from('user_work_schedules').select('*');
+      var schedQuery = _client.from('user_work_schedules').select('*');
+      if (currentTenant != null && currentTenant.toString().isNotEmpty) {
+        schedQuery = schedQuery.eq('tenant_id', currentTenant);
+      }
+      final schedRes = await schedQuery;
       allSchedules = (schedRes as List).map((e) => Map<String, dynamic>.from(e)).toList();
     } catch (e) {
       debugPrint('Error loading bug reports or schedules: $e');
@@ -1100,13 +1114,15 @@ class _AbsensiPageState extends State<AbsensiPage> {
                     const SizedBox(height: 12),
                     const Text('Laporan Kendala & Manual Override Absensi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 8),
-                    const TabBar(
+                    const AppSegmentedTabBar(
+                      maxWidth: 480,
+                      margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       tabs: [
-                        Tab(text: 'Laporan Kendala'),
-                        Tab(text: 'Manual Override Absensi'),
+                        AppTabItem(label: 'Laporan Kendala', icon: Icons.report_problem_outlined),
+                        AppTabItem(label: 'Manual Override Absensi', icon: Icons.edit_calendar_outlined),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     Expanded(
                       child: TabBarView(
                         children: [
@@ -1189,12 +1205,18 @@ class _AbsensiPageState extends State<AbsensiPage> {
                                       },
                                     ),
                           SingleChildScrollView(
+                            padding: const EdgeInsets.fromLTRB(4, 14, 4, 24),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 DropdownButtonFormField<Map<String, dynamic>>(
                                   value: selectedUserForOverride,
-                                  decoration: const InputDecoration(labelText: 'Pilih Karyawan', border: OutlineInputBorder()),
+                                  decoration: InputDecoration(
+                                    labelText: 'Pilih Karyawan',
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                    filled: true,
+                                    fillColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                                  ),
                                   items: allUsers.map((u) {
                                     return DropdownMenuItem(
                                       value: u,

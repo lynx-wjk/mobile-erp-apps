@@ -51,8 +51,8 @@ class MarketplaceAccountPublic {
       environment: _environment(map['environment']),
       stockSyncEnabled: _bool(map['stock_sync_enabled']),
       lastError: _nullableText(map['last_error']),
-      shopIdMasked: _nullableText(map['shop_id_masked']),
-      shopCipherMasked: _nullableText(map['shop_cipher_masked']),
+      shopIdMasked: _nullableText(map['shop_id_masked'] ?? map['shop_id']),
+      shopCipherMasked: _nullableText(map['shop_cipher_masked'] ?? map['shop_cipher']),
       accessTokenExpiredAt: _date(map['access_token_expired_at']),
       refreshTokenExpiredAt: _date(map['refresh_token_expired_at']),
       connectedAt: _date(map['connected_at']),
@@ -82,6 +82,50 @@ class MarketplaceAccountPublic {
   bool get isTesting => environment.toLowerCase() == 'testing';
 
   String get environmentLabel => isTesting ? 'Testing / Dev Shop' : 'Production';
+
+  bool get isError => status.toLowerCase() == 'error' || (lastError != null && lastError!.trim().isNotEmpty);
+
+  bool get isExpired => status.toLowerCase() == 'expired';
+
+  int? get daysUntilReauthRequired {
+    final now = DateTime.now();
+    if (marketplace.toLowerCase().contains('shopee')) {
+      final baseDate = reauthorizedAt ?? connectedAt;
+      if (baseDate != null) {
+        final daysPassed = now.difference(baseDate).inDays;
+        return 30 - daysPassed;
+      }
+    }
+    if (refreshTokenExpiredAt != null) {
+      return refreshTokenExpiredAt!.difference(now).inDays;
+    }
+    return null;
+  }
+
+  bool get needsReauth {
+    if (status.toLowerCase() == 'inactive') return false;
+    if (isError || isExpired) return true;
+    final daysLeft = daysUntilReauthRequired;
+    if (daysLeft != null && daysLeft <= 5) return true;
+    return false;
+  }
+
+  String get reauthWarningMessage {
+    if (isError) {
+      return 'Koneksi toko bermasalah atau otorisasi gagal. Hubungkan ulang toko agar sinkronisasi berjalan lancar.';
+    }
+    if (isExpired) {
+      return 'Sesi otorisasi toko telah kedaluwarsa. Hubungkan ulang diperlukan.';
+    }
+    final daysLeft = daysUntilReauthRequired;
+    if (daysLeft != null) {
+      if (daysLeft <= 0) {
+        return 'Masa aktif otorisasi 30 hari Shopee telah habis. Hubungkan ulang toko agar sinkronisasi tidak terhenti.';
+      }
+      return 'Masa aktif otorisasi Shopee tersisa $daysLeft hari. Hubungkan ulang segera sebelum kedaluwarsa.';
+    }
+    return 'Toko memerlukan otorisasi ulang.';
+  }
 
   static String _environment(dynamic value) {
     final raw = value?.toString().trim().toLowerCase() ?? '';

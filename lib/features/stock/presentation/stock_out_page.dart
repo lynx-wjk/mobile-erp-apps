@@ -74,6 +74,7 @@ class _StockOutPageState extends State<StockOutPage> {
 
   String _tujuan = 'penjualan';
   List<_ProductItem> _products = [];
+  Map<String, _ProductItem> _productLookupMap = {};
   final List<_StockOutDraftItem> _items = [];
 
   bool _requireMarketplaceResiMatch =
@@ -204,13 +205,28 @@ class _StockOutPageState extends State<StockOutPage> {
           .or('status.eq.active,status.is.null')
           .order('nama_barang', ascending: true);
 
+      final loadedProducts = (data as List)
+          .map((item) => _ProductItem.fromMap(Map<String, dynamic>.from(item)))
+          .toList();
+
+      final Map<String, _ProductItem> lookup = {};
+      for (final p in loadedProducts) {
+        if (p.productId.isNotEmpty) {
+          lookup[p.productId.toLowerCase()] = p;
+        }
+        if (p.kodeSku.isNotEmpty && p.kodeSku != '-') {
+          lookup[p.kodeSku.toLowerCase()] = p;
+        }
+        if (p.kodeBarcode.isNotEmpty && p.kodeBarcode != '-') {
+          lookup[p.kodeBarcode.toLowerCase()] = p;
+        }
+      }
+
       if (!mounted) return;
 
       setState(() {
-        _products = (data as List)
-            .map(
-                (item) => _ProductItem.fromMap(Map<String, dynamic>.from(item)))
-            .toList();
+        _products = loadedProducts;
+        _productLookupMap = lookup;
       });
     } on PostgrestException catch (error) {
       if (!mounted) return;
@@ -297,7 +313,7 @@ class _StockOutPageState extends State<StockOutPage> {
 
     setState(() => _isCheckingResi = true);
     try {
-      final result = await _marketplacePickService.findOrderByResi(
+      final result = await _marketplacePickService.activateOrderForScanByResi(
         tenantId: tenantId,
         resiCode: resi,
       );
@@ -322,8 +338,6 @@ class _StockOutPageState extends State<StockOutPage> {
         return false;
       }
 
-      var finalMessage = result.message;
-
       setState(() {
         _verifiedResi = resi;
         _marketplaceOrderId = result.marketplaceOrderId;
@@ -338,26 +352,10 @@ class _StockOutPageState extends State<StockOutPage> {
         _items.clear();
       });
 
-      // Normalisasi status item lama seperti ignored_status / ready_stock_out
-      // ke waiting_scan langsung dari app. Jadi user tidak perlu utak-atik SQL.
-      try {
-        final activation =
-            await _marketplacePickService.activateOrderForScanByResi(
-          tenantId: tenantId,
-          resiCode: resi,
-        );
-        if (activation.ok) {
-          finalMessage = activation.message;
-          setState(() => _marketplaceOrderMessage = finalMessage);
-        }
-      } catch (_) {
-        // Kalau normalisasi gagal, order tetap ditampilkan. Scan/finalize akan memberi error spesifik.
-      }
-
       await _loadMarketplacePickItems();
 
       rootScaffoldMessengerKey.currentState?.showSnackBar(
-        SnackBar(content: Text(finalMessage)),
+        SnackBar(content: Text(result.message)),
       );
       return true;
     } catch (error) {
@@ -377,7 +375,22 @@ class _StockOutPageState extends State<StockOutPage> {
 
     final data = await _client
         .from('marketplace_order_items_public')
-        .select()
+        .select('''
+          marketplace_order_item_id,
+          mapped_product_id,
+          mapping_status,
+          product_name,
+          variant_name,
+          mapped_local_sku,
+          local_barcode,
+          quantity,
+          scanned_qty,
+          stock_action_label,
+          fulfillment_override_qty,
+          fulfillment_override_local_skus,
+          fulfillment_override_product_names,
+          fulfillment_override_note
+        ''')
         .eq('tenant_id', tenantId)
         .eq('marketplace_order_id', orderId)
         .order('created_at', ascending: true);
@@ -565,20 +578,8 @@ class _StockOutPageState extends State<StockOutPage> {
 
   _ProductItem? _findProductByCode(String rawCode) {
     final code = _normalize(rawCode);
-
-    for (final product in _products) {
-      final values = [
-        product.productId,
-        product.kodeSku,
-        product.kodeBarcode,
-      ].map(_normalize).toList();
-
-      if (values.contains(code)) {
-        return product;
-      }
-    }
-
-    return null;
+    if (code.isEmpty) return null;
+    return _productLookupMap[code];
   }
 
   String _normalize(String value) {
@@ -615,6 +616,7 @@ class _StockOutPageState extends State<StockOutPage> {
               TextField(
                 controller: controller,
                 autofocus: true,
+                onTap: AppUi.selectOnTap(controller),
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(
@@ -739,109 +741,124 @@ class _StockOutPageState extends State<StockOutPage> {
       return;
     }
 
+    _MarketplacePickItem? selectedItem;
+    if (selectable.length == 1) {
+      selectedItem = selectable.first;
+    } else {
+      selectedItem = await showModalBottomSheet<_MarketplacePickItem>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        builder: (context) {
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.72,
+            minChildSize: 0.42,
+            maxChildSize: 0.94,
+            builder: (context, scrollController) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pilih Item Pesanan',
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                            'Pilih item order/resi yang akan dipenuhi dengan SKU lokal.'),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(14, 4, 14, 20),
+                      itemCount: selectable.length,
+                      itemBuilder: (context, index) {
+                        final item = selectable[index];
+                        return Card(
+                          shape: AppUi.modernShape(context, radius: 14),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.all(14),
+                            leading: const CircleAvatar(
+                                child: Icon(Icons.playlist_add_check_rounded)),
+                            title: Text(item.productName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700)),
+                            subtitle: Text(
+                              'Varian: ${item.variantName}\n'
+                              'Mapping order: ${item.mappedLocalSku}\n'
+                              'Barcode mapping: ${item.localBarcode}\n'
+                              'Scan: ${item.scannedQtyText}/${item.quantityText}'
+                              '${item.fulfillmentOverrideQty > 0 ? '\nOverride ke: ${item.fulfillmentOverrideLocalSkus}' : ''}',
+                            ),
+                            isThreeLine: true,
+                            onTap: () => AppUi.safePop(context, item),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    }
+
+    if (selectedItem == null || !mounted) return;
+
+    _ProductItem? suggestedProduct;
+    if (selectedItem.mappedProductId.isNotEmpty) {
+      suggestedProduct =
+          _productLookupMap[selectedItem.mappedProductId.toLowerCase()];
+    }
+    if (suggestedProduct == null &&
+        selectedItem.mappedLocalSku.isNotEmpty &&
+        selectedItem.mappedLocalSku != '-') {
+      suggestedProduct =
+          _productLookupMap[selectedItem.mappedLocalSku.toLowerCase()];
+    }
+    if (suggestedProduct == null &&
+        selectedItem.localBarcode.isNotEmpty &&
+        selectedItem.localBarcode != '-') {
+      suggestedProduct =
+          _productLookupMap[selectedItem.localBarcode.toLowerCase()];
+    }
+
     final actualProduct = await _showProductPicker(
       title: 'Pilih SKU Aktual',
       searchLabel: 'Cari SKU aktual / nama / barcode',
       helperText:
-          'Mode manual marketplace memakai daftar semua SKU tenant. QR/barcode tetap harus cocok dengan item order.',
+          'Pilih produk lokal untuk memenuhi pesanan: ${selectedItem.productName} (${selectedItem.variantName})',
+      suggestedProduct: suggestedProduct,
     );
-    if (actualProduct == null) return;
-    if (!mounted) return;
+    if (actualProduct == null || !mounted) return;
 
-    final selected = await showModalBottomSheet<_MarketplacePickItem>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-      ),
-      builder: (context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.72,
-          minChildSize: 0.42,
-          maxChildSize: 0.94,
-          builder: (context, scrollController) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Pilih Item Pesanan',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                      ),
-                      SizedBox(height: 6),
-                      Text(
-                          'SKU aktual sudah dipilih dari daftar semua produk tenant. Pilih item order/resi yang dipenuhi SKU ini.'),
-                      SizedBox(height: 6),
-                      Text(
-                        'SKU aktual: ${actualProduct.kodeSku} - ${actualProduct.namaBarang}',
-                        style: TextStyle(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.72),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: ListView.builder(
-                    controller: scrollController,
-                    padding: const EdgeInsets.fromLTRB(14, 4, 14, 20),
-                    itemCount: selectable.length,
-                    itemBuilder: (context, index) {
-                      final item = selectable[index];
-                      return Card(
-                        shape: AppUi.modernShape(context, radius: 14),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.all(14),
-                          leading: const CircleAvatar(
-                              child: Icon(Icons.playlist_add_check_rounded)),
-                          title: Text(item.productName,
-                              style: TextStyle(fontWeight: FontWeight.w700)),
-                          subtitle: Text(
-                            'Varian: ${item.variantName}\n'
-                            'Mapping order: ${item.mappedLocalSku}\n'
-                            'Barcode mapping: ${item.localBarcode}\n'
-                            'Scan: ${item.scannedQtyText}/${item.quantityText}'
-                            '${item.fulfillmentOverrideQty > 0 ? '\nOverride ke: ${item.fulfillmentOverrideLocalSkus}' : ''}',
-                          ),
-                          isThreeLine: true,
-                          onTap: () => AppUi.safePop(context, item),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (selected == null) return;
-
-    final isOverride = !_sameProductForMarketplace(selected, actualProduct);
+    final isOverride = !_sameProductForMarketplace(selectedItem, actualProduct);
     String? overrideNote;
     if (isOverride) {
       overrideNote = await _confirmMarketplaceManualOverride(
-        orderItem: selected,
+        orderItem: selectedItem,
         actualProduct: actualProduct,
       );
       if (overrideNote == null) return;
     }
 
     await _manualScanMarketplaceItem(
-      item: selected,
+      item: selectedItem,
       actualProduct: actualProduct,
       overrideNote: overrideNote,
     );
@@ -915,6 +932,7 @@ class _StockOutPageState extends State<StockOutPage> {
                     TextField(
                       controller: controller,
                       autofocus: true,
+                      onTap: AppUi.selectOnTap(controller),
                       maxLines: 3,
                       onChanged: (_) => setDialogState(() {}),
                       decoration: const InputDecoration(
@@ -1008,9 +1026,10 @@ class _StockOutPageState extends State<StockOutPage> {
     String title = 'Pilih Produk',
     String searchLabel = 'Cari nama / SKU / barcode',
     String? helperText,
+    _ProductItem? suggestedProduct,
   }) async {
     final searchController = TextEditingController();
-    List<_ProductItem> filtered = List<_ProductItem>.from(_products);
+    List<_ProductItem> filtered = _products;
 
     final result = await showModalBottomSheet<_ProductItem>(
       context: context,
@@ -1026,11 +1045,13 @@ class _StockOutPageState extends State<StockOutPage> {
               final keyword = value.trim().toLowerCase();
 
               setSheetState(() {
-                filtered = _products.where((product) {
-                  return product.namaBarang.toLowerCase().contains(keyword) ||
-                      product.kodeSku.toLowerCase().contains(keyword) ||
-                      product.kodeBarcode.toLowerCase().contains(keyword);
-                }).toList();
+                if (keyword.isEmpty) {
+                  filtered = _products;
+                } else {
+                  filtered = _products.where((product) {
+                    return product.searchKey.contains(keyword);
+                  }).toList();
+                }
               });
             }
 
@@ -1056,25 +1077,73 @@ class _StockOutPageState extends State<StockOutPage> {
                                   fontWeight: FontWeight.w800,
                                 ),
                           ),
-                          SizedBox(height: 12),
+                          const SizedBox(height: 12),
                           TextField(
                             controller: searchController,
                             onChanged: filter,
                             decoration: InputDecoration(
                               labelText: searchLabel,
                               prefixIcon: const Icon(Icons.search),
-                              border: OutlineInputBorder(),
+                              border: const OutlineInputBorder(),
                             ),
                           ),
+                          if (suggestedProduct != null) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primaryContainer
+                                    .withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary
+                                      .withValues(alpha: 0.35),
+                                ),
+                              ),
+                              child: ListTile(
+                                dense: true,
+                                leading: CircleAvatar(
+                                  radius: 16,
+                                  backgroundColor:
+                                      Theme.of(context).colorScheme.primary,
+                                  child: const Icon(
+                                    Icons.star_rounded,
+                                    size: 18,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                title: Text(
+                                  'Rekomendasi Mapping: ${suggestedProduct.namaBarang}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  'SKU: ${suggestedProduct.kodeSku} | Stock: ${suggestedProduct.stockSaatIni.toStringAsFixed(0)} ${suggestedProduct.satuan}',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                trailing: const Icon(
+                                  Icons.arrow_forward_ios_rounded,
+                                  size: 14,
+                                ),
+                                onTap: () =>
+                                    AppUi.safePop(context, suggestedProduct),
+                              ),
+                            ),
+                          ],
                           if ((helperText ?? '').trim().isNotEmpty) ...[
-                            SizedBox(height: 8),
+                            const SizedBox(height: 8),
                             Text(
                               helperText!,
                               style: TextStyle(
                                 color: Theme.of(context)
                                     .colorScheme
                                     .onSurface
-                                    .withOpacity(0.72),
+                                    .withValues(alpha: 0.72),
                               ),
                             ),
                           ],
@@ -1083,7 +1152,7 @@ class _StockOutPageState extends State<StockOutPage> {
                     ),
                     Expanded(
                       child: filtered.isEmpty
-                          ? Center(child: Text('Produk tidak ditemukan'))
+                          ? const Center(child: Text('Produk tidak ditemukan'))
                           : ListView.builder(
                               controller: scrollController,
                               padding: const EdgeInsets.fromLTRB(14, 4, 14, 20),
@@ -1098,12 +1167,13 @@ class _StockOutPageState extends State<StockOutPage> {
                                       backgroundColor: Theme.of(context)
                                           .colorScheme
                                           .primary
-                                          .withOpacity(0.12),
-                                      child: Icon(Icons.inventory_2_outlined),
+                                          .withValues(alpha: 0.12),
+                                      child: const Icon(
+                                          Icons.inventory_2_outlined),
                                     ),
                                     title: Text(
                                       product.namaBarang,
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                           fontWeight: FontWeight.w700),
                                     ),
                                     subtitle: Text(
@@ -1482,6 +1552,7 @@ class _StockOutPageState extends State<StockOutPage> {
                 Expanded(
                   child: TextField(
                     controller: _resiController,
+                    onTap: AppUi.selectOnTap(_resiController),
                     decoration: InputDecoration(
                       labelText: isMarketplaceActive
                           ? 'Nomor Resi Marketplace'
@@ -1543,6 +1614,7 @@ class _StockOutPageState extends State<StockOutPage> {
             SizedBox(height: 12),
             TextField(
               controller: _noteController,
+              onTap: AppUi.selectOnTap(_noteController),
               maxLines: 3,
               enabled: !isMarketplaceActive,
               decoration: const InputDecoration(
@@ -1590,8 +1662,8 @@ class _StockOutPageState extends State<StockOutPage> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: AppTheme.radiusMd,
-        color: color.withOpacity(0.08),
-        border: Border.all(color: color.withOpacity(0.22), width: 0.8),
+        color: color.withValues(alpha: 0.08),
+        border: Border.all(color: color.withValues(alpha: 0.22), width: 0.8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1616,9 +1688,9 @@ class _StockOutPageState extends State<StockOutPage> {
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface.withOpacity(0.75),
+                color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.75),
                 borderRadius: AppTheme.radiusSm,
-                border: Border.all(color: color.withOpacity(0.18), width: 0.8),
+                border: Border.all(color: color.withValues(alpha: 0.18), width: 0.8),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1768,7 +1840,7 @@ class _StockOutPageState extends State<StockOutPage> {
             child: ListTile(
               contentPadding: const EdgeInsets.all(14),
               leading: CircleAvatar(
-                backgroundColor: color.withOpacity(0.12),
+                backgroundColor: color.withValues(alpha: 0.12),
                 child: Icon(
                     done ? Icons.check_rounded : Icons.qr_code_scanner_rounded,
                     color: color),
@@ -1849,7 +1921,7 @@ class _StockOutPageState extends State<StockOutPage> {
                   color: Theme.of(context).scaffoldBackgroundColor,
                   border: Border(
                     top: BorderSide(
-                      color: Theme.of(context).dividerColor.withOpacity(0.18),
+                      color: Theme.of(context).dividerColor.withValues(alpha: 0.18),
                     ),
                   ),
                 ),
@@ -1880,15 +1952,16 @@ class _ProductItem {
   final String namaBarang;
   final String satuan;
   final num stockSaatIni;
+  final String searchKey;
 
-  const _ProductItem({
+  _ProductItem({
     required this.productId,
     required this.kodeSku,
     required this.kodeBarcode,
     required this.namaBarang,
     required this.satuan,
     required this.stockSaatIni,
-  });
+  }) : searchKey = '$namaBarang $kodeSku $kodeBarcode'.toLowerCase();
 
   factory _ProductItem.fromMap(Map<String, dynamic> map) {
     return _ProductItem(

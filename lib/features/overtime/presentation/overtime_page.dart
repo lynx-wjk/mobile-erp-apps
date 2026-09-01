@@ -1,9 +1,11 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/ui/app_segmented_tab_bar.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
@@ -399,54 +401,293 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
   }
 
   Future<void> _editOvertime(Map<String, dynamic> req) async {
-    final dateCtrl = TextEditingController(text: req['overtime_date']);
-    final startCtrl = TextEditingController(text: req['start_time']);
-    final endCtrl = TextEditingController(text: req['end_time']);
-    final reasonCtrl = TextEditingController(text: req['reason']);
-    final rateCtrl = TextEditingController(text: AppUi.toNum(req['hourly_rate']).toStringAsFixed(0));
-    String status = req['status'] ?? 'pending';
+    final currencyFmt = NumberFormat('#,###', 'id_ID');
+    final rawRate = AppUi.toNum(req['hourly_rate']);
+    
+    DateTime selectedDate = DateTime.tryParse(req['overtime_date']?.toString() ?? '') ?? DateTime.now();
+    final dateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(selectedDate));
+    
+    final startCtrl = TextEditingController(text: req['start_time']?.toString() ?? '17:00');
+    final endCtrl = TextEditingController(text: req['end_time']?.toString() ?? '19:00');
+    final rateCtrl = TextEditingController(text: currencyFmt.format(rawRate > 0 ? rawRate : 25000));
+    final reasonCtrl = TextEditingController(text: req['reason']?.toString() ?? '');
+    String status = req['status']?.toString().toLowerCase() ?? 'pending';
+
+    double calculateDuration(String sTime, String eTime) {
+      try {
+        final sParts = sTime.split(':');
+        final eParts = eTime.split(':');
+        final sMin = int.parse(sParts[0]) * 60 + int.parse(sParts[1]);
+        final eMin = int.parse(eParts[0]) * 60 + int.parse(eParts[1]);
+        final diff = (eMin - sMin) / 60.0;
+        return diff > 0 ? diff : 0;
+      } catch (_) {
+        return 0;
+      }
+    }
+
+    double parseRate(String text) {
+      final clean = text.replaceAll(RegExp(r'[^0-9]'), '');
+      return double.tryParse(clean) ?? 0;
+    }
 
     final updated = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          title: Text('Edit Pengajuan Lembur (${AppUi.text(req['user_name'])})'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+        builder: (context, setModalState) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          final duration = calculateDuration(startCtrl.text, endCtrl.text);
+          final rate = parseRate(rateCtrl.text);
+          final totalAmount = duration * rate;
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
               children: [
-                TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Tanggal (yyyy-MM-dd)', border: OutlineInputBorder())),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(child: TextField(controller: startCtrl, decoration: const InputDecoration(labelText: 'Jam Mulai (HH:mm)', border: OutlineInputBorder()))),
-                    const SizedBox(width: 8),
-                    Expanded(child: TextField(controller: endCtrl, decoration: const InputDecoration(labelText: 'Jam Selesai (HH:mm)', border: OutlineInputBorder()))),
-                  ],
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.edit_calendar_rounded, color: Color(0xFF0284C7), size: 22),
                 ),
-                const SizedBox(height: 10),
-                TextField(controller: rateCtrl, decoration: const InputDecoration(labelText: 'Tarif Lembur Per Jam (Rp)', border: OutlineInputBorder())),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  value: status,
-                  decoration: const InputDecoration(labelText: 'Status Approval', border: OutlineInputBorder()),
-                  items: const [
-                    DropdownMenuItem(value: 'pending', child: Text('PENDING')),
-                    DropdownMenuItem(value: 'approved', child: Text('APPROVED')),
-                    DropdownMenuItem(value: 'rejected', child: Text('REJECTED')),
-                  ],
-                  onChanged: (v) => setModalState(() => status = v ?? status),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Edit Pengajuan Lembur',
+                        style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 18),
+                      ),
+                      Text(
+                        AppUi.text(req['user_name']),
+                        style: GoogleFonts.inter(fontSize: 13, color: Colors.grey),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 10),
-                TextField(controller: reasonCtrl, maxLines: 2, decoration: const InputDecoration(labelText: 'Alasan', border: OutlineInputBorder())),
               ],
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Simpan Perubahan')),
-          ],
-        ),
+            content: SingleChildScrollView(
+              child: SizedBox(
+                width: 440,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Tanggal Picker
+                    InkWell(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate,
+                          firstDate: DateTime(2023),
+                          lastDate: DateTime.now().add(const Duration(days: 365)),
+                        );
+                        if (picked != null) {
+                          setModalState(() {
+                            selectedDate = picked;
+                            dateCtrl.text = DateFormat('yyyy-MM-dd').format(picked);
+                          });
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: IgnorePointer(
+                        child: TextField(
+                          controller: dateCtrl,
+                          decoration: InputDecoration(
+                            labelText: 'Tanggal Lembur',
+                            prefixIcon: const Icon(Icons.calendar_today_rounded, size: 20),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            filled: true,
+                            fillColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Jam Mulai & Jam Selesai Time Pickers
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () async {
+                              final parts = startCtrl.text.split(':');
+                              final initial = TimeOfDay(
+                                hour: int.tryParse(parts[0]) ?? 17,
+                                minute: int.tryParse(parts[1]) ?? 0,
+                              );
+                              final picked = await showTimePicker(context: context, initialTime: initial);
+                              if (picked != null) {
+                                setModalState(() {
+                                  startCtrl.text =
+                                      '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                                });
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            child: IgnorePointer(
+                              child: TextField(
+                                controller: startCtrl,
+                                decoration: InputDecoration(
+                                  labelText: 'Jam Mulai',
+                                  prefixIcon: const Icon(Icons.access_time_rounded, size: 20),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                  filled: true,
+                                  fillColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () async {
+                              final parts = endCtrl.text.split(':');
+                              final initial = TimeOfDay(
+                                hour: int.tryParse(parts[0]) ?? 19,
+                                minute: int.tryParse(parts[1]) ?? 0,
+                              );
+                              final picked = await showTimePicker(context: context, initialTime: initial);
+                              if (picked != null) {
+                                setModalState(() {
+                                  endCtrl.text =
+                                      '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                                });
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            child: IgnorePointer(
+                              child: TextField(
+                                controller: endCtrl,
+                                decoration: InputDecoration(
+                                  labelText: 'Jam Selesai',
+                                  prefixIcon: const Icon(Icons.access_time_filled_rounded, size: 20),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                  filled: true,
+                                  fillColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Tarif Lembur Per Jam (Rp) with Live Currency Formatting
+                    TextField(
+                      controller: rateCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'Tarif Lembur Per Jam',
+                        prefixText: 'Rp ',
+                        prefixIcon: const Icon(Icons.payments_outlined, size: 20),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        filled: true,
+                        fillColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                      ),
+                      onChanged: (val) {
+                        final parsed = parseRate(val);
+                        final formatted = currencyFmt.format(parsed);
+                        if (rateCtrl.text != formatted) {
+                          rateCtrl.value = TextEditingValue(
+                            text: formatted,
+                            selection: TextSelection.collapsed(offset: formatted.length),
+                          );
+                        }
+                        setModalState(() {});
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Live Calculation Banner
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF0F172A) : const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.timer_outlined, size: 18, color: Color(0xFF2563EB)),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Durasi: ${duration.toStringAsFixed(1)} Jam',
+                                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            'Rp ${currencyFmt.format(totalAmount)}',
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                              color: const Color(0xFF2563EB),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Status Approval Dropdown
+                    DropdownButtonFormField<String>(
+                      value: status,
+                      decoration: InputDecoration(
+                        labelText: 'Status Approval',
+                        prefixIcon: const Icon(Icons.verified_outlined, size: 20),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        filled: true,
+                        fillColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'pending', child: Text('PENDING (Menunggu)')),
+                        DropdownMenuItem(value: 'approved', child: Text('APPROVED (Disetujui)')),
+                        DropdownMenuItem(value: 'rejected', child: Text('REJECTED (Ditolak)')),
+                      ],
+                      onChanged: (v) => setModalState(() => status = v ?? status),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Alasan
+                    TextField(
+                      controller: reasonCtrl,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: InputDecoration(
+                        labelText: 'Alasan Lembur',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        filled: true,
+                        fillColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Batal'),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: const Text('Simpan Perubahan'),
+              ),
+            ],
+          );
+        },
       ),
     );
 
@@ -455,17 +696,8 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
     try {
       final sTime = startCtrl.text.trim();
       final eTime = endCtrl.text.trim();
-      double duration = 0;
-      try {
-        final sParts = sTime.split(':');
-        final eParts = eTime.split(':');
-        final sMin = int.parse(sParts[0]) * 60 + int.parse(sParts[1]);
-        final eMin = int.parse(eParts[0]) * 60 + int.parse(eParts[1]);
-        duration = (eMin - sMin) / 60.0;
-      } catch (_) {}
-      if (duration < 0) duration = 0;
-
-      final hourlyRate = double.tryParse(rateCtrl.text.trim()) ?? 25000;
+      final duration = calculateDuration(sTime, eTime);
+      final hourlyRate = parseRate(rateCtrl.text.trim());
       final totalAmount = duration * hourlyRate;
 
       await _client.from('overtime_requests').update({
@@ -899,311 +1131,576 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
     }
   }
 
-  List<Widget> _buildMyTabChildren() {
-    return [
-      NiceCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Form Pengajuan Lembur', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _dateController,
-                    readOnly: true,
-                    onTap: _pickDate,
-                    decoration: const InputDecoration(
-                      labelText: 'Tanggal',
-                      suffixIcon: Icon(Icons.calendar_today_rounded, size: 20),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _startTimeController,
-                    readOnly: true,
-                    onTap: _pickStartTime,
-                    decoration: const InputDecoration(
-                      labelText: 'Jam Mulai',
-                      suffixIcon: Icon(Icons.access_time_rounded, size: 20),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _endTimeController,
-                    readOnly: true,
-                    onTap: _pickEndTime,
-                    decoration: const InputDecoration(
-                      labelText: 'Jam Selesai',
-                      suffixIcon: Icon(Icons.access_time_rounded, size: 20),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text('Estimasi Durasi: ${_calculateDurationHours().toStringAsFixed(1)} Jam', style: const TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _reasonController,
-              maxLines: 2,
-              decoration: const InputDecoration(labelText: 'Alasan / Deskripsi Pekerjaan Lembur', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _isSaving ? null : _submitOvertime,
-                icon: const Icon(Icons.send_rounded),
-                label: Text(_isSaving ? 'Mengirim...' : 'Kirim Pengajuan Lembur'),
-              ),
-            ),
-          ],
-        ),
+  Widget _buildEmptyState(String title, String subtitle, IconData icon) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.5) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
       ),
-      const SizedBox(height: 20),
-      Text('Riwayat Pengajuan Lembur Saya (${_myRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-      const SizedBox(height: 8),
-      if (_myRequests.isEmpty)
-        const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Belum ada riwayat pengajuan lembur.')))
-      else
-        ..._myRequests.map((req) {
-          final status = req['status']?.toString() ?? 'pending';
-          final color = _getStatusColor(status);
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: NiceCard(
-              child: ListTile(
-                title: Text('Tanggal: ${req['overtime_date']} (${req['start_time']} - ${req['end_time']})'),
-                subtitle: Text('Durasi: ${AppUi.toNum(req['duration_hours']).toStringAsFixed(1)} Jam | Total: Rp ${AppUi.toNum(req['total_amount']).toStringAsFixed(0)}\nAlasan: ${AppUi.text(req['reason'])}'),
-                trailing: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                  child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
-                ),
-              ),
-            ),
-          );
-        }),
-    ];
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 40, color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8)),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF334155)),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(fontSize: 12, color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+          ),
+        ],
+      ),
+    );
   }
 
-  List<Widget> _buildApproverTabChildren() {
-    return [
-      Text('Daftar Persetujuan Lembur Karyawan (${_pendingRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-      const SizedBox(height: 10),
-      if (_pendingRequests.isEmpty)
-        const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Tidak ada pengajuan lembur.')))
-      else
-        ..._pendingRequests.map((req) {
-          final status = req['status']?.toString() ?? 'pending';
-          final color = _getStatusColor(status);
-          final isPending = status == 'pending';
+  Widget _buildCardContainer({required Widget child, EdgeInsetsGeometry? padding}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: padding ?? const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+        boxShadow: isDark
+            ? []
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+      ),
+      child: child,
+    );
+  }
 
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: NiceCard(
-              child: Column(
+  // --- LEMBUR TAB ---
+  Widget _buildOvertimeFormCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final duration = _calculateDurationHours();
+    return _buildCardContainer(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3B82F6).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.more_time_rounded, color: Color(0xFF3B82F6), size: 20),
+              ),
+              const SizedBox(width: 10),
+              Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('${AppUi.text(req['user_name'])} • ${AppUi.text(req['role_id'])}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
-                        child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text('Tanggal: ${req['overtime_date']} (${req['start_time']} - ${req['end_time']}) | Durasi: ${AppUi.toNum(req['duration_hours']).toStringAsFixed(1)} Jam'),
-                  Text('Tarif: Rp ${AppUi.toNum(req['hourly_rate']).toStringAsFixed(0)}/jam | Total: Rp ${AppUi.toNum(req['total_amount']).toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                  Text('Alasan: ${AppUi.text(req['reason'])}'),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      if (_isApprover) ...[
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, color: Colors.blue, size: 20),
-                          onPressed: () => _editOvertime(req),
-                          tooltip: 'Edit Data Lembur',
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
-                          onPressed: () => _deleteOvertime(req),
-                          tooltip: 'Hapus Data Lembur',
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (isPending) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _rejectOvertime(req),
-                            style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                            icon: const Icon(Icons.close_rounded, size: 18),
-                            label: const Text('Tolak'),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: () => _approveOvertime(req),
-                            icon: const Icon(Icons.check_rounded, size: 18),
-                            label: const Text('Setujui'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  Text('Form Pengajuan Lembur', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text('Ajukan waktu lembur untuk disetujui atasan', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
                 ],
               ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Date Field (Full width for mobile clarity)
+          TextField(
+            controller: _dateController,
+            readOnly: true,
+            onTap: _pickDate,
+            decoration: InputDecoration(
+              labelText: 'Tanggal Lembur',
+              prefixIcon: const Icon(Icons.calendar_today_rounded, size: 20),
+              filled: true,
+              fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
-          );
-        }),
-    ];
+          ),
+          const SizedBox(height: 12),
+
+          // Start Time & End Time in 2 columns
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _startTimeController,
+                  readOnly: true,
+                  onTap: _pickStartTime,
+                  decoration: InputDecoration(
+                    labelText: 'Jam Mulai',
+                    prefixIcon: const Icon(Icons.access_time_rounded, size: 20),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _endTimeController,
+                  readOnly: true,
+                  onTap: _pickEndTime,
+                  decoration: InputDecoration(
+                    labelText: 'Jam Selesai',
+                    prefixIcon: const Icon(Icons.access_time_rounded, size: 20),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Duration pill banner
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0F172A) : const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.timer_outlined, size: 18, color: Color(0xFF3B82F6)),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Estimasi Durasi: ${duration.toStringAsFixed(1)} Jam',
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: isDark ? Colors.white : const Color(0xFF1E3A8A),
+                      ),
+                    ),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: duration > 0 ? const Color(0xFF10B981).withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    duration > 0 ? 'Valid' : 'Pilih Jam',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: duration > 0 ? const Color(0xFF10B981) : Colors.grey,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Reason Field
+          TextField(
+            controller: _reasonController,
+            minLines: 2,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: 'Alasan / Deskripsi Pekerjaan Lembur',
+              hintText: 'Contoh: Packing order event marketplace, stock opname...',
+              filled: true,
+              fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Submit Button
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: FilledButton.icon(
+              onPressed: _isSaving ? null : _submitOvertime,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF3B82F6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: _isSaving
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.send_rounded, size: 18),
+              label: Text(
+                _isSaving ? 'Mengirim...' : 'Kirim Pengajuan Lembur',
+                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  List<Widget> _buildLeaveTabChildren() {
-    return [
-      NiceCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildMyOvertimeList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            const Text('Form Pengajuan Izin / Sakit / Cuti', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _selectedLeaveType,
-              decoration: const InputDecoration(labelText: 'Tipe Izin', border: OutlineInputBorder()),
-              items: const [
-                DropdownMenuItem(value: 'sakit', child: Text('Sakit (Dengan Surat Dokter)')),
-                DropdownMenuItem(value: 'izin', child: Text('Izin / Permisi')),
-                DropdownMenuItem(value: 'cuti', child: Text('Cuti Tahunan')),
-                DropdownMenuItem(value: 'cuti_melahirkan', child: Text('Cuti Melahirkan / Duka')),
-                DropdownMenuItem(value: 'lainnya', child: Text('Lainnya')),
-              ],
-              onChanged: (v) => setState(() => _selectedLeaveType = v ?? 'sakit'),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _leaveStartDateCtrl,
-                    readOnly: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Tanggal Mulai',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.calendar_today_rounded),
-                    ),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.tryParse(_leaveStartDateCtrl.text) ?? DateTime.now(),
-                        firstDate: DateTime.now().subtract(const Duration(days: 90)),
-                        lastDate: DateTime.now().add(const Duration(days: 180)),
-                      );
-                      if (picked != null) {
-                        setState(() => _leaveStartDateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _leaveEndDateCtrl,
-                    readOnly: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Tanggal Selesai',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.calendar_today_rounded),
-                    ),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.tryParse(_leaveEndDateCtrl.text) ?? DateTime.now(),
-                        firstDate: DateTime.now().subtract(const Duration(days: 90)),
-                        lastDate: DateTime.now().add(const Duration(days: 180)),
-                      );
-                      if (picked != null) {
-                        setState(() => _leaveEndDateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _leaveReasonCtrl,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Alasan Izin / Sakit',
-                hintText: 'Contoh: Sakit demam tinggi / Keperluan mendesak...',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _leaveAttachmentCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Lampiran / Bukti Surat Dokter (PDF / Foto)',
-                      hintText: 'Upload file atau isi link dokumen...',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.attach_file_rounded),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _isUploadingAttachment ? null : _pickAndUploadAttachment,
-                  icon: _isUploadingAttachment
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.upload_file_rounded),
-                  label: Text(_isUploadingAttachment ? 'Uploading...' : 'Upload File'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _isSaving ? null : _submitLeaveRequest,
-                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
-                icon: _isSaving
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.send_rounded),
-                label: Text(_isSaving ? 'Mengirim...' : 'Kirim Pengajuan Izin'),
-              ),
+            Text('Riwayat Pengajuan Saya', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xFF3B82F6).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+              child: Text('${_myRequests.length}', style: const TextStyle(color: Color(0xFF3B82F6), fontWeight: FontWeight.bold, fontSize: 12)),
             ),
           ],
         ),
-      ),
-      const SizedBox(height: 20),
+        const SizedBox(height: 10),
+        if (_myRequests.isEmpty)
+          _buildEmptyState('Belum Ada Riwayat Lembur', 'Pengajuan lembur Anda akan muncul di sini setelah dikirim.', Icons.more_time_rounded)
+        else
+          ..._myRequests.map((req) {
+            final status = req['status']?.toString() ?? 'pending';
+            final color = _getStatusColor(status);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _buildCardContainer(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF3B82F6)),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${req['overtime_date']} (${req['start_time']} - ${req['end_time']})',
+                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                          child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Durasi: ${AppUi.toNum(req['duration_hours']).toStringAsFixed(1)} Jam | Estimasi: Rp ${AppUi.toNum(req['total_amount']).toStringAsFixed(0)}',
+                      style: GoogleFonts.inter(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 4),
+                    Text('Alasan: ${AppUi.text(req['reason'])}', style: GoogleFonts.inter(fontSize: 13)),
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
 
-      if (_isApprover) ...[
-        Text('Daftar Persetujuan Izin Karyawan (${_allLeaveRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        const SizedBox(height: 8),
+  Widget _buildApproverOvertimeList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Daftar Persetujuan Lembur Karyawan', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xFFF59E0B).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+              child: Text('${_pendingRequests.length}', style: const TextStyle(color: Color(0xFFF59E0B), fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (_pendingRequests.isEmpty)
+          _buildEmptyState('Tidak Ada Pengajuan Lembur', 'Semua pengajuan lembur karyawan sudah diproses.', Icons.task_alt_rounded)
+        else
+          ..._pendingRequests.map((req) {
+            final status = req['status']?.toString() ?? 'pending';
+            final color = _getStatusColor(status);
+            final isPending = status == 'pending';
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildCardContainer(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${AppUi.text(req['user_name'])} • ${AppUi.text(req['role_id'])}', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                          child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text('Tanggal: ${req['overtime_date']} (${req['start_time']} - ${req['end_time']}) | Durasi: ${AppUi.toNum(req['duration_hours']).toStringAsFixed(1)} Jam', style: GoogleFonts.inter(fontSize: 13)),
+                    Text('Tarif: Rp ${AppUi.toNum(req['hourly_rate']).toStringAsFixed(0)}/jam | Total: Rp ${AppUi.toNum(req['total_amount']).toStringAsFixed(0)}', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.blue, fontSize: 13)),
+                    Text('Alasan: ${AppUi.text(req['reason'])}', style: GoogleFonts.inter(fontSize: 13)),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (_isApprover) ...[
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, color: Colors.blue, size: 20),
+                            onPressed: () => _editOvertime(req),
+                            tooltip: 'Edit Data Lembur',
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                            onPressed: () => _deleteOvertime(req),
+                            tooltip: 'Hapus Data Lembur',
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (isPending) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _rejectOvertime(req),
+                              style: OutlinedButton.styleFrom(foregroundColor: Colors.red, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              label: const Text('Tolak'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () => _approveOvertime(req),
+                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                              icon: const Icon(Icons.check_rounded, size: 18),
+                              label: const Text('Setujui'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  // --- LEAVE TAB ---
+  Widget _buildLeaveFormCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return _buildCardContainer(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.event_note_rounded, color: Color(0xFF10B981), size: 20),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Form Pengajuan Izin / Cuti', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text('Ajukan izin sakit, cuti tahunan, atau duka', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Tipe Izin
+          DropdownButtonFormField<String>(
+            value: _selectedLeaveType,
+            decoration: InputDecoration(
+              labelText: 'Tipe Izin',
+              filled: true,
+              fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            items: const [
+              DropdownMenuItem(value: 'sakit', child: Text('Sakit (Dengan Surat Dokter)')),
+              DropdownMenuItem(value: 'izin', child: Text('Izin / Permisi')),
+              DropdownMenuItem(value: 'cuti', child: Text('Cuti Tahunan')),
+              DropdownMenuItem(value: 'cuti_melahirkan', child: Text('Cuti Melahirkan / Duka')),
+              DropdownMenuItem(value: 'lainnya', child: Text('Lainnya')),
+            ],
+            onChanged: (v) => setState(() => _selectedLeaveType = v ?? 'sakit'),
+          ),
+          const SizedBox(height: 12),
+
+          // Tanggal Mulai & Tanggal Selesai
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _leaveStartDateCtrl,
+                  readOnly: true,
+                  decoration: InputDecoration(
+                    labelText: 'Tanggal Mulai',
+                    prefixIcon: const Icon(Icons.calendar_today_rounded, size: 20),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.tryParse(_leaveStartDateCtrl.text) ?? DateTime.now(),
+                      firstDate: DateTime.now().subtract(const Duration(days: 90)),
+                      lastDate: DateTime.now().add(const Duration(days: 180)),
+                    );
+                    if (picked != null) {
+                      setState(() => _leaveStartDateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _leaveEndDateCtrl,
+                  readOnly: true,
+                  decoration: InputDecoration(
+                    labelText: 'Tanggal Selesai',
+                    prefixIcon: const Icon(Icons.calendar_today_rounded, size: 20),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.tryParse(_leaveEndDateCtrl.text) ?? DateTime.now(),
+                      firstDate: DateTime.now().subtract(const Duration(days: 90)),
+                      lastDate: DateTime.now().add(const Duration(days: 180)),
+                    );
+                    if (picked != null) {
+                      setState(() => _leaveEndDateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          TextField(
+            controller: _leaveReasonCtrl,
+            minLines: 2,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: 'Alasan Izin / Sakit',
+              hintText: 'Contoh: Sakit demam tinggi / Keperluan keluarga mendesak...',
+              filled: true,
+              fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _leaveAttachmentCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Lampiran / Surat Dokter',
+                    hintText: 'Upload file atau isi link...',
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    prefixIcon: const Icon(Icons.attach_file_rounded),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: _isUploadingAttachment ? null : _pickAndUploadAttachment,
+                style: OutlinedButton.styleFrom(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                ),
+                icon: _isUploadingAttachment
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.upload_file_rounded),
+                label: Text(_isUploadingAttachment ? 'Upload...' : 'Upload'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: FilledButton.icon(
+              onPressed: _isSaving ? null : _submitLeaveRequest,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF10B981),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: _isSaving
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.send_rounded, size: 18),
+              label: Text(
+                _isSaving ? 'Mengirim...' : 'Kirim Pengajuan Izin',
+                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildApproverLeaveList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Daftar Persetujuan Izin Karyawan', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xFF10B981).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+              child: Text('${_allLeaveRequests.length}', style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
         if (_allLeaveRequests.isEmpty)
-          const Center(child: Padding(padding: EdgeInsets.all(16), child: Text('Belum ada pengajuan izin karyawan.')))
+          _buildEmptyState('Belum Ada Pengajuan Izin', 'Semua pengajuan izin karyawan sudah diproses.', Icons.event_available_rounded)
         else
           ..._allLeaveRequests.map((req) {
             final status = req['status']?.toString() ?? 'pending';
@@ -1213,24 +1710,25 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: NiceCard(
+              child: _buildCardContainer(
+                padding: const EdgeInsets.all(14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('${AppUi.text(req['user_name'])} • ${AppUi.text(req['role_id'])}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        Text('${AppUi.text(req['user_name'])} • ${AppUi.text(req['role_id'])}', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
+                          decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
                           child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
                         ),
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text('Tipe: ${req['leave_type']?.toString().toUpperCase()} | Periode: ${req['start_date']} s/d ${req['end_date']} (${req['total_days']} Hari)', style: const TextStyle(fontWeight: FontWeight.w600)),
-                    Text('Alasan: ${AppUi.text(req['reason'])}'),
+                    Text('Tipe: ${req['leave_type']?.toString().toUpperCase()} | Periode: ${req['start_date']} s/d ${req['end_date']} (${req['total_days']} Hari)', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13)),
+                    Text('Alasan: ${AppUi.text(req['reason'])}', style: GoogleFonts.inter(fontSize: 13)),
                     if (attachUrl != null && attachUrl.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       InkWell(
@@ -1251,7 +1749,7 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                         IconButton(
                           icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
                           onPressed: () => _deleteLeaveRequest(req),
-                          tooltip: 'Hapus Pengajuan Izin',
+                          tooltip: 'Hapus Pengajuan',
                         ),
                       ],
                     ),
@@ -1261,7 +1759,7 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                           Expanded(
                             child: OutlinedButton.icon(
                               onPressed: () => _rejectLeaveRequest(req),
-                              style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                              style: OutlinedButton.styleFrom(foregroundColor: Colors.red, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                               icon: const Icon(Icons.close_rounded, size: 18),
                               label: const Text('Tolak'),
                             ),
@@ -1270,7 +1768,7 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                           Expanded(
                             child: FilledButton.icon(
                               onPressed: () => _approveLeaveRequest(req),
-                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                               icon: const Icon(Icons.check_rounded, size: 18),
                               label: const Text('Setujui Izin'),
                             ),
@@ -1283,27 +1781,56 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
               ),
             );
           }),
-        const SizedBox(height: 20),
       ],
+    );
+  }
 
-      Text('Riwayat Pengajuan Izin Saya (${_myLeaveRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-      const SizedBox(height: 8),
-      if (_myLeaveRequests.isEmpty)
-        const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Belum ada riwayat pengajuan izin.')))
-      else
-        ..._myLeaveRequests.map((req) {
-          final status = req['status']?.toString() ?? 'pending';
-          final color = _getStatusColor(status);
-          final attachUrl = req['attachment_url']?.toString();
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: NiceCard(
-              child: ListTile(
-                title: Text('${req['leave_type']?.toString().toUpperCase()}: ${req['start_date']} s/d ${req['end_date']} (${req['total_days']} Hari)'),
-                subtitle: Column(
+  Widget _buildMyLeaveList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Riwayat Izin Saya', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xFF10B981).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+              child: Text('${_myLeaveRequests.length}', style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (_myLeaveRequests.isEmpty)
+          _buildEmptyState('Belum Ada Riwayat Izin', 'Pengajuan izin atau cuti Anda akan muncul di sini.', Icons.event_note_rounded)
+        else
+          ..._myLeaveRequests.map((req) {
+            final status = req['status']?.toString() ?? 'pending';
+            final color = _getStatusColor(status);
+            final attachUrl = req['attachment_url']?.toString();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _buildCardContainer(
+                padding: const EdgeInsets.all(14),
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Alasan: ${AppUi.text(req['reason'])}'),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${req['leave_type']?.toString().toUpperCase()}: ${req['start_date']} s/d ${req['end_date']} (${req['total_days']} Hari)',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                          child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text('Alasan: ${AppUi.text(req['reason'])}', style: GoogleFonts.inter(fontSize: 13)),
                     if (attachUrl != null && attachUrl.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       InkWell(
@@ -1319,112 +1846,156 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                     ],
                   ],
                 ),
-                trailing: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                  child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
-                ),
               ),
-            ),
-          );
-        }),
-    ];
+            );
+          }),
+      ],
+    );
   }
 
-  List<Widget> _buildShiftChangeTabChildren() {
-    return [
-      NiceCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  // --- SHIFT CHANGE TAB ---
+  Widget _buildShiftChangeFormCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return _buildCardContainer(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.published_with_changes_rounded, color: Color(0xFF6366F1), size: 20),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Form Tukar Shift / Ubah Jam', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text('Ajukan pergantian jam kerja pada hari tertentu', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          TextField(
+            controller: _shiftDateCtrl,
+            readOnly: true,
+            decoration: InputDecoration(
+              labelText: 'Tanggal Shift',
+              prefixIcon: const Icon(Icons.calendar_today_rounded, size: 20),
+              filled: true,
+              fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: DateTime.tryParse(_shiftDateCtrl.text) ?? DateTime.now(),
+                firstDate: DateTime.now().subtract(const Duration(days: 30)),
+                lastDate: DateTime.now().add(const Duration(days: 90)),
+              );
+              if (picked != null) {
+                setState(() => _shiftDateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _shiftNewStartCtrl,
+                  readOnly: true,
+                  onTap: _pickShiftStartTime,
+                  decoration: InputDecoration(
+                    labelText: 'Jam Mulai Baru',
+                    prefixIcon: const Icon(Icons.access_time_rounded, size: 20),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _shiftNewEndCtrl,
+                  readOnly: true,
+                  onTap: _pickShiftEndTime,
+                  decoration: InputDecoration(
+                    labelText: 'Jam Selesai Baru',
+                    prefixIcon: const Icon(Icons.access_time_rounded, size: 20),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          TextField(
+            controller: _shiftReasonCtrl,
+            minLines: 2,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: 'Alasan Tukar Shift',
+              hintText: 'Contoh: Ada keperluan mendesak pagi hari, jam kerja dialihkan...',
+              filled: true,
+              fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: FilledButton.icon(
+              onPressed: _isSaving ? null : _submitShiftChangeRequest,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF6366F1),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: _isSaving
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.send_rounded, size: 18),
+              label: Text(
+                _isSaving ? 'Mengirim...' : 'Kirim Pengajuan Tukar Shift',
+                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildApproverShiftList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            const Text('Form Pengajuan Tukar Shift / Ubah Jam Kerja', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _shiftDateCtrl,
-                    readOnly: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Tanggal Shift',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.calendar_today_rounded),
-                    ),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.tryParse(_shiftDateCtrl.text) ?? DateTime.now(),
-                        firstDate: DateTime.now().subtract(const Duration(days: 30)),
-                        lastDate: DateTime.now().add(const Duration(days: 90)),
-                      );
-                      if (picked != null) {
-                        setState(() => _shiftDateCtrl.text = DateFormat('yyyy-MM-dd').format(picked));
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _shiftNewStartCtrl,
-                    readOnly: true,
-                    onTap: _pickShiftStartTime,
-                    decoration: const InputDecoration(
-                      labelText: 'Jam Mulai Baru',
-                      hintText: '12:00',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.access_time_rounded),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _shiftNewEndCtrl,
-                    readOnly: true,
-                    onTap: _pickShiftEndTime,
-                    decoration: const InputDecoration(
-                      labelText: 'Jam Selesai Baru',
-                      hintText: '20:00',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.access_time_rounded),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _shiftReasonCtrl,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Alasan Tukar Shift / Ubah Jam Kerja',
-                hintText: 'Contoh: Ada keperluan mendesak pagi hari, kerja dialihkan ke jam 12:00 - 20:00...',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _isSaving ? null : _submitShiftChangeRequest,
-                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
-                icon: _isSaving
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.send_rounded),
-                label: Text(_isSaving ? 'Mengirim...' : 'Kirim Pengajuan Tukar Shift'),
-              ),
+            Text('Daftar Persetujuan Tukar Shift', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xFF6366F1).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+              child: Text('${_allShiftChangeRequests.length}', style: const TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold, fontSize: 12)),
             ),
           ],
         ),
-      ),
-      const SizedBox(height: 20),
-
-      if (_isApprover) ...[
-        Text('Daftar Persetujuan Tukar Shift Karyawan (${_allShiftChangeRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         if (_allShiftChangeRequests.isEmpty)
-          const Center(child: Padding(padding: EdgeInsets.all(16), child: Text('Belum ada pengajuan tukar shift.')))
+          _buildEmptyState('Belum Ada Pengajuan Tukar Shift', 'Semua pengajuan tukar shift sudah diproses.', Icons.published_with_changes_rounded)
         else
           ..._allShiftChangeRequests.map((req) {
             final status = req['status']?.toString() ?? 'pending';
@@ -1433,24 +2004,25 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: NiceCard(
+              child: _buildCardContainer(
+                padding: const EdgeInsets.all(14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('${AppUi.text(req['user_name'])} • ${AppUi.text(req['role_id'])}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        Text('${AppUi.text(req['user_name'])} • ${AppUi.text(req['role_id'])}', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
+                          decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
                           child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
                         ),
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text('Tanggal Shift: ${req['shift_date']} | Jam Baru: ${req['new_start_time']} s/d ${req['new_end_time']}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                    Text('Alasan: ${AppUi.text(req['reason'])}'),
+                    Text('Tanggal Shift: ${req['shift_date']} | Jam Baru: ${req['new_start_time']} s/d ${req['new_end_time']}', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13)),
+                    Text('Alasan: ${AppUi.text(req['reason'])}', style: GoogleFonts.inter(fontSize: 13)),
                     const SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
@@ -1468,7 +2040,7 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                           Expanded(
                             child: OutlinedButton.icon(
                               onPressed: () => _rejectShiftChangeRequest(req),
-                              style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                              style: OutlinedButton.styleFrom(foregroundColor: Colors.red, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                               icon: const Icon(Icons.close_rounded, size: 18),
                               label: const Text('Tolak'),
                             ),
@@ -1477,9 +2049,9 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
                           Expanded(
                             child: FilledButton.icon(
                               onPressed: () => _approveShiftChangeRequest(req),
-                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                               icon: const Icon(Icons.check_rounded, size: 18),
-                              label: const Text('Setujui Tukar Shift'),
+                              label: const Text('Setujui'),
                             ),
                           ),
                         ],
@@ -1490,75 +2062,222 @@ class _OvertimePageState extends State<OvertimePage> with SingleTickerProviderSt
               ),
             );
           }),
-        const SizedBox(height: 20),
       ],
+    );
+  }
 
-      Text('Riwayat Pengajuan Tukar Shift Saya (${_myShiftChangeRequests.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-      const SizedBox(height: 8),
-      if (_myShiftChangeRequests.isEmpty)
-        const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Belum ada riwayat pengajuan tukar shift.')))
-      else
-        ..._myShiftChangeRequests.map((req) {
-          final status = req['status']?.toString() ?? 'pending';
-          final color = _getStatusColor(status);
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: NiceCard(
-              child: ListTile(
-                title: Text('Shift ${req['shift_date']}: ${req['new_start_time']} - ${req['new_end_time']}'),
-                subtitle: Text('Alasan: ${AppUi.text(req['reason'])}'),
-                trailing: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                  child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+  Widget _buildMyShiftList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Riwayat Tukar Shift Saya', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xFF6366F1).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+              child: Text('${_myShiftChangeRequests.length}', style: const TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (_myShiftChangeRequests.isEmpty)
+          _buildEmptyState('Belum Ada Riwayat Tukar Shift', 'Pengajuan tukar shift Anda akan muncul di sini.', Icons.published_with_changes_rounded)
+        else
+          ..._myShiftChangeRequests.map((req) {
+            final status = req['status']?.toString() ?? 'pending';
+            final color = _getStatusColor(status);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _buildCardContainer(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Shift ${req['shift_date']}: ${req['new_start_time']} - ${req['new_end_time']}', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                          child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text('Alasan: ${AppUi.text(req['reason'])}', style: GoogleFonts.inter(fontSize: 13)),
+                  ],
                 ),
               ),
-            ),
-          );
-        }),
-    ];
+            );
+          }),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return WebResponsiveScaffold(
       title: 'Lembur & Izin',
       activeWebTitle: 'Pengajuan Lembur, Izin & Tukar Shift',
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(40),
-        child: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.more_time_rounded), text: 'Lembur'),
-            Tab(icon: Icon(Icons.event_note_rounded), text: 'Izin & Sakit'),
-          ],
-        ),
-      ),
       body: WebResponsiveWrapper(
         activeTitle: 'Pengajuan Lembur & Izin',
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : TabBarView(
-                controller: _tabController,
+            : Column(
                 children: [
-                  ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      ..._buildMyTabChildren(),
-                      if (_isApprover) ...[
-                        const SizedBox(height: 24),
-                        const Divider(height: 32, thickness: 2),
-                        ..._buildApproverTabChildren(),
-                      ],
+                  const SizedBox(height: 8),
+                  AppSegmentedTabBar(
+                    controller: _tabController,
+                    maxWidth: 560,
+                    tabs: const [
+                      AppTabItem(label: 'Lembur', icon: Icons.more_time_rounded),
+                      AppTabItem(label: 'Izin & Sakit', icon: Icons.event_note_rounded),
+                      AppTabItem(label: 'Tukar Shift', icon: Icons.published_with_changes_rounded),
                     ],
                   ),
-                  ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: _buildLeaveTabChildren(),
-                  ),
-                  ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: _buildShiftChangeTabChildren(),
+                  const SizedBox(height: 6),
+
+                  // Tab Views
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isWide = constraints.maxWidth >= 900;
+                        return TabBarView(
+                          controller: _tabController,
+                          children: [
+                            // Tab 1: Lembur
+                            SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                              child: Center(
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(maxWidth: 1200),
+                                  child: isWide
+                                      ? Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            SizedBox(width: 440, child: _buildOvertimeFormCard()),
+                                            const SizedBox(width: 20),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  if (_isApprover) ...[
+                                                    _buildApproverOvertimeList(),
+                                                    const SizedBox(height: 24),
+                                                  ],
+                                                  _buildMyOvertimeList(),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            _buildOvertimeFormCard(),
+                                            const SizedBox(height: 20),
+                                            _buildMyOvertimeList(),
+                                            if (_isApprover) ...[
+                                              const SizedBox(height: 20),
+                                              _buildApproverOvertimeList(),
+                                            ],
+                                          ],
+                                        ),
+                                ),
+                              ),
+                            ),
+
+                            // Tab 2: Izin & Sakit
+                            SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                              child: Center(
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(maxWidth: 1200),
+                                  child: isWide
+                                      ? Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            SizedBox(width: 440, child: _buildLeaveFormCard()),
+                                            const SizedBox(width: 20),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  if (_isApprover) ...[
+                                                    _buildApproverLeaveList(),
+                                                    const SizedBox(height: 24),
+                                                  ],
+                                                  _buildMyLeaveList(),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            _buildLeaveFormCard(),
+                                            const SizedBox(height: 20),
+                                            _buildMyLeaveList(),
+                                            if (_isApprover) ...[
+                                              const SizedBox(height: 20),
+                                              _buildApproverLeaveList(),
+                                            ],
+                                          ],
+                                        ),
+                                ),
+                              ),
+                            ),
+
+                            // Tab 3: Tukar Shift
+                            SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                              child: Center(
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(maxWidth: 1200),
+                                  child: isWide
+                                      ? Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            SizedBox(width: 440, child: _buildShiftChangeFormCard()),
+                                            const SizedBox(width: 20),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  if (_isApprover) ...[
+                                                    _buildApproverShiftList(),
+                                                    const SizedBox(height: 24),
+                                                  ],
+                                                  _buildMyShiftList(),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            _buildShiftChangeFormCard(),
+                                            const SizedBox(height: 20),
+                                            _buildMyShiftList(),
+                                            if (_isApprover) ...[
+                                              const SizedBox(height: 20),
+                                              _buildApproverShiftList(),
+                                            ],
+                                          ],
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 ],
               ),

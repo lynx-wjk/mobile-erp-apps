@@ -333,10 +333,12 @@ class _ProductListPageState extends State<ProductListPage> {
         TextEditingController(text: AppUi.text(product?['kategori'], ''));
     final unitController =
         TextEditingController(text: AppUi.text(product?['satuan'], 'pcs'));
+    final stockVal = AppUi.toNum(product?['stock_saat_ini']);
+    final lowVal = AppUi.toNum(product?['low_stock_limit']);
     final stockController = TextEditingController(
-        text: AppUi.toNum(product?['stock_saat_ini']).toStringAsFixed(0));
+        text: stockVal > 0 ? stockVal.toStringAsFixed(0) : (product != null ? '0' : ''));
     final lowController = TextEditingController(
-        text: AppUi.toNum(product?['low_stock_limit']).toStringAsFixed(0));
+        text: lowVal > 0 ? lowVal.toStringAsFixed(0) : (product != null ? '0' : '5'));
     final locationController =
         TextEditingController(text: AppUi.text(product?['lokasi_rak'], ''));
     String status = AppUi.text(product?['status'], 'active') == 'inactive'
@@ -434,17 +436,20 @@ class _ProductListPageState extends State<ProductListPage> {
                   const SizedBox(height: 14),
                   TextField(
                       controller: nameController,
+                      onTap: AppUi.selectOnTap(nameController),
                       decoration: const InputDecoration(
                           labelText: 'Nama Barang',
                           border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(
                       controller: skuController,
+                      onTap: AppUi.selectOnTap(skuController),
                       decoration: const InputDecoration(
                           labelText: 'Kode SKU', border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(
                       controller: barcodeController,
+                      onTap: AppUi.selectOnTap(barcodeController),
                       decoration: const InputDecoration(
                           labelText: 'Kode Barcode / QR',
                           border: OutlineInputBorder())),
@@ -453,6 +458,7 @@ class _ProductListPageState extends State<ProductListPage> {
                     Expanded(
                         child: TextField(
                             controller: categoryController,
+                            onTap: AppUi.selectOnTap(categoryController),
                             decoration: const InputDecoration(
                                 labelText: 'Kategori',
                                 border: OutlineInputBorder()))),
@@ -460,6 +466,7 @@ class _ProductListPageState extends State<ProductListPage> {
                     Expanded(
                         child: TextField(
                             controller: unitController,
+                            onTap: AppUi.selectOnTap(unitController),
                             decoration: const InputDecoration(
                                 labelText: 'Satuan',
                                 border: OutlineInputBorder()))),
@@ -469,6 +476,7 @@ class _ProductListPageState extends State<ProductListPage> {
                     Expanded(
                         child: TextField(
                             controller: stockController,
+                            onTap: AppUi.selectOnTap(stockController),
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
                                 labelText: 'Stock Saat Ini',
@@ -477,6 +485,7 @@ class _ProductListPageState extends State<ProductListPage> {
                     Expanded(
                         child: TextField(
                             controller: lowController,
+                            onTap: AppUi.selectOnTap(lowController),
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
                                 labelText: 'Low Stock Limit',
@@ -485,6 +494,7 @@ class _ProductListPageState extends State<ProductListPage> {
                   const SizedBox(height: 12),
                   TextField(
                       controller: locationController,
+                      onTap: AppUi.selectOnTap(locationController),
                       decoration: const InputDecoration(
                           labelText: 'Lokasi Rak / Gudang',
                           border: OutlineInputBorder())),
