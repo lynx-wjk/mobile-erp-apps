@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/marketplace_providers.dart';
+import '../../../core/sound/scan_feedback_service.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../../models/app_user.dart';
@@ -346,6 +347,7 @@ class _MarketplaceRefundMonitorPageState
         tenantId: widget.currentUser?.tenantId,
       );
       if (matches.isEmpty) {
+        ScanFeedbackService.instance.playScanError();
         setState(() {
           _itemCheckMode = true;
           _searchController.text = code;
@@ -356,6 +358,7 @@ class _MarketplaceRefundMonitorPageState
         return;
       }
 
+      AppUi.showSnack('Resi berhasil dipindai: $code');
       await _openGlobalReturnScanResult(code, matches);
     } catch (e) {
       setState(() {

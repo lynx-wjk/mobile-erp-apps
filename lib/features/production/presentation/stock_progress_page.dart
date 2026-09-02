@@ -1927,12 +1927,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                     onTap: AppUi.selectOnTap(ctrlIn),
                                     keyboardType: TextInputType.number,
                                     enabled: !saving && !isProgressLocked,
-                                    decoration: const InputDecoration(
+                                    decoration: InputDecoration(
                                       labelText: 'Qty In',
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 8),
-                                      border: OutlineInputBorder(),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 12),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1943,12 +1944,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                     onTap: AppUi.selectOnTap(ctrlOut),
                                     keyboardType: TextInputType.number,
                                     enabled: !saving && !isProgressLocked,
-                                    decoration: const InputDecoration(
+                                    decoration: InputDecoration(
                                       labelText: 'Qty Out',
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 8),
-                                      border: OutlineInputBorder(),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 12),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1959,12 +1961,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
                                     onTap: AppUi.selectOnTap(ctrlReject),
                                     keyboardType: TextInputType.number,
                                     enabled: !saving && !isProgressLocked,
-                                    decoration: const InputDecoration(
+                                    decoration: InputDecoration(
                                       labelText: 'Reject',
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 8),
-                                      border: OutlineInputBorder(),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 12),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -4271,80 +4274,145 @@ class _StockProgressPageState extends State<StockProgressPage> {
     );
   }
 
+  Widget _filterPill<T>({
+    required String label,
+    required T value,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?> onChanged,
+    int flex = 1,
+    IconData? icon,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Expanded(
+      flex: flex,
+      child: Container(
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withValues(
+              alpha: isDark ? 0.35 : 0.65,
+            ),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+              blurRadius: 4,
+              offset: const Offset(0, 1.5),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 11, color: theme.colorScheme.primary),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  label.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.primary,
+                    letterSpacing: 0.3,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+            const SizedBox(height: 1),
+            DropdownButtonHideUnderline(
+              child: DropdownButton<T>(
+                value: value,
+                isExpanded: true,
+                isDense: true,
+                icon: Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 18,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+                dropdownColor: theme.cardColor,
+                borderRadius: BorderRadius.circular(10),
+                items: items,
+                onChanged: onChanged,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _filters() {
     return Row(
       children: [
-        Expanded(
+        _filterPill<String>(
+          label: 'Penjahit',
+          icon: Icons.person_outline_rounded,
+          value: _tailorFilter,
           flex: 4,
-          child: DropdownButtonFormField<String>(
-            value: _tailorFilter,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: 'Penjahit',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-              isDense: true,
-            ),
-            items: [
-              const DropdownMenuItem(value: 'all', child: Text('Semua')),
-              ..._tailors.map((tailor) => DropdownMenuItem<String>(
-                    value: AppUi.text(tailor['tailor_id'], ''),
-                    child: Text(AppUi.text(tailor['tailor_name']),
-                        overflow: TextOverflow.ellipsis),
-                  )),
-            ],
-            onChanged: (value) {
-              setState(() => _tailorFilter = value ?? 'all');
-              _load();
-            },
-          ),
+          items: [
+            const DropdownMenuItem(value: 'all', child: Text('Semua')),
+            ..._tailors.map((tailor) => DropdownMenuItem<String>(
+                  value: AppUi.text(tailor['tailor_id'], ''),
+                  child: Text(
+                    AppUi.text(tailor['tailor_name']),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )),
+          ],
+          onChanged: (value) {
+            setState(() => _tailorFilter = value ?? 'all');
+            _load();
+          },
         ),
         const SizedBox(width: 8),
-        Expanded(
+        _filterPill<String>(
+          label: 'Status',
+          icon: Icons.sync_rounded,
+          value: _statusFilter,
           flex: 3,
-          child: DropdownButtonFormField<String>(
-            value: _statusFilter,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: 'Status',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-              isDense: true,
-            ),
-            items: const [
-              DropdownMenuItem(value: 'all', child: Text('Semua')),
-              DropdownMenuItem(value: 'progress', child: Text('Progress')),
-              DropdownMenuItem(value: 'done', child: Text('Done')),
-              DropdownMenuItem(value: 'cancelled', child: Text('Batal')),
-            ],
-            onChanged: (value) {
-              setState(() => _statusFilter = value ?? 'all');
-              _load();
-            },
-          ),
+          items: const [
+            DropdownMenuItem(value: 'all', child: Text('Semua')),
+            DropdownMenuItem(value: 'progress', child: Text('Progress')),
+            DropdownMenuItem(value: 'done', child: Text('Done')),
+            DropdownMenuItem(value: 'cancelled', child: Text('Batal')),
+          ],
+          onChanged: (value) {
+            setState(() => _statusFilter = value ?? 'all');
+            _load();
+          },
         ),
         const SizedBox(width: 8),
-        Expanded(
+        _filterPill<String>(
+          label: 'Bayar',
+          icon: Icons.payments_outlined,
+          value: _paymentFilter,
           flex: 3,
-          child: DropdownButtonFormField<String>(
-            value: _paymentFilter,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: 'Bayar',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-              isDense: true,
-            ),
-            items: const [
-              DropdownMenuItem(value: 'all', child: Text('Semua')),
-              DropdownMenuItem(value: 'sudah_bayar', child: Text('Sudah')),
-              DropdownMenuItem(value: 'belum_bayar', child: Text('Belum')),
-            ],
-            onChanged: (value) {
-              setState(() => _paymentFilter = value ?? 'all');
-              _load();
-            },
-          ),
+          items: const [
+            DropdownMenuItem(value: 'all', child: Text('Semua')),
+            DropdownMenuItem(value: 'sudah_bayar', child: Text('Sudah')),
+            DropdownMenuItem(value: 'belum_bayar', child: Text('Belum')),
+          ],
+          onChanged: (value) {
+            setState(() => _paymentFilter = value ?? 'all');
+            _load();
+          },
         ),
       ],
     );

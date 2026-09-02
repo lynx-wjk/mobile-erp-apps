@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/sound/scan_feedback_service.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../marketplace/models/marketplace_return_review_item.dart';
@@ -125,13 +126,14 @@ class _StockInPageState extends State<StockInPage> {
     }).toList();
 
     if (matches.isEmpty) {
+      ScanFeedbackService.instance.playScanError();
       AppUi.showSnack('Barcode/SKU tidak ditemukan di master barang: $value');
       return;
     }
 
     setState(() => _selectedProduct = matches.first);
     AppUi.showSnack(
-        'Produk dipilih: ${AppUi.text(matches.first['nama_barang'])}');
+        'Scan Selesai: ${AppUi.text(matches.first['nama_barang'])} ($value)');
   }
 
   bool _isBlank(dynamic value) {

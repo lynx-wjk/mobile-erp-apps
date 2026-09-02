@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/sound/scan_feedback_service.dart';
 import '../../../core/ui/app_ui.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -23,6 +24,8 @@ class QrScanPage extends StatefulWidget {
 
 class _QrScanPageState extends State<QrScanPage> {
   bool _hasScanned = false;
+  String? _scannedValue;
+  Timer? _completeTimer;
   late ScanMode _mode = widget.scanMode;
   double _zoomScale = 0.0; // 0.0 is 1.0x, 0.25 is ~1.5x, 0.5 is ~2.0x
   bool _isTorchOn = false;
@@ -66,6 +69,7 @@ class _QrScanPageState extends State<QrScanPage> {
   @override
   void dispose() {
     _focusTimer?.cancel();
+    _completeTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -76,8 +80,22 @@ class _QrScanPageState extends State<QrScanPage> {
     if (barcodes.isEmpty) return;
     final value = barcodes.first.rawValue;
     if (value == null || value.trim().isEmpty) return;
-    setState(() => _hasScanned = true);
-    AppUi.safePop(context, value.trim());
+
+    final code = value.trim();
+    setState(() {
+      _hasScanned = true;
+      _scannedValue = code;
+    });
+
+    // 1. Play audible scanner beep and trigger physical haptic feedback
+    ScanFeedbackService.instance.playScanSuccess();
+
+    // 2. Give user immediate visual confirmation for 400ms then pop result
+    _completeTimer = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) {
+        AppUi.safePop(context, code);
+      }
+    });
   }
 
   Future<void> _setZoom(double zoom) async {
@@ -176,16 +194,104 @@ class _QrScanPageState extends State<QrScanPage> {
                 Positioned.fromRect(
                   rect: window,
                   child: IgnorePointer(
-                    child: Container(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
                       decoration: BoxDecoration(
-                        border: Border.all(color: Colors.white, width: 3),
+                        border: Border.all(
+                          color: _hasScanned ? const Color(0xFF10B981) : Colors.white,
+                          width: _hasScanned ? 4 : 3,
+                        ),
                         borderRadius: BorderRadius.circular(
                           _mode == ScanMode.barcode ? 14 : 20,
                         ),
+                        boxShadow: _hasScanned
+                            ? [
+                                BoxShadow(
+                                  color: const Color(0xFF10B981).withValues(alpha: 0.5),
+                                  blurRadius: 18,
+                                  spreadRadius: 2,
+                                ),
+                              ]
+                            : null,
                       ),
+                      child: _hasScanned
+                          ? Center(
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981).withValues(alpha: 0.9),
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.3),
+                                      blurRadius: 8,
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.check_rounded,
+                                  color: Colors.white,
+                                  size: 38,
+                                ),
+                              ),
+                            )
+                          : null,
                     ),
                   ),
                 ),
+                // Top floating notification banner when scan is done
+                if (_hasScanned && _scannedValue != null)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981),
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.45),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle_rounded, color: Colors.white, size: 24),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  'Scan Berhasil!',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                Text(
+                                  _scannedValue!,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontFamily: 'monospace',
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 // Tap to Focus Ring indicator
                 if (_focusPoint != null)
                   Positioned(

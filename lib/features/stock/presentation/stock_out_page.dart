@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/sound/scan_feedback_service.dart';
 import '../../../core/ui/app_ui.dart';
 import '../../../core/ui/web_responsive_layout.dart';
 import '../../marketplace/services/marketplace_order_pick_service.dart';
@@ -275,6 +276,20 @@ class _StockOutPageState extends State<StockOutPage> {
       _resiController.text = code;
     });
 
+    rootScaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Resi berhasil dipindai: $code')),
+          ],
+        ),
+        backgroundColor: const Color(0xFF10B981),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
     if (_requireMarketplaceResiMatch) {
       await _verifyMarketplaceResi();
     }
@@ -510,6 +525,7 @@ class _StockOutPageState extends State<StockOutPage> {
 
     if (product == null) {
       if (!mounted) return;
+      ScanFeedbackService.instance.playScanError();
       rootScaffoldMessengerKey.currentState?.showSnackBar(
         SnackBar(content: Text('Produk tidak ditemukan untuk kode: $code')),
       );
@@ -517,6 +533,19 @@ class _StockOutPageState extends State<StockOutPage> {
     }
 
     _addOrMergeItem(product: product, qty: 1);
+    rootScaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Item ditambahkan: ${product.namaBarang} ($code)')),
+          ],
+        ),
+        backgroundColor: const Color(0xFF10B981),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _scanMarketplaceProduct(String code) async {
@@ -533,6 +562,7 @@ class _StockOutPageState extends State<StockOutPage> {
       );
 
       if (!result.ok) {
+        ScanFeedbackService.instance.playScanError();
         rootScaffoldMessengerKey.currentState?.showSnackBar(
           SnackBar(content: Text(result.message)),
         );
