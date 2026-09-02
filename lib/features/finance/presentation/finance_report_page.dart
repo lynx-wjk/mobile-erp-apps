@@ -10075,33 +10075,64 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     required List<DropdownMenuItem<T>> items,
     required ValueChanged<T?> onChanged,
   }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(8),
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
-              Theme.of(context).brightness == Brightness.dark ? 0.25 : 0.45),
+          color: theme.colorScheme.outlineVariant.withOpacity(
+              isDark ? 0.35 : 0.65),
           width: 0.8,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.03),
+            blurRadius: 4,
+            offset: const Offset(0, 1.5),
+          ),
+        ],
       ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<T>(
-          value: value,
-          isExpanded: true,
-          isDense: true,
-          style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.onSurface),
-          dropdownColor: Theme.of(context).cardColor,
-          items: items,
-          onChanged: onChanged,
-          hint: Text(label,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.primary,
+              letterSpacing: 0.3,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 1),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<T>(
+              value: value,
+              isExpanded: true,
+              isDense: true,
+              icon: Icon(
+                Icons.keyboard_arrow_down_rounded,
+                size: 18,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
               style: TextStyle(
-                  fontSize: 11.5, color: AppUi.mutedText(context, 0.88))),
-        ),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface),
+              dropdownColor: theme.cardColor,
+              borderRadius: BorderRadius.circular(10),
+              items: items,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
       ),
     );
   }

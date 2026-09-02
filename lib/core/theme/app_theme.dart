@@ -33,6 +33,7 @@ class AppTheme {
   static const Color _darkMuted = Color(0xFF94A3B8); // Slate 400
 
   static BorderRadius get radiusSm => BorderRadius.circular(8);
+  static BorderRadius get radiusInput => BorderRadius.circular(10);
   static BorderRadius get radiusMd => BorderRadius.circular(16);
   static BorderRadius get radiusLg => BorderRadius.circular(24);
 
@@ -245,27 +246,27 @@ class AppTheme {
         prefixIconColor: textMuted,
         suffixIconColor: textMuted,
         border: OutlineInputBorder(
-          borderRadius: radiusMd,
+          borderRadius: radiusInput,
           borderSide: const BorderSide(color: bgCardBorder),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: radiusMd,
+          borderRadius: radiusInput,
           borderSide: const BorderSide(color: bgCardBorder),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: radiusMd,
+          borderRadius: radiusInput,
           borderSide: const BorderSide(color: primaryColor, width: 1.6),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: radiusMd,
+          borderRadius: radiusInput,
           borderSide: const BorderSide(color: dangerColor),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: radiusMd,
+          borderRadius: radiusInput,
           borderSide: const BorderSide(color: dangerColor, width: 1.6),
         ),
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
@@ -481,27 +482,27 @@ class AppTheme {
         prefixIconColor: _darkMuted,
         suffixIconColor: _darkMuted,
         border: OutlineInputBorder(
-          borderRadius: radiusMd,
+          borderRadius: radiusInput,
           borderSide: const BorderSide(color: _darkBorder),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: radiusMd,
+          borderRadius: radiusInput,
           borderSide: const BorderSide(color: _darkBorder),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: radiusMd,
+          borderRadius: radiusInput,
           borderSide: const BorderSide(color: Color(0xFF60A5FA), width: 1.6),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: radiusMd,
+          borderRadius: radiusInput,
           borderSide: const BorderSide(color: Color(0xFFF87171)),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: radiusMd,
+          borderRadius: radiusInput,
           borderSide: const BorderSide(color: Color(0xFFF87171), width: 1.6),
         ),
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(

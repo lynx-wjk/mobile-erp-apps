@@ -1336,7 +1336,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                         inputDecorationTheme: const InputDecorationTheme(
                           border: OutlineInputBorder(),
                           filled: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         ),
                       ),
                     )
@@ -1443,7 +1443,7 @@ class _StockProgressPageState extends State<StockProgressPage> {
                       },
                       inputDecorationTheme: const InputDecorationTheme(
                         border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),
                     ),
                   ),
@@ -2268,11 +2268,13 @@ class _StockProgressPageState extends State<StockProgressPage> {
                               controller: controller,
                               keyboardType: TextInputType.number,
                               enabled: !saving,
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 isDense: true,
-                                contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 8),
-                                border: OutlineInputBorder(),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 10),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                               ),
                             ),
                           ),

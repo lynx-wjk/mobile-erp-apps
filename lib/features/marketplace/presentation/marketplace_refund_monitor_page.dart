@@ -1044,17 +1044,17 @@ class _MarketplaceRefundMonitorPageState
       filled: true,
       fillColor: Theme.of(context).cardColor,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(
             color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(
             color: Theme.of(context).colorScheme.onSurface.withOpacity(0.12)),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(color: _premiumAccent),
       ),
     );
@@ -1259,21 +1259,21 @@ class _MarketplaceRefundMonitorPageState
                   filled: true,
                   fillColor: Theme.of(context).cardColor,
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide(
                           color: Theme.of(context)
                               .colorScheme
                               .onSurface
                               .withOpacity(0.12))),
                   enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide(
                           color: Theme.of(context)
                               .colorScheme
                               .onSurface
                               .withOpacity(0.12))),
                   focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide(color: _premiumAccent)),
                 ),
                 items: <DropdownMenuItem<String>>[
@@ -1312,21 +1312,21 @@ class _MarketplaceRefundMonitorPageState
                     filled: true,
                     fillColor: Theme.of(context).cardColor,
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide(
                             color: Theme.of(context)
                                 .colorScheme
                                 .onSurface
                                 .withOpacity(0.12))),
                     enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide(
                             color: Theme.of(context)
                                 .colorScheme
                                 .onSurface
                                 .withOpacity(0.12))),
                     focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide(color: _premiumAccent)),
                   ),
                   items: <DropdownMenuItem<String>>[
@@ -1376,21 +1376,21 @@ class _MarketplaceRefundMonitorPageState
                   filled: true,
                   fillColor: Theme.of(context).cardColor,
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide(
                           color: Theme.of(context)
                               .colorScheme
                               .onSurface
                               .withOpacity(0.12))),
                   enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide(
                           color: Theme.of(context)
                               .colorScheme
                               .onSurface
                               .withOpacity(0.12))),
                   focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide(color: _premiumAccent)),
                 ),
               ),
