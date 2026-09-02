@@ -1348,6 +1348,11 @@ async function fetchShopeeLogisticsTracking(args: {
       });
     } catch (e) {
       lastError = e;
+      const errStr = String(e);
+      // If courier is being allocated or param invalid, retrying without package_number is guaranteed to fail
+      if (errStr.includes("being allocated") || errStr.includes("logistics.error_param")) {
+        break;
+      }
     }
   }
   if (lastError) throw lastError;
@@ -1370,7 +1375,10 @@ async function enrichShopeeOrderWithPhysicalTracking(args: {
   const statusUpper = text(args.order.order_status || args.order.status).toUpperCase();
   const isFinalOrCancelled = FINAL_MARKETPLACE_ORDER_STATUSES.has(statusUpper) || CANCEL_STATUSES.has(statusUpper);
 
-  if (currentTracking || isFinalOrCancelled) {
+  // Shopee tracking number only exists once order has been processed/arranged or shipped
+  const canHaveTracking = ["PROCESSED", "SHIPPED", "TO_CONFIRM_RECEIVE", "COMPLETED"].includes(statusUpper);
+
+  if (currentTracking || isFinalOrCancelled || !canHaveTracking) {
     return {
       ...args.order,
       tracking_number: currentTracking || null,

@@ -38,41 +38,38 @@ Deno.serve(async (req) => {
 
     console.log(`[Shopee Push Webhook] Code: ${code} Shop: ${shopId} Order: ${orderSn}`, JSON.stringify(data).slice(0, 200));
 
-    if (code === 3 || code === 4 || code === 29 || code === 15) {
-      // Find tenant for this shop_id
-      if (shopId) {
-        const { data: acc } = await admin
-          .from("marketplace_accounts")
-          .select("marketplace_account_id, tenant_id")
+    if (code === 4 && orderSn) {
+      // Code 4: order_trackingno_push -> Instant direct update to database, no API call needed!
+      const trackingNo = String(data?.tracking_no || data?.tracking_number || "").trim();
+      if (trackingNo) {
+        await admin
+          .from("marketplace_orders")
+          .update({
+            tracking_number: trackingNo,
+            label_code: trackingNo,
+            updated_at: new Date().toISOString(),
+          })
           .eq("marketplace", "shopee")
-          .eq("shop_id", shopId)
-          .eq("status", "active")
-          .limit(1)
-          .maybeSingle();
-
-        if (acc) {
-          const now = Math.floor(Date.now() / 1000);
-          const startSeconds = now - (2 * 86400); // 2 days window for recent push
-
-          // Trigger recent order pull asynchronously
-          fetch(`${supabaseUrl.replace(/\/+$/, "")}/functions/v1/marketplace-order-pull`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-marketplace-cron-secret": cronSecret,
-            },
-            body: JSON.stringify({
-              tenant_id: acc.tenant_id,
-              marketplace_account_id: acc.marketplace_account_id,
-              marketplace: "shopee",
-              mode: "recent",
-              start_seconds: startSeconds,
-              end_seconds: now,
-            }),
-          }).catch((e) => console.warn(`[Shopee Push Pull Trigger Error] ${e}`));
-        }
+          .eq("external_order_id", orderSn);
+        console.log(`[Shopee Push Webhook] Instant tracking saved for order ${orderSn}: ${trackingNo}`);
       }
+    } else if (code === 3 && orderSn) {
+      // Code 3: order_status_push -> Instant direct update to database, no API call needed!
+      const pushStatus = String(data?.status || "").trim().toUpperCase();
+      if (pushStatus) {
+        await admin
+          .from("marketplace_orders")
+          .update({
+            order_status: pushStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("marketplace", "shopee")
+          .eq("external_order_id", orderSn);
+        console.log(`[Shopee Push Webhook] Instant status updated for order ${orderSn}: ${pushStatus}`);
+      }
+    }
 
+    if (code === 3 || code === 4 || code === 29 || code === 15) {
       // Auto-sync payout records if RPC exists
       try {
         await admin.rpc("sync_missing_completed_order_payouts");
