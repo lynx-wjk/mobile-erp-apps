@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
         console.log(`[Shopee Push Webhook] Instant tracking saved for order ${orderSn}: ${trackingNo}`);
       }
     } else if (code === 3 && orderSn) {
-      // Code 3: order_status_push -> Instant direct update to database, no API call needed!
+      // Code 3: order_status_push -> Instant direct update to database
       const pushStatus = String(data?.status || "").trim().toUpperCase();
       if (pushStatus) {
         await admin
@@ -64,9 +64,38 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq("marketplace", "shopee")
-          .eq("external_order_id", orderSn);
+          .or(`external_order_id.eq.${orderSn},order_sn.eq.${orderSn}`);
         console.log(`[Shopee Push Webhook] Instant status updated for order ${orderSn}: ${pushStatus}`);
+
+        // If order was cancelled (supervisor/buyer/system cancel), zero out finance payout immediately
+        if (pushStatus === "CANCELLED" || pushStatus === "CANCELED" || pushStatus === "BATAL") {
+          await admin
+            .from("marketplace_finance_reports")
+            .update({
+              payout_amount: 0,
+              received_amount: 0,
+              net_settlement: 0,
+              settlement_status: "cancelled",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("marketplace", "shopee")
+            .eq("order_id", orderSn);
+          console.log(`[Shopee Push Webhook] Instant finance payout zeroed for cancelled order ${orderSn}`);
+        }
       }
+    } else if (code === 29 && orderSn) {
+      // Code 29: return_updates_push -> Return/Refund or Abnormal parcel return
+      const returnStatus = String(data?.status || "").trim().toUpperCase();
+      const targetStatus = (returnStatus.includes("REFUND") || returnStatus.includes("ACCEPT")) ? "CANCELLED" : "TO_RETURN";
+      await admin
+        .from("marketplace_orders")
+        .update({
+          order_status: targetStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("marketplace", "shopee")
+        .or(`external_order_id.eq.${orderSn},order_sn.eq.${orderSn}`);
+      console.log(`[Shopee Push Webhook] Return update for order ${orderSn}: ${returnStatus} -> ${targetStatus}`);
     }
 
     if (code === 3 || code === 4 || code === 29 || code === 15) {
