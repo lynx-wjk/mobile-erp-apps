@@ -19168,6 +19168,7 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     const directKeys = [
       'payout',
       'payout_amount',
+      'allocated_payout',
       'payout_total',
       'received_amount',
       'net_settlement',
@@ -19187,13 +19188,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _hasReleasedPayout(Map<String, dynamic> detail) {
-    final payout = _linePayoutAmount(detail);
-    if (payout != 0) {
-      return true;
-    }
+    final explicit = _text(
+      detail['payout_status'] ??
+          detail['settlement_status'] ??
+          detail['finance_status'] ??
+          detail['abnormal_status'],
+      '',
+    ).toLowerCase();
+    final financeStatus = explicit.toUpperCase();
 
-    if (detail.containsKey('has_payout') && detail['has_payout'] != null) {
-      if (detail['has_payout'] == true) return true;
+    if (explicit == 'unsettled' ||
+        explicit == 'estimated' ||
+        explicit == 'pending' ||
+        explicit.contains('wait') ||
+        explicit.contains('menunggu')) {
+      return false;
     }
 
     final orderStatus = _text(
@@ -19201,21 +19210,23 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       '',
     ).toUpperCase();
 
-    final financeStatus = _text(
-      detail['payout_status'] ??
-          detail['settlement_status'] ??
-          detail['finance_status'] ??
-          detail['abnormal_status'],
-      '',
-    ).toUpperCase();
-
-    final joinedStatus = '$orderStatus $financeStatus';
-
-    if (joinedStatus.contains('CANCEL') ||
-        joinedStatus.contains('REFUND') ||
-        joinedStatus.contains('RETURN') ||
-        joinedStatus.contains('BATAL')) {
+    if (orderStatus == 'READY_TO_SHIP' ||
+        orderStatus == 'UNPAID' ||
+        orderStatus == 'PROCESSED' ||
+        orderStatus.contains('CANCEL') ||
+        orderStatus.contains('REFUND') ||
+        orderStatus.contains('RETURN') ||
+        orderStatus.contains('BATAL')) {
       return false;
+    }
+
+    final payout = _linePayoutAmount(detail);
+    if (payout != 0) {
+      return true;
+    }
+
+    if (detail.containsKey('has_payout') && detail['has_payout'] != null) {
+      if (detail['has_payout'] == true) return true;
     }
 
     if (financeStatus.contains('SETTLED') && !financeStatus.contains('UNSETTLED')) {
@@ -19342,7 +19353,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _skuDetailPayoutItemText(Map<String, dynamic> detail) {
-    if (!_hasReleasedPayout(detail)) return 'Belum ada payout';
     final qty = _num(detail['qty'] ?? detail['quantity']);
     final safeQty = qty > 0 ? qty : 1.0;
     final perItem = _numFirstNonZero([
@@ -19351,29 +19361,46 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       detail['settlement_per_item'],
       _linePayoutAmount(detail, defaultQty: safeQty) / safeQty,
     ]);
-    return perItem > 0 ? _money(perItem) : 'Payout item belum tersimpan';
+    final isEstimated = _text(detail['settlement_status'], '').toLowerCase() == 'estimated' ||
+        _text(detail['payout_status'], '').toLowerCase() == 'unsettled' ||
+        !_hasReleasedPayout(detail);
+
+    if (perItem > 0) {
+      return isEstimated ? 'Estimasi: ${_money(perItem)}' : _money(perItem);
+    }
+    if (!_hasReleasedPayout(detail)) return 'Belum ada payout';
+    return 'Payout item belum tersimpan';
   }
 
   double _skuDetailOrderPayoutAmount(Map<String, dynamic> detail) {
     return _numFirstNonZero([
       detail['order_payout'],
+      detail['order_payout_amount'],
       detail['order_payout_total'],
       detail['order_settlement_total'],
       detail['order_net_settlement'],
       detail['settlement_total'],
       detail['net_settlement'],
       detail['received_amount'],
+      detail['allocated_payout'],
       if (_skuDetailSingleItemOrderIsExact(detail))
         detail['payout'] ?? detail['payout_amount'],
     ]);
   }
 
   String _skuDetailOrderPayoutText(Map<String, dynamic> detail) {
-    if (!_hasReleasedPayout(detail)) return 'Belum ada payout';
     final orderPayout = _skuDetailOrderPayoutAmount(detail);
-    if (orderPayout != 0) return _money(orderPayout);
     final fallback = _linePayoutAmount(detail);
-    return fallback != 0 ? _money(fallback) : 'Payout order belum tersimpan';
+    final amount = orderPayout != 0 ? orderPayout : fallback;
+    final isEstimated = _text(detail['settlement_status'], '').toLowerCase() == 'estimated' ||
+        _text(detail['payout_status'], '').toLowerCase() == 'unsettled' ||
+        !_hasReleasedPayout(detail);
+
+    if (amount != 0) {
+      return isEstimated ? 'Estimasi: ${_money(amount)}' : _money(amount);
+    }
+    if (!_hasReleasedPayout(detail)) return 'Belum ada payout';
+    return 'Payout order belum tersimpan';
   }
 
   String _skuDetailAllocationText(Map<String, dynamic> detail) {
@@ -19508,7 +19535,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _skuDetailSettlementText(Map<String, dynamic> detail) {
-    if (!_hasReleasedPayout(detail)) return 'Belum ada settlement';
     final statement = _cleanText(
       detail['statement_id'] ??
           detail['settlement_id'] ??
@@ -19516,7 +19542,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           detail['settlement_ref'],
       '',
     );
-    return statement.isEmpty ? 'Ref settlement belum tersimpan' : statement;
+    if (statement.isNotEmpty) return statement;
+    if (!_hasReleasedPayout(detail)) return 'Menunggu pencairan (Estimasi)';
+    return 'Ref settlement belum tersimpan';
   }
 
   String _payoutExplainText(Map<String, dynamic> detail) {
