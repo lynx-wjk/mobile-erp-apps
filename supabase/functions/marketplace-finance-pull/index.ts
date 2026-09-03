@@ -207,7 +207,30 @@ async function callShopeeFinanceService(args: {
         .order('order_created_at', { ascending: false })
         .limit(30);
 
-      // 2. Query recently updated/completed orders (refreshes estimates to settled & adjustments)
+      // 2. Query orders that are still marked 'estimated' (ALL TIME, cycling oldest first)
+      const { data: estimatedReports } = await args.admin
+        .from('marketplace_finance_reports')
+        .select('order_id, marketplace_order_id')
+        .eq('tenant_id', args.tenantId)
+        .eq('marketplace', 'shopee')
+        .eq('marketplace_account_id', acc.marketplace_account_id)
+        .eq('settlement_status', 'estimated')
+        .order('updated_at', { ascending: true })
+        .limit(25);
+
+      const estimatedOrderIds = (estimatedReports || []).map((r: any) => r.order_id).filter(Boolean);
+      let pendingOrders: any[] = [];
+      if (estimatedOrderIds.length > 0) {
+        const { data: estOrders } = await args.admin
+          .from('marketplace_orders')
+          .select('marketplace_order_id, external_order_id, order_sn, order_created_at, created_time, created_at, order_status')
+          .eq('tenant_id', args.tenantId)
+          .eq('marketplace', 'shopee')
+          .in('order_sn', estimatedOrderIds);
+        pendingOrders = estOrders || [];
+      }
+
+      // 3. Query recently completed/updated orders across all time
       const { data: completedOrders } = await args.admin
         .from('marketplace_orders')
         .select('marketplace_order_id, external_order_id, order_sn, order_created_at, created_time, created_at, order_status')
@@ -215,13 +238,15 @@ async function callShopeeFinanceService(args: {
         .eq('marketplace', 'shopee')
         .eq('marketplace_account_id', acc.marketplace_account_id)
         .eq('order_status', 'COMPLETED')
-        .gte('order_created_at', new Date(Date.now() - 45 * 86400000).toISOString())
         .order('updated_at', { ascending: false })
-        .limit(30);
+        .limit(20);
 
       // Deduplicate orders
       const orderMap = new Map<string, any>();
       for (const ord of (recentOrders || [])) {
+        if (ord?.marketplace_order_id) orderMap.set(ord.marketplace_order_id, ord);
+      }
+      for (const ord of pendingOrders) {
         if (ord?.marketplace_order_id) orderMap.set(ord.marketplace_order_id, ord);
       }
       for (const ord of (completedOrders || [])) {
