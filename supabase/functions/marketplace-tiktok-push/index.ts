@@ -33,6 +33,46 @@ Deno.serve(async (req) => {
 
     console.log(`[TikTok Shop Push Webhook] Type: ${type} Shop: ${shopId}`, JSON.stringify(data).slice(0, 200));
 
+    const ttsOrderId = String(data?.order_id || body?.order_id || "").trim();
+
+    // Instant direct update to database (0-second latency)
+    if (type === 1 && ttsOrderId && data?.order_status) {
+      const orderStatus = String(data.order_status).toUpperCase();
+      await admin
+        .from("marketplace_orders")
+        .update({
+          order_status: orderStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("marketplace", "tiktok_shop")
+        .or(`external_order_id.eq.${ttsOrderId},order_sn.eq.${ttsOrderId}`);
+      console.log(`[TikTok Push Webhook] Instant status updated for order ${ttsOrderId}: ${orderStatus}`);
+    } else if (type === 11 && ttsOrderId) {
+      const cancelStatus = String(data?.cancel_status || "").toUpperCase();
+      const nextStatus = cancelStatus.includes("COMPLETE") ? "CANCEL" : "IN_CANCEL";
+      await admin
+        .from("marketplace_orders")
+        .update({
+          order_status: nextStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("marketplace", "tiktok_shop")
+        .or(`external_order_id.eq.${ttsOrderId},order_sn.eq.${ttsOrderId}`);
+      console.log(`[TikTok Push Webhook] Instant cancel status for order ${ttsOrderId}: ${nextStatus}`);
+    } else if (type === 4 && ttsOrderId && (data?.tracking_number || data?.tracking_no)) {
+      const trackingNo = String(data?.tracking_number || data?.tracking_no || "").trim();
+      await admin
+        .from("marketplace_orders")
+        .update({
+          tracking_number: trackingNo,
+          label_code: trackingNo,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("marketplace", "tiktok_shop")
+        .or(`external_order_id.eq.${ttsOrderId},order_sn.eq.${ttsOrderId}`);
+      console.log(`[TikTok Push Webhook] Instant tracking saved for order ${ttsOrderId}: ${trackingNo}`);
+    }
+
     // Type 1 (Order), 2 (Reverse/Return), 3 (Address), 4 (Package), 11 (Cancel Request)
     if (type === 1 || type === 2 || type === 3 || type === 4 || type === 11) {
       if (shopId) {
