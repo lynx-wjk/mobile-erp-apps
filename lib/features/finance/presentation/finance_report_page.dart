@@ -16002,9 +16002,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _skuDetailHasPayoutV82o(Map<String, dynamic> row) {
-
-    final payout = _skuOrderDetailPayoutValueV82o(row);
-
     final rawStatus = _text(
       row['status'] ?? row['order_status'],
       '',
@@ -16030,20 +16027,30 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return row['has_payout'] == true;
     }
 
-    if (payout != 0) return true;
+    if (financeStatus == 'UNSETTLED' ||
+        financeStatus == 'ESTIMATED' ||
+        financeStatus.contains('PENDING') ||
+        financeStatus.contains('BELUM')) {
+      return false;
+    }
 
-    if (row['positive_payout_exists'] == true) return true;
-
-    return (financeStatus.contains('SETTLED') && !financeStatus.contains('UNSETTLED')) ||
+    if ((financeStatus.contains('SETTLED') && !financeStatus.contains('UNSETTLED')) ||
         financeStatus.contains('PAID') ||
         financeStatus.contains('RELEASE') ||
         financeStatus.contains('PAYOUT_MINUS') ||
-        financeStatus.contains('NEGATIVE_PAYOUT');
+        financeStatus.contains('NEGATIVE_PAYOUT')) {
+      return true;
+    }
+
+    final payout = _skuOrderDetailPayoutValueV82o(row);
+    if (payout != 0 && !financeStatus.contains('UNSETTLED')) return true;
+
+    if (row['positive_payout_exists'] == true && !financeStatus.contains('UNSETTLED')) return true;
+
+    return false;
   }
 
   bool _skuDetailIsPendingPayoutV82o(Map<String, dynamic> row) {
-    final payout = _skuOrderDetailPayoutValueV82o(row);
-
     final rawStatus = _text(
       row['status'] ?? row['order_status'],
       '',
@@ -16069,6 +16076,20 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       return row['has_payout'] == false;
     }
 
+    if (financeStatus == 'UNSETTLED' ||
+        financeStatus == 'ESTIMATED' ||
+        financeStatus.contains('PENDING') ||
+        financeStatus.contains('BELUM')) {
+      return true;
+    }
+
+    if ((financeStatus.contains('SETTLED') && !financeStatus.contains('UNSETTLED')) ||
+        financeStatus.contains('PAID') ||
+        financeStatus.contains('RELEASE')) {
+      return false;
+    }
+
+    final payout = _skuOrderDetailPayoutValueV82o(row);
     if (payout != 0) return false;
 
     if (row['positive_payout_exists'] == true) return false;
