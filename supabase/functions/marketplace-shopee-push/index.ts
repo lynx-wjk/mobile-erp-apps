@@ -87,10 +87,21 @@ Deno.serve(async (req) => {
       try {
         await admin.rpc("sync_missing_completed_order_payouts");
       } catch (_) {}
-    } else if (code === 8) {
+    }
+
+    if (code === 8) {
       console.log("[Shopee Stock Alert] Reserved stock changed:", data);
     } else if (code === 2) {
       console.warn("[Shopee Alert] Shop authorization canceled by seller! Shop:", shopId);
+    } else if (code === 12) {
+      // Code 12: open_api_authorization_expiry
+      console.warn(`[Shopee Alert] Shop authorization expiring soon! Shop: ${shopId}`, data);
+    } else if (code === 16) {
+      // Code 16: violation_item_push (Listing violation / banned item)
+      console.warn(`[Shopee Product Warning] Violation item detected for shop ${shopId}:`, data);
+    } else if (code === 28) {
+      // Code 28: shop_penalty_update_push (Penalty points)
+      console.warn(`[Shopee Penalty Warning] Shop penalty updated for shop ${shopId}:`, data);
     }
 
     return new Response(JSON.stringify({ code: 0, message: "Shopee push event received successfully" }), {
