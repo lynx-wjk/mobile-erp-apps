@@ -196,14 +196,16 @@ async function callShopeeFinanceService(args: {
       const accessToken = await decryptText(text(acc.access_token_encrypted), tokenSecret);
       if (!shopId || !accessToken) continue;
 
-      // Query recent orders needing escrow breakdown (last 45 days or unpopulated)
+      // Query orders for this specific shop needing escrow (completed or recent orders within 45 days)
       const { data: orders, error: ordErr } = await args.admin
         .from('marketplace_orders')
-        .select('marketplace_order_id, external_order_id, order_sn, order_created_at, created_time, created_at')
+        .select('marketplace_order_id, external_order_id, order_sn, order_created_at, created_time, created_at, order_status')
         .eq('tenant_id', args.tenantId)
         .eq('marketplace', 'shopee')
+        .eq('marketplace_account_id', acc.marketplace_account_id)
+        .not('order_status', 'in', '("CANCELLED","CANCELED","UNPAID")')
         .order('order_created_at', { ascending: false })
-        .limit(300);
+        .limit(250);
 
       if (ordErr || !Array.isArray(orders)) continue;
 
@@ -246,13 +248,12 @@ async function callShopeeFinanceService(args: {
 
           const orderDate = String(ord.order_created_at || ord.created_time || ord.created_at || new Date().toISOString()).slice(0, 10);
 
-          await args.admin.from('marketplace_finance_reports').upsert({
+          const { error: upsertErr } = await args.admin.from('marketplace_finance_reports').upsert({
             tenant_id: args.tenantId,
             marketplace_account_id: acc.marketplace_account_id,
             marketplace: 'shopee',
             marketplace_order_id: ord.marketplace_order_id,
             order_id: orderSn,
-            order_sn: orderSn,
             period_start: orderDate,
             period_end: orderDate,
             gross_amount: grossOrig,
@@ -270,7 +271,12 @@ async function callShopeeFinanceService(args: {
             updated_at: new Date().toISOString()
           }, { onConflict: 'tenant_id,marketplace,order_id' });
 
-          success += 1;
+          if (upsertErr) {
+            console.error(`[Shopee Finance] Error upserting report for ${orderSn}:`, upsertErr);
+            failed += 1;
+          } else {
+            success += 1;
+          }
         } catch (_) {
           failed += 1;
         }
