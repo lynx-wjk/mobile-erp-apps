@@ -25,14 +25,16 @@ Deno.serve(async (req) => {
 
     // Official TikTok Event Types from Console:
     // 1: Order Status Change, 2: Reverse Status Update, 3: Recipient Address Update, 
-    // 4: Package Update, 5: Product Status Change, 6: Seller Deauthorization, 7: Auth Expire
+    // 4: Package Update, 5: Product Status Change, 6: Seller Deauthorization, 7: Auth Expire,
+    // 11: Cancellation Request, 13: Settlement/Statement, 68: Inventory Change
     const type = Number(body?.type || body?.event_type || 0);
     const data = body?.data || body;
     const shopId = String(body?.shop_id || data?.shop_id || "");
 
     console.log(`[TikTok Shop Push Webhook] Type: ${type} Shop: ${shopId}`, JSON.stringify(data).slice(0, 200));
 
-    if (type === 1 || type === 2 || type === 3 || type === 4) {
+    // Type 1 (Order), 2 (Reverse/Return), 3 (Address), 4 (Package), 11 (Cancel Request)
+    if (type === 1 || type === 2 || type === 3 || type === 4 || type === 11) {
       if (shopId) {
         const { data: acc } = await admin
           .from("marketplace_accounts")
@@ -64,12 +66,22 @@ Deno.serve(async (req) => {
           }).catch((e) => console.warn(`[TikTok Push Pull Trigger Error] ${e}`));
         }
       }
-
-      try {
-        await admin.rpc("sync_missing_completed_order_payouts");
-      } catch (_) {}
+    } else if (type === 13) {
+      // Type 13: Settlement Statement Ready -> Trigger Finance Pull instantly
+      if (shopId) {
+        fetch(`${supabaseUrl.replace(/\/+$/, "")}/functions/v1/marketplace-finance-pull`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-marketplace-cron-secret": cronSecret,
+          },
+          body: JSON.stringify({ shop_id: shopId }),
+        }).catch((e) => console.warn(`[TikTok Settlement Trigger Error] ${e}`));
+      }
     } else if (type === 6) {
       console.warn("[TikTok Shop Alert] Seller deauthorized account! Shop:", shopId);
+    } else if (type === 7) {
+      console.warn("[TikTok Shop Alert] Authorization expiring soon! Shop:", shopId);
     }
 
     return new Response(JSON.stringify({ code: 0, message: "TikTok Shop push event received successfully" }), {
