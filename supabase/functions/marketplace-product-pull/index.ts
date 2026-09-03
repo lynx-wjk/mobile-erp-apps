@@ -1361,11 +1361,17 @@ function normalizeShopeeVariants(modelJson: any, product: any): any[] {
 
   return models.map((model: any, index: number) => {
     const modelId = text(model.model_id) || text(model.id) || `${product.marketplace_product_id}-${index + 1}`;
+    const stockInfoV2 = model.stock_info_v2;
+    const v2AvailableStock = numberOrNull(stockInfoV2?.summary_info?.total_available_stock)
+      ?? numberOrNull(stockInfoV2?.seller_stock?.[0]?.stock);
+
     const stockInfo = firstArray([model.stock_info, model.stock_infos, model.stock, model.inventory]) || [];
-    const totalStock = stockInfo.reduce((sum: number, item: any) => {
+    const totalLegacyStock = stockInfo.reduce((sum: number, item: any) => {
       const qty = numberOrNull(item?.normal_stock) ?? numberOrNull(item?.current_stock) ?? numberOrNull(item?.stock) ?? numberOrNull(item?.sellable_stock) ?? 0;
       return sum + qty;
     }, 0);
+
+    const totalStock = v2AvailableStock ?? (stockInfo.length > 0 ? totalLegacyStock : null);
     const priceInfo = firstArray([model.price_info, model.price_infos])?.[0] || model;
     const priceAmount = numberOrNull(priceInfo?.current_price)
       ?? numberOrNull(priceInfo?.model_price)
