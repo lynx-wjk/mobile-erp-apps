@@ -6,6 +6,7 @@ import '../../../models/app_user.dart';
 import '../models/marketplace_account_public.dart';
 import '../models/marketplace_stock_difference_item.dart';
 import '../services/marketplace_service.dart';
+import 'marketplace_sku_mapping_page.dart';
 
 // V11 targeted fix: keep the current UI, but neutralize global button themes
 // that may use Size(double.infinity, ...). That global style breaks buttons
@@ -71,6 +72,7 @@ class _MarketplaceStockDifferencePageState
 
   bool _isLoading = true;
   bool _isSinkronkaning = false;
+  bool _isAutoMapping = false;
   String? _errorMessage;
 
   List<MarketplaceAccountPublic> _accounts = const [];
@@ -227,12 +229,32 @@ class _MarketplaceStockDifferencePageState
     await _loadItems();
   }
 
+  Future<void> _runAutoMapping() async {
+    setState(() => _isAutoMapping = true);
+    try {
+      final res = await _service.autoMapMarketplaceSkus(
+        tenantId: widget.currentUser.tenantId,
+      );
+      final mappedCount = res['mapped_count'] ?? 0;
+      final msg = res['message']?.toString() ??
+          'Auto-mapping selesai: $mappedCount varian terhubung.';
+      AppUi.showSnack(msg);
+      await _loadItems();
+    } catch (e) {
+      AppUi.showSnack('Gagal auto-mapping: $e');
+    } finally {
+      if (mounted) setState(() => _isAutoMapping = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final differentCount =
         _items.where((item) => item.differenceStatus == 'different').length;
     final matchedCount =
         _items.where((item) => item.differenceStatus == 'matched').length;
+    final unmappedCount =
+        _items.where((item) => item.differenceStatus == 'not_mapped').length;
     final unknownCount = _items
         .where((item) => item.differenceStatus == 'unknown_marketplace_stock')
         .length;
@@ -244,6 +266,16 @@ class _MarketplaceStockDifferencePageState
         appBar: AppBar(
           title: const Text('Selisih Stok'),
           actions: [
+            IconButton(
+              onPressed: _isAutoMapping || _isLoading ? null : _runAutoMapping,
+              icon: _isAutoMapping
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.auto_fix_high_rounded),
+              tooltip: 'Auto Mapping SKU Otomatis',
+            ),
             IconButton(
               onPressed: _isLoading ? null : _loadInitial,
               icon: const Icon(Icons.refresh_rounded),
@@ -265,6 +297,7 @@ class _MarketplaceStockDifferencePageState
                         total: _items.length,
                         different: differentCount,
                         matched: matchedCount,
+                        unmapped: unmappedCount,
                         unknown: unknownCount,
                         attention: attentionCount,
                       ),
@@ -321,6 +354,7 @@ class _MarketplaceStockDifferencePageState
     required int total,
     required int different,
     required int matched,
+    required int unmapped,
     required int unknown,
     required int attention,
   }) {
@@ -354,6 +388,8 @@ class _MarketplaceStockDifferencePageState
               _statChip('Total', total.toString(), Icons.inventory_2_outlined),
               _statChip('Different', different.toString(),
                   Icons.compare_arrows_rounded),
+              _statChip('Not Mapped', unmapped.toString(),
+                  Icons.link_off_rounded),
               _statChip('Matched', matched.toString(),
                   Icons.check_circle_outline_rounded),
               _statChip(
@@ -534,6 +570,21 @@ class _MarketplaceStockDifferencePageState
                           _isSinkronkaning ? null : () => _queueOne(item),
                       icon: const Icon(Icons.sync_rounded),
                       label: const Text('Sinkronkan'),
+                    )
+                  else if (item.differenceStatus == 'not_mapped')
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => MarketplaceSkuMappingPage(
+                              currentUser: widget.currentUser,
+                            ),
+                          ),
+                        ).then((_) => _loadItems());
+                      },
+                      icon: const Icon(Icons.link_rounded, size: 16),
+                      label: const Text('Mapping SKU'),
                     ),
                 ],
               ),
@@ -632,10 +683,12 @@ class _MarketplaceStockDifferencePageState
   }
 
   Widget _emptyBox() {
+    final isDifferentFilter = _filterStatus == 'different';
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
         border: Border.all(
           color: Theme.of(context).colorScheme.outlineVariant.withOpacity(
                 Theme.of(context).brightness == Brightness.dark ? 0.28 : 0.44,
@@ -643,7 +696,50 @@ class _MarketplaceStockDifferencePageState
           width: 0.8,
         ),
       ),
-      child: const Text('No data matches the current filter.'),
+      child: Column(
+        children: [
+          Icon(Icons.inventory_2_outlined,
+              size: 44, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(height: 12),
+          Text(
+            isDifferentFilter
+                ? 'Tidak ada selisih stok pada varian yang difilter.'
+                : 'Tidak ada data stok yang sesuai dengan filter ini.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isDifferentFilter
+                ? 'Jika masih ada varian marketplace yang belum terhubung ke SKU lokal, pilih filter "Not Mapped" atau klik tombol Auto Mapping.'
+                : 'Coba ubah status filter ke "All" untuk melihat semua stok varian marketplace.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              if (_filterStatus != 'all')
+                OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() => _filterStatus = 'all');
+                    _loadItems();
+                  },
+                  icon: const Icon(Icons.list_alt_rounded),
+                  label: const Text('Lihat Semua'),
+                ),
+              FilledButton.tonalIcon(
+                onPressed: _isAutoMapping ? null : _runAutoMapping,
+                icon: const Icon(Icons.auto_fix_high_rounded),
+                label: const Text('Auto Mapping SKU'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
