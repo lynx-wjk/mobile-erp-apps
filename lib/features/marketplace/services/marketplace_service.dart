@@ -2053,25 +2053,6 @@ class MarketplaceService {
         .toList();
   }
 
-  Future<Map<String, dynamic>> autoMapMarketplaceSkus({
-    required String tenantId,
-  }) async {
-    if (tenantId.trim().isEmpty) {
-      throw Exception(
-          'Data akun belum lengkap. Login ulang atau hubungi admin.');
-    }
-
-    final response = await _client.rpc(
-      'app_auto_map_marketplace_skus',
-      params: {'p_tenant_id': tenantId},
-    );
-
-    if (response is Map) {
-      return Map<String, dynamic>.from(response);
-    }
-    return {'ok': true, 'mapped_count': 0};
-  }
-
   Future<MarketplaceOrderAutoPullSetting> getOrderAutoPullSetting({
     required String tenantId,
   }) async {

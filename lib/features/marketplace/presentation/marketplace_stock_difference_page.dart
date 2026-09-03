@@ -72,7 +72,6 @@ class _MarketplaceStockDifferencePageState
 
   bool _isLoading = true;
   bool _isSinkronkaning = false;
-  bool _isAutoMapping = false;
   String? _errorMessage;
 
   List<MarketplaceAccountPublic> _accounts = const [];
@@ -229,24 +228,6 @@ class _MarketplaceStockDifferencePageState
     await _loadItems();
   }
 
-  Future<void> _runAutoMapping() async {
-    setState(() => _isAutoMapping = true);
-    try {
-      final res = await _service.autoMapMarketplaceSkus(
-        tenantId: widget.currentUser.tenantId,
-      );
-      final mappedCount = res['mapped_count'] ?? 0;
-      final msg = res['message']?.toString() ??
-          'Auto-mapping selesai: $mappedCount varian terhubung.';
-      AppUi.showSnack(msg);
-      await _loadItems();
-    } catch (e) {
-      AppUi.showSnack('Gagal auto-mapping: $e');
-    } finally {
-      if (mounted) setState(() => _isAutoMapping = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final differentCount =
@@ -266,16 +247,6 @@ class _MarketplaceStockDifferencePageState
         appBar: AppBar(
           title: const Text('Selisih Stok'),
           actions: [
-            IconButton(
-              onPressed: _isAutoMapping || _isLoading ? null : _runAutoMapping,
-              icon: _isAutoMapping
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.auto_fix_high_rounded),
-              tooltip: 'Auto Mapping SKU Otomatis',
-            ),
             IconButton(
               onPressed: _isLoading ? null : _loadInitial,
               icon: const Icon(Icons.refresh_rounded),
@@ -731,10 +702,19 @@ class _MarketplaceStockDifferencePageState
                   icon: const Icon(Icons.list_alt_rounded),
                   label: const Text('Lihat Semua'),
                 ),
-              FilledButton.tonalIcon(
-                onPressed: _isAutoMapping ? null : _runAutoMapping,
-                icon: const Icon(Icons.auto_fix_high_rounded),
-                label: const Text('Auto Mapping SKU'),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => MarketplaceSkuMappingPage(
+                        currentUser: widget.currentUser,
+                      ),
+                    ),
+                  ).then((_) => _loadItems());
+                },
+                icon: const Icon(Icons.link_rounded),
+                label: const Text('Buka Halaman Mapping'),
               ),
             ],
           ),
