@@ -66,22 +66,6 @@ Deno.serve(async (req) => {
           .eq("marketplace", "shopee")
           .or(`external_order_id.eq.${orderSn},order_sn.eq.${orderSn}`);
         console.log(`[Shopee Push Webhook] Instant status updated for order ${orderSn}: ${pushStatus}`);
-
-        // If order was cancelled (supervisor/buyer/system cancel), zero out finance payout immediately
-        if (pushStatus === "CANCELLED" || pushStatus === "CANCELED" || pushStatus === "BATAL") {
-          await admin
-            .from("marketplace_finance_reports")
-            .update({
-              payout_amount: 0,
-              received_amount: 0,
-              net_settlement: 0,
-              settlement_status: "cancelled",
-              updated_at: new Date().toISOString(),
-            })
-            .eq("marketplace", "shopee")
-            .eq("order_id", orderSn);
-          console.log(`[Shopee Push Webhook] Instant finance payout zeroed for cancelled order ${orderSn}`);
-        }
       }
     } else if (code === 29 && orderSn) {
       // Code 29: return_updates_push -> Return/Refund or Abnormal parcel return
