@@ -196,8 +196,8 @@ async function callShopeeFinanceService(args: {
       const accessToken = await decryptText(text(acc.access_token_encrypted), tokenSecret);
       if (!shopId || !accessToken) continue;
 
-      // Query orders for this specific shop needing escrow (completed or recent orders within 45 days)
-      const { data: orders, error: ordErr } = await args.admin
+      // 1. Query recent orders for this specific shop (captures initial escrow estimates)
+      const { data: recentOrders } = await args.admin
         .from('marketplace_orders')
         .select('marketplace_order_id, external_order_id, order_sn, order_created_at, created_time, created_at, order_status')
         .eq('tenant_id', args.tenantId)
@@ -205,9 +205,31 @@ async function callShopeeFinanceService(args: {
         .eq('marketplace_account_id', acc.marketplace_account_id)
         .not('order_status', 'in', '("CANCELLED","CANCELED","UNPAID")')
         .order('order_created_at', { ascending: false })
-        .limit(250);
+        .limit(30);
 
-      if (ordErr || !Array.isArray(orders)) continue;
+      // 2. Query recently updated/completed orders (refreshes estimates to settled & adjustments)
+      const { data: completedOrders } = await args.admin
+        .from('marketplace_orders')
+        .select('marketplace_order_id, external_order_id, order_sn, order_created_at, created_time, created_at, order_status')
+        .eq('tenant_id', args.tenantId)
+        .eq('marketplace', 'shopee')
+        .eq('marketplace_account_id', acc.marketplace_account_id)
+        .eq('order_status', 'COMPLETED')
+        .gte('order_created_at', new Date(Date.now() - 45 * 86400000).toISOString())
+        .order('updated_at', { ascending: false })
+        .limit(30);
+
+      // Deduplicate orders
+      const orderMap = new Map<string, any>();
+      for (const ord of (recentOrders || [])) {
+        if (ord?.marketplace_order_id) orderMap.set(ord.marketplace_order_id, ord);
+      }
+      for (const ord of (completedOrders || [])) {
+        if (ord?.marketplace_order_id) orderMap.set(ord.marketplace_order_id, ord);
+      }
+      const orders = Array.from(orderMap.values()).slice(0, 45);
+
+      if (orders.length === 0) continue;
 
       for (const ord of orders) {
         const orderSn = text(ord.external_order_id || ord.order_sn || ord.marketplace_order_id);
@@ -244,7 +266,16 @@ async function callShopeeFinanceService(args: {
           const reverseShipping = Number(income.reverse_shipping_fee ?? 0);
           const returnRefund = Number(income.seller_return_refund ?? 0);
           const refundAmount = reverseShipping + returnRefund;
-          const escrowAmount = Number(income.escrow_amount ?? income.escrow_amount_after_adjustment ?? 0);
+          const totalAdjustment = Number(income.total_adjustment_amount ?? 0);
+          const escrowAfterAdj = income.escrow_amount_after_adjustment !== undefined && income.escrow_amount_after_adjustment !== null
+            ? Number(income.escrow_amount_after_adjustment)
+            : null;
+          const finalEscrow = (totalAdjustment !== 0 && escrowAfterAdj !== null)
+            ? escrowAfterAdj
+            : Number(income.escrow_amount ?? escrowAfterAdj ?? 0);
+
+          const isCompleted = String(ord.order_status).toUpperCase() === 'COMPLETED';
+          const settlementStatus = isCompleted ? 'settled' : 'estimated';
 
           const orderDate = String(ord.order_created_at || ord.created_time || ord.created_at || new Date().toISOString()).slice(0, 10);
 
@@ -263,9 +294,11 @@ async function callShopeeFinanceService(args: {
             affiliate_fee: affiliateFee,
             shipping_fee: shippingFee,
             refund_amount: refundAmount,
-            payout_amount: escrowAmount,
-            received_amount: escrowAmount,
-            net_settlement: escrowAmount,
+            adjustment_amount: totalAdjustment,
+            settlement_status: settlementStatus,
+            payout_amount: finalEscrow,
+            received_amount: finalEscrow,
+            net_settlement: finalEscrow,
             raw_report: jsonRes,
             pulled_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
