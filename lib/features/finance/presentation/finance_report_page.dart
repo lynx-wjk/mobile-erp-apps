@@ -10977,6 +10977,11 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['payout_amount'],
       row['received_amount'],
     ]);
+    final estimatedPayoutRow = _numFirstNonZero([
+      row['estimated_payout_total'],
+      row['unpaid_payout_total'],
+      row['payout_estimated_total'],
+    ]);
     final displayPayoutPerItem = paidQtyDisplay > 0
         ? (totalPayoutRow / paidQtyDisplay)
         : _numFirstNonZero([
@@ -11171,11 +11176,18 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                 : 'Belum ada payout',
           ),
         _miniMetric(
-            'Total payout',
-            _money(_num(row['total_payout'] ??
-                row['payout_total'] ??
-                row['payout_amount'] ??
-                row['received_amount']))),
+          'Total payout cair',
+          _money(totalPayoutRow),
+          positive: totalPayoutRow > 0,
+          onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'paid'),
+        ),
+        if (estimatedPayoutRow > 0)
+          _miniMetric(
+            'Estimasi belum cair',
+            _money(estimatedPayoutRow),
+            warning: true,
+            onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'unpaid'),
+          ),
         if (_num(row['negative_payout_total']) < 0)
           _miniMetric('Koreksi minus',
               _money(_num(row['negative_payout_total'])),
@@ -15948,11 +15960,27 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         (_num(copy['gross_amount'] ?? copy['gross_line'] ?? copy['gross']) <= 0 &&
             _text(copy['order_status'] ?? copy['status']).toLowerCase().contains('complete'));
 
+    final rawSettlementStatus = _text(copy['settlement_status'], '').toLowerCase();
+    final rawPayoutStatus = _text(copy['payout_status'], '').toLowerCase();
+    final isUnsettledOrEstimated = copy['is_estimated'] == true ||
+        rawPayoutStatus == 'unsettled' ||
+        rawPayoutStatus == 'unsettled_zero' ||
+        rawSettlementStatus == 'estimated' ||
+        rawSettlementStatus == 'unsettled' ||
+        rawSettlementStatus == 'pending' ||
+        rawPayoutStatus.contains('estimasi') ||
+        status.contains('ESTIMATED') ||
+        status.contains('UNSETTLED');
+
     if (isSample) {
       copy['is_sample'] = true;
       copy['payout_status'] = 'SAMPLE_FREE';
       copy['finance_status'] = 'SAMPLE_FREE';
       copy['settlement_status'] = 'sample';
+    } else if (isUnsettledOrEstimated) {
+      copy['payout_status'] = 'UNSETTLED';
+      copy['finance_status'] = 'UNSETTLED';
+      copy['is_estimated'] = true;
     } else if (payout < 0) {
       copy['payout_status'] = 'PAYOUT_MINUS';
       copy['finance_status'] = 'NEGATIVE_PAYOUT';
@@ -17476,7 +17504,15 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
                                                     runSpacing: 6,
                                                     children: [
                                                       _miniMetric('Gross/Item', _skuDetailGrossPerItemText(item)),
-                                                      _miniMetric('Payout Order', _skuDetailOrderPayoutText(item)),
+                                                      _miniMetric(
+                                                         item['is_estimated'] == true ||
+                                                                 _text(item['settlement_status'], '').toLowerCase() == 'estimated' ||
+                                                                 _text(item['payout_status'], '').toLowerCase() == 'unsettled' ||
+                                                                 !_hasReleasedPayout(item)
+                                                             ? 'Estimasi Payout Order'
+                                                             : 'Payout Order (Cair)',
+                                                         _skuDetailOrderPayoutText(item),
+                                                       ),
                                                       _miniMetric(_skuDetailPayoutItemLabel(item), _skuDetailPayoutItemText(item)),
                                                       _miniMetric('HPP/Item', _skuDetailHppItemText(item)),
                                                     ],
@@ -19209,6 +19245,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   bool _hasReleasedPayout(Map<String, dynamic> detail) {
+    if (detail['is_estimated'] == true) return false;
+
     final explicit = _text(
       detail['payout_status'] ??
           detail['settlement_status'] ??
@@ -19219,10 +19257,14 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final financeStatus = explicit.toUpperCase();
 
     if (explicit == 'unsettled' ||
+        explicit == 'unsettled_zero' ||
         explicit == 'estimated' ||
         explicit == 'pending' ||
         explicit.contains('wait') ||
-        explicit.contains('menunggu')) {
+        explicit.contains('menunggu') ||
+        explicit.contains('estimasi') ||
+        financeStatus.contains('UNSETTLED') ||
+        financeStatus.contains('ESTIMATED')) {
       return false;
     }
 
@@ -19232,17 +19274,25 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     ).toUpperCase();
 
     if (orderStatus == 'READY_TO_SHIP' ||
+        orderStatus == 'SHIPPED' ||
+        orderStatus == 'DIKIRIM' ||
         orderStatus == 'UNPAID' ||
         orderStatus == 'PROCESSED' ||
         orderStatus.contains('CANCEL') ||
         orderStatus.contains('REFUND') ||
         orderStatus.contains('RETURN') ||
         orderStatus.contains('BATAL')) {
-      return false;
+      if (!financeStatus.contains('SETTLED') || financeStatus.contains('UNSETTLED')) {
+        return false;
+      }
+    }
+
+    if (financeStatus.contains('SETTLED') && !financeStatus.contains('UNSETTLED')) {
+      return true;
     }
 
     final payout = _linePayoutAmount(detail);
-    if (payout != 0) {
+    if (payout != 0 && (orderStatus.contains('COMPLET') || orderStatus.contains('SELESAI'))) {
       return true;
     }
 
@@ -19250,31 +19300,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       if (detail['has_payout'] == true) return true;
     }
 
-    if (financeStatus.contains('SETTLED') && !financeStatus.contains('UNSETTLED')) {
-      return true;
-    }
-
     final marketplace = _text(detail['marketplace'] ?? detail['marketplace_name'], '').toLowerCase();
     if (marketplace.contains('shopee')) {
       if (financeStatus.contains('SETTLED') || financeStatus.contains('PAID') || financeStatus.contains('RELEASE')) {
         return true;
       }
-      final bool isUnpaidStatus = financeStatus.contains('SHIPPED') ||
-          financeStatus.contains('DIKIRIM') ||
-          financeStatus.contains('RECEIVE') ||
-          financeStatus.contains('BELUM') ||
-          financeStatus.contains('PENDING') ||
-          financeStatus.contains('UNPAID') ||
-          financeStatus.contains('UNSETTLED') ||
-          financeStatus.contains('PERLU') ||
-          financeStatus.contains('READY') ||
-          financeStatus.contains('DITERIMA') ||
-          financeStatus.contains('TERIMA');
-      return !isUnpaidStatus &&
-          (financeStatus.contains('SELESAI') ||
-              financeStatus.contains('COMPLETED') ||
-              financeStatus.contains('IMPORT') ||
-              financeStatus.contains('PROCESSED'));
+      return false;
     }
 
     return financeStatus.contains('SETTLED') ||
@@ -19288,21 +19319,30 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final explicit =
         _text(detail['payout_status'] ?? detail['settlement_status'] ?? detail['finance_status'] ?? detail['abnormal_status'], '')
             .trim();
-    final payout = _linePayoutAmount(detail);
     final explicitUpper = explicit.toUpperCase();
     if (explicitUpper.contains('SAMPLE') || explicitUpper.contains('GRATIS') || detail['is_sample'] == true) {
       return 'Sample / Gratis';
     }
-    if (explicitUpper.contains('PENDING') ||
-        explicitUpper.contains('WAIT') ||
-        explicitUpper.contains('NO_PAYOUT')) {
-      return 'Menunggu settlement';
+    if (detail['is_returned'] == true || explicitUpper.contains('RETURN') || explicitUpper.contains('CANCEL') || explicitUpper.contains('BATAL')) {
+      return 'Retur / Batal';
     }
-    if (explicit.isNotEmpty && explicit != '-') return explicit;
+    if (detail['is_estimated'] == true ||
+        explicitUpper == 'UNSETTLED' ||
+        explicitUpper == 'UNSETTLED_ZERO' ||
+        explicitUpper == 'ESTIMATED' ||
+        explicitUpper.contains('ESTIMASI') ||
+        explicitUpper.contains('PENDING') ||
+        explicitUpper.contains('WAIT') ||
+        explicitUpper.contains('BELUM')) {
+      return 'Belum Cair (Estimasi Escrow)';
+    }
+    if (_hasReleasedPayout(detail)) {
+      return 'Sudah Cair (Selesai)';
+    }
+    final payout = _linePayoutAmount(detail);
     if (payout < 0) return 'payout minus/koreksi';
-    if (payout > 0) return 'sudah release';
-    if (_hasReleasedPayout(detail)) return 'sudah release Rp 0';
-    return 'Menunggu settlement';
+    if (payout > 0) return 'Belum Cair (Estimasi Escrow)';
+    return 'Belum Cair (Estimasi Escrow)';
   }
 
   String _cleanText(dynamic value, String fallback) {
@@ -19312,20 +19352,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
   }
 
   String _skuDetailPayoutItemLabel(Map<String, dynamic> detail) {
-    if (!_hasReleasedPayout(detail)) return 'Payout/item';
-    if (_skuDetailHasExactItemPayout(detail) ||
-        _skuDetailSingleItemOrderIsExact(detail)) {
-      return 'Payout exact/item';
-    }
-    final source = _text(detail['payout_source'] ?? detail['source'], '')
-        .trim()
-        .toLowerCase();
-    if (source.contains('marketplace_finance_reports') ||
-        source.contains('net_settlement') ||
-        source.contains('settlement')) {
-      return 'Estimasi payout/item';
-    }
-    return 'Rata-rata payout/item';
+    final isEstimated = detail['is_estimated'] == true ||
+        _text(detail['settlement_status'], '').toLowerCase() == 'estimated' ||
+        _text(detail['payout_status'], '').toLowerCase() == 'unsettled' ||
+        !_hasReleasedPayout(detail);
+    if (isEstimated) return 'Estimasi payout/item';
+    return 'Payout/item (Cair)';
   }
 
   bool _skuDetailHasExactItemPayout(Map<String, dynamic> detail) {
@@ -19382,11 +19414,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       detail['settlement_per_item'],
       _linePayoutAmount(detail, defaultQty: safeQty) / safeQty,
     ]);
-    final isEstimated = _text(detail['settlement_status'], '').toLowerCase() == 'estimated' ||
+    final isEstimated = detail['is_estimated'] == true ||
+        _text(detail['settlement_status'], '').toLowerCase() == 'estimated' ||
         _text(detail['payout_status'], '').toLowerCase() == 'unsettled' ||
         !_hasReleasedPayout(detail);
 
-    if (perItem > 0) {
+    if (perItem != 0) {
       return isEstimated ? 'Estimasi: ${_money(perItem)}' : _money(perItem);
     }
     if (!_hasReleasedPayout(detail)) return 'Belum ada payout';
@@ -19413,7 +19446,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final orderPayout = _skuDetailOrderPayoutAmount(detail);
     final fallback = _linePayoutAmount(detail);
     final amount = orderPayout != 0 ? orderPayout : fallback;
-    final isEstimated = _text(detail['settlement_status'], '').toLowerCase() == 'estimated' ||
+    final isEstimated = detail['is_estimated'] == true ||
+        _text(detail['settlement_status'], '').toLowerCase() == 'estimated' ||
         _text(detail['payout_status'], '').toLowerCase() == 'unsettled' ||
         !_hasReleasedPayout(detail);
 
@@ -19563,9 +19597,13 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           detail['settlement_ref'],
       '',
     );
+    final isEstimated = detail['is_estimated'] == true ||
+        _text(detail['settlement_status'], '').toLowerCase() == 'estimated' ||
+        _text(detail['payout_status'], '').toLowerCase() == 'unsettled' ||
+        !_hasReleasedPayout(detail);
+    if (isEstimated) return 'Menunggu pencairan (Estimasi Escrow)';
     if (statement.isNotEmpty) return statement;
-    if (!_hasReleasedPayout(detail)) return 'Menunggu pencairan (Estimasi)';
-    return 'Ref settlement belum tersimpan';
+    return 'Dana marketplace sudah tersimpan';
   }
 
   String _payoutExplainText(Map<String, dynamic> detail) {
