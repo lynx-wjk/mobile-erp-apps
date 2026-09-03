@@ -130,10 +130,11 @@ class _InactivityLogoutWatcherState extends State<_InactivityLogoutWatcher> {
     }
 
     _authSubscription = _client.auth.onAuthStateChange.listen((state) {
-      final hasSession = state.session != null;
-      if (hasSession) {
-        AppSessionManager.instance.recordLogin(state.session!.user.id);
-      } else {
+      if (state.event == AuthChangeEvent.signedIn) {
+        if (state.session != null) {
+          AppSessionManager.instance.recordLogin(state.session!.user.id);
+        }
+      } else if (state.event == AuthChangeEvent.signedOut) {
         AppSessionManager.instance.clearSession();
       }
     });

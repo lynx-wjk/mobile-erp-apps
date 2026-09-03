@@ -88,28 +88,33 @@ class AppSessionManager {
         return false;
       }
 
-      if (savedLastActivityMs == null) {
-        // Fallback to login time if last activity missing
-        if (savedLoginMs != null) {
-          final diff = now.millisecondsSinceEpoch - savedLoginMs;
-          if (diff >= timeoutDuration.inMilliseconds) {
-            return true;
-          }
+      // Check 1: Absolute Session Lifetime (hard limit: 12 hours from initial login)
+      if (savedLoginMs != null) {
+        final diffLoginMs = now.millisecondsSinceEpoch - savedLoginMs;
+        if (diffLoginMs >= timeoutDuration.inMilliseconds) {
+          debugPrint('[AppSessionManager] Session expired: 12h absolute limit from login reached');
+          return true;
         }
+      } else {
+        // First time tracking this session, record login timestamp
         await recordLogin(session.user.id);
         return false;
       }
 
-      final diffMs = now.millisecondsSinceEpoch - savedLastActivityMs;
-      if (diffMs >= timeoutDuration.inMilliseconds) {
-        return true;
-      }
+      // Check 2: Inactivity timeout (12 hours of no user interaction)
+      if (savedLastActivityMs != null) {
+        final diffMs = now.millisecondsSinceEpoch - savedLastActivityMs;
+        if (diffMs >= timeoutDuration.inMilliseconds) {
+          debugPrint('[AppSessionManager] Session expired: 12h inactivity timeout reached');
+          return true;
+        }
 
-      // Update in-memory time from storage if storage is newer
-      final savedDate =
-          DateTime.fromMillisecondsSinceEpoch(savedLastActivityMs);
-      if (savedDate.isAfter(_lastActivityTime)) {
-        _lastActivityTime = savedDate;
+        // Update in-memory time from storage if storage is newer
+        final savedDate =
+            DateTime.fromMillisecondsSinceEpoch(savedLastActivityMs);
+        if (savedDate.isAfter(_lastActivityTime)) {
+          _lastActivityTime = savedDate;
+        }
       }
     } catch (e) {
       debugPrint('[AppSessionManager] Error checking expiration: $e');

@@ -2706,65 +2706,86 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           _accountFilter == requestAccountKey;
     }
 
-    setState(() {
-      _loading = true;
-      _error = null;
-      _lastSnapshotStats = '';
-      _lastSkuDebugProof = '';
-      _lastSkuRpcRowCount = 0;
-      _lastSkuParsedRowCount = 0;
-      _lastSkuMergedRowCount = 0;
-      _lastSkuRenderedRowCount = 0;
-      _marketplaceFinanceGapMessage = '';
-      _sampleFreeLoaded = false;
-      _sampleFreeLoading = false;
-      _sampleFreeError = null;
-      _sampleFreeDetailsLoaded = false;
-      _sampleFreeDetailsLoading = false;
-      _sampleFreeDetailsError = null;
-      _expandedReconciliations.clear();
-      _operationalCostsLoaded = false;
-      _operationalCostsLoading = false;
-      _operationalCostsError = null;
-      _profitLossLoaded = false;
-      _profitLossLoading = false;
-      _profitLossError = null;
-      _abnormalLoadError = null;
-
-      // Jangan tampilkan angka periode lama ketika user ganti filter.
-      // Lebih baik kosong saat loading daripada laporan keuangan periode lain.
-      _summary = <String, dynamic>{};
-      _sources = [];
-      _approvedPurchases = [];
-      _byMarketplace = [];
-      _bySku = [];
-      _skuPage = 1;
-      _skuServerPageLoaded = 1;
-      _skuLoaded = false;
-      _skuLoadingFirstPage = false;
-      _skuHasMoreServerRows = true;
-      _skuLoadingMore = false;
-      _skuUnpaidCountMap.clear();
-      _skuPaidCountMap.clear();
-      _skuReturnedCountMap.clear();
-      _cashFlow = [];
-      _cashOpeningBalances = [];
-      _cashAdjustments = [];
-      _marketplaceWithdrawals = [];
-      _withdrawalAllocations = [];
-      _expenses = [];
-      _profitLoss = [];
-      _sampleFreeOrders = [];
-      _serverAbnormales = [];
-      _abnormalTotal = 0;
-    });
-
+    // 1. FAST PATH: Check local cache first for instant render
+    final localKey = _financeSnapshotLocalKey();
+    final cached =
+        ignoreLocalCache ? null : await _readFinanceSnapshotLocalAny();
     var hasLocalSnapshot = false;
-    try {
-      await FinanceLocalCache.cleanup();
-      await _loadCurrentRole();
+
+    if (cached != null && mounted && !_isFinanceSnapshotEmpty(cached)) {
+      hasLocalSnapshot = true;
       if (!isCurrentFinanceLoad()) return;
-      await _loadMarketplaceBootstrapUiStatus();
+      await _applyFinanceSnapshotData(
+        cached,
+        _accounts,
+        includeOperationalExpenses: false,
+        includeSupplementalSku: false,
+      );
+      if (mounted && isCurrentFinanceLoad()) {
+        setState(() {
+          _loading = false;
+          _error = null;
+        });
+      }
+    } else {
+      // No local cache: show loading state
+      setState(() {
+        _loading = true;
+        _error = null;
+        _lastSnapshotStats = '';
+        _lastSkuDebugProof = '';
+        _lastSkuRpcRowCount = 0;
+        _lastSkuParsedRowCount = 0;
+        _lastSkuMergedRowCount = 0;
+        _lastSkuRenderedRowCount = 0;
+        _marketplaceFinanceGapMessage = '';
+        _sampleFreeLoaded = false;
+        _sampleFreeLoading = false;
+        _sampleFreeError = null;
+        _sampleFreeDetailsLoaded = false;
+        _sampleFreeDetailsLoading = false;
+        _sampleFreeDetailsError = null;
+        _expandedReconciliations.clear();
+        _operationalCostsLoaded = false;
+        _operationalCostsLoading = false;
+        _operationalCostsError = null;
+        _profitLossLoaded = false;
+        _profitLossLoading = false;
+        _profitLossError = null;
+        _abnormalLoadError = null;
+
+        _summary = <String, dynamic>{};
+        _sources = [];
+        _approvedPurchases = [];
+        _byMarketplace = [];
+        _bySku = [];
+        _skuPage = 1;
+        _skuServerPageLoaded = 1;
+        _skuLoaded = false;
+        _skuLoadingFirstPage = false;
+        _skuHasMoreServerRows = true;
+        _skuLoadingMore = false;
+        _skuUnpaidCountMap.clear();
+        _skuPaidCountMap.clear();
+        _skuReturnedCountMap.clear();
+        _cashFlow = [];
+        _cashOpeningBalances = [];
+        _cashAdjustments = [];
+        _marketplaceWithdrawals = [];
+        _withdrawalAllocations = [];
+        _expenses = [];
+        _profitLoss = [];
+        _sampleFreeOrders = [];
+        _serverAbnormales = [];
+        _abnormalTotal = 0;
+      });
+    }
+
+    try {
+      // 2. Load static metadata only if not yet loaded
+      if (_currentRoleId.isEmpty) {
+        await _loadCurrentRole();
+      }
       if (!isCurrentFinanceLoad()) return;
       if (!_canAccessFinance) {
         if (!mounted) return;
@@ -2774,30 +2795,21 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         });
         return;
       }
-      await _loadFinanceAutoSyncSetting(showError: false);
-      if (!isCurrentFinanceLoad()) return;
-      await _loadDispatcherSnapshot();
+
+      if (_accounts.isEmpty) {
+        await _fetchMarketplaceAccounts();
+      }
       if (!isCurrentFinanceLoad()) return;
 
+      final fallbackAccounts = _accounts;
       _marketplaceFilter =
           _normalizeMarketplaceFilter(_marketplaceFilter) ?? 'all';
-      final fallbackAccounts = await _fetchMarketplaceAccounts();
-      if (!isCurrentFinanceLoad()) return;
-      final localKey = _financeSnapshotLocalKey();
-      final cached =
-          ignoreLocalCache ? null : await _readFinanceSnapshotLocalAny();
-      if (!isCurrentFinanceLoad()) return;
-      if (cached != null && mounted && !_isFinanceSnapshotEmpty(cached)) {
-        hasLocalSnapshot = true;
-        if (!isCurrentFinanceLoad()) return;
-        await _applyFinanceSnapshotData(
-          cached,
-          fallbackAccounts,
-          includeOperationalExpenses: false,
-          includeSupplementalSku: false,
-        );
-        setState(() => _loading = false);
-      }
+
+      // Background UI metadata (non-blocking)
+      unawaited(_loadMarketplaceBootstrapUiStatus());
+      unawaited(_loadFinanceAutoSyncSetting(showError: false));
+      unawaited(_loadDispatcherSnapshot());
+      unawaited(_loadMarketplaceFinanceGapHint());
 
       final snapshotParams = {
         'p_start': _toDateParam(_start),
@@ -2805,11 +2817,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         'p_marketplace': _marketplaceRpcParam(accounts: fallbackAccounts),
         'p_account_id': _accountUuidParam(),
       };
-      unawaited(_loadMarketplaceFinanceGapHint());
 
+      // 3. Fetch Snapshot: If manual hard refresh requested, run cache refresh; otherwise fetch snapshot directly
       if (!hasLocalSnapshot) {
-        // No local cache: run sync refresh
-        await _refreshFinanceCacheForSelectedPeriod();
+        if (ignoreLocalCache) {
+          await _refreshFinanceCacheForSelectedPeriod();
+        }
         var response = await _loadFinanceSnapshot(snapshotParams);
         var data = _asMap(response);
         if (_isFinanceSnapshotEmpty(data)) {
@@ -2829,10 +2842,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           includeSupplementalSku: false,
         );
       } else {
-        // Has local cache: load background refresh
+        // Has local cache: load background refresh quietly
         unawaited(Future(() async {
           try {
-            await _refreshFinanceCacheForSelectedPeriod();
+            if (ignoreLocalCache) {
+              await _refreshFinanceCacheForSelectedPeriod();
+            }
             final response = await _loadFinanceSnapshot(snapshotParams);
             final data = _asMap(response);
             if (!_isFinanceSnapshotEmpty(data)) {
@@ -2853,12 +2868,8 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       }
 
       if (!isCurrentFinanceLoad() || !mounted) return;
-      await _loadPersistedFinanceProgressFromDb();
-      await _loadOperationalCostsSupplemental();
-      await Future.wait([
-        _loadSampleFreeOrdersSupplemental(),
-        _lazyLoadSkuFirstPage(),
-      ]);
+      unawaited(_loadPersistedFinanceProgressFromDb());
+      unawaited(_loadSampleFreeOrdersSupplemental());
       unawaited(_loadAbnormalesPage(silent: true, resetPage: true));
       unawaited(_loadSampleFreeOrdersDetails(force: true));
     } catch (e) {
@@ -2871,7 +2882,9 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
             'Cache lokal dipakai. Update server gagal: ${_cleanError(e)}');
       }
     } finally {
-      if (isCurrentFinanceLoad()) setState(() => _loading = false);
+      if (isCurrentFinanceLoad() && mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -7605,7 +7618,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
           picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
       _rememberFilters();
     });
-    await _clearFinanceLocalCacheForSelectedPeriod();
     await _load();
   }
 
@@ -7927,7 +7939,6 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       _end = end;
       _rememberFilters();
     });
-    await _clearFinanceLocalCacheForSelectedPeriod();
     await _load();
   }
 
