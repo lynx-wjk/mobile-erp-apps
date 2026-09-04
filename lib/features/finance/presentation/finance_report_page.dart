@@ -10982,17 +10982,24 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['unpaid_payout_total'],
       row['payout_estimated_total'],
     ]);
-    final displayPayoutPerItem = paidQtyDisplay > 0
-        ? (totalPayoutRow / paidQtyDisplay)
-        : _numFirstNonZero([
-            row['payout_per_item_paid'],
-            row['payout_per_item'],
-            row['positive_payout_per_item'],
-          ]);
+    // Payout per item (prioritize MODUS / dominant payout)
+    final dominantPayout = _num(row['dominant_payout']);
+    final dominantEstimatedPayout = _num(row['dominant_estimated_payout']);
+    final displayPayoutPerItem = _numFirstNonZero([
+      dominantPayout,
+      row['payout_per_item'],
+      paidQtyDisplay > 0 ? (totalPayoutRow / paidQtyDisplay) : 0,
+      row['payout_per_item_paid'],
+      row['positive_payout_per_item'],
+    ]);
+    final estimatedPayoutPerItem = _numFirstNonZero([
+      dominantEstimatedPayout,
+      row['estimated_payout_per_item'],
+      unpaidQtyDisplay > 0 && estimatedPayoutRow > 0 ? (estimatedPayoutRow / unpaidQtyDisplay) : 0,
+    ]);
 
-    // Real gross per item:
-    // If settled items exist: real average gross of settled orders (paidGross / paidQty).
-    // If no settled items: real average gross across total qty (totalGross / qtyTotal).
+    // Gross per item (prioritize MODUS / dominant gross)
+    final dominantGross = _num(row['dominant_gross']);
     final totalOmzetRow = _numFirstNonZero([
       row['total_omzet'],
       row['gross_sales'],
@@ -11005,11 +11012,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       row['settled_gross_total'],
     ]);
     final grossPerItem = _numFirstNonZero([
+      dominantGross,
+      row['gross_per_item'],
+      row['unit_gross'],
       paidQtyDisplay > 0 && paidGrossRow > 0
           ? (paidGrossRow / paidQtyDisplay)
           : (qtyTotalDisplay > 0 && totalOmzetRow > 0 ? (totalOmzetRow / qtyTotalDisplay) : 0),
-      row['gross_per_item'],
-      row['unit_gross'],
       displayPayoutPerItem,
     ]);
 
@@ -11029,9 +11037,12 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
     final hppStatusText = _text(row['hpp_status'], '').toLowerCase();
     final hppMissing =
         displayHppPerItem <= 0 || hppStatusText.contains('belum');
-    if (displayPayoutPerItem > 0 && displayHppPerItem > 0) {
-      actualMargin = ((displayPayoutPerItem - displayHppPerItem) /
-              displayPayoutPerItem) *
+    final effectivePayout = displayPayoutPerItem > 0
+        ? displayPayoutPerItem
+        : (estimatedPayoutPerItem > 0 ? estimatedPayoutPerItem : 0.0);
+    if (effectivePayout > 0 && displayHppPerItem > 0) {
+      actualMargin = ((effectivePayout - displayHppPerItem) /
+              effectivePayout) *
           100;
     } else if (hppMissing) {
       actualMargin = 0;
@@ -11168,12 +11179,25 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
         if (showPayoutRange) ...[
           _miniMetric('Payout tertinggi', _money(highestPayout)),
           _miniMetric('Payout terendah', _money(lowestPayout)),
-        ] else
+        ] else if (paidQtyDisplay > 0)
           _miniMetric(
             'Payout settled/item',
             displayPayoutPerItem > 0
                 ? _money(displayPayoutPerItem)
                 : 'Belum ada payout',
+            onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'paid'),
+          )
+        else if (estimatedPayoutPerItem > 0)
+          _miniMetric(
+            'Estimasi payout/item',
+            _money(estimatedPayoutPerItem),
+            warning: true,
+            onTap: () => _showSkuOrderRefsV82o(row, payoutFilter: 'unpaid'),
+          )
+        else
+          _miniMetric(
+            'Payout settled/item',
+            'Belum ada payout',
           ),
         _miniMetric(
           'Total payout cair',
