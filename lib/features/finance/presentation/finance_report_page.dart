@@ -10776,48 +10776,76 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              Icon(Icons.date_range_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '${_date(_start)} - ${_date(_end)}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.onSurface,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.date_range_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
                   ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  marketplaceName,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  const SizedBox(width: 8),
+                  Text(
+                    '${_date(_start)} - ${_date(_end)}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Text(
+                      marketplaceName,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: _isSyncingHpp ? null : _syncSkuHppFromMapping,
-                icon: _isSyncingHpp 
-                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) 
-                    : const Icon(Icons.sync_rounded, size: 16),
-                label: const Text('Live Sync HPP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                style: TextButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.5),
-                  foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              Tooltip(
+                message: 'Sinkronisasi HPP master produk ke pemetaan marketplace',
+                child: FilledButton.tonalIcon(
+                  onPressed: _isSyncingHpp ? null : _syncSkuHppFromMapping,
+                  icon: _isSyncingHpp 
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) 
+                      : const Icon(Icons.sync_rounded, size: 15),
+                  label: const Text('Live Sync HPP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+                    foregroundColor: Theme.of(context).colorScheme.primary,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: BorderSide(
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+                        width: 1,
+                      ),
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                 ),
               ),
             ],
@@ -19907,24 +19935,141 @@ class _FinanceReportPageState extends State<FinanceReportPage> {
 
   Future<void> _syncSkuHppFromMapping() async {
     if (_isSyncingHpp) return;
+
+    final targetPlatform = _marketplaceFilter == 'all'
+        ? 'Semua Platform'
+        : _marketplaceName(_marketplaceFilter);
+    final targetAccount = _accountFilter == 'all'
+        ? 'Semua Toko'
+        : _accountNameById(_accountFilter);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Theme.of(ctx).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.sync_rounded, color: Theme.of(ctx).colorScheme.primary, size: 22),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Live Sync HPP',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Sinkronisasikan nilai HPP master produk (melalui SKU Mapping) ke seluruh Variant HPP Mapping pesanan marketplace.',
+              style: TextStyle(fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(ctx).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Theme.of(ctx).colorScheme.outlineVariant.withValues(alpha: 0.5)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Platform:', style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
+                      Text(targetPlatform, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Toko/Akun:', style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
+                      Text(targetAccount, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Catatan: Nilai HPP pada mapping akan diperbarui (overwrite) agar margin dan laba bersih dihitung presisi sesuai master terbaru.',
+              style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Theme.of(ctx).colorScheme.outline),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.check_rounded, size: 16),
+            label: const Text('Sinkron Sekarang'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
     setState(() => _isSyncingHpp = true);
     try {
-      await _client.rpc(
+      final mktParam = (_marketplaceFilter != 'all' && !_isUuid(_marketplaceFilter))
+          ? _normalizeMarketplaceFilter(_marketplaceFilter)
+          : null;
+      final accUuid = _isUuid(_accountFilter) ? _accountFilter : null;
+
+      final res = await _client.rpc(
         'marketplace_sync_hpp_from_sku_maps',
         params: {
           'p_tenant_id': _currentTenantId,
-          'p_marketplace_account_id': _marketplaceFilter == 'all' ? null : _marketplaceFilter,
-          'p_overwrite': false,
+          'p_marketplace_account_id': accUuid,
+          'p_marketplace': mktParam,
+          'p_overwrite': true,
         },
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('HPP disinkronisasi.')));
+        final message = (res is Map && res['message'] != null)
+            ? res['message'].toString()
+            : 'HPP berhasil disinkronkan dari SKU mapping.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(child: Text(message)),
+              ],
+            ),
+            backgroundColor: Colors.teal.shade800,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
         _hardReloadFinanceView();
       }
     } catch (e) {
       if (mounted) {
         final err = _cleanError(e);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal sinkron HPP: $err')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal sinkron HPP: $err'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } finally {
       if (mounted) {
